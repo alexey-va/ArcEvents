@@ -21,7 +21,7 @@ ui:
   sounds: true
   particles: true
   bossbar: true
-  filler: {material: GRAY_STAINED_GLASS_PANE, custom-model-data: 11000}
+  filler: {material: GRAY_STAINED_GLASS_PANE, custom-model-data: 0}
 
 ttt:
   minimum-players: 4

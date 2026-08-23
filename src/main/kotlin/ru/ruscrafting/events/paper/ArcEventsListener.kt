@@ -1,5 +1,6 @@
 package ru.ruscrafting.events.paper
 
+import io.papermc.paper.event.player.AsyncChatEvent
 import org.bukkit.entity.ArmorStand
 import org.bukkit.entity.Entity
 import org.bukkit.entity.Player
@@ -13,6 +14,8 @@ import org.bukkit.event.entity.EntityDamageByEntityEvent
 import org.bukkit.event.entity.EntityDamageEvent
 import org.bukkit.event.entity.EntityPickupItemEvent
 import org.bukkit.event.entity.FoodLevelChangeEvent
+import org.bukkit.event.entity.ProjectileHitEvent
+import org.bukkit.event.entity.ProjectileLaunchEvent
 import org.bukkit.event.inventory.InventoryClickEvent
 import org.bukkit.event.inventory.InventoryDragEvent
 import org.bukkit.event.player.PlayerCommandPreprocessEvent
@@ -39,8 +42,16 @@ class ArcEventsListener(
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onDamage(event: EntityDamageEvent) {
         val victim = event.entity as? Player ?: return
-        val attacker = (event as? EntityDamageByEntityEvent)?.damager?.let(::attacker)
-        if (service.shouldCancelDamage(victim.uniqueId, attacker?.uniqueId)) {
+        val damager = (event as? EntityDamageByEntityEvent)?.damager
+        val projectile = damager as? Projectile
+        val attacker = damager?.let(::attacker)
+        if (service.shouldCancelDamage(
+                victim.uniqueId,
+                attacker?.uniqueId,
+                projectile = projectile != null,
+                projectileMatchId = projectile?.let(service::projectileMatchId),
+            )
+        ) {
             event.isCancelled = true
             return
         }
@@ -54,10 +65,34 @@ class ArcEventsListener(
         }
     }
 
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    fun onProjectileLaunch(event: ProjectileLaunchEvent) {
+        val shooter = event.entity.shooter as? Player ?: return
+        if (service.isParticipant(shooter.uniqueId) && !service.registerProjectile(event.entity)) event.isCancelled = true
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    fun onProjectileHit(event: ProjectileHitEvent) = service.handleProjectileHit(event.entity)
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    fun onChat(event: AsyncChatEvent) {
+        if (!service.handlesMatchChat(event.player.uniqueId)) return
+        event.isCancelled = true
+        val player = event.player
+        val message = event.message()
+        Tasks.scheduler.runSync {
+            if (player.isOnline) service.sendMatchChat(player, message)
+        }
+    }
+
     @EventHandler(ignoreCancelled = true)
     fun onInteract(event: PlayerInteractEvent) {
         val player = event.player
         val kind = items.kind(event.item) ?: return
+        if (!service.belongsToCurrentMatch(player.uniqueId, event.item)) {
+            event.isCancelled = true
+            return
+        }
         when (kind) {
             EventItemKind.SHOP -> {
                 event.isCancelled = true

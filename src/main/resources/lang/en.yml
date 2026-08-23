@@ -30,6 +30,10 @@ menu:
       - '<#f2f0e6>We will transfer you when a roster is ready.'
       - ''
       - '<#666666>• <#7bd88f>Click<#f2f0e6> to join <#666666>•'
+    join-unavailable-name: '<#8c8c8c><bold>Queue unavailable'
+    join-unavailable-lore:
+      - '<#f2f0e6>The event server is not ready yet.'
+      - '<#f2f0e6>Status will update automatically.'
     leave-name: '<#d84a4a><bold>Leave the queue'
     leave-lore:
       - '<#f2f0e6>Release your place before reservation.'
@@ -129,7 +133,7 @@ menu:
       - '<#8c8c8c>Cost: <#e3b341>1 credit'
     traitor-smoke-name: '<#d84a4a><bold>Smoke grenade'
     traitor-smoke-lore:
-      - '<#f2f0e6>Blinds players around the impact point.'
+      - '<#f2f0e6>Blinds players around you.'
       - ''
       - '<#8c8c8c>Cost: <#e3b341>1 credit'
     detective-scanner-name: '<#5fb3ff><bold>DNA Scanner'
@@ -165,6 +169,8 @@ state:
   arena-unavailable: '<#d84a4a>not configured'
   network-ready: '<#7bd88f>ready'
   network-degraded: '<#ff9f0f>no active host'
+  mode-relay: '<#92bed8>relay'
+  mode-host: '<#e3b341>event host'
   idle: '<#8c8c8c>idle'
 
 phase:
@@ -195,6 +201,7 @@ match:
   countdown-title: '<#e3b341><seconds>'
   countdown-subtitle: '<#f2f0e6>The round is about to start'
   started: '<prefix> <#e6fff3>The round started. Inspect bodies and watch player behavior.'
+  detectives-announced: '<prefix> <#5fb3ff>Detectives this round: <#f2f0e6><players><#e6fff3>.'
   time-title: '<#f2f0e6>Remaining: <#e3b341><time>'
   grace: '<prefix> <#ff9f0f>Weapons activate after the countdown.'
   eliminated: '<prefix> <#e6fff3><player> <#e6fff3>has been eliminated.'
@@ -251,6 +258,10 @@ team:
   usage: '<prefix> <#e6fff3>Usage: <#92bed8>/events team &lt;message&gt;'
   unavailable: '<prefix> <#ff9f0f>Team chat is available to living traitors and detectives during a round.'
   message: '<#666666>[Team] <role> <#f2f0e6><player><#8c8c8c>: <#f2f0e6><message>'
+
+chat:
+  match-message: '<#666666>[Round] <#f2f0e6><player><#8c8c8c>: <#f2f0e6><message>'
+  spectator-message: '<#666666>[Spectators] <#8c8c8c><player>: <#b8b8b8><message>'
 
 admin:
   host-only: '<prefix> <#c42323>This action is only available on the HOST node.'

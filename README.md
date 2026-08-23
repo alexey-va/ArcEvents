@@ -3,7 +3,9 @@
 ArcEvents is the network event engine for RusCrafting. The first mode is a
 Minecraft-native interpretation of Trouble in Terrorist Town: hidden traitors,
 public detectives, evidence, role shops, a timed round, spectators, persistent
-statistics, and crash-safe player-state restoration.
+statistics, match-scoped living/spectator chat, and crash-safe player-state
+restoration. Projectiles are tagged with their match and removed during cleanup,
+so an arrow from an old round cannot affect a later one.
 
 ## Network shape
 
@@ -44,4 +46,12 @@ patterns while keeping ArcEvents' event protocol and state machine independent.
 
 ```bash
 ../arc-core/gradlew -p . clean check shadowJar
+```
+
+The three production locale mirrors are governed by the durable `arcevents`
+translation profile:
+
+```bash
+../scripts/mc translate arcevents validate
+../scripts/mc translate arcevents render-check
 ```

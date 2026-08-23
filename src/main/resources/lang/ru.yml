@@ -30,6 +30,10 @@ menu:
       - '<#f2f0e6>Мы перенесём вас после сбора состава.'
       - ''
       - '<#666666>• <#7bd88f>Нажмите<#f2f0e6>, чтобы присоединиться <#666666>•'
+    join-unavailable-name: '<#8c8c8c><bold>Очередь недоступна'
+    join-unavailable-lore:
+      - '<#f2f0e6>Сервер события пока не готов.'
+      - '<#f2f0e6>Состояние обновится автоматически.'
     leave-name: '<#d84a4a><bold>Покинуть очередь'
     leave-lore:
       - '<#f2f0e6>Освободить место до резервирования матча.'
@@ -129,7 +133,7 @@ menu:
       - '<#8c8c8c>Цена: <#e3b341>1 кредит'
     traitor-smoke-name: '<#d84a4a><bold>Дымовая граната'
     traitor-smoke-lore:
-      - '<#f2f0e6>Ослепляет игроков рядом с местом броска.'
+      - '<#f2f0e6>Ослепляет игроков рядом с вами.'
       - ''
       - '<#8c8c8c>Цена: <#e3b341>1 кредит'
     detective-scanner-name: '<#5fb3ff><bold>Сканер ДНК'
@@ -165,6 +169,8 @@ state:
   arena-unavailable: '<#d84a4a>не настроена'
   network-ready: '<#7bd88f>готово'
   network-degraded: '<#ff9f0f>нет активного хоста'
+  mode-relay: '<#92bed8>ретранслятор'
+  mode-host: '<#e3b341>хост события'
   idle: '<#8c8c8c>ожидание'
 
 phase:
@@ -195,6 +201,7 @@ match:
   countdown-title: '<#e3b341><seconds>'
   countdown-subtitle: '<#f2f0e6>Раунд скоро начнётся'
   started: '<prefix> <#e6fff3>Раунд начался. Проверяйте тела и следите за поведением игроков.'
+  detectives-announced: '<prefix> <#5fb3ff>Детективы этого раунда: <#f2f0e6><players><#e6fff3>.'
   time-title: '<#f2f0e6>До конца: <#e3b341><time>'
   grace: '<prefix> <#ff9f0f>Оружие станет активным после обратного отсчёта.'
   eliminated: '<prefix> <#e6fff3><player> <#e6fff3>выбывает из раунда.'
@@ -251,6 +258,10 @@ team:
   usage: '<prefix> <#e6fff3>Использование: <#92bed8>/events team &lt;сообщение&gt;'
   unavailable: '<prefix> <#ff9f0f>Командный чат доступен живым предателям и детективам во время раунда.'
   message: '<#666666>[Команда] <role> <#f2f0e6><player><#8c8c8c>: <#f2f0e6><message>'
+
+chat:
+  match-message: '<#666666>[Раунд] <#f2f0e6><player><#8c8c8c>: <#f2f0e6><message>'
+  spectator-message: '<#666666>[Наблюдатели] <#8c8c8c><player>: <#b8b8b8><message>'
 
 admin:
   host-only: '<prefix> <#c42323>Это действие выполняется только на HOST-узле.'

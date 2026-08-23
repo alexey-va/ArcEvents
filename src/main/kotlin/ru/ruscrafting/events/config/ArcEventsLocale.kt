@@ -68,21 +68,25 @@ class ArcEventsLocale(
         val REQUIRED_SCALARS = setOf(
             "prefix", "command.player-only", "command.no-permission", "command.help", "command.failed",
             "reason.network", "reason.contended", "reason.transfer", "reason.return-transfer",
+            "state.mode-relay", "state.mode-host",
             "phase.idle", "phase.reserved", "phase.preparing", "phase.countdown", "phase.active",
             "phase.resolving", "phase.restoring", "phase.completed", "phase.cancelled",
             "menu.main.title", "menu.help.title", "menu.admin.title", "menu.shop.title",
+            "menu.main.join-unavailable-name",
             "queue.joined", "queue.left", "queue.unavailable", "queue.reserved",
             "match.preparing-title", "match.preparing-subtitle", "match.started", "match.eliminated-title",
-            "match.eliminated-subtitle", "match.restored",
+            "match.eliminated-subtitle", "match.detectives-announced", "match.restored",
             "role.innocent-title", "role.traitor-title", "role.detective-title", "role.actionbar",
             "loadout.blade", "loadout.crossbow", "loadout.rations", "loadout.ammunition",
             "body.unidentified", "body.identified", "body.discovered", "body.dna",
             "shop.bought", "shop.insufficient", "shop.unavailable", "team.message",
+            "chat.match-message", "chat.spectator-message",
             "admin.host-only", "admin.arena-unavailable", "debug.disabled",
         )
 
         val REQUIRED_LISTS = setOf(
-            "menu.main.ttt-lore", "menu.main.join-lore", "menu.main.leave-lore", "menu.main.status-lore",
+            "menu.main.ttt-lore", "menu.main.join-lore", "menu.main.join-unavailable-lore",
+            "menu.main.leave-lore", "menu.main.status-lore",
             "menu.main.stats-lore", "menu.main.help-lore", "menu.main.admin-lore",
             "menu.help.innocent-lore", "menu.help.traitor-lore", "menu.help.detective-lore",
             "menu.common.back-lore", "menu.admin.status-lore", "menu.shop.credits-lore",

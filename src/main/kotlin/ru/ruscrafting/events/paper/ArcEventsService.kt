@@ -12,6 +12,7 @@ import org.bukkit.Sound
 import org.bukkit.attribute.Attribute
 import org.bukkit.entity.ArmorStand
 import org.bukkit.entity.Player
+import org.bukkit.entity.Projectile
 import org.bukkit.inventory.ItemStack
 import org.bukkit.inventory.meta.SkullMeta
 import org.bukkit.persistence.PersistentDataType
@@ -32,6 +33,7 @@ import ru.ruscrafting.events.domain.MatchPhase
 import ru.ruscrafting.events.domain.ParticipantStatus
 import ru.ruscrafting.events.domain.PlayerEventStats
 import ru.ruscrafting.events.domain.RoleAllocationSettings
+import ru.ruscrafting.events.domain.RecentAttackLedger
 import ru.ruscrafting.events.domain.TttMatch
 import ru.ruscrafting.events.domain.TttMatchEngine
 import ru.ruscrafting.events.domain.TttParticipant
@@ -43,7 +45,6 @@ import ru.ruscrafting.events.network.ReservationBatch
 import java.time.Duration
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
-import java.util.concurrent.ConcurrentHashMap
 import java.util.logging.Level
 import kotlin.math.ceil
 import kotlin.math.max
@@ -100,9 +101,11 @@ class ArcEventsService(
     private val tasks = mutableListOf<ScheduledTask>()
     private val radarTasks = mutableMapOf<UUID, ScheduledTask>()
     private val teleportAuthorizer = InternalTeleportAuthorizer()
-    private val lastAttackers = ConcurrentHashMap<UUID, UUID>()
+    private val recentAttacks = RecentAttackLedger(clock = clock)
+    private val projectiles = mutableSetOf<UUID>()
     private val bodies = linkedMapOf<UUID, BodyRecord>()
     private val bodyKey = NamespacedKey(plugin, "body_id")
+    private val projectileMatchKey = NamespacedKey(plugin, "projectile_match")
     private var bossBar: BossBar? = null
     private var countdownRemaining = 0
     private var cleanupRetryTask: ScheduledTask? = null
@@ -257,26 +260,30 @@ class ArcEventsService(
         if (current.participant(victimId)?.status != ParticipantStatus.ALIVE ||
             current.participant(attackerId)?.status != ParticipantStatus.ALIVE
         ) return
-        lastAttackers[victimId] = attackerId
+        recentAttacks.record(current.matchId, victimId, attackerId)
     }
 
-    fun shouldCancelDamage(victimId: UUID, attackerId: UUID?): Boolean {
-        val current = match ?: return false
+    fun shouldCancelDamage(victimId: UUID, attackerId: UUID?, projectile: Boolean = false, projectileMatchId: UUID? = null): Boolean {
+        val current = match
+        if (projectileMatchId != null && projectileMatchId != current?.matchId) return true
+        if (current == null) return false
         val victim = current.participant(victimId)
         val attacker = attackerId?.let(current::participant)
         if (victim == null && attacker == null) return false
+        if (projectile && projectileMatchId != current.matchId) return true
         if (victim == null || victim.status != ParticipantStatus.ALIVE) return true
         if (attackerId != null && (attacker == null || attacker.status != ParticipantStatus.ALIVE)) return true
         return current.phase != MatchPhase.ACTIVE
     }
 
-    fun eliminate(player: Player, killerId: UUID? = lastAttackers[player.uniqueId]) {
+    fun eliminate(player: Player, killerId: UUID? = null) {
         val current = match ?: return
         if (current.phase != MatchPhase.ACTIVE || current.participant(player.uniqueId)?.status != ParticipantStatus.ALIVE) return
-        lastAttackers.remove(player.uniqueId)
-        val (changed, outcome) = engine().eliminate(current, player.uniqueId, killerId)
-        match = rewardKiller(changed, player.uniqueId, killerId)
-        spawnBody(player, current.participant(player.uniqueId)!!, killerId)
+        val effectiveKiller = killerId ?: recentAttacks.consume(current.matchId, player.uniqueId)
+        recentAttacks.forget(player.uniqueId)
+        val (changed, outcome) = engine().eliminate(current, player.uniqueId, effectiveKiller)
+        match = rewardKiller(changed, player.uniqueId, effectiveKiller)
+        spawnBody(player, current.participant(player.uniqueId)!!, effectiveKiller)
         player.gameMode = GameMode.SPECTATOR
         player.inventory.clear()
         player.showTitle(Title.title(
@@ -286,8 +293,56 @@ class ArcEventsService(
         ))
         player.sendMessage(locale.render("match.spectator", player))
         broadcast("match.eliminated", mapOf("player" to Component.text(player.name)))
-        debug.event("player_eliminated", "match" to current.matchId, "victim" to player.uniqueId, "killer" to killerId)
+        debug.event("player_eliminated", "match" to current.matchId, "victim" to player.uniqueId, "killer" to effectiveKiller)
         if (outcome is MatchOutcome.Finished) resolve(requireNotNull(match))
+    }
+
+    fun registerProjectile(projectile: Projectile): Boolean {
+        val shooter = projectile.shooter as? Player ?: return true
+        val current = match ?: return false
+        val participant = current.participant(shooter.uniqueId) ?: return true
+        if (current.phase != MatchPhase.ACTIVE || participant.status != ParticipantStatus.ALIVE) return false
+        projectile.persistentDataContainer.set(projectileMatchKey, PersistentDataType.STRING, current.matchId.toString())
+        projectiles += projectile.uniqueId
+        return true
+    }
+
+    fun projectileMatchId(projectile: Projectile): UUID? = projectile.persistentDataContainer
+        .get(projectileMatchKey, PersistentDataType.STRING)
+        ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+
+    fun belongsToCurrentMatch(playerId: UUID, item: ItemStack?): Boolean {
+        val current = match ?: return false
+        return current.participant(playerId) != null && items.belongsTo(item, current.matchId.toString())
+    }
+
+    fun handleProjectileHit(projectile: Projectile) {
+        if (projectileMatchId(projectile) == null) return
+        projectiles.remove(projectile.uniqueId)
+        Tasks.scheduler.runLater(1L) { if (projectile.isValid) projectile.remove() }
+    }
+
+    fun handlesMatchChat(playerId: UUID): Boolean {
+        val current = match ?: return false
+        return current.phase in CHAT_PHASES && current.participant(playerId) != null
+    }
+
+    fun sendMatchChat(player: Player, message: Component) {
+        val current = match ?: return
+        if (current.phase !in CHAT_PHASES) return
+        val sender = current.participant(player.uniqueId) ?: return
+        val spectator = sender.status == ParticipantStatus.DEAD
+        val recipients = current.participants.values.filter { participant ->
+            if (spectator) participant.status == ParticipantStatus.DEAD
+            else participant.status in setOf(ParticipantStatus.RESERVED, ParticipantStatus.ALIVE)
+        }
+        val key = if (spectator) "chat.spectator-message" else "chat.match-message"
+        recipients.mapNotNull { plugin.server.getPlayer(it.playerId) }.forEach { recipient ->
+            recipient.sendMessage(locale.render(key, recipient, mapOf(
+                "player" to Component.text(player.name),
+                "message" to message,
+            )))
+        }
     }
 
     fun inspectBody(player: Player, bodyId: UUID) {
@@ -311,7 +366,10 @@ class ArcEventsService(
             )))
         }
         val inspector = current.participant(player.uniqueId) ?: return
-        if (inspector.role == TttRole.DETECTIVE && items.kind(player.inventory.itemInMainHand) == EventItemKind.DETECTIVE_SCANNER) {
+        if (inspector.role == TttRole.DETECTIVE &&
+            items.kind(player.inventory.itemInMainHand) == EventItemKind.DETECTIVE_SCANNER &&
+            belongsToCurrentMatch(player.uniqueId, player.inventory.itemInMainHand)
+        ) {
             val killer = body.killerId?.let(plugin.server::getPlayer)?.takeIf { isAlive(it.uniqueId) }
             if (killer == null) {
                 player.sendMessage(locale.render("body.dna-lost", player))
@@ -535,7 +593,7 @@ class ArcEventsService(
         }
         val entries = batch.entries.filter { entry -> online.any { it.uniqueId.toString() == entry.playerId } }
         val engine = engine()
-        lastAttackers.clear()
+        recentAttacks.clear()
         val created = engine.create(
             batch.matchId,
             entries.map(QueueEntry::queuedPlayer),
@@ -608,6 +666,7 @@ class ArcEventsService(
 
     private fun revealRoles(current: TttMatch) {
         val traitorNames = current.participants.values.filter { it.role == TttRole.TRAITOR }.map(TttParticipant::playerName)
+        val detectiveNames = current.participants.values.filter { it.role == TttRole.DETECTIVE }.map(TttParticipant::playerName)
         current.participants.values.forEach { participant ->
             val player = plugin.server.getPlayer(participant.playerId) ?: return@forEach
             val (titleKey, subtitleKey) = when (participant.role) {
@@ -629,6 +688,9 @@ class ArcEventsService(
                 }
                 player.playSound(player.location, sound, 0.65f, 1.0f)
             }
+        }
+        if (detectiveNames.isNotEmpty()) {
+            broadcast("match.detectives-announced", mapOf("players" to Component.text(detectiveNames.joinToString(", "))))
         }
     }
 
@@ -735,6 +797,7 @@ class ArcEventsService(
         if (current.phase !in setOf(MatchPhase.RESOLVING, MatchPhase.CANCELLED)) return
         match = engine().restoring(current)
         cleanupBodies()
+        cleanupProjectiles()
         radarTasks.values.forEach(ScheduledTask::cancel)
         radarTasks.clear()
         val restoredOnline = mutableSetOf<UUID>()
@@ -770,7 +833,7 @@ class ArcEventsService(
         }
         cleanupRetryTask = null
         debug.event("match_released", "match" to current.matchId, "phase" to current.phase, "recovery" to escrow.pendingCount())
-        lastAttackers.clear()
+        recentAttacks.clear()
         match = null
     }
 
@@ -806,6 +869,11 @@ class ArcEventsService(
     private fun cleanupBodies() {
         bodies.values.forEach { plugin.server.getEntity(it.entityId)?.remove() }
         bodies.clear()
+    }
+
+    private fun cleanupProjectiles() {
+        projectiles.forEach { plugin.server.getEntity(it)?.remove() }
+        projectiles.clear()
     }
 
     private fun rewardKiller(current: TttMatch, victimId: UUID, killerId: UUID?): TttMatch {
@@ -962,6 +1030,7 @@ class ArcEventsService(
         cancelMatchTasks(keepMainTick = false)
         hideBossBar()
         cleanupBodies()
+        cleanupProjectiles()
         radarTasks.values.forEach(ScheduledTask::cancel)
         radarTasks.clear()
         cleanupRetryTask?.cancel()
@@ -972,6 +1041,14 @@ class ArcEventsService(
 
     companion object {
         private val LIVE_PHASES = setOf(MatchPhase.PREPARING, MatchPhase.COUNTDOWN, MatchPhase.ACTIVE)
+        private val CHAT_PHASES = setOf(
+            MatchPhase.PREPARING,
+            MatchPhase.COUNTDOWN,
+            MatchPhase.ACTIVE,
+            MatchPhase.RESOLVING,
+            MatchPhase.CANCELLED,
+            MatchPhase.RESTORING,
+        )
     }
 }
 

@@ -83,11 +83,15 @@ class ArcEventsMenu(
             "minimum" to locale.text(settings().ttt.minimumPlayers),
             "arena_state" to locale.render(if (state.arenaReady) "state.arena-ready" else "state.arena-unavailable", player),
         )))
-        inventory.setItem(20, item(Material.LIME_DYE, player, "menu.main.join-name", "menu.main.join-lore"))
+        inventory.setItem(20, if (state.hostAvailable) {
+            item(Material.LIME_DYE, player, "menu.main.join-name", "menu.main.join-lore")
+        } else {
+            item(Material.GRAY_DYE, player, "menu.main.join-unavailable-name", "menu.main.join-unavailable-lore")
+        })
         inventory.setItem(24, item(Material.RED_DYE, player, "menu.main.leave-name", "menu.main.leave-lore"))
         inventory.setItem(22, item(Material.RECOVERY_COMPASS, player, "menu.main.status-name", "menu.main.status-lore", mapOf(
             "server" to locale.text(state.serverId),
-            "node_mode" to locale.text(state.nodeMode.name),
+            "node_mode" to locale.render("state.mode-${state.nodeMode.name.lowercase()}", player),
             "host" to locale.text(state.hostServer),
             "state" to locale.render(if (state.hostAvailable) "state.network-ready" else "state.network-degraded", player),
         )))
@@ -135,7 +139,7 @@ class ArcEventsMenu(
         val inventory = inventory(player, EventsView.Admin, 54, "menu.admin.title")
         inventory.setItem(13, item(Material.OBSERVER, player, "menu.admin.status-name", "menu.admin.status-lore", mapOf(
             "phase" to locale.render("phase.${state.phase?.name?.lowercase() ?: "idle"}", player),
-            "match" to locale.text(state.matchId ?: "—"),
+            "match" to locale.text(state.matchId?.toString()?.take(8) ?: "—"),
             "queue" to locale.text(state.queueSize),
             "recovery" to locale.text(state.recoveryPending),
         )))
