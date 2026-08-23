@@ -30,8 +30,93 @@ class ArcEventsConfigTest : StringSpec({
             root.toFile().deleteRecursively()
         }
     }
+
+    "production Redis profile inherits the exact ARC connection in memory" {
+        val root = Files.createTempDirectory("arcevents-redis-")
+        val dataRoot = root.resolve("ArcEvents")
+        val arcRoot = root.resolve("ARC")
+        try {
+            Files.createDirectories(dataRoot.resolve("modules"))
+            Files.createDirectories(arcRoot.resolve("modules"))
+            Files.writeString(
+                dataRoot.resolve("modules/redis.yml"),
+                redisConfig(inherit = true, host = "wrong-host", port = 1, password = "wrong-secret"),
+            )
+            Files.writeString(
+                arcRoot.resolve("modules/redis.yml"),
+                redisConfig(inherit = false, host = "redis.internal", port = 25001, password = "production-secret"),
+            )
+
+            val redis = ArcEventsRedisBootstrap.load(dataRoot, ArcEventsConfig.load(dataRoot))
+
+            redis.host shouldBe "redis.internal"
+            redis.port shouldBe 25001
+            redis.username shouldBe "default"
+            redis.password shouldBe "production-secret"
+            redis.serverName shouldBe "parkour"
+            Files.readString(dataRoot.resolve("modules/redis.yml")).contains("wrong-host") shouldBe true
+            Files.readString(dataRoot.resolve("modules/redis.yml")).contains("production-secret") shouldBe false
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    "isolated Redis profile remains independent from ARC" {
+        val root = Files.createTempDirectory("arcevents-isolated-redis-")
+        try {
+            Files.createDirectories(root.resolve("modules"))
+            Files.writeString(
+                root.resolve("modules/redis.yml"),
+                redisConfig(inherit = false, host = "127.0.0.1", port = 16379, password = "lab-secret"),
+            )
+
+            val redis = ArcEventsRedisBootstrap.load(root, ArcEventsConfig.load(root))
+
+            redis.host shouldBe "127.0.0.1"
+            redis.port shouldBe 16379
+            redis.password shouldBe "lab-secret"
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    "inheritance fails closed when ARC Redis is disabled" {
+        val root = Files.createTempDirectory("arcevents-disabled-redis-")
+        val dataRoot = root.resolve("ArcEvents")
+        val arcRoot = root.resolve("ARC")
+        try {
+            Files.createDirectories(dataRoot.resolve("modules"))
+            Files.createDirectories(arcRoot.resolve("modules"))
+            Files.writeString(
+                dataRoot.resolve("modules/redis.yml"),
+                redisConfig(inherit = true, host = "wrong-host", port = 1, password = "wrong-secret"),
+            )
+            Files.writeString(
+                arcRoot.resolve("modules/redis.yml"),
+                redisConfig(inherit = false, host = "redis.internal", port = 25001, password = "secret")
+                    .replace("enabled: true", "enabled: false"),
+            )
+
+            shouldThrow<IllegalArgumentException> {
+                ArcEventsRedisBootstrap.load(dataRoot, ArcEventsConfig.load(dataRoot))
+            }
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
 }) {
     companion object {
+        private fun redisConfig(inherit: Boolean, host: String, port: Int, password: String): String = """
+            |enabled: true
+            |inherit-connection-from-arc: $inherit
+            |host: $host
+            |port: $port
+            |username: default
+            |password: $password
+            |server-name: parkour
+            |main-server: false
+        """.trimMargin() + "\n"
+
         private fun validHostConfig(spawnCount: Int): String {
             val spawns = (1..spawnCount).joinToString("\n") { "    - '${it + 2},65,${it + 2},0,0'" }
             return """

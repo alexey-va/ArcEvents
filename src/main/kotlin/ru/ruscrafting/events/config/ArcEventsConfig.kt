@@ -236,6 +236,12 @@ object ArcEventsRedisBootstrap {
             if (existed) null else readArcRedis(dataRoot, settings.serverId)
         }
         val redisConfig = ConfigManager.ofModule(dataRoot, RedisModuleConfig.RESOURCE)
+        if (redisConfig.bool("inherit-connection-from-arc", false)) {
+            val inherited = requireNotNull(readArcRedis(dataRoot, settings.serverId)) {
+                "ARC Redis profile is required when inherit-connection-from-arc is enabled"
+            }
+            inherited.applyTo(redisConfig)
+        }
         var redis = RedisModuleConfig(redisConfig)
         val expectedMain = settings.serverId == "spawn"
         if (redis.serverName != settings.serverId || redis.mainServer != expectedMain) {
@@ -254,7 +260,7 @@ object ArcEventsRedisBootstrap {
         if (!Files.isRegularFile(sourcePath)) return null
         val source = Config(arcRoot, "modules/redis.yml")
         return LegacyRedisSnapshot(
-            enabled = true,
+            enabled = source.bool("enabled", true),
             host = source.string("host", "127.0.0.1"),
             port = source.int("port", 6379),
             username = source.string("username", ""),
