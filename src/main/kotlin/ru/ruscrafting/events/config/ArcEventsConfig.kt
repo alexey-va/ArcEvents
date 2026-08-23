@@ -52,6 +52,7 @@ data class EventBounds(
 data class ArenaSettings(
     val enabled: Boolean,
     val world: String,
+    val template: String,
     val lobby: EventLocation?,
     val spectator: EventLocation?,
     val bounds: EventBounds?,
@@ -161,6 +162,7 @@ class ArcEventsConfig(private val config: Config) {
             return ArenaSettings(
                 enabled = config.bool("arena.enabled", false),
                 world = world,
+                template = config.string("arena.template", "").trim().lowercase(),
                 lobby = lobby,
                 spectator = spectator,
                 bounds = if (minimum != null && maximum != null) EventBounds(minimum, maximum) else null,
@@ -197,6 +199,14 @@ class ArcEventsConfig(private val config: Config) {
         require(ttt.traitorCredits in 0..16 && ttt.detectiveCredits in 0..16)
         require(ttt.bodyDespawnSeconds in ttt.roundSeconds..3600)
         require(ui.filler.customModelData >= 0)
+        require(arena.template in setOf("", "citadel-v1")) { "arena.template is unsupported" }
+        if (arena.template.isNotEmpty()) {
+            require(nodeMode == NodeMode.HOST) { "Only a HOST node may provision an arena template" }
+            require(arena.world.matches(Regex("[A-Za-z0-9_-]{1,32}"))) { "A provisioned arena requires a safe world name" }
+            require(arena.world !in setOf("world", "world_nether", "world_the_end", "pvp", "parkour1")) {
+                "A provisioned arena must use a dedicated world"
+            }
+        }
         if (arena.enabled) require(arena.operational(ttt.maximumPlayers)) {
             "Enabled arena is incomplete or contains an unsafe location"
         }

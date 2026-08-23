@@ -41,6 +41,9 @@ ttt:
 arena:
   enabled: false
   world: pvp
+  # Optional built-in map. citadel-v1 is created only on a HOST when this
+  # arena is explicitly enabled and the dedicated world does not exist.
+  template: ''
   lobby: ''
   spectator: ''
   minimum: ''

@@ -20,11 +20,45 @@ so an arrow from an old round cannot affect a later one.
 - After confirmed recovery, players are returned through the proxy to the
   backend from which they joined the event.
 
-The initial production arena remains disabled until its bounds, lobby,
-spectator point, and at least sixteen spawn points are surveyed and committed.
-An unavailable arena is visible in the menu and QA status; it cannot accept a
-reservation accidentally. Runtime readiness also requires the world and
-WorldGuard to allow PvP at every configured player-facing point.
+The initial production arena remains disabled until its world-creation capsule
+is explicitly authorized. ArcEvents includes the deterministic `citadel-v1`
+template for a dedicated void world: a central three-storey keep, four themed
+wings, covered links, ramparts, an undercroft, and sixteen audited spawns across
+three elevations. It never adopts or overwrites an unmarked world. An
+unavailable arena is visible in the menu and QA status; it cannot accept a
+reservation accidentally. Runtime readiness also requires solid footing, two
+passable blocks, and WorldGuard/Paper PvP permission at every player-facing
+point.
+
+The reviewed production coordinates for the built-in template are:
+
+```yaml
+arena:
+  enabled: true
+  world: arcevents_ttt
+  template: citadel-v1
+  lobby: '0.5,42,0.5,180,0'
+  spectator: '0.5,38,0.5,0,0'
+  minimum: '-66.5,4,-66.5'
+  maximum: '66.5,48,66.5'
+  spawns:
+    - '-12.5,16,-12.5,45,0'
+    - '12.5,16,-12.5,-45,0'
+    - '-12.5,16,12.5,135,0'
+    - '12.5,16,12.5,-135,0'
+    - '-8.5,16,-39.5,0,0'
+    - '8.5,16,-47.5,180,0'
+    - '38.5,16,-8.5,90,0'
+    - '47.5,16,8.5,-90,0'
+    - '-8.5,16,38.5,0,0'
+    - '8.5,16,47.5,180,0'
+    - '-38.5,16,-8.5,90,0'
+    - '-47.5,16,8.5,-90,0'
+    - '-12.5,26,-7.5,90,0'
+    - '12.5,26,7.5,-90,0'
+    - '-42.5,7,0.5,90,0'
+    - '42.5,7,0.5,-90,0'
+```
 
 The recovery, exact-destination teleport authorization, generic GUI background,
 and post-match return contracts intentionally follow the proven ArcDuels

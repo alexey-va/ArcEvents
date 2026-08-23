@@ -13,6 +13,7 @@ class ArcEventsConfigTest : StringSpec({
             config.serverId shouldBe "parkour"
             config.nodeMode shouldBe NodeMode.RELAY
             config.arena.enabled shouldBe false
+            config.arena.template shouldBe ""
             config.arena.operational(config.ttt.maximumPlayers) shouldBe false
         } finally {
             root.toFile().deleteRecursively()
@@ -26,6 +27,24 @@ class ArcEventsConfigTest : StringSpec({
             shouldThrow<IllegalArgumentException> { ArcEventsConfig.inspect(root) }
             Files.writeString(root.resolve("config.yml"), validHostConfig(spawnCount = 16))
             ArcEventsConfig.inspect(root).arena.operational(16) shouldBe true
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    "built-in templates require a host and a dedicated safe world" {
+        val root = Files.createTempDirectory("arcevents-template-")
+        try {
+            val valid = validHostConfig(spawnCount = 16)
+                .replace("world: pvp", "world: arcevents_ttt")
+                .replace("  lobby:", "  template: citadel-v1\n  lobby:")
+            ArcEventsConfig.inspect(root.also { Files.writeString(it.resolve("config.yml"), valid) }).arena.template shouldBe "citadel-v1"
+
+            Files.writeString(root.resolve("config.yml"), valid.replace("world: arcevents_ttt", "world: pvp"))
+            shouldThrow<IllegalArgumentException> { ArcEventsConfig.inspect(root) }
+
+            Files.writeString(root.resolve("config.yml"), valid.replace("node-mode: HOST", "node-mode: RELAY"))
+            shouldThrow<IllegalArgumentException> { ArcEventsConfig.inspect(root) }
         } finally {
             root.toFile().deleteRecursively()
         }

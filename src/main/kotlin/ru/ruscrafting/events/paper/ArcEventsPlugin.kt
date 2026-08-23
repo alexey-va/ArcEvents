@@ -35,6 +35,7 @@ class ArcEventsPlugin : JavaPlugin() {
             settings = ArcEventsConfig.load(dataRoot)
             ArcEventsLocale.validateFiles(dataRoot)
             locale = ArcEventsLocale(dataRoot) { settings }
+            ArenaWorldProvisioner(this).ensureLoaded(settings)
             val redisConfig = ArcEventsRedisBootstrap.load(dataRoot, settings)
             val manager = RedisManager(
                 redisConfig.connection(),
@@ -87,7 +88,7 @@ class ArcEventsPlugin : JavaPlugin() {
             activeService.start()
             logger.info(
                 "ArcEvents enabled node=${settings.serverId} mode=${settings.nodeMode} host=${settings.hostServer} " +
-                    "arenaReady=${settings.arena.operational(settings.ttt.maximumPlayers)} redisConnected=${manager.isConnected()}",
+                    "arenaReady=${activeService.arenaReady()} redisConnected=${manager.isConnected()}",
             )
         } catch (failure: Throwable) {
             logger.log(Level.SEVERE, "ArcEvents failed closed during startup", failure)
@@ -111,6 +112,11 @@ class ArcEventsPlugin : JavaPlugin() {
         require(candidate.nodeMode == current.nodeMode) { "node-mode requires a restart" }
         require(candidate.hostServer == current.hostServer) { "host-server requires a restart" }
         require(candidate.network.enabled == current.network.enabled) { "network.enabled requires a restart" }
+        require(candidate.arena.world == current.arena.world) { "arena.world requires a restart" }
+        require(candidate.arena.template == current.arena.template) { "arena.template requires a restart" }
+        if (!current.arena.enabled && candidate.arena.enabled && candidate.arena.template.isNotEmpty()) {
+            error("enabling a provisioned arena requires a restart")
+        }
         require(service?.matchState()?.first == null) { "configuration cannot reload during a reservation or match" }
         ArcEventsLocale.validateFiles(dataRoot)
         ConfigManager.reloadAll()

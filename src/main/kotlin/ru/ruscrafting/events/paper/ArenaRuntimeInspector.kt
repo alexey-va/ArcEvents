@@ -5,6 +5,7 @@ import com.sk89q.worldguard.WorldGuard
 import com.sk89q.worldguard.protection.flags.Flags
 import com.sk89q.worldguard.protection.flags.StateFlag
 import org.bukkit.Location
+import org.bukkit.GameRules
 import org.bukkit.plugin.Plugin
 import ru.ruscrafting.events.config.ArenaSettings
 import ru.ruscrafting.events.config.EventLocation
@@ -24,7 +25,7 @@ class ArenaRuntimeInspector(private val plugin: Plugin) {
     fun ready(arena: ArenaSettings, maximumPlayers: Int): Boolean {
         if (!arena.operational(maximumPlayers)) return false
         val world = plugin.server.getWorld(arena.world) ?: return false
-        if (!world.pvp) return false
+        if (world.getGameRuleValue(GameRules.PVP) != true) return false
         val points = buildList {
             add(requireNotNull(arena.lobby))
             add(requireNotNull(arena.spectator))
@@ -32,7 +33,10 @@ class ArenaRuntimeInspector(private val plugin: Plugin) {
         }
         return points.all { point ->
             val location = point.bukkitLocation() ?: return@all false
-            worldGuard?.allowed(location) != false
+            val feet = location.block
+            val head = feet.getRelative(0, 1, 0)
+            val floor = feet.getRelative(0, -1, 0)
+            feet.isPassable && head.isPassable && floor.type.isSolid && worldGuard?.allowed(location) != false
         }
     }
 
