@@ -7,7 +7,7 @@ import ru.ruscrafting.events.domain.QueuedPlayer
 import ru.ruscrafting.events.domain.TttTeam
 import java.util.UUID
 
-enum class QueueState { QUEUED, RESERVED }
+enum class QueueState { QUEUED, RESERVED, ARRIVED, MATCHED, RETURN_PENDING }
 
 data class QueueEntry(
     val playerId: String,
@@ -25,10 +25,19 @@ data class QueueEntry(
         require(playerName.matches(PLAYER_NAME)) { "Invalid queue player name" }
         require(originServer.matches(SERVER_ID)) { "Invalid queue origin" }
         require(mode == "ttt") { "Unsupported event mode" }
-        require(joinedAtMs > 0 && expiresAtMs > joinedAtMs && expiresAtMs - joinedAtMs <= MAX_QUEUE_MS)
+        require(joinedAtMs > 0 && expiresAtMs > joinedAtMs)
         when (state) {
-            QueueState.QUEUED -> require(matchId == null && destinationServer == null)
+            QueueState.QUEUED -> {
+                require(expiresAtMs - joinedAtMs <= MAX_QUEUE_MS)
+                require(matchId == null && destinationServer == null)
+            }
             QueueState.RESERVED -> {
+                require(expiresAtMs - joinedAtMs <= MAX_QUEUE_MS)
+                require(UUID.fromString(requireNotNull(matchId)).toString() == matchId)
+                require(requireNotNull(destinationServer).matches(SERVER_ID))
+            }
+            QueueState.ARRIVED, QueueState.MATCHED, QueueState.RETURN_PENDING -> {
+                require(expiresAtMs == Long.MAX_VALUE)
                 require(UUID.fromString(requireNotNull(matchId)).toString() == matchId)
                 require(requireNotNull(destinationServer).matches(SERVER_ID))
             }
@@ -68,6 +77,7 @@ data class HostNode(
 enum class EventNetworkSignal {
     QUEUE_CHANGED,
     ROUTE_PLAYER,
+    RETURN_PLAYER,
     MATCH_STARTED,
     MATCH_ENDED,
     NODE_PROBE,
@@ -96,6 +106,7 @@ data class EventNetworkMessage(
         when (signal) {
             EventNetworkSignal.QUEUE_CHANGED -> require(queueSize != null)
             EventNetworkSignal.ROUTE_PLAYER -> require(matchId != null && playerId != null && destinationServer != null)
+            EventNetworkSignal.RETURN_PLAYER -> require(matchId != null && playerId != null && destinationServer != null)
             EventNetworkSignal.MATCH_STARTED -> require(matchId != null)
             EventNetworkSignal.MATCH_ENDED -> require(matchId != null && endReason != null)
             EventNetworkSignal.NODE_PROBE -> require(replyTo == null)

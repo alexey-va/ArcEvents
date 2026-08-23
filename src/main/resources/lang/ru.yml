@@ -2,17 +2,17 @@ prefix: '<#d75a5a>События <#666666>•'
 command:
   player-only: '<prefix> <#c42323>Эта команда доступна только игроку.'
   no-permission: '<prefix> <#c42323>У вас нет доступа к этому действию.'
-  help: '<prefix> <#e6fff3>Откройте меню командой <#92bed8>/events<#e6fff3> или используйте <#92bed8>/events join<#e6fff3>, <#92bed8>leave<#e6fff3>, <#92bed8>status<#e6fff3>, <#92bed8>shop<#e6fff3>.'
-  unknown: '<prefix> <#c42323>Неизвестное действие<#8c8c8c>: <#e6fff3><input>'
-  failed: '<prefix> <#c42323>Действие не выполнено<#8c8c8c>: <#e6fff3><reason>'
+  help: '<prefix> <#e6fff3>Меню и правила: <#92bed8>/events<#e6fff3>.<newline><#666666>• <#e6fff3>Очередь: <#92bed8>/events join<#8c8c8c> • <#e6fff3>выйти: <#92bed8>/events leave<newline><#666666>• <#e6fff3>Матч: <#92bed8>/events status<#8c8c8c> • <#e6fff3>магазин: <#92bed8>/events shop'
+  unknown: '<prefix> <#c42323>Неизвестно<#8c8c8c>: <#e6fff3><input>'
+  failed: '<prefix> <#c42323>Действие не выполнено.<newline><#666666>• <#e6fff3>Причина: <reason>'
   reload-ok: '<prefix> <#2bba43>Конфигурация и локали обновлены.'
-  reload-failed: '<prefix> <#c42323>Не удалось обновить конфигурацию<#8c8c8c>: <#e6fff3><reason>'
+  reload-failed: '<prefix> <#c42323>Обновление отклонено. См. журнал.'
 
 reason:
   network: 'сеть событий временно недоступна'
-  contended: 'очередь изменилась одновременно с запросом — повторите действие'
-  transfer: 'не удалось перенести вас на сервер события'
-  return-transfer: 'состояние восстановлено, но не удалось вернуть вас на исходный сервер'
+  contended: 'очередь изменилась. Повторите'
+  transfer: 'перенос на сервер события не удался'
+  return-transfer: 'возврат на исходный сервер не удался'
 
 menu:
   main:
@@ -185,14 +185,14 @@ phase:
   cancelled: '<#d84a4a>отменён'
 
 queue:
-  joined: '<prefix> <#e6fff3>Вы встали в очередь на <#e3b341>«Тайные роли»<#e6fff3>. Игроков: <#e3b341><queue><#8c8c8c>/<#e3b341><minimum><#e6fff3>.'
-  already: '<prefix> <#ff9f0f>Вы уже находитесь в очереди или зарезервированы для матча.'
+  joined: '<prefix> <#e6fff3>Очередь «Тайных ролей»<#8c8c8c>: <#e3b341><queue><#8c8c8c>/<#e3b341><minimum><#e6fff3>.'
+  already: '<prefix> <#ff9f0f>Вы уже в очереди или составе.'
   left: '<prefix> <#e6fff3>Вы покинули очередь.'
   not-queued: '<prefix> <#ff9f0f>Вы не находитесь в очереди.'
-  unavailable: '<prefix> <#c42323>Сейчас нет готовой арены. Состояние видно в меню <#92bed8>/events<#e6fff3>.'
-  full: '<prefix> <#c42323>Очередь заполнена. Попробуйте после начала следующего матча.'
+  unavailable: '<prefix> <#c42323>Арена недоступна. Откройте <#92bed8>/events<#e6fff3>.'
+  full: '<prefix> <#c42323>Очередь заполнена. Попробуйте позже.'
   reserved: '<prefix> <#e6fff3>Состав собран. Переносим вас на <#e3b341>parkour<#e6fff3>.'
-  reservation-expired: '<prefix> <#ff9f0f>Резервирование истекло. Вы можете снова встать в очередь.'
+  reservation-expired: '<prefix> <#ff9f0f>Резерв истёк. Встаньте в очередь снова.'
 
 match:
   unavailable: '<prefix> <#ff9f0f>Вы сейчас не участвуете в матче.'
@@ -200,23 +200,23 @@ match:
   preparing-subtitle: '<#f2f0e6>Инвентарь сохранён · ожидайте роли'
   countdown-title: '<#e3b341><seconds>'
   countdown-subtitle: '<#f2f0e6>Раунд скоро начнётся'
-  started: '<prefix> <#e6fff3>Раунд начался. Проверяйте тела и следите за поведением игроков.'
-  detectives-announced: '<prefix> <#5fb3ff>Детективы этого раунда: <#f2f0e6><players><#e6fff3>.'
+  started: '<prefix> <#e6fff3>Раунд начался. Ищите тела и улики.'
+  detectives-announced: '<prefix> <#5fb3ff>Детективы раунда:<newline><#666666>• <#f2f0e6><players>'
   time-title: '<#f2f0e6>До конца: <#e3b341><time>'
-  grace: '<prefix> <#ff9f0f>Оружие станет активным после обратного отсчёта.'
+  grace: '<prefix> <#ff9f0f>Оружие включится после отсчёта.'
   eliminated: '<prefix> <#e6fff3><player> <#e6fff3>выбывает из раунда.'
   eliminated-title: '<#d84a4a>Вы выбыли'
   eliminated-subtitle: '<#f2f0e6>Наблюдайте за раундом, не раскрывая роли'
-  spectator: '<prefix> <#e6fff3>Вы наблюдаете за раундом. Не раскрывайте роли живым игрокам.'
+  spectator: '<prefix> <#e6fff3>Вы наблюдатель. Не раскрывайте роли.'
   winner-traitors-title: '<#d84a4a>Предатели победили'
   winner-traitors-subtitle: '<#f2f0e6>Мирные больше не контролируют раунд'
   winner-innocents-title: '<#7bd88f>Мирные победили'
   winner-innocents-subtitle: '<#f2f0e6>Все предатели устранены'
   cancelled-title: '<#ff9f0f>Матч остановлен'
   cancelled-subtitle: '<#f2f0e6>Состояние игроков восстанавливается'
-  restored: '<prefix> <#2bba43>Ваше состояние до события полностью восстановлено.'
-  restore-pending: '<prefix> <#ff9f0f>Восстановление ещё не подтверждено. Не изменяйте инвентарь и обратитесь к администратору.'
-  status: '<prefix> <#e6fff3>Фаза: <#92bed8><phase><#8c8c8c> • <#e6fff3>живых: <#e3b341><alive><#8c8c8c>/<#e3b341><players><#8c8c8c> • <#e6fff3>время: <#e3b341><time>'
+  restored: '<prefix> <#2bba43>Состояние до события восстановлено.'
+  restore-pending: '<prefix> <#ff9f0f>Восстановление не подтверждено.<newline><#666666>• <#e6fff3>Не меняйте инвентарь. Позовите администратора.'
+  status: '<prefix> <#92bed8><phase><#8c8c8c> • <#e3b341><time><newline><#666666>• <#e6fff3>Живых: <#e3b341><alive>/<#e3b341><players>'
 
 role:
   innocent-title: '<#7bd88f>Вы мирный'
@@ -239,24 +239,24 @@ loadout:
 body:
   unidentified: '<#8c8c8c>Неопознанное тело · <#f2f0e6><player>'
   identified: '<#e3b341>Тело · <#f2f0e6><player> <#666666>• <role>'
-  discovered: '<prefix> <#e6fff3>Тело игрока <#92bed8><player> <#e6fff3>опознано. Роль: <role><#e6fff3>.'
+  discovered: '<prefix> <#92bed8><player><#8c8c8c>: <role><#e6fff3>.'
   already: '<prefix> <#e6fff3>Роль игрока <#92bed8><player><#8c8c8c>: <role><#e6fff3>.'
-  dna: '<prefix> <#e6fff3>След ДНК ведёт к <#d84a4a><killer><#8c8c8c> • <#e6fff3>расстояние: <#e3b341><distance> блоков<#e6fff3>.'
-  dna-lost: '<prefix> <#ff9f0f>След ДНК повреждён или убийца уже выбыл.'
+  dna: '<prefix> <#e6fff3>ДНК: <#d84a4a><killer><#8c8c8c> • <#e3b341><distance> блоков<#e6fff3>.'
+  dna-lost: '<prefix> <#ff9f0f>ДНК-след потерян.'
 
 shop:
-  bought: '<prefix> <#2bba43>Получено: <#e3b341><item><#8c8c8c> • <#e6fff3>осталось кредитов: <#e3b341><credits><#e6fff3>.'
+  bought: '<prefix> <#2bba43>Получено: <#e3b341><item><#8c8c8c> • <#e3b341><credits> кр.'
   insufficient: '<prefix> <#c42323>Недостаточно кредитов для этой покупки.'
-  unavailable: '<prefix> <#ff9f0f>Магазин доступен только живому предателю или детективу.'
-  inventory-full: '<prefix> <#c42323>В инвентаре нет свободного места. Кредиты не списаны.'
-  radar-active: '<prefix> <#e6fff3>Радар настроен на <#d84a4a><target><#e6fff3> на 30 секунд.'
+  unavailable: '<prefix> <#ff9f0f>Сейчас магазин роли недоступен.'
+  inventory-full: '<prefix> <#c42323>Нет места. Кредиты сохранены.'
+  radar-active: '<prefix> <#e6fff3>Радар: <#d84a4a><target><#8c8c8c> • <#e3b341>30 с.'
   radar-empty: '<prefix> <#ff9f0f>Радар не нашёл живую цель.'
   smoke-used: '<prefix> <#e6fff3>Дымовая граната активирована.'
   medkit-full: '<prefix> <#ff9f0f>Ваше здоровье уже заполнено.'
 
 team:
-  usage: '<prefix> <#e6fff3>Использование: <#92bed8>/events team &lt;сообщение&gt;'
-  unavailable: '<prefix> <#ff9f0f>Командный чат доступен живым предателям и детективам во время раунда.'
+  usage: '<prefix> <#e6fff3>Чат: <#92bed8>/events team &lt;текст&gt;'
+  unavailable: '<prefix> <#ff9f0f>Сейчас командный чат недоступен.'
   message: '<#666666>[Команда] <role> <#f2f0e6><player><#8c8c8c>: <#f2f0e6><message>'
 
 chat:
@@ -264,18 +264,18 @@ chat:
   spectator-message: '<#666666>[Наблюдатели] <#8c8c8c><player>: <#b8b8b8><message>'
 
 admin:
-  host-only: '<prefix> <#c42323>Это действие выполняется только на HOST-узле.'
-  arena-unavailable: '<prefix> <#c42323>Арена не готова. Проверьте мир, границы, лобби, точку наблюдения и спавны.'
+  host-only: '<prefix> <#c42323>Команда доступна только на HOST.'
+  arena-unavailable: '<prefix> <#c42323>Арена не готова: проверьте мир и точки.'
   started: '<prefix> <#2bba43>Резервирование состава запущено.'
-  start-failed: '<prefix> <#c42323>Не удалось собрать минимальный состав из очереди.'
-  busy: '<prefix> <#ff9f0f>HOST уже резервирует состав или проводит матч.'
-  network-failed: '<prefix> <#c42323>Redis не подтвердил резервирование состава.'
-  stopped: '<prefix> <#2bba43>Матч остановлен, восстановление запущено.'
-  reservation-cancelled: '<prefix> <#2bba43>Резервирование отменено, игроки возвращены в очередь.'
+  start-failed: '<prefix> <#c42323>В очереди недостаточно игроков.'
+  busy: '<prefix> <#ff9f0f>HOST занят другим матчем.'
+  network-failed: '<prefix> <#c42323>Redis не подтвердил резерв.'
+  stopped: '<prefix> <#2bba43>Матч остановлен. Идёт восстановление.'
+  reservation-cancelled: '<prefix> <#2bba43>Резерв отменён. Игроки возвращаются.'
   no-match: '<prefix> <#ff9f0f>Активного матча нет.'
-  recovery-started: '<prefix> <#e6fff3>Повтор восстановления запущен. Доступных игроков: <#e3b341><players><#e6fff3>.'
+  recovery-started: '<prefix> <#e6fff3>Восстановление повторено<#8c8c8c>: <#e3b341><players> игроков<#e6fff3>.'
 
 debug:
-  disabled: '<prefix> <#c42323>Отладочные мутации отключены в config.yml.'
-  usage: '<prefix> <#e6fff3>Отладка: <#92bed8>/events debug start|advance|end|credit<#e6fff3>.'
+  disabled: '<prefix> <#c42323>Debug выключен в config.yml.'
+  usage: '<prefix> <#e6fff3>Отладка:<newline><#666666>• <#92bed8>/events debug start|advance|end|credit'
   applied: '<prefix> <#2bba43>Отладочное действие выполнено: <#e3b341><action><#e6fff3>.'

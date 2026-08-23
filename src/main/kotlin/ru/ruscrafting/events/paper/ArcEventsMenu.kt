@@ -14,6 +14,10 @@ import org.bukkit.inventory.ItemStack
 import ru.arc.core.Tasks
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
+import ru.ruscrafting.events.domain.MatchPhase
+import ru.ruscrafting.events.domain.ParticipantStatus
+import ru.ruscrafting.events.domain.TttMatch
+import ru.ruscrafting.events.domain.TttParticipant
 import ru.ruscrafting.events.domain.TttRole
 import java.util.UUID
 
@@ -186,15 +190,17 @@ class ArcEventsMenu(
     private fun openShop(player: Player) {
         val current = service.currentMatch()
         val participant = current?.participant(player.uniqueId)
-        if (current == null || participant == null) {
+        if (!shopAccessible(current, participant)) {
             player.sendMessage(locale.render("shop.unavailable", player))
             return
         }
-        val inventory = inventory(player, EventsView.Shop, 45, "menu.shop.title", mapOf("credits" to locale.text(participant.credits)))
+        val activeMatch = requireNotNull(current)
+        val activeParticipant = requireNotNull(participant)
+        val inventory = inventory(player, EventsView.Shop, 45, "menu.shop.title", mapOf("credits" to locale.text(activeParticipant.credits)))
         inventory.setItem(4, item(Material.SUNFLOWER, player, "menu.shop.credits-name", "menu.shop.credits-lore", mapOf(
-            "credits" to locale.text(participant.credits),
+            "credits" to locale.text(activeParticipant.credits),
         )))
-        val offers = when (participant.role) {
+        val offers = when (activeParticipant.role) {
             TttRole.TRAITOR -> items.traitorOffers
             TttRole.DETECTIVE -> items.detectiveOffers
             TttRole.INNOCENT -> emptyList()
@@ -203,7 +209,7 @@ class ArcEventsMenu(
             inventory.setItem(22, item(Material.GRAY_DYE, player, "menu.shop.unavailable-name", "menu.shop.unavailable-lore"))
         } else {
             offers.zip(listOf(20, 22, 24)).forEach { (offer, slot) ->
-                inventory.setItem(slot, items.offerItem(offer, player, current.matchId.toString()))
+                inventory.setItem(slot, items.offerItem(offer, player, activeMatch.matchId.toString()))
             }
         }
         inventory.setItem(36, item(Material.ARROW, player, "menu.common.back-name", "menu.common.back-lore"))
@@ -281,3 +287,6 @@ class ArcEventsMenu(
     }
 
 }
+
+internal fun shopAccessible(current: TttMatch?, participant: TttParticipant?): Boolean =
+    current?.phase == MatchPhase.ACTIVE && participant?.status == ParticipantStatus.ALIVE

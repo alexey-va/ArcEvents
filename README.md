@@ -11,7 +11,9 @@ so an arrow from an old round cannot affect a later one.
 
 - `spawn` and `survival` run in `RELAY` mode: menus, queueing, announcements,
   and proxy transfer only.
-- `parkour` runs in `HOST` mode and owns the active match in world `pvp`.
+- `parkour` runs in `HOST` mode and is the only node allowed to own an active
+  match. The production candidate points at the dedicated `arcevents_ttt`
+  world, which remains disabled until its creation is authorized.
 - Redis carries bounded queue, reservation, node-heartbeat, match-summary, and
   statistics records. Active combat remains authoritative on the host.
 - A relay never clears an inventory. The host writes one atomic recovery batch
@@ -19,6 +21,14 @@ so an arrow from an old round cannot affect a later one.
   restored surface, saves player data, and only then acknowledges the snapshot.
 - After confirmed recovery, players are returned through the proxy to the
   backend from which they joined the event.
+
+Player routing is a durable Redis state machine: `QUEUED` → `RESERVED` →
+`ARRIVED` → `MATCHED` → `RETURN_PENDING`. `ARRIVED`, `MATCHED`, and
+`RETURN_PENDING` never expire. The origin backend is retained after escrow
+capture and is deleted only when that backend observes the returning player.
+Reservation cancellation moves each selected route to `RETURN_PENDING` with
+bounded CAS retries, so host restarts, duplicate join events, and an interrupted
+proxy transfer remain recoverable.
 
 The initial production arena remains disabled until its world-creation capsule
 is explicitly authorized. ArcEvents includes the deterministic `citadel-v1`

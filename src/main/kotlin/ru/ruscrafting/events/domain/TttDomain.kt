@@ -233,6 +233,7 @@ class TttMatchEngine(
 
 data class PlayerEventStats(
     val revision: Long = 0,
+    val lastMatchId: String? = null,
     val matches: Int = 0,
     val wins: Int = 0,
     val traitorWins: Int = 0,
@@ -243,16 +244,19 @@ data class PlayerEventStats(
 ) {
     fun validated(): PlayerEventStats = apply {
         require(revision >= 0)
+        lastMatchId?.let { require(UUID.fromString(it).toString() == it) }
         require(listOf(matches, wins, traitorWins, innocentWins, kills, deaths).all { it in 0..1_000_000 })
         require(wins <= matches && traitorWins + innocentWins <= wins)
         require(karma in 0..2000)
     }
 
-    fun record(participant: TttParticipant, winner: TttTeam?): PlayerEventStats {
+    fun record(matchId: UUID, participant: TttParticipant, winner: TttTeam?): PlayerEventStats {
+        if (lastMatchId == matchId.toString()) return this
         val won = winner != null && participant.role.team == winner
         val friendlyPenalty = participant.friendlyKills * 100
         return copy(
             revision = revision + 1,
+            lastMatchId = matchId.toString(),
             matches = matches + 1,
             wins = wins + if (won) 1 else 0,
             traitorWins = traitorWins + if (won && participant.role == TttRole.TRAITOR) 1 else 0,

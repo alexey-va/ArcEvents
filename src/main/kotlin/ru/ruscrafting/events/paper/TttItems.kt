@@ -33,10 +33,14 @@ data class ShopOffer(
     val loreKey: String,
 )
 
+fun interface EventItemResolver {
+    fun kind(item: ItemStack?): EventItemKind?
+}
+
 class TttItems(
     plugin: Plugin,
     private val locale: ArcEventsLocale,
-) {
+) : EventItemResolver {
     private val itemKindKey = NamespacedKey(plugin, "event_item")
     private val matchIdKey = NamespacedKey(plugin, "match_id")
 
@@ -98,7 +102,7 @@ class TttItems(
         return item
     }
 
-    fun kind(item: ItemStack?): EventItemKind? {
+    override fun kind(item: ItemStack?): EventItemKind? {
         if (item == null || item.isEmpty) return null
         val raw = item.itemMeta.persistentDataContainer.get(itemKindKey, PersistentDataType.STRING) ?: return null
         return runCatching { EventItemKind.valueOf(raw) }.getOrNull()

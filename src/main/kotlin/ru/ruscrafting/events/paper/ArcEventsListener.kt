@@ -1,6 +1,8 @@
 package ru.ruscrafting.events.paper
 
 import io.papermc.paper.event.player.AsyncChatEvent
+import net.kyori.adventure.text.Component
+import org.bukkit.Location
 import org.bukkit.entity.ArmorStand
 import org.bukkit.entity.Entity
 import org.bukkit.entity.Player
@@ -37,11 +39,34 @@ import org.bukkit.event.player.PlayerSwapHandItemsEvent
 import org.bukkit.event.player.PlayerTeleportEvent
 import ru.arc.core.Tasks
 import ru.ruscrafting.events.domain.MatchPhase
+import java.util.UUID
+
+interface ArcEventsGameplayBoundary {
+    fun handleJoin(player: Player)
+    fun handleQuit(player: Player)
+    fun withinArena(location: Location): Boolean
+    fun isParticipant(playerId: UUID): Boolean
+    fun shouldCancelDamage(victimId: UUID, attackerId: UUID?, projectile: Boolean, projectileMatchId: UUID?): Boolean
+    fun recordAttack(victimId: UUID, attackerId: UUID?)
+    fun phase(): MatchPhase?
+    fun isAlive(playerId: UUID): Boolean
+    fun eliminate(player: Player, killerId: UUID? = null)
+    fun registerProjectile(projectile: Projectile): Boolean
+    fun projectileMatchId(projectile: Projectile): UUID?
+    fun handleProjectileHit(projectile: Projectile)
+    fun handlesMatchChat(playerId: UUID): Boolean
+    fun sendMatchChat(player: Player, message: Component)
+    fun belongsToCurrentMatch(playerId: UUID, item: org.bukkit.inventory.ItemStack?): Boolean
+    fun useSpecialItem(player: Player, kind: EventItemKind): Boolean
+    fun readBodyId(stand: ArmorStand): UUID?
+    fun inspectBody(player: Player, bodyId: UUID)
+    fun isInternalTeleport(playerId: UUID, destination: Location?): Boolean
+}
 
 class ArcEventsListener(
-    private val service: ArcEventsService,
+    private val service: ArcEventsGameplayBoundary,
     private val menu: ArcEventsMenu,
-    private val items: TttItems,
+    private val itemResolver: EventItemResolver,
 ) : Listener {
     @EventHandler fun onJoin(event: PlayerJoinEvent) = service.handleJoin(event.player)
     @EventHandler fun onQuit(event: PlayerQuitEvent) = service.handleQuit(event.player)
@@ -99,7 +124,7 @@ class ArcEventsListener(
     @EventHandler(ignoreCancelled = true)
     fun onInteract(event: PlayerInteractEvent) {
         val player = event.player
-        val kind = items.kind(event.item) ?: return
+        val kind = itemResolver.kind(event.item) ?: return
         if (!service.belongsToCurrentMatch(player.uniqueId, event.item)) {
             event.isCancelled = true
             return
@@ -110,7 +135,8 @@ class ArcEventsListener(
                 menu.open(player, EventsView.Shop)
             }
             EventItemKind.TRAITOR_RADAR, EventItemKind.TRAITOR_SMOKE, EventItemKind.DETECTIVE_MEDKIT -> {
-                event.isCancelled = service.useSpecialItem(player, kind)
+                service.useSpecialItem(player, kind)
+                event.isCancelled = true
             }
             else -> Unit
         }

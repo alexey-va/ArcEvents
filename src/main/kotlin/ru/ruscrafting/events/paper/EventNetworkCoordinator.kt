@@ -20,6 +20,7 @@ import ru.ruscrafting.events.network.HostNode
 import ru.ruscrafting.events.network.QueueEntry
 import ru.ruscrafting.events.network.QueueJoinResult
 import ru.ruscrafting.events.network.QueueLeaveResult
+import ru.ruscrafting.events.network.QueueState
 import ru.ruscrafting.events.network.RedisEventNetworkRepository
 import ru.ruscrafting.events.network.ReservationBatch
 import java.util.UUID
@@ -47,7 +48,7 @@ class EventNetworkCoordinator(
     private val matchState: () -> Pair<UUID?, MatchPhase?>,
     private val arenaReady: () -> Boolean,
     private val onReservation: (ReservationBatch) -> Boolean,
-    private val onArrival: (QueueEntry) -> Unit,
+    private val onArrival: (QueueEntry) -> Boolean,
     private val clock: () -> Long = System::currentTimeMillis,
 ) : AutoCloseable {
     @Volatile
@@ -162,7 +163,7 @@ class EventNetworkCoordinator(
                     return@runSync
                 }
                 if (!onReservation(batch)) {
-                    releaseReservation(batch.matchId)
+                    releaseReservation(batch)
                     result.complete(ReservationStartResult.BUSY)
                     return@runSync
                 }
@@ -186,7 +187,6 @@ class EventNetworkCoordinator(
     fun handleJoin(player: Player) {
         loadStats(player.uniqueId)
         val current = settings()
-        if (current.nodeMode != NodeMode.HOST) return
         repository.claimReservation(player.uniqueId, current.serverId, clock()).whenComplete { entry, failure ->
             Tasks.scheduler.runSync {
                 if (!started || !player.isOnline) return@runSync
@@ -194,7 +194,14 @@ class EventNetworkCoordinator(
                     plugin.logger.log(Level.WARNING, "ArcEvents reservation claim failed", failure)
                     return@runSync
                 }
-                entry?.let(onArrival)
+                when (entry?.state) {
+                    QueueState.ARRIVED -> {
+                        if (current.nodeMode != NodeMode.HOST || !onArrival(entry)) recoverOrphanedArrival(player, entry)
+                    }
+                    QueueState.MATCHED -> recoverOrphanedArrival(player, entry)
+                    QueueState.RETURN_PENDING -> finishPendingReturn(player, entry)
+                    else -> Unit
+                }
             }
         }
     }
@@ -222,9 +229,45 @@ class EventNetworkCoordinator(
         EventNetworkMessage.create(EventNetworkSignal.MATCH_ENDED, matchId = matchId, winner = winner, endReason = reason),
     )
 
-    fun releaseReservation(matchId: UUID) {
-        val current = settings()
-        repository.releaseReservation(matchId, clock(), current.network.queueEntrySeconds * 1_000L)
+    fun releaseReservation(
+        batch: ReservationBatch,
+        playerIds: Collection<UUID> = batch.entries.map { UUID.fromString(it.playerId) },
+    ): CompletableFuture<Int> {
+        val transition = repository.releaseReservation(batch.matchId, playerIds)
+        transition.whenComplete { released, failure ->
+            Tasks.scheduler.runSync {
+                if (!started) return@runSync
+                if (failure != null) {
+                    plugin.logger.log(Level.SEVERE, "ArcEvents could not preserve return routes for ${batch.matchId}", failure)
+                    return@runSync
+                }
+                released.orEmpty().forEach { entry ->
+                    val message = EventNetworkMessage.create(
+                        signal = EventNetworkSignal.RETURN_PLAYER,
+                        matchId = batch.matchId,
+                        playerId = UUID.fromString(entry.playerId),
+                        destinationServer = entry.originServer,
+                    )
+                    repository.publish(message)
+                    routeReturn(message)
+                }
+                refresh()
+            }
+        }
+        return transition.thenApply { it.size }
+    }
+
+    fun releaseUnarrived(batch: ReservationBatch, arrivedPlayerIds: Collection<UUID>): CompletableFuture<Int> {
+        val arrived = arrivedPlayerIds.toSet()
+        val unarrived = batch.entries.map { UUID.fromString(it.playerId) }.filterNot(arrived::contains)
+        return if (unarrived.isEmpty()) CompletableFuture.completedFuture(0) else releaseReservation(batch, unarrived)
+    }
+
+    fun completeReservation(matchId: UUID, playerIds: Collection<UUID>): CompletableFuture<Unit> {
+        val expected = playerIds.distinct().size
+        return repository.completeReservation(matchId, playerIds).thenApply { completed ->
+            check(completed == expected) { "Completed $completed of $expected ArcEvents arrivals for $matchId" }
+        }
     }
 
     fun returnPlayer(player: Player, originServer: String): Boolean {
@@ -235,6 +278,23 @@ class EventNetworkCoordinator(
             return false
         }
         return true
+    }
+
+    fun returnRecoveredPlayer(player: Player, recovery: PlayerRecovery) {
+        repository.prepareRecoveredReturn(player.uniqueId, recovery.matchId).whenComplete { _, failure ->
+            Tasks.scheduler.runSync {
+                if (!started || !player.isOnline) return@runSync
+                if (failure != null) {
+                    plugin.logger.log(Level.SEVERE, "ArcEvents could not preserve recovered return ${player.uniqueId}", failure)
+                }
+                val current = settings()
+                if (!current.network.returnToOrigin || recovery.returnServer == current.serverId) {
+                    repository.acknowledgeReturn(player.uniqueId, recovery.matchId)
+                    return@runSync
+                }
+                returnPlayer(player, recovery.returnServer)
+            }
+        }
     }
 
     fun hostAvailable(): Boolean {
@@ -260,6 +320,7 @@ class EventNetworkCoordinator(
                     refreshNodes()
                 }
                 EventNetworkSignal.ROUTE_PLAYER -> route(message)
+                EventNetworkSignal.RETURN_PLAYER -> routeReturn(message)
                 EventNetworkSignal.NODE_PROBE -> repository.publish(
                     EventNetworkMessage.create(EventNetworkSignal.NODE_ACK, replyTo = message.eventId),
                 )
@@ -280,6 +341,50 @@ class EventNetworkCoordinator(
             if (!transfer.connect(player, destination)) {
                 player.sendMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.transfer", player))))
             }
+        }
+    }
+
+    private fun routeReturn(message: EventNetworkMessage) {
+        val playerId = message.playerId?.let(UUID::fromString) ?: return
+        val matchId = message.matchId?.let(UUID::fromString) ?: return
+        val player = plugin.server.getPlayer(playerId) ?: return
+        val origin = message.destinationServer ?: return
+        if (settings().serverId == origin || !settings().network.returnToOrigin) {
+            player.sendMessage(locale.render("queue.reservation-expired", player))
+            repository.acknowledgeReturn(playerId, matchId).whenComplete { acknowledged, failure ->
+                if (failure != null || acknowledged != true) {
+                    plugin.logger.log(Level.WARNING, "ArcEvents could not acknowledge returned player $playerId for $matchId", failure)
+                }
+            }
+        } else {
+            returnPlayer(player, origin)
+        }
+    }
+
+    private fun recoverOrphanedArrival(player: Player, entry: QueueEntry) {
+        repository.markReturnPending(entry).whenComplete { pending, failure ->
+            Tasks.scheduler.runSync {
+                if (!started || !player.isOnline) return@runSync
+                if (failure != null || pending == null) {
+                    plugin.logger.log(Level.SEVERE, "ArcEvents could not recover orphaned arrival ${entry.playerId}", failure)
+                    return@runSync
+                }
+                finishPendingReturn(player, pending)
+            }
+        }
+    }
+
+    private fun finishPendingReturn(player: Player, entry: QueueEntry) {
+        val matchId = UUID.fromString(requireNotNull(entry.matchId))
+        if (settings().serverId == entry.originServer || !settings().network.returnToOrigin) {
+            player.sendMessage(locale.render("queue.reservation-expired", player))
+            repository.acknowledgeReturn(player.uniqueId, matchId).whenComplete { acknowledged, failure ->
+                if (failure != null || acknowledged != true) {
+                    plugin.logger.log(Level.WARNING, "ArcEvents could not acknowledge returned player ${player.uniqueId} for $matchId", failure)
+                }
+            }
+        } else {
+            returnPlayer(player, entry.originServer)
         }
     }
 

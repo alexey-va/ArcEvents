@@ -4,8 +4,16 @@ import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import org.bukkit.Location
 import org.bukkit.World
+import org.bukkit.block.BlockFace
+import org.bukkit.entity.Player
+import org.bukkit.event.Event
+import org.bukkit.event.block.Action
+import org.bukkit.event.player.PlayerInteractEvent
+import org.bukkit.inventory.EquipmentSlot
+import org.bukkit.inventory.ItemStack
 import org.bukkit.potion.PotionEffect
 import java.util.UUID
 
@@ -35,5 +43,31 @@ class SafetyContractTest : StringSpec({
             particles = true,
             icon = true,
         ).validated()
+    }
+
+    "recognized active event items never fall through to vanilla interaction" {
+        val service = mockk<ArcEventsGameplayBoundary>()
+        val menu = mockk<ArcEventsMenu>()
+        val items = mockk<EventItemResolver>()
+        val player = mockk<Player>()
+        val item = mockk<ItemStack>()
+        val playerId = UUID.randomUUID()
+        every { player.uniqueId } returns playerId
+        every { items.kind(item) } returns EventItemKind.DETECTIVE_MEDKIT
+        every { service.belongsToCurrentMatch(playerId, item) } returns true
+        every { service.useSpecialItem(player, EventItemKind.DETECTIVE_MEDKIT) } returns false
+        val event = PlayerInteractEvent(
+            player,
+            Action.RIGHT_CLICK_AIR,
+            item,
+            null,
+            BlockFace.SELF,
+            EquipmentSlot.HAND,
+        )
+
+        ArcEventsListener(service, menu, items).onInteract(event)
+
+        event.useItemInHand() shouldBe Event.Result.DENY
+        verify(exactly = 1) { service.useSpecialItem(player, EventItemKind.DETECTIVE_MEDKIT) }
     }
 })

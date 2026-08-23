@@ -2,8 +2,10 @@ package ru.ruscrafting.events.network
 
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
+import com.google.gson.Gson
 import ru.arc.redis.InMemoryRedis
 import ru.arc.redis.ServerIdentity
+import ru.ruscrafting.events.domain.PlayerEventStats
 import ru.ruscrafting.events.domain.TttRole
 import ru.ruscrafting.events.domain.TttParticipant
 import ru.ruscrafting.events.domain.TttTeam
@@ -22,7 +24,7 @@ class RedisEventNetworkRepositoryTest : StringSpec({
         repository.leaveQueue(player, 2_000).join() shouldBe QueueLeaveResult.Missing
     }
 
-    "host reserves the oldest bounded roster and claims it only at its destination" {
+    "host reserves the oldest bounded roster and claims arrival idempotently only at its destination" {
         val repository = RedisEventNetworkRepository(InMemoryRedis(ServerIdentity { "parkour" }))
         (1..6).forEach { index ->
             repository.joinQueue(uuid(index), "Player$index", if (index % 2 == 0) "spawn" else "survival", index * 1_000L, 120_000).join()
@@ -32,9 +34,49 @@ class RedisEventNetworkRepositoryTest : StringSpec({
         batch.entries shouldHavePlayerIds (1..5).map(::uuid)
         repository.leaveQueue(uuid(1), 11_000).join()::class shouldBe QueueLeaveResult.Reserved::class
         repository.claimReservation(uuid(1), "spawn", 11_000).join() shouldBe null
-        repository.claimReservation(uuid(1), "parkour", 11_000).join()?.playerId shouldBe uuid(1).toString()
-        repository.claimReservation(uuid(1), "parkour", 11_001).join() shouldBe null
+        val arrived = repository.claimReservation(uuid(1), "parkour", 11_000).join()!!
+        arrived.playerId shouldBe uuid(1).toString()
+        arrived.state shouldBe QueueState.ARRIVED
+        repository.claimReservation(uuid(1), "parkour", 11_001).join() shouldBe arrived
         repository.loadQueue(11_000).join().count { it.state == QueueState.QUEUED } shouldBe 1
+    }
+
+    "cancelled reservation preserves every origin until return is acknowledged" {
+        val repository = RedisEventNetworkRepository(InMemoryRedis(ServerIdentity { "parkour" }))
+        (1..4).forEach { index ->
+            repository.joinQueue(uuid(index), "Player$index", if (index % 2 == 0) "spawn" else "survival", index * 1_000L, 120_000).join()
+        }
+        val matchId = uuid(101)
+        repository.reserve(matchId, "parkour", 4, 4, 10_000, 30_000).join()!!
+        repository.claimReservation(uuid(1), "parkour", 11_000).join()?.state shouldBe QueueState.ARRIVED
+
+        val released = repository.releaseReservation(matchId).join()
+        released.size shouldBe 4
+        released.all { it.state == QueueState.RETURN_PENDING && it.expiresAtMs == Long.MAX_VALUE } shouldBe true
+        repository.loadQueue(Long.MAX_VALUE - 1).join().size shouldBe 4
+        repository.claimReservation(uuid(1), "survival", 99_000).join()?.state shouldBe QueueState.RETURN_PENDING
+        repository.acknowledgeReturn(uuid(1), matchId).join() shouldBe true
+        repository.claimReservation(uuid(1), "parkour", 99_001).join() shouldBe null
+        repository.loadQueue(99_001).join().map(QueueEntry::playerId).contains(uuid(1).toString()) shouldBe false
+    }
+
+    "durable escrow handoff keeps every origin until recovered return is acknowledged" {
+        val repository = RedisEventNetworkRepository(InMemoryRedis(ServerIdentity { "parkour" }))
+        (1..4).forEach { repository.joinQueue(uuid(it), "Player$it", "spawn", it.toLong(), 60_000).join() }
+        val matchId = uuid(102)
+        repository.reserve(matchId, "parkour", 4, 4, 5_000, 30_000).join()!!
+        (1..4).forEach { repository.claimReservation(uuid(it), "parkour", 6_000).join()?.state shouldBe QueueState.ARRIVED }
+
+        repository.completeReservation(matchId, (1..4).map(::uuid)).join() shouldBe 4
+        repository.loadQueue(6_001).join().all { it.state == QueueState.MATCHED } shouldBe true
+        repository.claimReservation(uuid(1), "parkour", 6_001).join()?.state shouldBe QueueState.MATCHED
+        repository.completeReservation(matchId, (1..4).map(::uuid)).join() shouldBe 4
+        repository.releaseReservation(matchId, listOf(uuid(2))).join().single().state shouldBe QueueState.RETURN_PENDING
+        repository.claimReservation(uuid(1), "parkour", 6_001).join()?.state shouldBe QueueState.MATCHED
+        repository.prepareRecoveredReturn(uuid(1), matchId).join()?.state shouldBe QueueState.RETURN_PENDING
+        repository.claimReservation(uuid(1), "spawn", 6_002).join()?.state shouldBe QueueState.RETURN_PENDING
+        repository.acknowledgeReturn(uuid(1), matchId).join() shouldBe true
+        repository.loadQueue(6_003).join().map(QueueEntry::playerId).contains(uuid(1).toString()) shouldBe false
     }
 
     "insufficient reservation leaves the queue intact" {
@@ -51,10 +93,23 @@ class RedisEventNetworkRepositoryTest : StringSpec({
         repository.loadNodes(30_001, 15_000).join() shouldBe emptyList()
 
         val participant = TttParticipant(uuid(9), "Player9", "spawn", TttRole.TRAITOR, ParticipantStatus.DEAD, 0, 2, 1)
-        val update = repository.updateStats(uuid(9)) { it.record(participant, TttTeam.TRAITORS) }.join()
+        val matchId = uuid(900)
+        val update = repository.updateStats(uuid(9)) { it.record(matchId, participant, TttTeam.TRAITORS) }.join()
         update.before.matches shouldBe 0
         update.after.matches shouldBe 1
         repository.loadStats(uuid(9)).join() shouldBe update.after
+        repository.updateStats(uuid(9)) { it.record(matchId, participant, TttTeam.TRAITORS) }.join().after shouldBe update.after
+    }
+
+    "legacy statistics JSON remains compatible without an idempotency field" {
+        val legacy = Gson().fromJson(
+            """{"revision":3,"matches":2,"wins":1,"traitorWins":1,"innocentWins":0,"kills":4,"deaths":2,"karma":900}""",
+            PlayerEventStats::class.java,
+        ).validated()
+        legacy.lastMatchId shouldBe null
+        legacy.matches shouldBe 2
+        legacy.record(uuid(901), TttParticipant(uuid(9), "Player9", "spawn", TttRole.INNOCENT, ParticipantStatus.ALIVE, 0), TttTeam.INNOCENTS)
+            .matches shouldBe 3
     }
 
     "network listener receives validated origin metadata" {

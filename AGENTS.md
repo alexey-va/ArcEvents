@@ -13,6 +13,8 @@ Standalone Kotlin/Paper plugin for network-wide RusCrafting custom events.
 - Capture the complete player-state batch durably before teleporting, clearing,
   or issuing any event item. Restore and acknowledgement must be idempotent on
   quit, shutdown, crash, and next join.
+- Keep the joining backend in a durable route through `MATCHED`; delete that
+  route only after the origin backend acknowledges the returning player.
 - The first mode is `TTT`: innocents and detectives oppose hidden traitors.
   Role secrecy is a gameplay boundary; only permission-gated QA output may
   expose it outside the owning player/team.

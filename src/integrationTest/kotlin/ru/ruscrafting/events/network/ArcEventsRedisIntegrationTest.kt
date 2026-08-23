@@ -14,7 +14,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 class ArcEventsRedisIntegrationTest : StringSpec({
-    "two real Redis nodes exchange route messages and claim one reservation exactly once" {
+    "two real Redis nodes exchange routes and preserve a cancelled arrival until return acknowledgement" {
         val port = ServerSocket(0).use { it.localPort }
         val directory = Files.createTempDirectory("arcevents-redis-")
         val process = ProcessBuilder(
@@ -67,8 +67,16 @@ class ArcEventsRedisIntegrationTest : StringSpec({
             route shouldBe (message to "parkour")
 
             parkourRepository.claimReservation(players.first(), "spawn", 2_002).join() shouldBe null
-            parkourRepository.claimReservation(players.first(), "parkour", 2_002).join()?.matchId shouldBe matchId.toString()
-            parkourRepository.claimReservation(players.first(), "parkour", 2_003).join() shouldBe null
+            val arrived = parkourRepository.claimReservation(players.first(), "parkour", 2_002).join()!!
+            arrived.matchId shouldBe matchId.toString()
+            arrived.state shouldBe QueueState.ARRIVED
+            parkourRepository.claimReservation(players.first(), "parkour", 2_003).join() shouldBe arrived
+
+            val released = parkourRepository.releaseReservation(matchId).join()
+            released.size shouldBe 4
+            spawnRepository.claimReservation(players.first(), "spawn", 2_004).join()?.state shouldBe QueueState.RETURN_PENDING
+            spawnRepository.acknowledgeReturn(players.first(), matchId).join() shouldBe true
+            parkourRepository.claimReservation(players.first(), "parkour", 2_005).join() shouldBe null
         } finally {
             spawn?.close()
             parkour?.close()

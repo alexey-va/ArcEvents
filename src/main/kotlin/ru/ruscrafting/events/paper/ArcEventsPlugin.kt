@@ -121,7 +121,7 @@ class ArcEventsPlugin : JavaPlugin() {
         ArcEventsLocale.validateFiles(dataRoot)
         ConfigManager.reloadAll()
         settings = ArcEventsConfig.load(dataRoot)
-    }
+    }.onFailure { logger.log(Level.WARNING, "ArcEvents reload was rejected", it) }
 
     private fun saveResourceIfMissing(path: String) {
         if (!Files.isRegularFile(dataFolder.toPath().resolve(path))) saveResource(path, false)

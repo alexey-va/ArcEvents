@@ -84,7 +84,7 @@ class TttMatchEngineTest : StringSpec({
         val killer = changed.participant(teammates[1].playerId)!!
         killer.kills shouldBe 1
         killer.friendlyKills shouldBe 1
-        PlayerEventStats().record(killer, null).karma shouldBe 900
+        PlayerEventStats().record(UUID.randomUUID(), killer, null).karma shouldBe 900
     }
 
     "round timeout belongs to the innocent team" {
@@ -107,13 +107,16 @@ class TttMatchEngineTest : StringSpec({
             UUID.randomUUID(), "Tester", "parkour", TttRole.TRAITOR, ParticipantStatus.DEAD,
             credits = 0, kills = 3, deaths = 1,
         )
-        val updated = PlayerEventStats().record(participant, TttTeam.TRAITORS)
+        val matchId = UUID.randomUUID()
+        val updated = PlayerEventStats().record(matchId, participant, TttTeam.TRAITORS)
         updated.matches shouldBe 1
         updated.wins shouldBe 1
         updated.traitorWins shouldBe 1
         updated.innocentWins shouldBe 0
         updated.kills shouldBe 3
         updated.deaths shouldBe 1
+        updated.lastMatchId shouldBe matchId.toString()
+        updated.record(matchId, participant, TttTeam.TRAITORS) shouldBe updated
     }
 }) {
     companion object {
