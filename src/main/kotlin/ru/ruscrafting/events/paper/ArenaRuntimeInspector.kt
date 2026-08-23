@@ -1,0 +1,48 @@
+package ru.ruscrafting.events.paper
+
+import com.sk89q.worldedit.bukkit.BukkitAdapter
+import com.sk89q.worldguard.WorldGuard
+import com.sk89q.worldguard.protection.flags.Flags
+import com.sk89q.worldguard.protection.flags.StateFlag
+import org.bukkit.Location
+import org.bukkit.plugin.Plugin
+import ru.ruscrafting.events.config.ArenaSettings
+import ru.ruscrafting.events.config.EventLocation
+
+fun interface PvpFlagInspector {
+    fun allowed(location: Location): Boolean
+}
+
+class ArenaRuntimeInspector(private val plugin: Plugin) {
+    private val worldGuard: PvpFlagInspector? = if (plugin.server.pluginManager.isPluginEnabled("WorldGuard")) {
+        WorldGuardPvpFlagInspector()
+    } else {
+        null
+    }
+
+    @Suppress("DEPRECATION")
+    fun ready(arena: ArenaSettings, maximumPlayers: Int): Boolean {
+        if (!arena.operational(maximumPlayers)) return false
+        val world = plugin.server.getWorld(arena.world) ?: return false
+        if (!world.pvp) return false
+        val points = buildList {
+            add(requireNotNull(arena.lobby))
+            add(requireNotNull(arena.spectator))
+            addAll(arena.spawns.take(maximumPlayers))
+        }
+        return points.all { point ->
+            val location = point.bukkitLocation() ?: return@all false
+            worldGuard?.allowed(location) != false
+        }
+    }
+
+    private fun EventLocation.bukkitLocation(): Location? = plugin.server.getWorld(world)?.let { loaded ->
+        Location(loaded, x, y, z, yaw, pitch)
+    }
+}
+
+private class WorldGuardPvpFlagInspector : PvpFlagInspector {
+    override fun allowed(location: Location): Boolean = WorldGuard.getInstance().platform.regionContainer
+        .createQuery()
+        .queryState(BukkitAdapter.adapt(location), null, Flags.PVP) != StateFlag.State.DENY
+}

@@ -1,0 +1,270 @@
+prefix: '<#d75a5a>Events <#666666>•'
+command:
+  player-only: '<prefix> <#c42323>This command is only available to players.'
+  no-permission: '<prefix> <#c42323>You do not have access to this action.'
+  help: '<prefix> <#e6fff3>Open the hub with <#92bed8>/events<#e6fff3>, or use <#92bed8>/events join<#e6fff3>, <#92bed8>leave<#e6fff3>, <#92bed8>status<#e6fff3>, <#92bed8>shop<#e6fff3>.'
+  unknown: '<prefix> <#c42323>Unknown action<#8c8c8c>: <#e6fff3><input>'
+  failed: '<prefix> <#c42323>The action failed<#8c8c8c>: <#e6fff3><reason>'
+  reload-ok: '<prefix> <#2bba43>Configuration and locales reloaded.'
+  reload-failed: '<prefix> <#c42323>Could not reload configuration<#8c8c8c>: <#e6fff3><reason>'
+
+reason:
+  network: 'the event network is temporarily unavailable'
+  contended: 'the queue changed at the same time; try again'
+  transfer: 'you could not be transferred to the event server'
+  return-transfer: 'your state was restored, but you could not be returned to the originating server'
+
+menu:
+  main:
+    title: '<#d9d6c8>RusCrafting Events'
+    ttt-name: '<#e3b341><bold>Hidden Roles'
+    ttt-lore:
+      - '<#f2f0e6>Find the traitors before'
+      - '<#f2f0e6>they eliminate the innocent team.'
+      - ''
+      - '<#8c8c8c>Queued players: <#e3b341><queue><#8c8c8c>/<#e3b341><minimum>'
+      - '<#8c8c8c>Arena: <arena_state>'
+    join-name: '<#7bd88f><bold>Join the queue'
+    join-lore:
+      - '<#f2f0e6>The match is hosted on parkour.'
+      - '<#f2f0e6>We will transfer you when a roster is ready.'
+      - ''
+      - '<#666666>• <#7bd88f>Click<#f2f0e6> to join <#666666>•'
+    leave-name: '<#d84a4a><bold>Leave the queue'
+    leave-lore:
+      - '<#f2f0e6>Release your place before reservation.'
+      - ''
+      - '<#666666>• <#d84a4a>Click<#f2f0e6> to leave <#666666>•'
+    status-name: '<#5fb3ff><bold>Network status'
+    status-lore:
+      - '<#8c8c8c>Node: <#f2f0e6><server>'
+      - '<#8c8c8c>Mode: <#f2f0e6><node_mode>'
+      - '<#8c8c8c>Host: <#f2f0e6><host>'
+      - '<#8c8c8c>Status: <state>'
+    stats-name: '<#d6a8ff><bold>Your statistics'
+    stats-lore:
+      - '<#8c8c8c>Matches: <#f2f0e6><matches>'
+      - '<#8c8c8c>Wins: <#7bd88f><wins>'
+      - '<#8c8c8c>Kills: <#e3b341><kills>'
+      - '<#8c8c8c>Deaths: <#d84a4a><deaths>'
+      - '<#8c8c8c>Karma: <#5fb3ff><karma>'
+    help-name: '<#92bed8><bold>How to play'
+    help-lore:
+      - '<#f2f0e6>Roles, bodies, evidence, and shops.'
+      - ''
+      - '<#666666>• <#92bed8>Click<#f2f0e6> to open help <#666666>•'
+    shop-name: '<#ff9f0f><bold>Role shop'
+    shop-lore:
+      - '<#f2f0e6>Hidden traitor equipment'
+      - '<#f2f0e6>and detective tools.'
+      - ''
+      - '<#666666>• <#ff9f0f>Available during a match <#666666>•'
+    admin-name: '<#c58cff><bold>Event administration'
+    admin-lore:
+      - '<#f2f0e6>Queue, match, network, and recovery.'
+      - ''
+      - '<#666666>• <#c58cff>Click<#f2f0e6> to open <#666666>•'
+  help:
+    title: '<#d9d6c8>Hidden Roles Rules'
+    innocent-name: '<#7bd88f><bold>Innocent'
+    innocent-lore:
+      - '<#f2f0e6>Survive, observe, and inspect bodies.'
+      - '<#f2f0e6>Do not trust accusations without evidence.'
+    traitor-name: '<#d84a4a><bold>Traitor'
+    traitor-lore:
+      - '<#f2f0e6>Eliminate innocents without losing cover.'
+      - '<#f2f0e6>Only your team knows its allies.'
+    detective-name: '<#5fb3ff><bold>Detective'
+    detective-lore:
+      - '<#f2f0e6>Your role is public to every player.'
+      - '<#f2f0e6>Inspect bodies and lead the investigation.'
+    evidence-name: '<#e3b341><bold>Bodies and evidence'
+    evidence-lore:
+      - '<#f2f0e6>Right-click a body to reveal its role.'
+      - '<#f2f0e6>A DNA scanner points toward the killer.'
+    controls-name: '<#92bed8><bold>Commands'
+    controls-lore:
+      - '<#8c8c8c>/events shop <#f2f0e6>— role shop'
+      - '<#8c8c8c>/events team &lt;text&gt; <#f2f0e6>— team chat'
+      - '<#8c8c8c>/events status <#f2f0e6>— match status'
+  admin:
+    title: '<#d9d6c8>Event Administration'
+    status-name: '<#5fb3ff><bold>Current status'
+    status-lore:
+      - '<#8c8c8c>Phase: <#f2f0e6><phase>'
+      - '<#8c8c8c>Match: <#f2f0e6><match>'
+      - '<#8c8c8c>Queue: <#f2f0e6><queue>'
+      - '<#8c8c8c>Recoveries: <#f2f0e6><recovery>'
+    start-name: '<#7bd88f><bold>Start from queue'
+    start-lore:
+      - '<#f2f0e6>Reserve a ready roster now.'
+      - '<#8c8c8c>Only available on an active host.'
+    stop-name: '<#d84a4a><bold>Stop the match'
+    stop-lore:
+      - '<#f2f0e6>End the round and restore every player.'
+      - '<#ff9f0f>An unfinished match is recorded as cancelled.'
+    reload-name: '<#e3b341><bold>Reload configuration'
+    reload-lore:
+      - '<#f2f0e6>Validate and apply safe settings.'
+      - '<#8c8c8c>Node identity requires a restart.'
+    recover-name: '<#c58cff><bold>Retry recovery'
+    recover-lore:
+      - '<#f2f0e6>Restore every currently available player.'
+      - '<#8c8c8c>A record is removed only after verification.'
+  shop:
+    title: '<#d9d6c8>Role Shop · <credits> cr.'
+    credits-name: '<#e3b341><bold>Role credits'
+    credits-lore:
+      - '<#8c8c8c>Available: <#e3b341><credits>'
+      - '<#f2f0e6>Purchases last until the round ends.'
+    traitor-blade-name: '<#d84a4a><bold>Traitor Blade'
+    traitor-blade-lore:
+      - '<#f2f0e6>A heavy concealed melee weapon.'
+      - ''
+      - '<#8c8c8c>Cost: <#e3b341>2 credits'
+    traitor-radar-name: '<#d84a4a><bold>Radar'
+    traitor-radar-lore:
+      - '<#f2f0e6>Tracks the closest target for 30 seconds.'
+      - ''
+      - '<#8c8c8c>Cost: <#e3b341>1 credit'
+    traitor-smoke-name: '<#d84a4a><bold>Smoke grenade'
+    traitor-smoke-lore:
+      - '<#f2f0e6>Blinds players around the impact point.'
+      - ''
+      - '<#8c8c8c>Cost: <#e3b341>1 credit'
+    detective-scanner-name: '<#5fb3ff><bold>DNA Scanner'
+    detective-scanner-lore:
+      - '<#f2f0e6>Extracts the killer direction from a body.'
+      - ''
+      - '<#8c8c8c>Cost: <#e3b341>1 credit'
+    detective-medkit-name: '<#5fb3ff><bold>Medkit'
+    detective-medkit-lore:
+      - '<#f2f0e6>Restores the detective’s health.'
+      - ''
+      - '<#8c8c8c>Cost: <#e3b341>1 credit'
+    detective-armor-name: '<#5fb3ff><bold>Body armor'
+    detective-armor-lore:
+      - '<#f2f0e6>Provides extra protection for the round.'
+      - ''
+      - '<#8c8c8c>Cost: <#e3b341>1 credit'
+    unavailable-name: '<#8c8c8c><bold>No available items'
+    unavailable-lore:
+      - '<#f2f0e6>Innocents do not have a role shop.'
+  common:
+    back-name: '<#92bed8><bold>Back'
+    back-lore:
+      - '<#f2f0e6>Return to the previous menu.'
+      - ''
+      - '<#666666>• <#92bed8>Click<#f2f0e6> to return <#666666>•'
+    close-name: '<#d84a4a><bold>Close'
+    close-lore:
+      - '<#f2f0e6>Close this menu.'
+
+state:
+  arena-ready: '<#7bd88f>ready'
+  arena-unavailable: '<#d84a4a>not configured'
+  network-ready: '<#7bd88f>ready'
+  network-degraded: '<#ff9f0f>no active host'
+  idle: '<#8c8c8c>idle'
+
+phase:
+  idle: '<#8c8c8c>idle'
+  reserved: '<#e3b341>roster reserved'
+  preparing: '<#e3b341>preparing'
+  countdown: '<#e3b341>countdown'
+  active: '<#7bd88f>round active'
+  resolving: '<#e3b341>resolving result'
+  restoring: '<#92bed8>restoring players'
+  completed: '<#7bd88f>completed'
+  cancelled: '<#d84a4a>cancelled'
+
+queue:
+  joined: '<prefix> <#e6fff3>You joined the <#e3b341>Hidden Roles<#e6fff3> queue. Players: <#e3b341><queue><#8c8c8c>/<#e3b341><minimum><#e6fff3>.'
+  already: '<prefix> <#ff9f0f>You are already queued or reserved for a match.'
+  left: '<prefix> <#e6fff3>You left the queue.'
+  not-queued: '<prefix> <#ff9f0f>You are not in the queue.'
+  unavailable: '<prefix> <#c42323>No arena is ready. View its status with <#92bed8>/events<#e6fff3>.'
+  full: '<prefix> <#c42323>The queue is full. Try again after the next match starts.'
+  reserved: '<prefix> <#e6fff3>The roster is ready. Transferring you to <#e3b341>parkour<#e6fff3>.'
+  reservation-expired: '<prefix> <#ff9f0f>Your reservation expired. You can join the queue again.'
+
+match:
+  unavailable: '<prefix> <#ff9f0f>You are not participating in a match.'
+  preparing-title: '<#e3b341>Preparing match'
+  preparing-subtitle: '<#f2f0e6>Inventory secured · waiting for role'
+  countdown-title: '<#e3b341><seconds>'
+  countdown-subtitle: '<#f2f0e6>The round is about to start'
+  started: '<prefix> <#e6fff3>The round started. Inspect bodies and watch player behavior.'
+  time-title: '<#f2f0e6>Remaining: <#e3b341><time>'
+  grace: '<prefix> <#ff9f0f>Weapons activate after the countdown.'
+  eliminated: '<prefix> <#e6fff3><player> <#e6fff3>has been eliminated.'
+  eliminated-title: '<#d84a4a>You were eliminated'
+  eliminated-subtitle: '<#f2f0e6>Spectate the round without revealing roles'
+  spectator: '<prefix> <#e6fff3>You are spectating. Do not reveal roles to living players.'
+  winner-traitors-title: '<#d84a4a>Traitors win'
+  winner-traitors-subtitle: '<#f2f0e6>The innocent team no longer controls the round'
+  winner-innocents-title: '<#7bd88f>Innocents win'
+  winner-innocents-subtitle: '<#f2f0e6>Every traitor has been eliminated'
+  cancelled-title: '<#ff9f0f>Match stopped'
+  cancelled-subtitle: '<#f2f0e6>Player state is being restored'
+  restored: '<prefix> <#2bba43>Your complete pre-event state was restored.'
+  restore-pending: '<prefix> <#ff9f0f>Recovery is not yet confirmed. Do not change your inventory and contact an administrator.'
+  status: '<prefix> <#e6fff3>Phase: <#92bed8><phase><#8c8c8c> • <#e6fff3>alive: <#e3b341><alive><#8c8c8c>/<#e3b341><players><#8c8c8c> • <#e6fff3>time: <#e3b341><time>'
+
+role:
+  innocent-title: '<#7bd88f>You are innocent'
+  innocent-subtitle: '<#f2f0e6>Find the traitors and survive'
+  traitor-title: '<#d84a4a>You are a traitor'
+  traitor-subtitle: '<#f2f0e6>Allies: <allies>'
+  detective-title: '<#5fb3ff>You are a detective'
+  detective-subtitle: '<#f2f0e6>Inspect bodies and lead the innocents'
+  actionbar: '<role> <#666666>• <#f2f0e6>Alive: <#e3b341><alive> <#666666>• <#f2f0e6>Time: <#e3b341><time>'
+  innocent-name: '<#7bd88f>innocent'
+  traitor-name: '<#d84a4a>traitor'
+  detective-name: '<#5fb3ff>detective'
+
+loadout:
+  blade: '<#f2f0e6>Blade'
+  crossbow: '<#f2f0e6>Crossbow'
+  rations: '<#f2f0e6>Rations'
+  ammunition: '<#f2f0e6>Ammunition'
+
+body:
+  unidentified: '<#8c8c8c>Unidentified body · <#f2f0e6><player>'
+  identified: '<#e3b341>Body · <#f2f0e6><player> <#666666>• <role>'
+  discovered: '<prefix> <#e6fff3>The body of <#92bed8><player> <#e6fff3>was identified. Role: <role><#e6fff3>.'
+  already: '<prefix> <#e6fff3><#92bed8><player><#8c8c8c> was <role><#e6fff3>.'
+  dna: '<prefix> <#e6fff3>The DNA trail points to <#d84a4a><killer><#8c8c8c> • <#e6fff3>distance: <#e3b341><distance> blocks<#e6fff3>.'
+  dna-lost: '<prefix> <#ff9f0f>The DNA trail is damaged or the killer is no longer alive.'
+
+shop:
+  bought: '<prefix> <#2bba43>Received: <#e3b341><item><#8c8c8c> • <#e6fff3>credits remaining: <#e3b341><credits><#e6fff3>.'
+  insufficient: '<prefix> <#c42323>You do not have enough credits for this item.'
+  unavailable: '<prefix> <#ff9f0f>The shop is only available to a living traitor or detective.'
+  inventory-full: '<prefix> <#c42323>Your inventory has no free slot. No credits were charged.'
+  radar-active: '<prefix> <#e6fff3>Radar locked onto <#d84a4a><target><#e6fff3> for 30 seconds.'
+  radar-empty: '<prefix> <#ff9f0f>Radar found no living target.'
+  smoke-used: '<prefix> <#e6fff3>Smoke grenade activated.'
+  medkit-full: '<prefix> <#ff9f0f>Your health is already full.'
+
+team:
+  usage: '<prefix> <#e6fff3>Usage: <#92bed8>/events team &lt;message&gt;'
+  unavailable: '<prefix> <#ff9f0f>Team chat is available to living traitors and detectives during a round.'
+  message: '<#666666>[Team] <role> <#f2f0e6><player><#8c8c8c>: <#f2f0e6><message>'
+
+admin:
+  host-only: '<prefix> <#c42323>This action is only available on the HOST node.'
+  arena-unavailable: '<prefix> <#c42323>The arena is not ready. Check its world, bounds, lobby, spectator point, and spawns.'
+  started: '<prefix> <#2bba43>Roster reservation started.'
+  start-failed: '<prefix> <#c42323>Could not collect the minimum roster from the queue.'
+  busy: '<prefix> <#ff9f0f>The HOST is already reserving a roster or running a match.'
+  network-failed: '<prefix> <#c42323>Redis did not confirm the roster reservation.'
+  stopped: '<prefix> <#2bba43>The match was stopped and recovery started.'
+  reservation-cancelled: '<prefix> <#2bba43>The reservation was cancelled and players returned to the queue.'
+  no-match: '<prefix> <#ff9f0f>There is no active match.'
+  recovery-started: '<prefix> <#e6fff3>Recovery retry started. Available players: <#e3b341><players><#e6fff3>.'
+
+debug:
+  disabled: '<prefix> <#c42323>Debug mutations are disabled in config.yml.'
+  usage: '<prefix> <#e6fff3>Debug: <#92bed8>/events debug start|advance|end|credit<#e6fff3>.'
+  applied: '<prefix> <#2bba43>Debug action applied: <#e3b341><action><#e6fff3>.'

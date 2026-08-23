@@ -1,0 +1,24 @@
+name: ArcEvents
+version: '${version}'
+main: ru.ruscrafting.events.paper.ArcEventsPlugin
+api-version: '1.21.11'
+authors: [RusCrafting]
+description: Cross-server custom events for RusCrafting
+softdepend: [WorldGuard]
+commands:
+  arcevents:
+    aliases: [events, ae]
+    description: RusCrafting events
+    usage: /arcevents
+    permission: arcevents.play
+permissions:
+  arcevents.play:
+    default: true
+  arcevents.teamchat:
+    default: true
+  arcevents.admin:
+    default: op
+  arcevents.debug:
+    default: op
+  arcevents.qa:
+    default: op

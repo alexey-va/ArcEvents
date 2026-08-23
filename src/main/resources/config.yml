@@ -1,0 +1,51 @@
+enabled: true
+server-id: parkour
+node-mode: RELAY
+host-server: parkour
+
+network:
+  enabled: true
+  allowed-origins: [spawn, survival, parkour]
+  queue-entry-seconds: 300
+  reservation-seconds: 45
+  heartbeat-seconds: 5
+  heartbeat-stale-seconds: 20
+  transfer-on-reservation: true
+  return-to-origin: true
+
+locale:
+  default: ru
+  use-client-locale: true
+
+ui:
+  sounds: true
+  particles: true
+  bossbar: true
+  filler: {material: GRAY_STAINED_GLASS_PANE, custom-model-data: 11000}
+
+ttt:
+  minimum-players: 4
+  maximum-players: 16
+  preparation-seconds: 12
+  countdown-seconds: 8
+  round-seconds: 600
+  post-round-seconds: 12
+  traitor-player-ratio: 4
+  detective-minimum-players: 6
+  traitor-credits: 2
+  detective-credits: 1
+  body-despawn-seconds: 600
+
+# A host refuses queue reservations until the arena is enabled and every
+# location is valid. Coordinates below are intentionally non-operational.
+arena:
+  enabled: false
+  world: pvp
+  lobby: ''
+  spectator: ''
+  minimum: ''
+  maximum: ''
+  spawns: []
+
+debug:
+  enabled: false
