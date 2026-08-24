@@ -123,6 +123,7 @@ internal class ArcEventsDialogMenu(
             body(Material.EMERALD, player, "menu.help.innocent-name", "menu.help.innocent-lore"),
             body(Material.REDSTONE, player, "menu.help.traitor-name", "menu.help.traitor-lore"),
             body(Material.LAPIS_LAZULI, player, "menu.help.detective-name", "menu.help.detective-lore"),
+            body(Material.CLOCK, player, "menu.help.flow-name", "menu.help.flow-lore"),
             body(Material.PLAYER_HEAD, player, "menu.help.evidence-name", "menu.help.evidence-lore"),
             body(Material.CROSSBOW, player, "menu.help.weapons-name", "menu.help.weapons-lore"),
             body(Material.COMMAND_BLOCK, player, "menu.help.controls-name", "menu.help.controls-lore"),

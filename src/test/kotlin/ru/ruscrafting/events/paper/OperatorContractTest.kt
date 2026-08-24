@@ -45,6 +45,18 @@ class OperatorContractTest : StringSpec({
         shopAccessible(match(MatchPhase.ACTIVE, dead), dead) shouldBe false
     }
 
+    "preparation allows neutral loot collection without enabling dead players" {
+        lootAccessible(MatchPhase.PREPARING, ParticipantStatus.RESERVED) shouldBe true
+        lootAccessible(MatchPhase.COUNTDOWN, ParticipantStatus.ALIVE) shouldBe true
+        lootAccessible(MatchPhase.ACTIVE, ParticipantStatus.ALIVE) shouldBe true
+        lootAccessible(MatchPhase.ACTIVE, ParticipantStatus.DEAD) shouldBe false
+        lootAccessible(MatchPhase.RESOLVING, ParticipantStatus.ALIVE) shouldBe false
+    }
+
+    "remote start outcomes contain no host-only rejection" {
+        ReservationStartResult.entries.map(ReservationStartResult::name).contains("HOST_ONLY") shouldBe false
+    }
+
     "modern dialogs stay optional and fall back for old clients and item grids" {
         dialogFrontendSupported(false, MIN_DIALOG_PROTOCOL, EventsView.Main) shouldBe false
         dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL - 1, EventsView.Main) shouldBe false

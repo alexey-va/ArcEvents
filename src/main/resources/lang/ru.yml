@@ -93,6 +93,11 @@ menu:
     detective-lore:
       - '<#f2f0e6>Ваша роль открыта всем игрокам.'
       - '<#f2f0e6>Исследуйте тела и ведите расследование.'
+    flow-name: '<#e3b341><bold>Как проходит раунд'
+    flow-lore:
+      - '<#f2f0e6>Подготовка: исследуйте карту и берите оружие.'
+      - '<#f2f0e6>Роли скрыты, а урон полностью выключен.'
+      - '<#f2f0e6>Затем роль раскроется и начнётся отсчёт.'
     evidence-name: '<#e3b341><bold>Тела и улики'
     evidence-lore:
       - '<#f2f0e6>Нажмите ПКМ по телу, чтобы открыть роль.'
@@ -118,8 +123,8 @@ menu:
       - '<#8c8c8c>Восстановления: <#f2f0e6><recovery>'
     start-name: '<#7bd88f><bold>Запустить из очереди'
     start-lore:
-      - '<#f2f0e6>Зарезервировать готовый состав сейчас.'
-      - '<#8c8c8c>Доступно только на активном хосте.'
+      - '<#f2f0e6>Добавить вас и запустить готовый состав.'
+      - '<#8c8c8c>Запрос работает с любого сервера сети.'
     stop-name: '<#d84a4a><bold>Завершить матч'
     stop-lore:
       - '<#f2f0e6>Остановить раунд и восстановить игроков.'
@@ -150,7 +155,8 @@ menu:
       - '<#8c8c8c>Цена: <#e3b341>1 кредит'
     traitor-smoke-name: '<#d84a4a><bold>Дымовая граната'
     traitor-smoke-lore:
-      - '<#f2f0e6>Ослепляет игроков рядом с вами.'
+      - '<#f2f0e6>ПКМ — бросить облако на 8 секунд.'
+      - '<#f2f0e6>Ослепляет всех игроков в радиусе.'
       - ''
       - '<#8c8c8c>Цена: <#e3b341>1 кредит'
     detective-scanner-name: '<#5fb3ff><bold>Сканер ДНК'
@@ -288,11 +294,14 @@ queue:
 
 match:
   unavailable: '<prefix> <#ff9f0f>Вы сейчас не участвуете в матче.'
-  preparing-title: '<#e3b341>Подготовка матча'
-  preparing-subtitle: '<#f2f0e6>Инвентарь сохранён · ожидайте роли'
+  preparing-title: '<#e3b341>Исследуйте карту'
+  preparing-subtitle: '<#f2f0e6>Роли скрыты · урон выключен'
+  preparing-guide: '<prefix> <#e3b341>Подготовка<#8c8c8c>: <#e6fff3>осмотритесь и берите оружие.<newline><#666666>• <#e6fff3>Роли пока скрыты, урон полностью выключен.<newline><#666666>• <#e6fff3>После раскрытия роли начнётся боевой отсчёт.<newline><#666666>• <#92bed8>ПКМ<#e6fff3> — огонь или бросок <#666666>• <#92bed8>F<#e6fff3> — перезарядка'
   countdown-title: '<#e3b341><seconds>'
   countdown-subtitle: '<#f2f0e6>Раунд скоро начнётся'
   started: '<prefix> <#e6fff3>Раунд начался. Ищите тела и улики.'
+  started-title: '<#e3b341>Раунд начался'
+  started-subtitle: '<#f2f0e6>Найдите предателей или сохраните прикрытие'
   detectives-announced: '<prefix> <#5fb3ff>Детективы раунда:<newline><#666666>• <#f2f0e6><players>'
   time-title: '<#f2f0e6>До конца: <#e3b341><time>'
   grace: '<prefix> <#ff9f0f>Оружие включится после отсчёта.'
@@ -321,6 +330,39 @@ role:
   innocent-name: '<#7bd88f>мирный'
   traitor-name: '<#d84a4a>предатель'
   detective-name: '<#5fb3ff>детектив'
+  innocent-label: '<#7bd88f>Мирный'
+  traitor-label: '<#d84a4a>Предатель'
+  detective-label: '<#5fb3ff>Детектив'
+
+hud:
+  scoreboard-title: '<#e3b341>Тайные роли'
+  phase-line: '<#8c8c8c>Фаза: <phase>'
+  time-line: '<#8c8c8c>Время: <#f2f0e6><time>'
+  alive-line: '<#8c8c8c>Живых: <#f2f0e6><alive>/<#f2f0e6><players>'
+  role-line: '<#8c8c8c>Роль: <role>'
+  credits-line: '<#8c8c8c>Кредиты: <#e3b341><credits>'
+  objective-line: '<#8c8c8c>Цель: <objective>'
+  role-hidden: '<#e3b341>Скрыта'
+  objective-preparing: '<#f2f0e6>изучите карту'
+  objective-innocent: '<#7bd88f>найдите предателей'
+  objective-traitor: '<#d84a4a>устраните мирных'
+  objective-detective: '<#5fb3ff>исследуйте тела'
+  bossbar-preparing: '<#e3b341>Подготовка <#666666>• <#f2f0e6>роли через <#e3b341><time>'
+  bossbar-countdown: '<role> <#666666>• <#f2f0e6>старт через <#e3b341><time>'
+  bossbar-active: '<#f2f0e6>Раунд <#666666>• <#e3b341><time> <#666666>• <#f2f0e6>живых <#e3b341><alive>'
+  countdown-actionbar: '<role> <#666666>• <#f2f0e6>Огонь через <#e3b341><time>'
+  preparing-tips:
+    - '<#e3b341>Подготовка <#666666>• <#f2f0e6>исследуйте карту и собирайте оружие'
+    - '<#e3b341>Роли скрыты <#666666>• <#f2f0e6>урон пока выключен'
+    - '<#92bed8>ПКМ<#f2f0e6> — огонь или бросок <#666666>• <#92bed8>F<#f2f0e6> — перезарядка'
+
+guide:
+  item-name: '<#e3b341><bold>Брифинг раунда'
+  item-lore:
+    - '<#f2f0e6>Подготовка нужна для разведки и сбора оружия.'
+    - '<#f2f0e6>Роли раскроются перед боевым отсчётом.'
+    - ''
+    - '<#666666>• <#e3b341>ПКМ<#f2f0e6>, чтобы открыть правила <#666666>•'
 
 loadout:
   blade: '<#f2f0e6>Клинок'
@@ -425,7 +467,7 @@ shop:
   inventory-full: '<prefix> <#c42323>Нет места. Кредиты сохранены.'
   radar-active: '<prefix> <#e6fff3>Радар: <#d84a4a><target><#8c8c8c> • <#e3b341>30 с.'
   radar-empty: '<prefix> <#ff9f0f>Радар не нашёл живую цель.'
-  smoke-used: '<prefix> <#e6fff3>Дымовая граната активирована.'
+  smoke-used: '<prefix> <#e6fff3>Граната брошена. Дым сработает при попадании.'
   medkit-full: '<prefix> <#ff9f0f>Ваше здоровье уже заполнено.'
 
 team:
@@ -438,10 +480,10 @@ chat:
   spectator-message: '<#666666>[Наблюдатели] <#8c8c8c><player>: <#b8b8b8><message>'
 
 admin:
-  host-only: '<prefix> <#c42323>Команда доступна только на HOST.'
   arena-unavailable: '<prefix> <#c42323>Арена не готова: проверьте мир и точки.'
   started: '<prefix> <#2bba43>Резервирование состава запущено.'
   start-failed: '<prefix> <#c42323>В очереди недостаточно игроков.'
+  start-recovery-pending: '<prefix> <#ff9f0f>Сначала завершите восстановление состояния.'
   busy: '<prefix> <#ff9f0f>HOST занят другим матчем.'
   network-failed: '<prefix> <#c42323>Redis не подтвердил резерв.'
   stopped: '<prefix> <#2bba43>Матч остановлен. Идёт восстановление.'

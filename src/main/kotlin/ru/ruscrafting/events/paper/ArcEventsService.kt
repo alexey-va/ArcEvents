@@ -1,6 +1,5 @@
 package ru.ruscrafting.events.paper
 
-import net.kyori.adventure.bossbar.BossBar
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.title.Title
 import org.bukkit.GameMode
@@ -19,8 +18,6 @@ import org.bukkit.inventory.ItemStack
 import org.bukkit.inventory.meta.SkullMeta
 import org.bukkit.persistence.PersistentDataType
 import org.bukkit.plugin.Plugin
-import org.bukkit.potion.PotionEffect
-import org.bukkit.potion.PotionEffectType
 import org.bukkit.util.Vector
 import ru.arc.core.ScheduledTask
 import ru.arc.core.Tasks
@@ -124,6 +121,9 @@ class ArcEventsService(
     private val escrow: PlayerStateEscrow,
     private val items: TttItems,
     private val firearms: TttFirearms,
+    private val hud: TttHud,
+    private val lootScene: TttLootScene,
+    private val smokeGrenades: TttSmokeGrenades,
     private val network: EventNetworkCoordinator,
     private val debug: ArcEventsDebug,
     private val redisConnected: () -> Boolean,
@@ -139,7 +139,6 @@ class ArcEventsService(
     private val teleportAuthorizer = InternalTeleportAuthorizer()
     private val recentAttacks = RecentAttackLedger(clock = clock)
     private val projectiles = mutableSetOf<UUID>()
-    private val lootEntities = mutableSetOf<UUID>()
     private val bodies = linkedMapOf<UUID, BodyRecord>()
     private val combatLog = mutableListOf<CombatRecord>()
     private val shotCooldownUntil = mutableMapOf<UUID, Long>()
@@ -148,7 +147,7 @@ class ArcEventsService(
     private var roundReport: RoundReportView? = null
     private val bodyKey = NamespacedKey(plugin, "body_id")
     private val projectileMatchKey = NamespacedKey(plugin, "projectile_match")
-    private var bossBar: BossBar? = null
+    private var preparationRemaining = 0
     private var countdownRemaining = 0
     private var cleanupRetryTask: ScheduledTask? = null
     @Volatile
@@ -176,11 +175,11 @@ class ArcEventsService(
             matchId = active?.matchId ?: pendingReservation?.matchId,
             phase = active?.phase ?: pendingReservation?.let { MatchPhase.RESERVED },
             participants = active?.participants?.size ?: pendingReservation?.entries?.size ?: 0,
-            alive = active?.alive()?.size ?: 0,
+            alive = active?.let(::visibleAliveCount) ?: 0,
             traitors = active?.alive()?.count { it.role == TttRole.TRAITOR } ?: 0,
             detectives = active?.alive()?.count { it.role == TttRole.DETECTIVE } ?: 0,
             recoveryPending = escrow.pendingCount(),
-            secondsRemaining = remainingSeconds(active),
+            secondsRemaining = phaseRemainingSeconds(active).toLong(),
         )
     }
 
@@ -296,6 +295,7 @@ class ArcEventsService(
     }
 
     override fun handleQuit(player: Player) {
+        hud.remove(player.uniqueId)
         val current = match ?: return
         if (current.participant(player.uniqueId) == null || current.phase !in LIVE_PHASES) return
         val engine = engine()
@@ -308,7 +308,12 @@ class ArcEventsService(
         }
     }
 
-    fun startFromQueue(): CompletableFuture<ReservationStartResult> = network.reserveNow()
+    fun startFromQueue(requester: Player? = null): CompletableFuture<ReservationStartResult> {
+        if (requester != null && escrow.pendingFor(requester.uniqueId)) {
+            return CompletableFuture.completedFuture(ReservationStartResult.RECOVERY_PENDING)
+        }
+        return network.reserveNow(requester)
+    }
 
     fun stopByAdmin(): AdminStopResult {
         reservation?.let { pending ->
@@ -438,6 +443,7 @@ class ArcEventsService(
 
     override fun handleProjectileHit(projectile: Projectile) {
         if (projectileMatchId(projectile) == null) return
+        smokeGrenades.handleHit(projectile)
         projectiles.remove(projectile.uniqueId)
         Tasks.scheduler.runLater(1L) { if (projectile.isValid) projectile.remove() }
     }
@@ -594,7 +600,7 @@ class ArcEventsService(
             EventItemKind.TRAITOR_RADAR -> activateRadar(player, current)
             EventItemKind.TRAITOR_SMOKE -> activateSmoke(player)
             EventItemKind.DETECTIVE_MEDKIT -> activateMedkit(player)
-            EventItemKind.SHOP, EventItemKind.FIREARM, EventItemKind.AMMUNITION, EventItemKind.ROUND_REPORT,
+            EventItemKind.GUIDE, EventItemKind.SHOP, EventItemKind.FIREARM, EventItemKind.AMMUNITION, EventItemKind.ROUND_REPORT,
             EventItemKind.DETECTIVE_SCANNER, EventItemKind.TRAITOR_BLADE, EventItemKind.DETECTIVE_ARMOR -> false
         }
     }
@@ -695,25 +701,23 @@ class ArcEventsService(
 
     override fun canDropLoot(player: Player, item: ItemStack?): Boolean {
         val current = match ?: return false
-        return current.phase == MatchPhase.ACTIVE && current.participant(player.uniqueId)?.status == ParticipantStatus.ALIVE &&
+        return lootAccessible(current.phase, current.participant(player.uniqueId)?.status) &&
             firearms.isLoot(item, current.matchId.toString())
     }
 
     override fun registerDroppedLoot(item: Item) {
         val current = match ?: return item.remove()
         if (!firearms.isLoot(item.itemStack, current.matchId.toString())) return item.remove()
-        lootEntities.removeIf { entityId -> plugin.server.getEntity(entityId)?.isValid != true }
-        item.pickupDelay = 20
-        item.setUnlimitedLifetime(true)
-        item.setCanMobPickup(false)
-        lootEntities += item.uniqueId
+        lootScene.register(item)
     }
 
     override fun canPickupLoot(player: Player, item: Item): Boolean {
         val current = match ?: return false
-        return current.phase == MatchPhase.ACTIVE && current.participant(player.uniqueId)?.status == ParticipantStatus.ALIVE &&
+        return lootAccessible(current.phase, current.participant(player.uniqueId)?.status) &&
             firearms.isLoot(item.itemStack, current.matchId.toString())
     }
+
+    override fun handleLootPickup(item: Item) = lootScene.consume(item.uniqueId)
 
     fun teamChat(player: Player, rawMessage: String) {
         val current = match
@@ -747,9 +751,9 @@ class ArcEventsService(
         }
         player.sendMessage(locale.render("match.status", player, mapOf(
             "phase" to locale.render("phase.${current.phase.name.lowercase()}", player),
-            "alive" to locale.text(current.alive().size),
+            "alive" to locale.text(visibleAliveCount(current)),
             "players" to locale.text(current.participants.size),
-            "time" to locale.text(formatTime(remainingSeconds(current))),
+            "time" to locale.text(formatTime(phaseRemainingSeconds(current).toLong())),
         )))
     }
 
@@ -770,7 +774,7 @@ class ArcEventsService(
             "detectives" to state.detectives,
             "recovery" to state.recoveryPending,
             "remaining" to state.secondsRemaining,
-            "loot" to lootEntities.count { plugin.server.getEntity(it)?.isValid == true },
+            "loot" to lootScene.size,
             "combat" to combatLog.size,
         )
     }
@@ -852,9 +856,9 @@ class ArcEventsService(
             cleanupLoot()
             escrow.prepare(matchId, online, online.associate { it.uniqueId to currentSettings.serverId }, clock())
             match = engine.prepare(created)
+            preparationRemaining = currentSettings.ttt.preparationSeconds
             applyEventState(online, requireNotNull(match))
             debug.event("debug_match_preparing", "match" to matchId, "players" to online.size)
-            tasks += Tasks.scheduler.runLater(currentSettings.ttt.preparationSeconds * 20L) { beginCountdown() }
             DebugMutationResult.APPLIED
         }.getOrElse { failure ->
             plugin.logger.log(Level.SEVERE, "ArcEvents debug bootstrap failed for $matchId", failure)
@@ -1025,7 +1029,8 @@ class ArcEventsService(
         player.gameMode = GameMode.ADVENTURE
         player.health = player.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20.0
         player.foodLevel = 20
-        items.giveBaseLoadout(player, participant.role, current.matchId.toString())
+        items.givePreparationLoadout(player, current.matchId.toString())
+        items.revealRoleLoadout(player, participant.role, current.matchId.toString())
         val index = current.participants.keys.indexOf(player.uniqueId).coerceAtLeast(0)
         teleport(player, settings().arena.spawns[index])
         return DebugMutationResult.APPLIED
@@ -1061,7 +1066,7 @@ class ArcEventsService(
     fun debugLoot(respawn: Boolean): DebugMutationResult {
         if (!settings().debugMutationsAllowed) return DebugMutationResult.MUTATIONS_DISABLED
         val current = match ?: return DebugMutationResult.NO_MATCH
-        if (current.phase != MatchPhase.ACTIVE) return DebugMutationResult.WRONG_PHASE
+        if (current.phase !in LIVE_PHASES) return DebugMutationResult.WRONG_PHASE
         cleanupLoot()
         if (respawn) spawnLoot(current)
         return DebugMutationResult.APPLIED
@@ -1140,6 +1145,7 @@ class ArcEventsService(
                 clock(),
             )
             match = engine.prepare(created)
+            preparationRemaining = currentSettings.ttt.preparationSeconds
             applyEventState(online, requireNotNull(match))
             network.completeReservation(batch.matchId, online.map(Player::getUniqueId)).whenComplete { _, failure ->
                 Tasks.scheduler.runSync {
@@ -1154,7 +1160,6 @@ class ArcEventsService(
                     if (online.size < batch.entries.size) network.releaseUnarrived(batch, online.map(Player::getUniqueId))
                     network.announceStarted(batch.matchId)
                     debug.event("match_preparing", "match" to batch.matchId, "players" to online.size)
-                    tasks += Tasks.scheduler.runLater(currentSettings.ttt.preparationSeconds * 20L) { beginCountdown() }
                 }
             }
         } catch (failure: Throwable) {
@@ -1169,7 +1174,6 @@ class ArcEventsService(
         val arena = settings().arena
         require(arenaReady())
         players.forEachIndexed { index, player ->
-            val participant = requireNotNull(current.participant(player.uniqueId))
             player.closeInventory()
             player.activePotionEffects.forEach { player.removePotionEffect(it.type) }
             player.gameMode = GameMode.ADVENTURE
@@ -1184,23 +1188,32 @@ class ArcEventsService(
             player.saturation = 20f
             player.level = 0
             player.exp = 0f
-            items.giveBaseLoadout(player, participant.role, current.matchId.toString())
+            items.givePreparationLoadout(player, current.matchId.toString())
             teleport(player, arena.spawns[index])
             player.showTitle(Title.title(
                 locale.render("match.preparing-title", player),
                 locale.render("match.preparing-subtitle", player),
                 Title.Times.times(Duration.ofMillis(250), Duration.ofSeconds(3), Duration.ofMillis(500)),
             ))
+            player.sendMessage(locale.render("match.preparing-guide", player))
+            if (settings().ui.particles) {
+                player.world.spawnParticle(Particle.END_ROD, player.location.add(0.0, 1.0, 0.0), 18, 0.7, 0.8, 0.7, 0.015)
+            }
             player.saveData()
         }
+        spawnLoot(current)
+        hud.open(current)
+        hud.update(current, preparationRemaining, settings().ttt.preparationSeconds)
     }
 
     private fun beginCountdown() {
         val current = match ?: return
         if (current.phase != MatchPhase.PREPARING) return
         match = engine().countdown(current)
+        preparationRemaining = 0
         countdownRemaining = settings().ttt.countdownSeconds
         revealRoles(requireNotNull(match))
+        hud.update(requireNotNull(match), countdownRemaining, settings().ttt.countdownSeconds)
         debug.event("match_countdown", "match" to current.matchId, "seconds" to countdownRemaining)
     }
 
@@ -1215,6 +1228,7 @@ class ArcEventsService(
                 TttRole.DETECTIVE -> "role.detective-title" to "role.detective-subtitle"
             }
             val allies = traitorNames.filterNot { it == participant.playerName }.joinToString(", ").ifEmpty { "—" }
+            items.revealRoleLoadout(player, participant.role, current.matchId.toString())
             player.showTitle(Title.title(
                 locale.render(titleKey, player),
                 locale.render(subtitleKey, player, mapOf("allies" to Component.text(allies))),
@@ -1228,6 +1242,9 @@ class ArcEventsService(
                 }
                 player.playSound(player.location, sound, 0.65f, 1.0f)
             }
+            if (settings().ui.particles) {
+                player.world.spawnParticle(Particle.END_ROD, player.location.add(0.0, 1.0, 0.0), 24, 0.65, 0.9, 0.65, 0.02)
+            }
         }
         if (detectiveNames.isNotEmpty()) {
             broadcast("match.detectives-announced", mapOf("players" to Component.text(detectiveNames.joinToString(", "))))
@@ -1239,23 +1256,39 @@ class ArcEventsService(
         if (current.phase != MatchPhase.COUNTDOWN) return
         match = engine().activate(current, clock())
         countdownRemaining = 0
-        spawnLoot(requireNotNull(match))
-        createBossBar()
         requireNotNull(match).participants.values.mapNotNull { plugin.server.getPlayer(it.playerId) }.forEach { player ->
             player.sendMessage(locale.render("match.started", player))
+            player.showTitle(Title.title(
+                locale.render("match.started-title", player),
+                locale.render("match.started-subtitle", player),
+                Title.Times.times(Duration.ofMillis(100), Duration.ofSeconds(2), Duration.ofMillis(350)),
+            ))
             if (settings().ui.sounds) player.playSound(player.location, Sound.ENTITY_ENDER_DRAGON_GROWL, 0.45f, 1.35f)
+            if (settings().ui.particles) {
+                player.world.spawnParticle(Particle.END_ROD, player.location.add(0.0, 1.0, 0.0), 32, 0.8, 1.0, 0.8, 0.035)
+            }
         }
+        hud.update(requireNotNull(match), settings().ttt.roundSeconds, settings().ttt.roundSeconds)
         debug.event("match_active", "match" to current.matchId, "deadline" to match?.deadlineMs)
     }
 
     private fun tick() {
         val current = match ?: return
         when (current.phase) {
+            MatchPhase.PREPARING -> {
+                if (preparationRemaining <= 0) {
+                    beginCountdown()
+                    return
+                }
+                hud.update(current, preparationRemaining, settings().ttt.preparationSeconds)
+                preparationRemaining--
+            }
             MatchPhase.COUNTDOWN -> {
                 if (countdownRemaining <= 0) {
                     activateRound()
                     return
                 }
+                hud.update(current, countdownRemaining, settings().ttt.countdownSeconds)
                 current.participants.values.mapNotNull { plugin.server.getPlayer(it.playerId) }.forEach { player ->
                     player.showTitle(Title.title(
                         locale.render("match.countdown-title", player, mapOf("seconds" to locale.text(countdownRemaining))),
@@ -1269,25 +1302,10 @@ class ArcEventsService(
             MatchPhase.ACTIVE -> {
                 val (changed, outcome) = engine().tick(current, clock())
                 match = changed
-                updateHud(changed)
+                hud.update(changed, remainingSeconds(changed).toInt(), settings().ttt.roundSeconds)
                 if (outcome is MatchOutcome.Finished) resolve(changed)
             }
             else -> Unit
-        }
-    }
-
-    private fun updateHud(current: TttMatch) {
-        val remaining = remainingSeconds(current)
-        bossBar?.apply {
-            progress((remaining.toFloat() / settings().ttt.roundSeconds).coerceIn(0f, 1f))
-            name(locale.render("match.time-title", values = mapOf("time" to locale.text(formatTime(remaining)))))
-        }
-        current.participants.values.filter { it.status == ParticipantStatus.ALIVE }.forEach { participant ->
-            plugin.server.getPlayer(participant.playerId)?.sendActionBar(locale.render("role.actionbar", plugin.server.getPlayer(participant.playerId), mapOf(
-                "role" to roleName(participant.role, plugin.server.getPlayer(participant.playerId)),
-                "alive" to locale.text(current.alive().size),
-                "time" to locale.text(formatTime(remaining)),
-            )))
         }
     }
 
@@ -1295,7 +1313,7 @@ class ArcEventsService(
         if (current.phase != MatchPhase.RESOLVING) return
         match = current
         cancelMatchTasks(keepMainTick = true)
-        hideBossBar()
+        hud.close()
         val title = if (current.winner == TttTeam.TRAITORS) "match.winner-traitors-title" else "match.winner-innocents-title"
         val subtitle = if (current.winner == TttTeam.TRAITORS) "match.winner-traitors-subtitle" else "match.winner-innocents-subtitle"
         roundReport = RoundReportView(
@@ -1341,7 +1359,7 @@ class ArcEventsService(
         }
         match = cancelled
         cancelMatchTasks(keepMainTick = true)
-        hideBossBar()
+        hud.close()
         cancelled.participants.values.mapNotNull { plugin.server.getPlayer(it.playerId) }.forEach { player ->
             player.showTitle(Title.title(
                 locale.render("match.cancelled-title", player),
@@ -1438,6 +1456,7 @@ class ArcEventsService(
     }
 
     private fun cleanupProjectiles() {
+        smokeGrenades.clear()
         projectiles.forEach { plugin.server.getEntity(it)?.remove() }
         projectiles.clear()
     }
@@ -1451,20 +1470,13 @@ class ArcEventsService(
             val stack = spawn.firearm?.let { firearms.firearmItem(it, null, current.matchId.toString()) }
                 ?: firearms.ammunition(null, current.matchId.toString(), spawn.ammunition)
             val location = Location(world, spawn.point.x, spawn.point.y, spawn.point.z)
-            val item = world.dropItem(location, stack) { dropped ->
-                dropped.pickupDelay = 0
-                dropped.setUnlimitedLifetime(true)
-                dropped.setCanMobPickup(false)
-                dropped.velocity = Vector()
-            }
-            lootEntities += item.uniqueId
+            lootScene.spawn(location, stack)
         }
-        debug.event("loot_spawned", "match" to current.matchId, "entities" to lootEntities.size)
+        debug.event("loot_spawned", "match" to current.matchId, "entities" to lootScene.size)
     }
 
     private fun cleanupLoot() {
-        lootEntities.forEach { plugin.server.getEntity(it)?.remove() }
-        lootEntities.clear()
+        lootScene.clear()
         reloadTasks.values.forEach(ScheduledTask::cancel)
         reloadTasks.clear()
         shotCooldownUntil.clear()
@@ -1562,14 +1574,9 @@ class ArcEventsService(
             .minByOrNull { it.location.distanceSquared(player.location) }
 
     private fun activateSmoke(player: Player): Boolean {
-        consumeMainHand(player)
         val current = match ?: return false
-        current.alive().mapNotNull { plugin.server.getPlayer(it.playerId) }
-            .filter { it.uniqueId != player.uniqueId && it.world == player.world && it.location.distanceSquared(player.location) <= 49.0 }
-            .forEach { it.addPotionEffect(PotionEffect(PotionEffectType.BLINDNESS, 5 * 20, 0, false, true, true)) }
-        if (settings().ui.particles) {
-            player.world.spawnParticle(Particle.LARGE_SMOKE, player.location.add(0.0, 1.0, 0.0), 80, 3.5, 1.5, 3.5, 0.03)
-        }
+        if (smokeGrenades.launch(player, current.matchId) == null) return false
+        consumeMainHand(player)
         player.sendMessage(locale.render("shop.smoke-used", player))
         return true
     }
@@ -1611,19 +1618,6 @@ class ArcEventsService(
         return remaining <= 0
     }
 
-    private fun createBossBar() {
-        if (!settings().ui.bossBar) return
-        val bar = BossBar.bossBar(Component.empty(), 1f, BossBar.Color.YELLOW, BossBar.Overlay.PROGRESS)
-        bossBar = bar
-        match?.participants?.values?.mapNotNull { plugin.server.getPlayer(it.playerId) }?.forEach { it.showBossBar(bar) }
-    }
-
-    private fun hideBossBar() {
-        val bar = bossBar ?: return
-        plugin.server.onlinePlayers.forEach { it.hideBossBar(bar) }
-        bossBar = null
-    }
-
     private fun teleport(player: Player, target: EventLocation) {
         val world = requireNotNull(plugin.server.getWorld(target.world))
         val destination = Location(world, target.x, target.y, target.z, target.yaw, target.pitch)
@@ -1662,6 +1656,17 @@ class ArcEventsService(
         return max(0L, (requireNotNull(current.deadlineMs) - clock() + 999L) / 1_000L)
     }
 
+    private fun phaseRemainingSeconds(current: TttMatch?): Int = when (current?.phase) {
+        MatchPhase.PREPARING -> preparationRemaining
+        MatchPhase.COUNTDOWN -> countdownRemaining
+        MatchPhase.ACTIVE -> remainingSeconds(current).toInt()
+        else -> 0
+    }
+
+    private fun visibleAliveCount(current: TttMatch): Int = current.participants.values.count {
+        it.status in setOf(ParticipantStatus.RESERVED, ParticipantStatus.ALIVE)
+    }
+
     private fun formatTime(seconds: Long): String = "%d:%02d".format(seconds / 60, seconds % 60)
 
     private fun onlineRoster(current: TttMatch): List<Player> = current.participants.keys.mapNotNull(plugin.server::getPlayer)
@@ -1688,10 +1693,12 @@ class ArcEventsService(
             else -> Unit
         }
         cancelMatchTasks(keepMainTick = false)
-        hideBossBar()
+        hud.close()
         cleanupBodies()
         cleanupProjectiles()
         cleanupLoot()
+        smokeGrenades.close()
+        lootScene.close()
         radarTasks.values.forEach(ScheduledTask::cancel)
         radarTasks.clear()
         cleanupRetryTask?.cancel()
@@ -1722,3 +1729,7 @@ class ArcEventsService(
 }
 
 private fun PlayerStateEscrow.pendingFor(playerId: UUID): Boolean = playerId in pendingPlayers()
+
+internal fun lootAccessible(phase: MatchPhase?, status: ParticipantStatus?): Boolean =
+    phase in setOf(MatchPhase.PREPARING, MatchPhase.COUNTDOWN, MatchPhase.ACTIVE) &&
+        status in setOf(ParticipantStatus.RESERVED, ParticipantStatus.ALIVE)

@@ -21,6 +21,10 @@ ui:
   sounds: true
   particles: true
   bossbar: true
+  scoreboard: true
+  # Float map weapons as animated ItemDisplay entities while keeping a hidden,
+  # server-authoritative pickup entity underneath.
+  loot-displays: true
   # Paper Dialog API (1.21.6+ clients) for overview/help/admin screens.
   # Item-dense screens and older clients always use the chest GUI.
   dialogs-enabled: false

@@ -67,6 +67,7 @@ interface ArcEventsGameplayBoundary {
     fun canDropLoot(player: Player, item: org.bukkit.inventory.ItemStack?): Boolean
     fun registerDroppedLoot(item: org.bukkit.entity.Item)
     fun canPickupLoot(player: Player, item: org.bukkit.entity.Item): Boolean
+    fun handleLootPickup(item: org.bukkit.entity.Item)
     fun readBodyId(stand: ArmorStand): UUID?
     fun inspectBody(player: Player, bodyId: UUID)
     fun isInternalTeleport(playerId: UUID, destination: Location?): Boolean
@@ -155,13 +156,21 @@ class ArcEventsListener(
             return
         }
         when (kind) {
+            EventItemKind.GUIDE -> {
+                event.isCancelled = true
+                if (event.hand == EquipmentSlot.HAND && event.action in setOf(Action.RIGHT_CLICK_AIR, Action.RIGHT_CLICK_BLOCK)) {
+                    menu.open(player, EventsView.Help)
+                }
+            }
             EventItemKind.SHOP -> {
                 event.isCancelled = true
                 menu.open(player, EventsView.Shop)
             }
             EventItemKind.TRAITOR_RADAR, EventItemKind.TRAITOR_SMOKE, EventItemKind.DETECTIVE_MEDKIT -> {
-                service.useSpecialItem(player, kind)
                 event.isCancelled = true
+                if (event.hand == EquipmentSlot.HAND && event.action in setOf(Action.RIGHT_CLICK_AIR, Action.RIGHT_CLICK_BLOCK)) {
+                    service.useSpecialItem(player, kind)
+                }
             }
             EventItemKind.FIREARM -> {
                 event.isCancelled = true
@@ -223,6 +232,10 @@ class ArcEventsListener(
         if (service.withinArena(player.location) || service.isParticipant(player.uniqueId) && service.phase() in CONTROLLED_PHASES) {
             event.isCancelled = true
         }
+    }
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true) fun onPickupCommitted(event: EntityPickupItemEvent) {
+        val player = event.entity as? Player ?: return
+        if (service.canPickupLoot(player, event.item)) service.handleLootPickup(event.item)
     }
     @EventHandler(ignoreCancelled = true) fun onSwap(event: PlayerSwapHandItemsEvent) {
         if (service.isParticipant(event.player.uniqueId) && service.phase() in CONTROLLED_PHASES) {

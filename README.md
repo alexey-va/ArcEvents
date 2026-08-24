@@ -15,6 +15,10 @@ so an arrow from an old round cannot affect a later one.
   match. Production uses the dedicated, ArcEvents-owned `arcevents_ttt` world.
 - Redis carries bounded queue, reservation, node-heartbeat, match-summary, and
   statistics records. Active combat remains authoritative on the host.
+- An authorized player may start the queued roster from any backend. A relay
+  first ensures that player is queued, sends a target-bound, replay-bounded
+  start request to the configured host, and receives a correlated result; the
+  host remains the only node that can reserve players or create a match.
 - A relay never clears an inventory. The host writes one atomic recovery batch
   for the entire match before the first gameplay mutation, verifies every
   restored surface, saves player data, and only then acknowledges the snapshot.
@@ -109,6 +113,23 @@ screens when the connecting client is Minecraft 1.21.6 or newer. Older clients
 and all item-grid views automatically use the chest frontend; both paths call
 the same permission and match-state checks. The production mirrors keep the
 flag disabled until modern-client acceptance QA is explicitly selected.
+
+## Round presentation
+
+TTT follows three visible stages. During preparation, players are already free
+to scout the arena, collect or drop map firearms, and open the briefing book,
+while roles remain hidden and all combat is blocked. The role reveal starts a
+short countdown, equips only the relevant role shop, and then unlocks the
+active round.
+
+Each participant gets a locale-aware sidebar, per-player boss bar, contextual
+action bar, phase titles, and restrained transition particles. The previous
+scoreboard is restored when the event ends. Map pickups use a hidden
+server-authoritative item for collision plus a temporary rotating `ItemDisplay`
+and particles for presentation; `ui.loot-displays` can disable only that visual
+layer. Smoke grenades are throwable snowball projectiles and create an
+eight-second cloud that repeatedly applies blindness and darkness to every
+living participant inside it, including the thrower.
 
 ## Build
 

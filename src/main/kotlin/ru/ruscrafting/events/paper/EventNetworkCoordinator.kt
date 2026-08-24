@@ -26,14 +26,15 @@ import ru.ruscrafting.events.network.ReservationBatch
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.logging.Level
 
 enum class ReservationStartResult {
     STARTED,
-    HOST_ONLY,
     ARENA_UNAVAILABLE,
     BUSY,
     INSUFFICIENT_PLAYERS,
+    RECOVERY_PENDING,
     NETWORK_FAILURE,
 }
 
@@ -60,6 +61,9 @@ class EventNetworkCoordinator(
     private val tasks = mutableListOf<ScheduledTask>()
     private val seen = ConcurrentHashMap<String, Long>()
     private val statistics = ConcurrentHashMap<UUID, PlayerEventStats>()
+    private val pendingStarts = ConcurrentHashMap<String, CompletableFuture<ReservationStartResult>>()
+    private val pendingStartTimeouts = ConcurrentHashMap<String, ScheduledTask>()
+    private val startInFlight = AtomicBoolean(false)
     @Volatile
     private var started = false
 
@@ -133,22 +137,88 @@ class EventNetworkCoordinator(
         }
     }
 
-    fun reserveNow(): CompletableFuture<ReservationStartResult> {
+    fun reserveNow(requester: Player? = null): CompletableFuture<ReservationStartResult> {
+        if (requester != null) return queueRequesterThenReserve(requester)
         val current = settings()
-        if (current.nodeMode != NodeMode.HOST) return CompletableFuture.completedFuture(ReservationStartResult.HOST_ONLY)
+        return if (current.nodeMode == NodeMode.HOST) reserveOnHost() else requestHostStart(current)
+    }
+
+    private fun queueRequesterThenReserve(requester: Player): CompletableFuture<ReservationStartResult> {
+        val current = settings()
+        if (!hostAvailable()) return CompletableFuture.completedFuture(ReservationStartResult.ARENA_UNAVAILABLE)
+        val result = CompletableFuture<ReservationStartResult>()
+        repository.joinQueue(
+            requester.uniqueId,
+            requester.name,
+            current.serverId,
+            clock(),
+            current.network.queueEntrySeconds * 1_000L,
+        ).whenComplete { joinResult, failure ->
+            Tasks.scheduler.runSync {
+                if (!started || failure != null || joinResult == QueueJoinResult.Contended || joinResult == null) {
+                    if (failure != null) plugin.logger.log(Level.WARNING, "ArcEvents start requester queue failed", failure)
+                    result.complete(ReservationStartResult.NETWORK_FAILURE)
+                    return@runSync
+                }
+                refresh()
+                reserveNow().whenComplete { outcome, reserveFailure ->
+                    result.complete(if (reserveFailure == null && outcome != null) outcome else ReservationStartResult.NETWORK_FAILURE)
+                }
+            }
+        }
+        return result
+    }
+
+    private fun requestHostStart(current: ArcEventsConfig): CompletableFuture<ReservationStartResult> {
+        if (!hostAvailable()) return CompletableFuture.completedFuture(ReservationStartResult.ARENA_UNAVAILABLE)
+        if (pendingStarts.size >= MAX_PENDING_STARTS) {
+            return CompletableFuture.completedFuture(ReservationStartResult.NETWORK_FAILURE)
+        }
+        val request = EventNetworkMessage.create(
+            signal = EventNetworkSignal.START_REQUEST,
+            destinationServer = current.hostServer,
+        )
+        val result = CompletableFuture<ReservationStartResult>()
+        pendingStarts[request.eventId] = result
+        pendingStartTimeouts[request.eventId] = Tasks.scheduler.runLater(START_REQUEST_TIMEOUT_TICKS) {
+            pendingStartTimeouts.remove(request.eventId)
+            pendingStarts.remove(request.eventId)?.complete(ReservationStartResult.NETWORK_FAILURE)
+        }
+        return runCatching {
+            repository.publish(request)
+            debug.event("start_requested", "origin" to current.serverId, "host" to current.hostServer, "request" to request.eventId)
+            result
+        }.getOrElse { failure ->
+            pendingStartTimeouts.remove(request.eventId)?.cancel()
+            pendingStarts.remove(request.eventId)
+            plugin.logger.log(Level.WARNING, "ArcEvents start request could not be published", failure)
+            CompletableFuture.completedFuture(ReservationStartResult.NETWORK_FAILURE)
+        }
+    }
+
+    private fun reserveOnHost(): CompletableFuture<ReservationStartResult> {
+        val current = settings()
+        if (current.nodeMode != NodeMode.HOST) return CompletableFuture.completedFuture(ReservationStartResult.NETWORK_FAILURE)
         if (!arenaReady()) return CompletableFuture.completedFuture(ReservationStartResult.ARENA_UNAVAILABLE)
         if (matchState().first != null) return CompletableFuture.completedFuture(ReservationStartResult.BUSY)
+        if (!startInFlight.compareAndSet(false, true)) return CompletableFuture.completedFuture(ReservationStartResult.BUSY)
         val result = CompletableFuture<ReservationStartResult>()
         val matchId = UUID.randomUUID()
-        repository.reserve(
+        val reservationFuture = runCatching { repository.reserve(
             matchId,
             current.serverId,
             current.ttt.minimumPlayers,
             current.ttt.maximumPlayers,
             clock(),
             current.network.reservationSeconds * 1_000L,
-        ).whenComplete { batch, failure ->
+        ) }.getOrElse { failure ->
+            startInFlight.set(false)
+            plugin.logger.log(Level.WARNING, "ArcEvents roster reservation could not be submitted", failure)
+            return CompletableFuture.completedFuture(ReservationStartResult.NETWORK_FAILURE)
+        }
+        reservationFuture.whenComplete { batch, failure ->
             Tasks.scheduler.runSync {
+                startInFlight.set(false)
                 if (!started) {
                     result.complete(ReservationStartResult.NETWORK_FAILURE)
                     return@runSync
@@ -311,6 +381,9 @@ class EventNetworkCoordinator(
         val now = clock()
         if (origin !in current.network.allowedOrigins || origin == current.serverId) return
         if (message.occurredAtMs < now - MESSAGE_MAX_AGE_MS || message.occurredAtMs > now + FUTURE_SKEW_MS) return
+        if (message.signal in START_SIGNALS &&
+            (message.occurredAtMs < now - START_MESSAGE_MAX_AGE_MS || message.occurredAtMs > now + START_FUTURE_SKEW_MS)
+        ) return
         if (seen.size >= MAX_SEEN_MESSAGES || seen.putIfAbsent(message.eventId, now) != null) return
         Tasks.scheduler.runSync {
             if (!started) return@runSync
@@ -321,6 +394,8 @@ class EventNetworkCoordinator(
                 }
                 EventNetworkSignal.ROUTE_PLAYER -> route(message)
                 EventNetworkSignal.RETURN_PLAYER -> routeReturn(message)
+                EventNetworkSignal.START_REQUEST -> handleStartRequest(message, origin)
+                EventNetworkSignal.START_RESULT -> handleStartResult(message, origin)
                 EventNetworkSignal.NODE_PROBE -> repository.publish(
                     EventNetworkMessage.create(EventNetworkSignal.NODE_ACK, replyTo = message.eventId),
                 )
@@ -328,6 +403,37 @@ class EventNetworkCoordinator(
                 EventNetworkSignal.MATCH_STARTED, EventNetworkSignal.MATCH_ENDED -> refreshNodes()
             }
         }
+    }
+
+    private fun handleStartRequest(message: EventNetworkMessage, origin: String) {
+        val current = settings()
+        if (current.nodeMode != NodeMode.HOST || message.destinationServer != current.serverId) return
+        reserveOnHost().whenComplete { result, failure ->
+            if (!started) return@whenComplete
+            val outcome = if (failure == null && result != null) result else ReservationStartResult.NETWORK_FAILURE
+            runCatching {
+                repository.publish(EventNetworkMessage.create(
+                    signal = EventNetworkSignal.START_RESULT,
+                    destinationServer = origin,
+                    replyTo = message.eventId,
+                    startResult = outcome.name,
+                ))
+            }.onSuccess {
+                debug.event("start_request_resolved", "origin" to origin, "request" to message.eventId, "result" to outcome)
+            }.onFailure { publishFailure ->
+                plugin.logger.log(Level.WARNING, "ArcEvents start result could not be published", publishFailure)
+            }
+        }
+    }
+
+    private fun handleStartResult(message: EventNetworkMessage, origin: String) {
+        val current = settings()
+        if (origin != current.hostServer || message.destinationServer != current.serverId) return
+        val requestId = message.replyTo ?: return
+        val result = message.startResult?.let { runCatching { ReservationStartResult.valueOf(it) }.getOrNull() } ?: return
+        pendingStartTimeouts.remove(requestId)?.cancel()
+        pendingStarts.remove(requestId)?.complete(result)
+        debug.event("start_result_received", "host" to origin, "request" to requestId, "result" to result)
     }
 
     private fun route(message: EventNetworkMessage) {
@@ -441,11 +547,21 @@ class EventNetworkCoordinator(
         listener?.let(repository::unregister)
         listener = null
         seen.clear()
+        pendingStartTimeouts.values.forEach(ScheduledTask::cancel)
+        pendingStartTimeouts.clear()
+        pendingStarts.values.forEach { it.complete(ReservationStartResult.NETWORK_FAILURE) }
+        pendingStarts.clear()
+        startInFlight.set(false)
     }
 
     companion object {
         private const val MESSAGE_MAX_AGE_MS = 15 * 60 * 1_000L
         private const val FUTURE_SKEW_MS = 60_000L
         private const val MAX_SEEN_MESSAGES = 4_096
+        private const val MAX_PENDING_STARTS = 32
+        private const val START_REQUEST_TIMEOUT_TICKS = 12L * 20L
+        private const val START_MESSAGE_MAX_AGE_MS = 10_000L
+        private const val START_FUTURE_SKEW_MS = 2_000L
+        private val START_SIGNALS = setOf(EventNetworkSignal.START_REQUEST, EventNetworkSignal.START_RESULT)
     }
 }

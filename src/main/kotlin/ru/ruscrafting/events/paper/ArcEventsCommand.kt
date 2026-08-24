@@ -286,7 +286,7 @@ class ArcEventsCommand(
     }
 
     private fun sendStartResult(sender: CommandSender, admin: Boolean) {
-        service.startFromQueue().thenAccept { result ->
+        service.startFromQueue(sender as? Player).thenAccept { result ->
             val key = if (!admin && result == ReservationStartResult.STARTED) "debug.applied" else startMessage(result)
             sender.sendMessage(locale.render(key, sender, mapOf("action" to locale.text("start"))))
         }
@@ -294,10 +294,10 @@ class ArcEventsCommand(
 
     private fun startMessage(result: ReservationStartResult): String = when (result) {
         ReservationStartResult.STARTED -> "admin.started"
-        ReservationStartResult.HOST_ONLY -> "admin.host-only"
         ReservationStartResult.ARENA_UNAVAILABLE -> "admin.arena-unavailable"
         ReservationStartResult.BUSY -> "admin.busy"
         ReservationStartResult.INSUFFICIENT_PLAYERS -> "admin.start-failed"
+        ReservationStartResult.RECOVERY_PENDING -> "admin.start-recovery-pending"
         ReservationStartResult.NETWORK_FAILURE -> "admin.network-failed"
     }
 

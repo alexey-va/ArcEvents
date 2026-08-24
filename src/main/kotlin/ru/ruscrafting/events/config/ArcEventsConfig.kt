@@ -112,6 +112,8 @@ data class UiSettings(
     val sounds: Boolean,
     val particles: Boolean,
     val bossBar: Boolean,
+    val scoreboard: Boolean,
+    val lootDisplays: Boolean,
     val dialogsEnabled: Boolean,
     val filler: UiItemSettings,
 )
@@ -174,6 +176,8 @@ class ArcEventsConfig(private val config: Config) {
             sounds = config.bool("ui.sounds", true),
             particles = config.bool("ui.particles", true),
             bossBar = config.bool("ui.bossbar", true),
+            scoreboard = config.bool("ui.scoreboard", true),
+            lootDisplays = config.bool("ui.loot-displays", true),
             dialogsEnabled = config.bool("ui.dialogs-enabled", false),
             filler = UiItemSettings(
                 material = config.string("ui.filler.material", "GRAY_STAINED_GLASS_PANE").uppercase(),
