@@ -80,6 +80,8 @@ enum class EventNetworkSignal {
     RETURN_PLAYER,
     MATCH_STARTED,
     MATCH_ENDED,
+    START_REQUEST,
+    START_RESULT,
     NODE_PROBE,
     NODE_ACK,
 }
@@ -95,6 +97,7 @@ data class EventNetworkMessage(
     val winner: TttTeam? = null,
     val endReason: MatchEndReason? = null,
     val replyTo: String? = null,
+    val startResult: String? = null,
 ) {
     fun validated(): EventNetworkMessage = apply {
         require(UUID.fromString(eventId).toString() == eventId)
@@ -103,12 +106,22 @@ data class EventNetworkMessage(
         playerId?.let { require(UUID.fromString(it).toString() == it) }
         destinationServer?.let { require(it.matches(Regex("[a-z0-9_-]{1,32}"))) }
         queueSize?.let { require(it in 0..10_000) }
+        replyTo?.let { require(UUID.fromString(it).toString() == it) }
         when (signal) {
             EventNetworkSignal.QUEUE_CHANGED -> require(queueSize != null)
             EventNetworkSignal.ROUTE_PLAYER -> require(matchId != null && playerId != null && destinationServer != null)
             EventNetworkSignal.RETURN_PLAYER -> require(matchId != null && playerId != null && destinationServer != null)
             EventNetworkSignal.MATCH_STARTED -> require(matchId != null)
             EventNetworkSignal.MATCH_ENDED -> require(matchId != null && endReason != null)
+            EventNetworkSignal.START_REQUEST -> {
+                require(destinationServer != null && replyTo == null && startResult == null)
+                require(matchId == null && playerId == null && queueSize == null && winner == null && endReason == null)
+            }
+            EventNetworkSignal.START_RESULT -> {
+                require(destinationServer != null && replyTo != null)
+                require(startResult in START_RESULTS)
+                require(matchId == null && playerId == null && queueSize == null && winner == null && endReason == null)
+            }
             EventNetworkSignal.NODE_PROBE -> require(replyTo == null)
             EventNetworkSignal.NODE_ACK -> require(replyTo != null)
         }
@@ -125,6 +138,7 @@ data class EventNetworkMessage(
             winner: TttTeam? = null,
             endReason: MatchEndReason? = null,
             replyTo: String? = null,
+            startResult: String? = null,
         ): EventNetworkMessage = EventNetworkMessage(
             eventId = UUID.randomUUID().toString(),
             signal = signal,
@@ -136,7 +150,17 @@ data class EventNetworkMessage(
             winner = winner,
             endReason = endReason,
             replyTo = replyTo,
+            startResult = startResult,
         ).validated()
+
+        private val START_RESULTS = setOf(
+            "STARTED",
+            "ARENA_UNAVAILABLE",
+            "BUSY",
+            "INSUFFICIENT_PLAYERS",
+            "RECOVERY_PENDING",
+            "NETWORK_FAILURE",
+        )
     }
 }
 

@@ -93,6 +93,11 @@ menu:
     detective-lore:
       - '<#f2f0e6>Your role is public to every player.'
       - '<#f2f0e6>Inspect bodies and lead the investigation.'
+    flow-name: '<#e3b341><bold>Round flow'
+    flow-lore:
+      - '<#f2f0e6>Preparation: explore the map and collect weapons.'
+      - '<#f2f0e6>Roles stay hidden and all damage is disabled.'
+      - '<#f2f0e6>Your role is revealed before the combat countdown.'
     evidence-name: '<#e3b341><bold>Bodies and evidence'
     evidence-lore:
       - '<#f2f0e6>Right-click a body to reveal its role.'
@@ -118,8 +123,8 @@ menu:
       - '<#8c8c8c>Recoveries: <#f2f0e6><recovery>'
     start-name: '<#7bd88f><bold>Start from queue'
     start-lore:
-      - '<#f2f0e6>Reserve a ready roster now.'
-      - '<#8c8c8c>Only available on an active host.'
+      - '<#f2f0e6>Add you and start a ready roster.'
+      - '<#8c8c8c>The request works from any network server.'
     stop-name: '<#d84a4a><bold>Stop the match'
     stop-lore:
       - '<#f2f0e6>End the round and restore every player.'
@@ -150,7 +155,8 @@ menu:
       - '<#8c8c8c>Cost: <#e3b341>1 credit'
     traitor-smoke-name: '<#d84a4a><bold>Smoke grenade'
     traitor-smoke-lore:
-      - '<#f2f0e6>Blinds players around you.'
+      - '<#f2f0e6>Right-click to throw an eight-second cloud.'
+      - '<#f2f0e6>Blinds every player inside its radius.'
       - ''
       - '<#8c8c8c>Cost: <#e3b341>1 credit'
     detective-scanner-name: '<#5fb3ff><bold>DNA Scanner'
@@ -288,11 +294,14 @@ queue:
 
 match:
   unavailable: '<prefix> <#ff9f0f>You are not participating in a match.'
-  preparing-title: '<#e3b341>Preparing match'
-  preparing-subtitle: '<#f2f0e6>Inventory secured · waiting for role'
+  preparing-title: '<#e3b341>Explore the map'
+  preparing-subtitle: '<#f2f0e6>Roles hidden · damage disabled'
+  preparing-guide: '<prefix> <#e3b341>Preparation<#8c8c8c>: <#e6fff3>scout and collect weapons.<newline><#666666>• <#e6fff3>Roles are hidden and all damage is disabled.<newline><#666666>• <#e6fff3>The combat countdown follows the role reveal.<newline><#666666>• <#92bed8>Right-click<#e6fff3> — fire or throw <#666666>• <#92bed8>F<#e6fff3> — reload'
   countdown-title: '<#e3b341><seconds>'
   countdown-subtitle: '<#f2f0e6>The round is about to start'
   started: '<prefix> <#e6fff3>Round started. Find bodies and evidence.'
+  started-title: '<#e3b341>Round started'
+  started-subtitle: '<#f2f0e6>Find the traitors or preserve your cover'
   detectives-announced: '<prefix> <#5fb3ff>Round detectives:<newline><#666666>• <#f2f0e6><players>'
   time-title: '<#f2f0e6>Remaining: <#e3b341><time>'
   grace: '<prefix> <#ff9f0f>Weapons unlock after countdown.'
@@ -321,6 +330,39 @@ role:
   innocent-name: '<#7bd88f>innocent'
   traitor-name: '<#d84a4a>traitor'
   detective-name: '<#5fb3ff>detective'
+  innocent-label: '<#7bd88f>Innocent'
+  traitor-label: '<#d84a4a>Traitor'
+  detective-label: '<#5fb3ff>Detective'
+
+hud:
+  scoreboard-title: '<#e3b341>Hidden Roles'
+  phase-line: '<#8c8c8c>Phase: <phase>'
+  time-line: '<#8c8c8c>Time: <#f2f0e6><time>'
+  alive-line: '<#8c8c8c>Alive: <#f2f0e6><alive>/<#f2f0e6><players>'
+  role-line: '<#8c8c8c>Role: <role>'
+  credits-line: '<#8c8c8c>Credits: <#e3b341><credits>'
+  objective-line: '<#8c8c8c>Goal: <objective>'
+  role-hidden: '<#e3b341>Hidden'
+  objective-preparing: '<#f2f0e6>explore the map'
+  objective-innocent: '<#7bd88f>find the traitors'
+  objective-traitor: '<#d84a4a>eliminate innocents'
+  objective-detective: '<#5fb3ff>inspect bodies'
+  bossbar-preparing: '<#e3b341>Preparation <#666666>• <#f2f0e6>roles in <#e3b341><time>'
+  bossbar-countdown: '<role> <#666666>• <#f2f0e6>start in <#e3b341><time>'
+  bossbar-active: '<#f2f0e6>Round <#666666>• <#e3b341><time> <#666666>• <#f2f0e6>alive <#e3b341><alive>'
+  countdown-actionbar: '<role> <#666666>• <#f2f0e6>Combat in <#e3b341><time>'
+  preparing-tips:
+    - '<#e3b341>Preparation <#666666>• <#f2f0e6>explore the map and collect weapons'
+    - '<#e3b341>Roles hidden <#666666>• <#f2f0e6>damage is disabled'
+    - '<#92bed8>Right-click<#f2f0e6> — fire or throw <#666666>• <#92bed8>F<#f2f0e6> — reload'
+
+guide:
+  item-name: '<#e3b341><bold>Round briefing'
+  item-lore:
+    - '<#f2f0e6>Preparation is for scouting and collecting weapons.'
+    - '<#f2f0e6>Roles appear before the combat countdown.'
+    - ''
+    - '<#666666>• <#e3b341>Right-click<#f2f0e6> to open the rules <#666666>•'
 
 loadout:
   blade: '<#f2f0e6>Blade'
@@ -425,7 +467,7 @@ shop:
   inventory-full: '<prefix> <#c42323>No room. Credits preserved.'
   radar-active: '<prefix> <#e6fff3>Radar: <#d84a4a><target><#8c8c8c> • <#e3b341>30 s.'
   radar-empty: '<prefix> <#ff9f0f>Radar found no living target.'
-  smoke-used: '<prefix> <#e6fff3>Smoke grenade activated.'
+  smoke-used: '<prefix> <#e6fff3>Grenade thrown. Smoke deploys on impact.'
   medkit-full: '<prefix> <#ff9f0f>Your health is already full.'
 
 team:
@@ -438,10 +480,10 @@ chat:
   spectator-message: '<#666666>[Spectators] <#8c8c8c><player>: <#b8b8b8><message>'
 
 admin:
-  host-only: '<prefix> <#c42323>This command is HOST-only.'
   arena-unavailable: '<prefix> <#c42323>Arena not ready: check its world and points.'
   started: '<prefix> <#2bba43>Roster reservation started.'
   start-failed: '<prefix> <#c42323>Not enough players are queued.'
+  start-recovery-pending: '<prefix> <#ff9f0f>Finish restoring your player state first.'
   busy: '<prefix> <#ff9f0f>The HOST is running another match.'
   network-failed: '<prefix> <#c42323>Redis did not confirm the reservation.'
   stopped: '<prefix> <#2bba43>Match stopped. Recovery started.'
@@ -451,7 +493,7 @@ admin:
 
 debug:
   disabled: '<prefix> <#c42323>Debug is disabled in config.yml.'
-  usage: '<prefix> <#e6fff3>Debug harness:<newline><#666666>• <#92bed8>status|player|network|recovery|bodies <#8c8c8c>— snapshots<newline><#666666>• <#92bed8>start|bootstrap|advance|end|timer|cleanup <#8c8c8c>— round<newline><#666666>• <#92bed8>credit|role|health|kill|revive <#8c8c8c>— player<newline><#666666>• <#92bed8>weapon|ammo|item|loot <#8c8c8c>— equipment<newline><#666666>• <#92bed8>discover|dna|call|menu|close <#8c8c8c>— evidence and GUI'
+  usage: '<prefix> <#e6fff3>Debug harness:<newline><#666666>• <#92bed8>[status]|[player]|[network]|[recovery]|[bodies] <#8c8c8c>— snapshots<newline><#666666>• <#92bed8>[start]|[bootstrap]|[advance]|[end]|[timer]|[cleanup] <#8c8c8c>— round<newline><#666666>• <#92bed8>[credit]|[role]|[health]|[kill]|[revive] <#8c8c8c>— player<newline><#666666>• <#92bed8>[weapon]|[ammo]|[item]|[loot] <#8c8c8c>— equipment<newline><#666666>• <#92bed8>[discover]|[dna]|[call]|[menu]|[close] <#8c8c8c>— evidence and GUI'
   applied: '<prefix> <#2bba43>Debug action applied: <#e3b341><action><#e6fff3>.'
   rejected: '<prefix> <#c42323>Action <#e3b341><action> <#c42323>was rejected<#8c8c8c>: <#f2f0e6><reason><#8c8c8c>.'
   reason:

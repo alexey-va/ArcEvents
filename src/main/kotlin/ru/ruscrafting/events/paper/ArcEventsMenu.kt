@@ -157,6 +157,7 @@ class ArcEventsMenu(
         inventory.setItem(11, item(Material.EMERALD, player, "menu.help.innocent-name", "menu.help.innocent-lore"))
         inventory.setItem(13, item(Material.REDSTONE, player, "menu.help.traitor-name", "menu.help.traitor-lore"))
         inventory.setItem(15, item(Material.LAPIS_LAZULI, player, "menu.help.detective-name", "menu.help.detective-lore"))
+        inventory.setItem(22, item(Material.CLOCK, player, "menu.help.flow-name", "menu.help.flow-lore"))
         inventory.setItem(29, item(Material.PLAYER_HEAD, player, "menu.help.evidence-name", "menu.help.evidence-lore"))
         inventory.setItem(31, item(Material.CROSSBOW, player, "menu.help.weapons-name", "menu.help.weapons-lore"))
         inventory.setItem(33, item(Material.COMMAND_BLOCK, player, "menu.help.controls-name", "menu.help.controls-lore"))
@@ -188,7 +189,7 @@ class ArcEventsMenu(
         if (!player.hasPermission("arcevents.admin")) return
         when (slot) {
             29 -> {
-                service.startFromQueue().thenAccept { result ->
+                service.startFromQueue(player).thenAccept { result ->
                     if (!player.isOnline) return@thenAccept
                     player.sendMessage(locale.render(startMessage(result), player))
                     open(player, EventsView.Admin)
@@ -489,10 +490,10 @@ class ArcEventsMenu(
 
     private fun startMessage(result: ReservationStartResult): String = when (result) {
         ReservationStartResult.STARTED -> "admin.started"
-        ReservationStartResult.HOST_ONLY -> "admin.host-only"
         ReservationStartResult.ARENA_UNAVAILABLE -> "admin.arena-unavailable"
         ReservationStartResult.BUSY -> "admin.busy"
         ReservationStartResult.INSUFFICIENT_PLAYERS -> "admin.start-failed"
+        ReservationStartResult.RECOVERY_PENDING -> "admin.start-recovery-pending"
         ReservationStartResult.NETWORK_FAILURE -> "admin.network-failed"
     }
 

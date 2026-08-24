@@ -12,6 +12,7 @@ import ru.arc.redis.ServerIdentity
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.config.ArcEventsRedisBootstrap
+import ru.ruscrafting.events.domain.MatchPhase
 import ru.ruscrafting.events.network.RedisEventNetworkRepository
 import java.nio.file.Files
 import java.util.logging.Level
@@ -50,8 +51,18 @@ class ArcEventsPlugin : JavaPlugin() {
             val escrow = PlayerStateEscrow(RecoveryBatchStore(dataRoot, Gson()))
             val items = TttItems(this, locale)
             val firearms = TttFirearms(this, locale) { settings }
+            val hud = TttHud(this, { settings }, locale)
+            val lootScene = TttLootScene(this) { settings }
             val arenaInspector = ArenaRuntimeInspector(this)
             lateinit var activeService: ArcEventsService
+            val smokeGrenades = TttSmokeGrenades(
+                plugin = this,
+                settings = { settings },
+                currentMatchId = {
+                    activeService.currentMatch()?.takeIf { it.phase == MatchPhase.ACTIVE }?.matchId
+                },
+                targets = { server.onlinePlayers.filter { activeService.isAlive(it.uniqueId) } },
+            )
             val coordinator = EventNetworkCoordinator(
                 plugin = this,
                 settings = { settings },
@@ -73,6 +84,9 @@ class ArcEventsPlugin : JavaPlugin() {
                 escrow = escrow,
                 items = items,
                 firearms = firearms,
+                hud = hud,
+                lootScene = lootScene,
+                smokeGrenades = smokeGrenades,
                 network = coordinator,
                 debug = debug,
                 redisConnected = manager::isConnected,

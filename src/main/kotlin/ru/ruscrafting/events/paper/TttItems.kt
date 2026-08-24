@@ -16,6 +16,7 @@ import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.domain.TttRole
 
 enum class EventItemKind {
+    GUIDE,
     SHOP,
     FIREARM,
     AMMUNITION,
@@ -58,7 +59,7 @@ class TttItems(
         ShopOffer(EventItemKind.DETECTIVE_ARMOR, Material.IRON_CHESTPLATE, 1, "menu.shop.detective-armor-name", "menu.shop.detective-armor-lore"),
     )
 
-    fun giveBaseLoadout(player: Player, role: TttRole, matchId: String) {
+    fun givePreparationLoadout(player: Player, matchId: String) {
         player.inventory.clear()
         player.inventory.armorContents = arrayOfNulls(4)
         player.inventory.setItemInOffHand(ItemStack.empty())
@@ -66,12 +67,26 @@ class TttItems(
         player.inventory.setItem(0, simple(Material.IRON_SWORD, locale.render("loadout.blade", player)))
         player.inventory.setItem(1, simple(Material.COOKED_BEEF, locale.render("loadout.rations", player), 4))
         player.inventory.setItem(8, tagged(
-            Material.NETHER_STAR,
-            EventItemKind.SHOP,
+            Material.WRITTEN_BOOK,
+            EventItemKind.GUIDE,
             matchId,
-            locale.render("menu.main.shop-name", player),
-            locale.lore("menu.main.shop-lore", player),
+            locale.render("guide.item-name", player),
+            locale.lore("guide.item-lore", player),
         ))
+        player.inventory.heldItemSlot = 0
+        player.updateInventory()
+    }
+
+    fun revealRoleLoadout(player: Player, role: TttRole, matchId: String) {
+        if (role != TttRole.INNOCENT) {
+            player.inventory.setItem(8, tagged(
+                Material.NETHER_STAR,
+                EventItemKind.SHOP,
+                matchId,
+                locale.render("menu.main.shop-name", player),
+                locale.lore("menu.main.shop-lore", player),
+            ))
+        }
         if (role == TttRole.DETECTIVE) {
             val chestplate = ItemStack.of(Material.LEATHER_CHESTPLATE)
             chestplate.editMeta(LeatherArmorMeta::class.java) { meta ->
@@ -81,7 +96,6 @@ class TttItems(
             }
             player.inventory.chestplate = chestplate
         }
-        player.inventory.heldItemSlot = 0
         player.updateInventory()
     }
 
