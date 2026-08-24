@@ -71,6 +71,7 @@ tasks {
         exclude("org/slf4j/**")
         exclude("org/bukkit/**")
         exclude("io/papermc/**")
+        exclude("net/kyori/adventure/**")
     }
     check { dependsOn(shadowJar, "integrationTest") }
 }

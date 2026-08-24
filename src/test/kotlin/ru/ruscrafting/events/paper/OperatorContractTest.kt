@@ -44,4 +44,33 @@ class OperatorContractTest : StringSpec({
         val dead = traitor.copy(status = ParticipantStatus.DEAD)
         shopAccessible(match(MatchPhase.ACTIVE, dead), dead) shouldBe false
     }
+
+    "modern dialogs stay optional and fall back for old clients and item grids" {
+        dialogFrontendSupported(false, MIN_DIALOG_PROTOCOL, EventsView.Main) shouldBe false
+        dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL - 1, EventsView.Main) shouldBe false
+        dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL, EventsView.Main) shouldBe true
+        dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL, EventsView.Help) shouldBe true
+        dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL, EventsView.Admin) shouldBe true
+        dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL, EventsView.Shop) shouldBe false
+        dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL, EventsView.Roster) shouldBe false
+    }
+
+    "ViaVersion original client protocol wins over the backend protocol" {
+        effectiveClientProtocol(774, 769) shouldBe 769
+        effectiveClientProtocol(774, 771) shouldBe 771
+        effectiveClientProtocol(774, -1) shouldBe 774
+        effectiveClientProtocol(774, null) shouldBe 774
+    }
+
+    "debug command catalog covers round player combat evidence equipment and GUI scenarios" {
+        ArcEventsCommand.DEBUG_ACTIONS.containsAll(listOf(
+            "bootstrap", "advance", "end", "timer", "role", "health", "weapon", "ammo",
+            "item", "kill", "revive", "discover", "dna", "call", "loot", "menu", "cleanup",
+        )) shouldBe true
+        ArcEventsCommand.DEBUG_ITEMS.size shouldBe 6
+        ArcEventsCommand.DEBUG_VIEWS shouldBe listOf("main", "help", "admin", "shop", "roster", "report")
+        ArcEventsCommand.validOptionalInteger(null) shouldBe true
+        ArcEventsCommand.validOptionalInteger("0") shouldBe true
+        ArcEventsCommand.validOptionalInteger("full") shouldBe false
+    }
 })

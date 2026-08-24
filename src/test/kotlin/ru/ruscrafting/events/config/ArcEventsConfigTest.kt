@@ -19,6 +19,10 @@ class ArcEventsConfigTest : StringSpec({
             config.weapons.dnaSeconds shouldBe 90
             config.weapons.rifle.material shouldBe "NETHERITE_SHOVEL"
             config.weapons.rifle.customModelData shouldBe 0
+            config.ui.dialogsEnabled shouldBe false
+            config.debug.enabled shouldBe false
+            config.debug.allowedServerIds shouldBe setOf("lab")
+            config.debugMutationsAllowed shouldBe false
         } finally {
             root.toFile().deleteRecursively()
         }
@@ -49,6 +53,26 @@ class ArcEventsConfigTest : StringSpec({
 
             Files.writeString(root.resolve("config.yml"), valid.replace("node-mode: HOST", "node-mode: RELAY"))
             shouldThrow<IllegalArgumentException> { ArcEventsConfig.inspect(root) }
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    "debug mutations require both the feature flag and an exact allowed server id" {
+        val root = Files.createTempDirectory("arcevents-debug-")
+        try {
+            val base = validHostConfig(spawnCount = 16)
+            Files.writeString(root.resolve("config.yml"), base.replace(
+                "debug: {enabled: false}",
+                "debug: {enabled: true, allowed-server-ids: [lab]}",
+            ))
+            ArcEventsConfig.inspect(root).debugMutationsAllowed shouldBe false
+
+            Files.writeString(root.resolve("config.yml"), base.replace(
+                "debug: {enabled: false}",
+                "debug: {enabled: true, allowed-server-ids: [parkour]}",
+            ))
+            ArcEventsConfig.inspect(root).debugMutationsAllowed shouldBe true
         } finally {
             root.toFile().deleteRecursively()
         }
@@ -161,6 +185,7 @@ class ArcEventsConfigTest : StringSpec({
                 |  sounds: true
                 |  particles: true
                 |  bossbar: true
+                |  dialogs-enabled: true
                 |  filler: {material: BLACK_STAINED_GLASS_PANE, custom-model-data: 0}
                 |ttt:
                 |  minimum-players: 4

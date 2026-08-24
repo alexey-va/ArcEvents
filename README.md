@@ -77,12 +77,38 @@ patterns while keeping ArcEvents' event protocol and state machine independent.
 - `/events` — player hub.
 - `/events join`, `/events leave`, `/events status`, `/events shop`.
 - `/events team <message>` — private traitor/detective team chat in a match.
-- `/events admin` — operator GUI; `/events admin start|stop|reload|recover` for
-  console and power-user operation.
+- `/events admin` — operator GUI. `status|player|network|recovery` are readable
+  diagnostics; `start|stop|reload|recover` operate the queue, round, config, and
+  escrow recovery.
 - `/events qa status|player|network|recovery` — stable read-only output with the
   `ARCEVENTS_QA` prefix.
-- `/events debug start|advance|end|credit` — lab-only mutation surface guarded
-  by `arcevents.debug` and `debug.enabled`.
+- `/events debug help|status|player|network|recovery|bodies` — lab snapshots.
+- `/events debug start` reserves the real distributed queue; `bootstrap
+  [players...]` starts a local roster from online players for isolated tests;
+  `advance`, `end <innocents|traitors>`, `timer <seconds>`, and `cleanup` drive
+  round lifecycle cases.
+- `/events debug credit|role|health|kill|revive` changes one participant;
+  `weapon|ammo|item` supplies match-tagged equipment; `loot
+  status|respawn|clear` controls map pickups.
+- `/events debug discover|dna|call` drives body-evidence scenarios; `menu
+  <player> <main|help|admin|shop|roster|report>` and `close` target either UI
+  frontend without manual navigation.
+
+Every debug command requires `arcevents.debug` and `debug.enabled`. Mutations
+also require the exact current `server-id` in `debug.allowed-server-ids`; the
+bundled and production configs allow only `lab`, while production keeps debug
+disabled. Tab completion covers actions, players, roles, teams, equipment,
+amounts, and views.
+
+## Interface frontends
+
+Chest inventories remain the complete, stable UI and own the item-dense shop,
+roster, body evidence, round report, and combat log. `ui.dialogs-enabled: true`
+adds Paper's modern Dialog frontend for the main overview, rules, and operator
+screens when the connecting client is Minecraft 1.21.6 or newer. Older clients
+and all item-grid views automatically use the chest frontend; both paths call
+the same permission and match-state checks. The production mirrors keep the
+flag disabled until modern-client acceptance QA is explicitly selected.
 
 ## Build
 

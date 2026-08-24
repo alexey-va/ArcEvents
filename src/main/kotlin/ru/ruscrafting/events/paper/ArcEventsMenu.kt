@@ -46,8 +46,10 @@ class ArcEventsMenu(
     }
 
     private val pendingClicks = mutableSetOf<UUID>()
+    private val dialogs = ArcEventsDialogMenu(service, locale, settings, ::dispatchClick)
 
     fun open(player: Player, view: EventsView = EventsView.Main) {
+        if (dialogs.open(player, view)) return
         when (view) {
             EventsView.Main -> openMain(player)
             EventsView.Help -> openHelp(player)
@@ -72,16 +74,7 @@ class ArcEventsMenu(
         Tasks.scheduler.runLater(1L) {
             try {
                 if (!player.isOnline || player.openInventory.topInventory.holder !== holder) return@runLater
-                when (holder.view) {
-                    EventsView.Main -> clickMain(player, slot)
-                    EventsView.Help -> if (slot == 36) open(player, EventsView.Main) else if (slot == 44) player.closeInventory()
-                    EventsView.Admin -> clickAdmin(player, slot)
-                    EventsView.Shop -> clickShop(player, slot)
-                    EventsView.Roster -> clickRoster(player, slot)
-                    is EventsView.Body -> clickBody(player, holder.view.bodyId, slot)
-                    EventsView.Report -> clickReport(player, slot)
-                    is EventsView.CombatLog -> clickCombatLog(player, holder.view.page, slot)
-                }
+                dispatchClick(player, holder.view, slot)
             } finally {
                 pendingClicks.remove(player.uniqueId)
             }
@@ -90,6 +83,19 @@ class ArcEventsMenu(
 
     fun onDrag(event: InventoryDragEvent) {
         if (event.view.topInventory.holder is Holder) event.isCancelled = true
+    }
+
+    private fun dispatchClick(player: Player, view: EventsView, slot: Int) {
+        when (view) {
+            EventsView.Main -> clickMain(player, slot)
+            EventsView.Help -> if (slot == 36) open(player, EventsView.Main) else if (slot == 44) player.closeInventory()
+            EventsView.Admin -> clickAdmin(player, slot)
+            EventsView.Shop -> clickShop(player, slot)
+            EventsView.Roster -> clickRoster(player, slot)
+            is EventsView.Body -> clickBody(player, view.bodyId, slot)
+            EventsView.Report -> clickReport(player, slot)
+            is EventsView.CombatLog -> clickCombatLog(player, view.page, slot)
+        }
     }
 
     private fun openMain(player: Player) {

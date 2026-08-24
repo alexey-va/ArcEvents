@@ -21,6 +21,9 @@ ui:
   sounds: true
   particles: true
   bossbar: true
+  # Paper Dialog API (1.21.6+ clients) for overview/help/admin screens.
+  # Item-dense screens and older clients always use the chest GUI.
+  dialogs-enabled: false
   filler: {material: GRAY_STAINED_GLASS_PANE, custom-model-data: 0}
 
 ttt:
@@ -61,3 +64,5 @@ arena:
 
 debug:
   enabled: false
+  # Mutating scenario commands fail closed outside these exact network ids.
+  allowed-server-ids: [lab]

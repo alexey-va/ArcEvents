@@ -86,7 +86,13 @@ class ArcEventsLocale(
             "report.item-name", "report.ready", "report.unavailable", "report.winner-innocents",
             "shop.bought", "shop.insufficient", "shop.unavailable", "team.message",
             "chat.match-message", "chat.spectator-message",
-            "admin.host-only", "admin.arena-unavailable", "debug.disabled",
+            "admin.host-only", "admin.arena-unavailable", "debug.disabled", "debug.usage",
+            "debug.applied", "debug.rejected", "debug.reason.mutations-disabled", "debug.reason.wrong-node",
+            "debug.reason.arena-unavailable", "debug.reason.busy", "debug.reason.insufficient-players",
+            "debug.reason.no-match", "debug.reason.wrong-phase", "debug.reason.player-not-found",
+            "debug.reason.not-participant", "debug.reason.not-alive", "debug.reason.invalid-argument",
+            "debug.reason.role-invariant", "debug.reason.inventory-full", "debug.reason.body-not-found",
+            "debug.reason.precondition-failed", "debug.reason.internal-error",
         )
 
         val REQUIRED_LISTS = setOf(

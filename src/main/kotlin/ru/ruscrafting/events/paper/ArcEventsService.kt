@@ -36,10 +36,12 @@ import ru.ruscrafting.events.domain.ParticipantStatus
 import ru.ruscrafting.events.domain.PlayerEventStats
 import ru.ruscrafting.events.domain.CombatRecord
 import ru.ruscrafting.events.domain.FirearmSpread
+import ru.ruscrafting.events.domain.FirearmId
 import ru.ruscrafting.events.domain.RosterEntry
 import ru.ruscrafting.events.domain.RosterStatus
 import ru.ruscrafting.events.domain.ShotDirection
 import ru.ruscrafting.events.domain.RoleAllocationSettings
+import ru.ruscrafting.events.domain.QueuedPlayer
 import ru.ruscrafting.events.domain.RecentAttackLedger
 import ru.ruscrafting.events.domain.TttMatch
 import ru.ruscrafting.events.domain.TttMatchEngine
@@ -94,6 +96,26 @@ data class BodyRecord(
 )
 
 enum class AdminStopResult { MATCH, RESERVATION, NO_MATCH }
+
+enum class DebugMutationResult {
+    APPLIED,
+    MUTATIONS_DISABLED,
+    WRONG_NODE,
+    ARENA_UNAVAILABLE,
+    BUSY,
+    INSUFFICIENT_PLAYERS,
+    NO_MATCH,
+    WRONG_PHASE,
+    PLAYER_NOT_FOUND,
+    NOT_PARTICIPANT,
+    NOT_ALIVE,
+    INVALID_ARGUMENT,
+    ROLE_INVARIANT,
+    INVENTORY_FULL,
+    BODY_NOT_FOUND,
+    PRECONDITION_FAILED,
+    INTERNAL_ERROR,
+}
 
 class ArcEventsService(
     private val plugin: Plugin,
@@ -797,9 +819,54 @@ class ArcEventsService(
         "players" to escrow.pendingPlayers().sortedBy(UUID::toString).joinToString(",").ifEmpty { "-" },
     )
 
-    fun debugAdvance(): Boolean {
-        if (!settings().debugEnabled) return false
-        val current = match ?: return false
+    fun debugStartLocal(players: List<Player>): DebugMutationResult {
+        val currentSettings = settings()
+        if (!currentSettings.debugMutationsAllowed) return DebugMutationResult.MUTATIONS_DISABLED
+        if (currentSettings.nodeMode != NodeMode.HOST) return DebugMutationResult.WRONG_NODE
+        if (!arenaReady()) return DebugMutationResult.ARENA_UNAVAILABLE
+        if (match != null || reservation != null) return DebugMutationResult.BUSY
+        val online = players.filter(Player::isOnline).distinctBy(Player::getUniqueId)
+        if (online.size !in currentSettings.ttt.minimumPlayers..currentSettings.ttt.maximumPlayers) {
+            return DebugMutationResult.INSUFFICIENT_PLAYERS
+        }
+        val matchId = UUID.randomUUID()
+        val engine = engine()
+        val created = engine.create(
+            matchId,
+            online.map { player -> QueuedPlayer(player.uniqueId, player.name, currentSettings.serverId, clock()) },
+            RoleAllocationSettings(
+                currentSettings.ttt.traitorPlayerRatio,
+                currentSettings.ttt.detectiveMinimumPlayers,
+                currentSettings.ttt.traitorCredits,
+                currentSettings.ttt.detectiveCredits,
+            ),
+            seed = matchId.mostSignificantBits xor matchId.leastSignificantBits,
+            nowMs = clock(),
+        )
+        return runCatching {
+            recentAttacks.clear()
+            combatLog.clear()
+            roundReport = null
+            cleanupBodies()
+            cleanupProjectiles()
+            cleanupLoot()
+            escrow.prepare(matchId, online, online.associate { it.uniqueId to currentSettings.serverId }, clock())
+            match = engine.prepare(created)
+            applyEventState(online, requireNotNull(match))
+            debug.event("debug_match_preparing", "match" to matchId, "players" to online.size)
+            tasks += Tasks.scheduler.runLater(currentSettings.ttt.preparationSeconds * 20L) { beginCountdown() }
+            DebugMutationResult.APPLIED
+        }.getOrElse { failure ->
+            plugin.logger.log(Level.SEVERE, "ArcEvents debug bootstrap failed for $matchId", failure)
+            match = created
+            cancel(MatchEndReason.SHUTDOWN)
+            DebugMutationResult.INTERNAL_ERROR
+        }
+    }
+
+    fun debugAdvance(): DebugMutationResult {
+        if (!settings().debugMutationsAllowed) return DebugMutationResult.MUTATIONS_DISABLED
+        val current = match ?: return DebugMutationResult.NO_MATCH
         when (current.phase) {
             MatchPhase.PREPARING -> beginCountdown()
             MatchPhase.COUNTDOWN -> activateRound()
@@ -809,33 +876,220 @@ class ArcEventsService(
                 winner = TttTeam.INNOCENTS,
                 endReason = MatchEndReason.ADMIN,
             ))
-            else -> return false
+            else -> return DebugMutationResult.WRONG_PHASE
         }
-        return true
+        return DebugMutationResult.APPLIED
     }
 
-    fun debugEnd(team: TttTeam): Boolean {
-        if (!settings().debugEnabled) return false
-        val current = match ?: return false
-        if (current.phase !in LIVE_PHASES) return false
+    fun debugEnd(team: TttTeam): DebugMutationResult {
+        if (!settings().debugMutationsAllowed) return DebugMutationResult.MUTATIONS_DISABLED
+        val current = match ?: return DebugMutationResult.NO_MATCH
+        if (current.phase !in LIVE_PHASES) return DebugMutationResult.WRONG_PHASE
         resolve(current.copy(
             revision = current.revision + 1,
             phase = MatchPhase.RESOLVING,
             winner = team,
             endReason = MatchEndReason.ADMIN,
         ))
-        return true
+        return DebugMutationResult.APPLIED
     }
 
-    fun debugCredit(player: Player, amount: Int): Boolean {
-        if (!settings().debugEnabled || amount !in -16..16) return false
-        val current = match ?: return false
-        val participant = current.participant(player.uniqueId) ?: return false
+    fun debugCredit(player: Player, amount: Int): DebugMutationResult {
+        if (!settings().debugMutationsAllowed) return DebugMutationResult.MUTATIONS_DISABLED
+        if (amount !in -16..16) return DebugMutationResult.INVALID_ARGUMENT
+        val current = match ?: return DebugMutationResult.NO_MATCH
+        if (current.phase !in LIVE_PHASES) return DebugMutationResult.WRONG_PHASE
+        val participant = current.participant(player.uniqueId) ?: return DebugMutationResult.NOT_PARTICIPANT
+        if (participant.status !in setOf(ParticipantStatus.RESERVED, ParticipantStatus.ALIVE)) {
+            return DebugMutationResult.NOT_ALIVE
+        }
         match = current.copy(
             revision = current.revision + 1,
             participants = current.participants + (player.uniqueId to participant.copy(credits = (participant.credits + amount).coerceIn(0, 64))),
         )
-        return true
+        return DebugMutationResult.APPLIED
+    }
+
+    fun debugRole(player: Player, role: TttRole): DebugMutationResult {
+        if (!settings().debugMutationsAllowed) return DebugMutationResult.MUTATIONS_DISABLED
+        val current = match ?: return DebugMutationResult.NO_MATCH
+        if (current.phase !in setOf(MatchPhase.PREPARING, MatchPhase.COUNTDOWN, MatchPhase.ACTIVE)) {
+            return DebugMutationResult.WRONG_PHASE
+        }
+        val participant = current.participant(player.uniqueId) ?: return DebugMutationResult.NOT_PARTICIPANT
+        if (participant.status !in setOf(ParticipantStatus.RESERVED, ParticipantStatus.ALIVE)) {
+            return DebugMutationResult.NOT_ALIVE
+        }
+        val changed = current.copy(
+            revision = current.revision + 1,
+            participants = current.participants + (player.uniqueId to participant.copy(role = role)),
+        )
+        val valid = runCatching { changed.validated(settings().ttt.minimumPlayers, settings().ttt.maximumPlayers) }.getOrNull()
+            ?: return DebugMutationResult.ROLE_INVARIANT
+        match = valid
+        return DebugMutationResult.APPLIED
+    }
+
+    fun debugTimer(seconds: Int): DebugMutationResult {
+        if (!settings().debugMutationsAllowed) return DebugMutationResult.MUTATIONS_DISABLED
+        if (seconds !in 1..3600) return DebugMutationResult.INVALID_ARGUMENT
+        val current = match ?: return DebugMutationResult.NO_MATCH
+        if (current.phase != MatchPhase.ACTIVE) return DebugMutationResult.WRONG_PHASE
+        match = current.copy(revision = current.revision + 1, deadlineMs = clock() + seconds * 1_000L)
+        return DebugMutationResult.APPLIED
+    }
+
+    fun debugHealth(player: Player, health: Double): DebugMutationResult {
+        if (!settings().debugMutationsAllowed) return DebugMutationResult.MUTATIONS_DISABLED
+        val current = match ?: return DebugMutationResult.NO_MATCH
+        val participant = current.participant(player.uniqueId) ?: return DebugMutationResult.NOT_PARTICIPANT
+        if (current.phase != MatchPhase.ACTIVE) return DebugMutationResult.WRONG_PHASE
+        if (participant.status != ParticipantStatus.ALIVE) return DebugMutationResult.NOT_ALIVE
+        val maximum = player.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20.0
+        if (!health.isFinite() || health !in 0.5..maximum) return DebugMutationResult.INVALID_ARGUMENT
+        player.health = health
+        return DebugMutationResult.APPLIED
+    }
+
+    fun debugWeapon(player: Player, firearm: FirearmId, loaded: Int?): DebugMutationResult {
+        if (!settings().debugMutationsAllowed) return DebugMutationResult.MUTATIONS_DISABLED
+        val current = match ?: return DebugMutationResult.NO_MATCH
+        val participant = current.participant(player.uniqueId) ?: return DebugMutationResult.NOT_PARTICIPANT
+        if (current.phase != MatchPhase.ACTIVE) return DebugMutationResult.WRONG_PHASE
+        if (participant.status != ParticipantStatus.ALIVE) return DebugMutationResult.NOT_ALIVE
+        val rounds = loaded ?: firearms.spec(firearm).magazineSize
+        if (rounds !in 0..firearms.spec(firearm).magazineSize) return DebugMutationResult.INVALID_ARGUMENT
+        val item = firearms.firearmItem(firearm, player, current.matchId.toString(), rounds)
+        if (!canFullyAdd(player, item)) return DebugMutationResult.INVENTORY_FULL
+        return if (player.inventory.addItem(item).isEmpty()) DebugMutationResult.APPLIED else DebugMutationResult.INTERNAL_ERROR
+    }
+
+    fun debugAmmo(player: Player, amount: Int): DebugMutationResult {
+        if (!settings().debugMutationsAllowed) return DebugMutationResult.MUTATIONS_DISABLED
+        if (amount !in 1..64) return DebugMutationResult.INVALID_ARGUMENT
+        val current = match ?: return DebugMutationResult.NO_MATCH
+        val participant = current.participant(player.uniqueId) ?: return DebugMutationResult.NOT_PARTICIPANT
+        if (current.phase != MatchPhase.ACTIVE) return DebugMutationResult.WRONG_PHASE
+        if (participant.status != ParticipantStatus.ALIVE) return DebugMutationResult.NOT_ALIVE
+        val item = firearms.ammunition(player, current.matchId.toString(), amount)
+        if (!canFullyAdd(player, item)) return DebugMutationResult.INVENTORY_FULL
+        return if (player.inventory.addItem(item).isEmpty()) DebugMutationResult.APPLIED else DebugMutationResult.INTERNAL_ERROR
+    }
+
+    fun debugItem(player: Player, kind: EventItemKind): DebugMutationResult {
+        if (!settings().debugMutationsAllowed) return DebugMutationResult.MUTATIONS_DISABLED
+        val current = match ?: return DebugMutationResult.NO_MATCH
+        val participant = current.participant(player.uniqueId) ?: return DebugMutationResult.NOT_PARTICIPANT
+        if (current.phase != MatchPhase.ACTIVE) return DebugMutationResult.WRONG_PHASE
+        if (participant.status != ParticipantStatus.ALIVE) return DebugMutationResult.NOT_ALIVE
+        if (kind !in DEBUG_SPECIAL_ITEMS) return DebugMutationResult.INVALID_ARGUMENT
+        val item = items.purchasedItem(kind, player, current.matchId.toString())
+        if (kind == EventItemKind.DETECTIVE_ARMOR) {
+            player.inventory.chestplate = item
+            return DebugMutationResult.APPLIED
+        }
+        if (!canFullyAdd(player, item)) return DebugMutationResult.INVENTORY_FULL
+        return if (player.inventory.addItem(item).isEmpty()) DebugMutationResult.APPLIED else DebugMutationResult.INTERNAL_ERROR
+    }
+
+    fun debugKill(victim: Player, killer: Player?): DebugMutationResult {
+        if (!settings().debugMutationsAllowed) return DebugMutationResult.MUTATIONS_DISABLED
+        val current = match ?: return DebugMutationResult.NO_MATCH
+        val victimState = current.participant(victim.uniqueId) ?: return DebugMutationResult.NOT_PARTICIPANT
+        if (current.phase != MatchPhase.ACTIVE) return DebugMutationResult.WRONG_PHASE
+        if (victimState.status != ParticipantStatus.ALIVE) return DebugMutationResult.NOT_ALIVE
+        if (killer != null) {
+            val killerState = current.participant(killer.uniqueId) ?: return DebugMutationResult.NOT_PARTICIPANT
+            if (killerState.status != ParticipantStatus.ALIVE || killer.uniqueId == victim.uniqueId) {
+                return DebugMutationResult.INVALID_ARGUMENT
+            }
+        }
+        eliminate(victim, killer?.uniqueId)
+        return DebugMutationResult.APPLIED
+    }
+
+    fun debugRevive(player: Player): DebugMutationResult {
+        if (!settings().debugMutationsAllowed) return DebugMutationResult.MUTATIONS_DISABLED
+        val current = match ?: return DebugMutationResult.NO_MATCH
+        if (current.phase != MatchPhase.ACTIVE) return DebugMutationResult.WRONG_PHASE
+        val participant = current.participant(player.uniqueId) ?: return DebugMutationResult.NOT_PARTICIPANT
+        if (participant.status != ParticipantStatus.DEAD) return DebugMutationResult.PRECONDITION_FAILED
+        match = current.copy(
+            revision = current.revision + 1,
+            participants = current.participants + (player.uniqueId to participant.copy(status = ParticipantStatus.ALIVE, deaths = 0)),
+        ).validated(settings().ttt.minimumPlayers, settings().ttt.maximumPlayers)
+        bodies.values.filter { it.victimId == player.uniqueId }.toList().forEach { body ->
+            plugin.server.getEntity(body.entityId)?.remove()
+            bodies.remove(body.bodyId)
+        }
+        player.gameMode = GameMode.ADVENTURE
+        player.health = player.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20.0
+        player.foodLevel = 20
+        items.giveBaseLoadout(player, participant.role, current.matchId.toString())
+        val index = current.participants.keys.indexOf(player.uniqueId).coerceAtLeast(0)
+        teleport(player, settings().arena.spawns[index])
+        return DebugMutationResult.APPLIED
+    }
+
+    fun debugDiscover(viewer: Player, victim: Player): DebugMutationResult {
+        if (!settings().debugMutationsAllowed) return DebugMutationResult.MUTATIONS_DISABLED
+        val current = match ?: return DebugMutationResult.NO_MATCH
+        if (current.phase != MatchPhase.ACTIVE) return DebugMutationResult.WRONG_PHASE
+        if (current.participant(viewer.uniqueId)?.status != ParticipantStatus.ALIVE) return DebugMutationResult.NOT_ALIVE
+        val body = bodies.values.lastOrNull { it.matchId == current.matchId && it.victimId == victim.uniqueId }
+            ?: return DebugMutationResult.BODY_NOT_FOUND
+        inspectBody(viewer, body.bodyId)
+        return DebugMutationResult.APPLIED
+    }
+
+    fun debugDna(viewer: Player, victim: Player): DebugMutationResult {
+        if (!settings().debugMutationsAllowed) return DebugMutationResult.MUTATIONS_DISABLED
+        val current = match ?: return DebugMutationResult.NO_MATCH
+        val body = bodies.values.lastOrNull { it.matchId == current.matchId && it.victimId == victim.uniqueId }
+            ?: return DebugMutationResult.BODY_NOT_FOUND
+        return if (scanBody(viewer, body.bodyId)) DebugMutationResult.APPLIED else DebugMutationResult.PRECONDITION_FAILED
+    }
+
+    fun debugCallDetective(viewer: Player, victim: Player): DebugMutationResult {
+        if (!settings().debugMutationsAllowed) return DebugMutationResult.MUTATIONS_DISABLED
+        val current = match ?: return DebugMutationResult.NO_MATCH
+        val body = bodies.values.lastOrNull { it.matchId == current.matchId && it.victimId == victim.uniqueId }
+            ?: return DebugMutationResult.BODY_NOT_FOUND
+        return if (callDetective(viewer, body.bodyId)) DebugMutationResult.APPLIED else DebugMutationResult.PRECONDITION_FAILED
+    }
+
+    fun debugLoot(respawn: Boolean): DebugMutationResult {
+        if (!settings().debugMutationsAllowed) return DebugMutationResult.MUTATIONS_DISABLED
+        val current = match ?: return DebugMutationResult.NO_MATCH
+        if (current.phase != MatchPhase.ACTIVE) return DebugMutationResult.WRONG_PHASE
+        cleanupLoot()
+        if (respawn) spawnLoot(current)
+        return DebugMutationResult.APPLIED
+    }
+
+    fun debugCleanup(): DebugMutationResult {
+        if (!settings().debugMutationsAllowed) return DebugMutationResult.MUTATIONS_DISABLED
+        if (match != null || reservation != null) return DebugMutationResult.BUSY
+        cleanupBodies()
+        cleanupProjectiles()
+        cleanupLoot()
+        combatLog.clear()
+        roundReport = null
+        recentAttacks.clear()
+        return DebugMutationResult.APPLIED
+    }
+
+    fun qaBodies(): List<String> = bodies.values.sortedBy(BodyRecord::killedAtMs).map { body ->
+        ArcEventsDebug.qa(
+            "server" to settings().serverId,
+            "body" to body.bodyId,
+            "victim" to body.victimName,
+            "role" to body.role.name.lowercase(),
+            "killer" to (body.killerId ?: "-"),
+            "discovered" to body.discovered,
+            "called" to body.detectiveCalled,
+            "age" to ((clock() - body.killedAtMs).coerceAtLeast(0) / 1_000L),
+        )
     }
 
     override fun isInternalTeleport(playerId: UUID, destination: Location?): Boolean =
@@ -1344,6 +1598,19 @@ class ArcEventsService(
         TttRole.INNOCENT -> emptyList()
     }
 
+    private fun canFullyAdd(player: Player, item: ItemStack): Boolean {
+        var remaining = item.amount
+        player.inventory.storageContents.forEach { existing ->
+            if (remaining <= 0) return true
+            remaining -= when {
+                existing == null || existing.isEmpty -> item.maxStackSize
+                existing.isSimilar(item) -> (existing.maxStackSize - existing.amount).coerceAtLeast(0)
+                else -> 0
+            }
+        }
+        return remaining <= 0
+    }
+
     private fun createBossBar() {
         if (!settings().ui.bossBar) return
         val bar = BossBar.bossBar(Component.empty(), 1f, BossBar.Color.YELLOW, BossBar.Overlay.PROGRESS)
@@ -1435,6 +1702,14 @@ class ArcEventsService(
 
     companion object {
         private val LIVE_PHASES = setOf(MatchPhase.PREPARING, MatchPhase.COUNTDOWN, MatchPhase.ACTIVE)
+        private val DEBUG_SPECIAL_ITEMS = setOf(
+            EventItemKind.TRAITOR_BLADE,
+            EventItemKind.TRAITOR_RADAR,
+            EventItemKind.TRAITOR_SMOKE,
+            EventItemKind.DETECTIVE_SCANNER,
+            EventItemKind.DETECTIVE_MEDKIT,
+            EventItemKind.DETECTIVE_ARMOR,
+        )
         private val CHAT_PHASES = setOf(
             MatchPhase.PREPARING,
             MatchPhase.COUNTDOWN,

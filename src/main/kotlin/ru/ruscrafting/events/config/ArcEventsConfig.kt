@@ -112,8 +112,16 @@ data class UiSettings(
     val sounds: Boolean,
     val particles: Boolean,
     val bossBar: Boolean,
+    val dialogsEnabled: Boolean,
     val filler: UiItemSettings,
 )
+
+data class DebugSettings(
+    val enabled: Boolean,
+    val allowedServerIds: Set<String>,
+) {
+    fun mutationsAllowed(serverId: String): Boolean = enabled && serverId in allowedServerIds
+}
 
 class ArcEventsConfig(private val config: Config) {
     val enabled: Boolean get() = config.bool("enabled", true)
@@ -122,7 +130,16 @@ class ArcEventsConfig(private val config: Config) {
     val hostServer: String get() = config.string("host-server", "parkour").trim().lowercase()
     val defaultLocale: String get() = config.string("locale.default", "ru").trim().lowercase()
     val useClientLocale: Boolean get() = config.bool("locale.use-client-locale", true)
-    val debugEnabled: Boolean get() = config.bool("debug.enabled", false)
+    val debug: DebugSettings
+        get() = DebugSettings(
+            enabled = config.bool("debug.enabled", false),
+            allowedServerIds = config.stringList("debug.allowed-server-ids", listOf("lab"))
+                .map { it.trim().lowercase() }
+                .filter(String::isNotEmpty)
+                .toSet(),
+        )
+    val debugEnabled: Boolean get() = debug.enabled
+    val debugMutationsAllowed: Boolean get() = debug.mutationsAllowed(serverId)
 
     val network: NetworkSettings
         get() = NetworkSettings(
@@ -157,6 +174,7 @@ class ArcEventsConfig(private val config: Config) {
             sounds = config.bool("ui.sounds", true),
             particles = config.bool("ui.particles", true),
             bossBar = config.bool("ui.bossbar", true),
+            dialogsEnabled = config.bool("ui.dialogs-enabled", false),
             filler = UiItemSettings(
                 material = config.string("ui.filler.material", "GRAY_STAINED_GLASS_PANE").uppercase(),
                 customModelData = config.int("ui.filler.custom-model-data", 0),
@@ -196,6 +214,9 @@ class ArcEventsConfig(private val config: Config) {
         require(serverId.matches(SERVER_ID)) { "server-id is invalid" }
         require(hostServer.matches(SERVER_ID)) { "host-server is invalid" }
         require(defaultLocale in setOf("ru", "en")) { "locale.default must be ru or en" }
+        require(debug.allowedServerIds.isNotEmpty() && debug.allowedServerIds.all { it.matches(SERVER_ID) }) {
+            "debug.allowed-server-ids contains an invalid server id"
+        }
         val network = network
         require(network.enabled) { "Redis coordination is mandatory for ArcEvents" }
         require(network.allowedOrigins.isNotEmpty() && network.allowedOrigins.all { it.matches(SERVER_ID) }) {
