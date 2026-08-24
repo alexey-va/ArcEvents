@@ -16,6 +16,7 @@ import org.bukkit.event.block.BlockExplodeEvent
 import org.bukkit.event.block.BlockFromToEvent
 import org.bukkit.event.block.BlockIgniteEvent
 import org.bukkit.event.block.BlockPlaceEvent
+import org.bukkit.event.block.Action
 import org.bukkit.event.entity.EntityDamageByEntityEvent
 import org.bukkit.event.entity.EntityDamageEvent
 import org.bukkit.event.entity.EntityPickupItemEvent
@@ -37,6 +38,7 @@ import org.bukkit.event.player.PlayerMoveEvent
 import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.event.player.PlayerSwapHandItemsEvent
 import org.bukkit.event.player.PlayerTeleportEvent
+import org.bukkit.inventory.EquipmentSlot
 import ru.arc.core.Tasks
 import ru.ruscrafting.events.domain.MatchPhase
 import java.util.UUID
@@ -48,6 +50,8 @@ interface ArcEventsGameplayBoundary {
     fun isParticipant(playerId: UUID): Boolean
     fun shouldCancelDamage(victimId: UUID, attackerId: UUID?, projectile: Boolean, projectileMatchId: UUID?): Boolean
     fun recordAttack(victimId: UUID, attackerId: UUID?)
+    fun damageMultiplier(attackerId: UUID?): Double
+    fun recordDamage(victim: Player, attacker: Player?, finalDamage: Double, lethal: Boolean)
     fun phase(): MatchPhase?
     fun isAlive(playerId: UUID): Boolean
     fun eliminate(player: Player, killerId: UUID? = null)
@@ -58,6 +62,11 @@ interface ArcEventsGameplayBoundary {
     fun sendMatchChat(player: Player, message: Component)
     fun belongsToCurrentMatch(playerId: UUID, item: org.bukkit.inventory.ItemStack?): Boolean
     fun useSpecialItem(player: Player, kind: EventItemKind): Boolean
+    fun useFirearm(player: Player): Boolean
+    fun reloadFirearm(player: Player): Boolean
+    fun canDropLoot(player: Player, item: org.bukkit.inventory.ItemStack?): Boolean
+    fun registerDroppedLoot(item: org.bukkit.entity.Item)
+    fun canPickupLoot(player: Player, item: org.bukkit.entity.Item): Boolean
     fun readBodyId(stand: ArmorStand): UUID?
     fun inspectBody(player: Player, bodyId: UUID)
     fun isInternalTeleport(playerId: UUID, destination: Location?): Boolean
@@ -68,6 +77,8 @@ class ArcEventsListener(
     private val menu: ArcEventsMenu,
     private val itemResolver: EventItemResolver,
 ) : Listener {
+    private val pendingEliminations = mutableSetOf<UUID>()
+
     @EventHandler fun onJoin(event: PlayerJoinEvent) = service.handleJoin(event.player)
     @EventHandler fun onQuit(event: PlayerQuitEvent) = service.handleQuit(event.player)
 
@@ -75,6 +86,10 @@ class ArcEventsListener(
     fun onDamage(event: EntityDamageEvent) {
         val victim = event.entity as? Player ?: return
         if (service.withinArena(victim.location) && !service.isParticipant(victim.uniqueId)) {
+            event.isCancelled = true
+            return
+        }
+        if (victim.uniqueId in pendingEliminations) {
             event.isCancelled = true
             return
         }
@@ -91,12 +106,22 @@ class ArcEventsListener(
             event.isCancelled = true
             return
         }
+        val multiplier = service.damageMultiplier(attacker?.uniqueId)
+        if (attacker != null && multiplier < 1.0) event.damage *= multiplier
         service.recordAttack(victim.uniqueId, attacker?.uniqueId)
-        if (service.phase() == MatchPhase.ACTIVE && service.isAlive(victim.uniqueId) && event.finalDamage >= victim.health) {
+        val lethal = service.phase() == MatchPhase.ACTIVE && service.isAlive(victim.uniqueId) && event.finalDamage >= victim.health
+        service.recordDamage(victim, attacker, event.finalDamage.coerceAtMost(victim.health), lethal)
+        if (lethal) {
             event.isCancelled = true
+            if (!pendingEliminations.add(victim.uniqueId)) return
             Tasks.scheduler.runLater(1L) {
-                if (!victim.isOnline) return@runLater
-                if (attacker == null) service.eliminate(victim) else service.eliminate(victim, attacker.uniqueId)
+                try {
+                    if (victim.isOnline) {
+                        if (attacker == null) service.eliminate(victim) else service.eliminate(victim, attacker.uniqueId)
+                    }
+                } finally {
+                    pendingEliminations.remove(victim.uniqueId)
+                }
             }
         }
     }
@@ -121,7 +146,7 @@ class ArcEventsListener(
         }
     }
 
-    @EventHandler(ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     fun onInteract(event: PlayerInteractEvent) {
         val player = event.player
         val kind = itemResolver.kind(event.item) ?: return
@@ -138,6 +163,17 @@ class ArcEventsListener(
                 service.useSpecialItem(player, kind)
                 event.isCancelled = true
             }
+            EventItemKind.FIREARM -> {
+                event.isCancelled = true
+                if (event.hand == EquipmentSlot.HAND && event.action in setOf(Action.RIGHT_CLICK_AIR, Action.RIGHT_CLICK_BLOCK)) {
+                    service.useFirearm(player)
+                }
+            }
+            EventItemKind.ROUND_REPORT -> {
+                event.isCancelled = true
+                if (event.hand == EquipmentSlot.HAND) menu.open(player, EventsView.Report)
+            }
+            EventItemKind.AMMUNITION -> event.isCancelled = true
             else -> Unit
         }
     }
@@ -153,6 +189,7 @@ class ArcEventsListener(
         val bodyId = service.readBodyId(stand) ?: return
         cancel()
         service.inspectBody(player, bodyId)
+        menu.open(player, EventsView.Body(bodyId))
     }
 
     @EventHandler fun onMenuClick(event: InventoryClickEvent) {
@@ -172,18 +209,26 @@ class ArcEventsListener(
     }
 
     @EventHandler(ignoreCancelled = true) fun onDrop(event: PlayerDropItemEvent) {
-        if (service.withinArena(event.player.location) ||
-            service.isParticipant(event.player.uniqueId) && service.phase() in CONTROLLED_PHASES
-        ) event.isCancelled = true
+        if (service.canDropLoot(event.player, event.itemDrop.itemStack)) {
+            service.registerDroppedLoot(event.itemDrop)
+            return
+        }
+        if (service.withinArena(event.player.location) || service.isParticipant(event.player.uniqueId) && service.phase() in CONTROLLED_PHASES) {
+            event.isCancelled = true
+        }
     }
     @EventHandler(ignoreCancelled = true) fun onPickup(event: EntityPickupItemEvent) {
         val player = event.entity as? Player ?: return
-        if (service.withinArena(player.location) ||
-            service.isParticipant(player.uniqueId) && service.phase() in CONTROLLED_PHASES
-        ) event.isCancelled = true
+        if (service.canPickupLoot(player, event.item)) return
+        if (service.withinArena(player.location) || service.isParticipant(player.uniqueId) && service.phase() in CONTROLLED_PHASES) {
+            event.isCancelled = true
+        }
     }
     @EventHandler(ignoreCancelled = true) fun onSwap(event: PlayerSwapHandItemsEvent) {
-        if (service.isParticipant(event.player.uniqueId) && service.phase() in CONTROLLED_PHASES) event.isCancelled = true
+        if (service.isParticipant(event.player.uniqueId) && service.phase() in CONTROLLED_PHASES) {
+            event.isCancelled = true
+            if (service.phase() == MatchPhase.ACTIVE) service.reloadFirearm(event.player)
+        }
     }
     @EventHandler(ignoreCancelled = true) fun onBreak(event: BlockBreakEvent) {
         if (service.withinArena(event.block.location) || service.isParticipant(event.player.uniqueId) && service.phase() in CONTROLLED_PHASES) {

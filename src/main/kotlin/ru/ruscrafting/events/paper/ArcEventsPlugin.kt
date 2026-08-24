@@ -35,6 +35,7 @@ class ArcEventsPlugin : JavaPlugin() {
             settings = ArcEventsConfig.load(dataRoot)
             ArcEventsLocale.validateFiles(dataRoot)
             locale = ArcEventsLocale(dataRoot) { settings }
+            if (settings.arena.template == TttCitadelBlueprint.TEMPLATE) TttCitadelLoot.validate()
             ArenaWorldProvisioner(this).ensureLoaded(settings)
             val redisConfig = ArcEventsRedisBootstrap.load(dataRoot, settings)
             val manager = RedisManager(
@@ -48,6 +49,7 @@ class ArcEventsPlugin : JavaPlugin() {
             val debug = ArcEventsDebug({ settings.debugEnabled }, logger::info)
             val escrow = PlayerStateEscrow(RecoveryBatchStore(dataRoot, Gson()))
             val items = TttItems(this, locale)
+            val firearms = TttFirearms(this, locale) { settings }
             val arenaInspector = ArenaRuntimeInspector(this)
             lateinit var activeService: ArcEventsService
             val coordinator = EventNetworkCoordinator(
@@ -70,6 +72,7 @@ class ArcEventsPlugin : JavaPlugin() {
                 locale = locale,
                 escrow = escrow,
                 items = items,
+                firearms = firearms,
                 network = coordinator,
                 debug = debug,
                 redisConnected = manager::isConnected,

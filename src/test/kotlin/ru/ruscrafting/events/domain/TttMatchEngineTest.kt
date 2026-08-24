@@ -84,7 +84,20 @@ class TttMatchEngineTest : StringSpec({
         val killer = changed.participant(teammates[1].playerId)!!
         killer.kills shouldBe 1
         killer.friendlyKills shouldBe 1
-        PlayerEventStats().record(UUID.randomUUID(), killer, null).karma shouldBe 900
+        PlayerEventStats().record(UUID.randomUUID(), killer, null).karma shouldBe 925
+    }
+
+    "friendly damage is accumulated and scales persistent karma damage" {
+        val engine = TttMatchEngine(4, 16, 60_000)
+        val active = activeMatch(6, allocation)
+        val teammates = active.participants.values.filter { it.role.team == TttTeam.INNOCENTS }.take(2)
+        val changed = engine.recordDamage(active, teammates[0].playerId, teammates[1].playerId, 7.25)
+        changed.participant(teammates[1].playerId)?.friendlyDamage shouldBe 7.25
+        changed.participant(teammates[1].playerId)?.damageDealt shouldBe 7.25
+        val stats = PlayerEventStats().record(UUID.randomUUID(), changed.participant(teammates[1].playerId)!!, null)
+        stats.karma shouldBe 985
+        stats.copy(karma = 500).damageMultiplier() shouldBe 0.75
+        stats.copy(karma = 100).damageMultiplier() shouldBe 0.55
     }
 
     "round timeout belongs to the innocent team" {

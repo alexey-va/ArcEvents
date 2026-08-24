@@ -2,7 +2,7 @@ prefix: '<#d75a5a>Events <#666666>•'
 command:
   player-only: '<prefix> <#c42323>This command is only available to players.'
   no-permission: '<prefix> <#c42323>You do not have access to this action.'
-  help: '<prefix> <#e6fff3>Menu and rules: <#92bed8>/events<#e6fff3>.<newline><#666666>• <#e6fff3>Queue: <#92bed8>/events join<#8c8c8c> • <#e6fff3>leave: <#92bed8>/events leave<newline><#666666>• <#e6fff3>Match: <#92bed8>/events status<#8c8c8c> • <#e6fff3>shop: <#92bed8>/events shop'
+  help: '<prefix> <#e6fff3>Menu and rules: <#92bed8>/events<#e6fff3>.<newline><#666666>• <#e6fff3>Queue: <#92bed8>/events join<#8c8c8c> • <#e6fff3>leave: <#92bed8>/events leave<newline><#666666>• <#e6fff3>Match: <#92bed8>/events status<#8c8c8c> • <#e6fff3>roster: <#92bed8>/events roster<newline><#666666>• <#e6fff3>Shop: <#92bed8>/events shop<#8c8c8c> • <#e6fff3>report: <#92bed8>/events report'
   unknown: '<prefix> <#c42323>Unknown<#8c8c8c>: <#e6fff3><input>'
   failed: '<prefix> <#c42323>Action failed.<newline><#666666>• <#e6fff3>Reason: <reason>'
   reload-ok: '<prefix> <#2bba43>Configuration and locales reloaded.'
@@ -52,6 +52,12 @@ menu:
       - '<#8c8c8c>Kills: <#e3b341><kills>'
       - '<#8c8c8c>Deaths: <#d84a4a><deaths>'
       - '<#8c8c8c>Karma: <#5fb3ff><karma>'
+    roster-name: '<#92bed8><bold>Round roster'
+    roster-lore:
+      - '<#f2f0e6>Living, missing, and discovered players.'
+      - '<#f2f0e6>Hidden roles appear only through evidence.'
+      - ''
+      - '<#666666>• <#92bed8>Click<#f2f0e6> to open <#666666>•'
     help-name: '<#92bed8><bold>How to play'
     help-lore:
       - '<#f2f0e6>Roles, bodies, evidence, and shops.'
@@ -63,6 +69,11 @@ menu:
       - '<#f2f0e6>and detective tools.'
       - ''
       - '<#666666>• <#ff9f0f>Available during a match <#666666>•'
+    report-name: '<#e3b341><bold>Round report'
+    report-lore:
+      - '<#f2f0e6>Roles, damage, and the combat log.'
+      - ''
+      - '<#666666>• <#e3b341>Click<#f2f0e6> to open <#666666>•'
     admin-name: '<#c58cff><bold>Event administration'
     admin-lore:
       - '<#f2f0e6>Queue, match, network, and recovery.'
@@ -86,6 +97,12 @@ menu:
     evidence-lore:
       - '<#f2f0e6>Right-click a body to reveal its role.'
       - '<#f2f0e6>A DNA scanner points toward the killer.'
+    weapons-name: '<#ff9f0f><bold>Weapons on the map'
+    weapons-lore:
+      - '<#f2f0e6>Pistols, SMGs, shotguns, and rifles'
+      - '<#f2f0e6>are spread around the citadel.'
+      - ''
+      - '<#8c8c8c>Right-click — fire <#666666>• <#8c8c8c>F — reload'
     controls-name: '<#92bed8><bold>Commands'
     controls-lore:
       - '<#8c8c8c>/events shop <#f2f0e6>— role shop'
@@ -163,6 +180,81 @@ menu:
     close-name: '<#d84a4a><bold>Close'
     close-lore:
       - '<#f2f0e6>Close this menu.'
+    previous-name: '<#92bed8><bold>Previous page'
+    previous-lore:
+      - '<#f2f0e6>Show newer records.'
+    next-name: '<#92bed8><bold>Next page'
+    next-lore:
+      - '<#f2f0e6>Show older records.'
+  roster:
+    title: '<#d9d6c8>Round roster'
+    player-name: '<#f2f0e6><player>'
+    player-lore:
+      - '<#8c8c8c>Status: <status>'
+      - '<#8c8c8c>Role: <role>'
+  body:
+    title: '<#d9d6c8>Body inspection'
+    victim-name: '<#f2f0e6><player>'
+    victim-lore:
+      - '<#8c8c8c>Identified role: <role>'
+    time-name: '<#e3b341><bold>Time of death'
+    time-lore:
+      - '<#f2f0e6>Elapsed: <#e3b341><seconds> s'
+    cause-name: '<#d84a4a><bold>Cause of death'
+    cause-lore:
+      - '<#8c8c8c>Weapon: <weapon>'
+      - '<#8c8c8c>Damage: <#f2f0e6><damage>'
+      - '<#8c8c8c>Impact: <hit>'
+    dna-name: '<#5fb3ff><bold>Analyze DNA'
+    dna-lore:
+      - '<#f2f0e6>A detective with a scanner can track'
+      - '<#f2f0e6>the direction to a living killer.'
+      - ''
+      - '<#666666>• <#5fb3ff>Click<#f2f0e6> to scan <#666666>•'
+    dna-lost-name: '<#8c8c8c><bold>DNA unavailable'
+    dna-lost-lore:
+      - '<#f2f0e6>The trail expired or the killer is gone.'
+    call-name: '<#92bed8><bold>Call a detective'
+    call-lore:
+      - '<#f2f0e6>Send this body’s location to detectives.'
+      - ''
+      - '<#666666>• <#92bed8>Click<#f2f0e6> to send coordinates <#666666>•'
+    called-name: '<#5fb3ff><bold>Detective notified'
+    called-lore:
+      - '<#f2f0e6>The coordinates were already sent.'
+    roster-name: '<#92bed8><bold>Round roster'
+    roster-lore:
+      - '<#f2f0e6>Compare the revealed role with the roster.'
+  report:
+    title: '<#d9d6c8>Round report'
+    summary-name: '<#e3b341><bold>Result'
+    summary-lore:
+      - '<#8c8c8c>Winners: <winner>'
+      - '<#8c8c8c>Reason: <#f2f0e6><reason>'
+      - '<#8c8c8c>Duration: <#f2f0e6><time>'
+      - '<#8c8c8c>Damage records: <#f2f0e6><events>'
+    player-name: '<#f2f0e6><player>'
+    player-lore:
+      - '<#8c8c8c>Role: <role>'
+      - '<#8c8c8c>Eliminations: <#e3b341><kills>'
+      - '<#8c8c8c>Damage: <#f2f0e6><damage>'
+      - '<#8c8c8c>Friendly damage: <#d84a4a><friendly>'
+    combat-name: '<#92bed8><bold>Combat log'
+    combat-lore:
+      - '<#f2f0e6>Ordered record of every hit.'
+      - '<#8c8c8c>Records: <#f2f0e6><events>'
+      - ''
+      - '<#666666>• <#92bed8>Click<#f2f0e6> to open <#666666>•'
+  combat:
+    title: '<#d9d6c8>Combat log · <page>/<pages>'
+    entry-name: '<#f2f0e6>Record #<sequence>'
+    entry-lore:
+      - '<#8c8c8c><attacker> → <#f2f0e6><victim>'
+      - '<#8c8c8c>Weapon: <weapon>'
+      - '<#8c8c8c>Damage: <#f2f0e6><damage> <#666666>• <flags>'
+    back-name: '<#e3b341><bold>Back to report'
+    back-lore:
+      - '<#f2f0e6>Open the round summary.'
 
 state:
   arena-ready: '<#7bd88f>ready'
@@ -243,6 +335,88 @@ body:
   already: '<prefix> <#e6fff3><#92bed8><player><#8c8c8c> was <role><#e6fff3>.'
   dna: '<prefix> <#e6fff3>DNA: <#d84a4a><killer><#8c8c8c> • <#e3b341><distance> blocks<#e6fff3>.'
   dna-lost: '<prefix> <#ff9f0f>DNA trail lost.'
+  unavailable: '<prefix> <#ff9f0f>This body can no longer be inspected.'
+  scanner-detective-only: '<prefix> <#ff9f0f>Only a detective can analyze DNA.'
+  scanner-required: '<prefix> <#ff9f0f>You need a DNA scanner to analyze this body.'
+  detective-already-called: '<prefix> <#ff9f0f>Detectives already received these coordinates.'
+  no-detective: '<prefix> <#ff9f0f>No detectives are still alive.'
+  detective-called: '<prefix> <#92bed8>Body found: <#f2f0e6><victim><#8c8c8c> • <#e3b341><x>, <y>, <z>'
+  detective-call-sent: '<prefix> <#2bba43>Coordinates sent to the detectives.'
+  hit-head: '<#d84a4a>head'
+  hit-body: '<#f2f0e6>body'
+
+weapon:
+  pistol-name: '<#e3b341><bold>Pistol'
+  pistol-lore:
+    - '<#8c8c8c>Magazine: <#f2f0e6><loaded>/<#f2f0e6><magazine>'
+    - '<#8c8c8c>Damage: <#f2f0e6><damage> <#666666>• <#8c8c8c>range: <#f2f0e6><range>'
+    - ''
+    - '<#666666>• <#e3b341>Right-click<#f2f0e6> — fire <#666666>• <#e3b341>F<#f2f0e6> — reload'
+  smg-name: '<#e3b341><bold>SMG'
+  smg-lore:
+    - '<#8c8c8c>Magazine: <#f2f0e6><loaded>/<#f2f0e6><magazine>'
+    - '<#8c8c8c>Damage: <#f2f0e6><damage> <#666666>• <#8c8c8c>range: <#f2f0e6><range>'
+    - ''
+    - '<#666666>• <#e3b341>Right-click<#f2f0e6> — fire <#666666>• <#e3b341>F<#f2f0e6> — reload'
+  shotgun-name: '<#e3b341><bold>Shotgun'
+  shotgun-lore:
+    - '<#8c8c8c>Magazine: <#f2f0e6><loaded>/<#f2f0e6><magazine>'
+    - '<#8c8c8c>Damage: <#f2f0e6><damage> <#666666>• <#8c8c8c>range: <#f2f0e6><range>'
+    - ''
+    - '<#666666>• <#e3b341>Right-click<#f2f0e6> — fire <#666666>• <#e3b341>F<#f2f0e6> — reload'
+  rifle-name: '<#e3b341><bold>Rifle'
+  rifle-lore:
+    - '<#8c8c8c>Magazine: <#f2f0e6><loaded>/<#f2f0e6><magazine>'
+    - '<#8c8c8c>Damage: <#f2f0e6><damage> <#666666>• <#8c8c8c>range: <#f2f0e6><range>'
+    - ''
+    - '<#666666>• <#e3b341>Right-click<#f2f0e6> — fire <#666666>• <#e3b341>F<#f2f0e6> — reload'
+  ammunition-name: '<#f2f0e6>Ammunition'
+  ammunition-lore:
+    - '<#8c8c8c>Rounds: <#f2f0e6><rounds>'
+    - '<#f2f0e6>Compatible with every round firearm.'
+  ammo-actionbar: '<weapon> <#666666>• <#f2f0e6><loaded>/<#f2f0e6><magazine> <#666666>• <#8c8c8c>reserve <#f2f0e6><reserve>'
+  empty-actionbar: '<#d84a4a>Magazine empty <#666666>• <#f2f0e6>press F'
+  reloading-actionbar: '<#e3b341>Reloading…'
+  magazine-full-actionbar: '<#8c8c8c>Magazine already full'
+  no-ammo-actionbar: '<#d84a4a>No reserve ammunition'
+  reload-complete-actionbar: '<#2bba43>Ready <#666666>• <#f2f0e6><loaded>/<#f2f0e6><magazine>'
+  kind:
+    firearm-pistol: '<#f2f0e6>pistol'
+    firearm-smg: '<#f2f0e6>SMG'
+    firearm-shotgun: '<#f2f0e6>shotgun'
+    firearm-rifle: '<#f2f0e6>rifle'
+    traitor-blade: '<#d84a4a>traitor blade'
+    melee: '<#f2f0e6>melee'
+    environment: '<#8c8c8c>environment'
+
+roster:
+  status:
+    alive: '<#7bd88f>alive'
+    missing: '<#e3b341>missing'
+    confirmed_dead: '<#d84a4a>confirmed dead'
+    disconnected: '<#8c8c8c>disconnected'
+  role-hidden: '<#8c8c8c>unconfirmed'
+
+report:
+  item-name: '<#e3b341><bold>Round report'
+  item-lore:
+    - '<#f2f0e6>Roles, damage, and the combat log.'
+    - ''
+    - '<#666666>• <#e3b341>Right-click<#f2f0e6> to open <#666666>•'
+  ready: '<prefix> <#e6fff3>The report is ready: open the book or use <#92bed8>/events report<#e6fff3>.'
+  unavailable: '<prefix> <#ff9f0f>The previous round report is unavailable.'
+  winner-innocents: '<#7bd88f>innocents'
+  winner-traitors: '<#d84a4a>traitors'
+  reason:
+    elimination: 'one team was eliminated'
+    timeout: 'round time expired'
+    admin: 'an administrator stopped the round'
+    shutdown: 'the server stopped'
+    insufficient_players: 'not enough players remained'
+  flag-friendly: '<#d84a4a>friendly damage'
+  flag-lethal: '<#d84a4a>elimination'
+  flag-headshot: '<#e3b341>headshot'
+  flag-hit: '<#8c8c8c>hit'
 
 shop:
   bought: '<prefix> <#2bba43>Received: <#e3b341><item><#8c8c8c> • <#e3b341><credits> cr.'

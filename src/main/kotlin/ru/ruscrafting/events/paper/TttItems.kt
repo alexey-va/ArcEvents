@@ -17,6 +17,9 @@ import ru.ruscrafting.events.domain.TttRole
 
 enum class EventItemKind {
     SHOP,
+    FIREARM,
+    AMMUNITION,
+    ROUND_REPORT,
     TRAITOR_BLADE,
     TRAITOR_RADAR,
     TRAITOR_SMOKE,
@@ -61,8 +64,7 @@ class TttItems(
         player.inventory.setItemInOffHand(ItemStack.empty())
         player.setItemOnCursor(ItemStack.empty())
         player.inventory.setItem(0, simple(Material.IRON_SWORD, locale.render("loadout.blade", player)))
-        player.inventory.setItem(1, simple(Material.CROSSBOW, locale.render("loadout.crossbow", player)))
-        player.inventory.setItem(2, simple(Material.COOKED_BEEF, locale.render("loadout.rations", player), 4))
+        player.inventory.setItem(1, simple(Material.COOKED_BEEF, locale.render("loadout.rations", player), 4))
         player.inventory.setItem(8, tagged(
             Material.NETHER_STAR,
             EventItemKind.SHOP,
@@ -70,7 +72,6 @@ class TttItems(
             locale.render("menu.main.shop-name", player),
             locale.lore("menu.main.shop-lore", player),
         ))
-        player.inventory.addItem(simple(Material.ARROW, locale.render("loadout.ammunition", player), 8))
         if (role == TttRole.DETECTIVE) {
             val chestplate = ItemStack.of(Material.LEATHER_CHESTPLATE)
             chestplate.editMeta(LeatherArmorMeta::class.java) { meta ->
@@ -101,6 +102,14 @@ class TttItems(
         }
         return item
     }
+
+    fun roundReport(player: Player, matchId: String): ItemStack = tagged(
+        Material.WRITTEN_BOOK,
+        EventItemKind.ROUND_REPORT,
+        matchId,
+        locale.render("report.item-name", player),
+        locale.lore("report.item-lore", player),
+    )
 
     override fun kind(item: ItemStack?): EventItemKind? {
         if (item == null || item.isEmpty) return null

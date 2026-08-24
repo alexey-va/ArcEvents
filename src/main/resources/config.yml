@@ -36,6 +36,15 @@ ttt:
   detective-credits: 1
   body-despawn-seconds: 600
 
+weapons:
+  enabled: true
+  dna-seconds: 90
+  visuals:
+    pistol: {material: IRON_HORSE_ARMOR, custom-model-data: 0}
+    smg: {material: GOLDEN_HORSE_ARMOR, custom-model-data: 0}
+    shotgun: {material: CROSSBOW, custom-model-data: 0}
+    rifle: {material: NETHERITE_SHOVEL, custom-model-data: 0}
+
 # A host refuses queue reservations until the arena is enabled and every
 # location is valid. Coordinates below are intentionally non-operational.
 arena:

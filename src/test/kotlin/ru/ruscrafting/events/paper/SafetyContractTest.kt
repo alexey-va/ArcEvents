@@ -10,6 +10,8 @@ import org.bukkit.World
 import org.bukkit.block.BlockFace
 import org.bukkit.entity.Player
 import org.bukkit.event.Event
+import org.bukkit.event.EventHandler
+import org.bukkit.event.EventPriority
 import org.bukkit.event.block.Action
 import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.inventory.EquipmentSlot
@@ -69,5 +71,14 @@ class SafetyContractTest : StringSpec({
 
         event.useItemInHand() shouldBe Event.Result.DENY
         verify(exactly = 1) { service.useSpecialItem(player, EventItemKind.DETECTIVE_MEDKIT) }
+    }
+
+    "pre-cancelled vanilla item interactions still reach ArcEvents" {
+        val handler = ArcEventsListener::class.java
+            .getDeclaredMethod("onInteract", PlayerInteractEvent::class.java)
+            .getAnnotation(EventHandler::class.java)
+
+        handler.ignoreCancelled shouldBe false
+        handler.priority shouldBe EventPriority.HIGHEST
     }
 })

@@ -15,6 +15,10 @@ class ArcEventsConfigTest : StringSpec({
             config.arena.enabled shouldBe false
             config.arena.template shouldBe ""
             config.arena.operational(config.ttt.maximumPlayers) shouldBe false
+            config.weapons.enabled shouldBe true
+            config.weapons.dnaSeconds shouldBe 90
+            config.weapons.rifle.material shouldBe "NETHERITE_SHOVEL"
+            config.weapons.rifle.customModelData shouldBe 0
         } finally {
             root.toFile().deleteRecursively()
         }

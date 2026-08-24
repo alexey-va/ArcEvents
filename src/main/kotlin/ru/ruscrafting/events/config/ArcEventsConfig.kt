@@ -97,6 +97,17 @@ data class TttSettings(
 
 data class UiItemSettings(val material: String, val customModelData: Int)
 
+data class FirearmVisualSettings(val material: String, val customModelData: Int)
+
+data class WeaponSettings(
+    val enabled: Boolean,
+    val dnaSeconds: Int,
+    val pistol: FirearmVisualSettings,
+    val smg: FirearmVisualSettings,
+    val shotgun: FirearmVisualSettings,
+    val rifle: FirearmVisualSettings,
+)
+
 data class UiSettings(
     val sounds: Boolean,
     val particles: Boolean,
@@ -152,6 +163,16 @@ class ArcEventsConfig(private val config: Config) {
             ),
         )
 
+    val weapons: WeaponSettings
+        get() = WeaponSettings(
+            enabled = config.bool("weapons.enabled", true),
+            dnaSeconds = config.int("weapons.dna-seconds", 90),
+            pistol = firearmVisual("weapons.visuals.pistol", "IRON_HORSE_ARMOR"),
+            smg = firearmVisual("weapons.visuals.smg", "GOLDEN_HORSE_ARMOR"),
+            shotgun = firearmVisual("weapons.visuals.shotgun", "CROSSBOW"),
+            rifle = firearmVisual("weapons.visuals.rifle", "NETHERITE_SHOVEL"),
+        )
+
     val arena: ArenaSettings
         get() {
             val world = config.string("arena.world", "pvp").trim()
@@ -199,6 +220,11 @@ class ArcEventsConfig(private val config: Config) {
         require(ttt.traitorCredits in 0..16 && ttt.detectiveCredits in 0..16)
         require(ttt.bodyDespawnSeconds in ttt.roundSeconds..3600)
         require(ui.filler.customModelData >= 0)
+        require(weapons.dnaSeconds in 15..300)
+        listOf(weapons.pistol, weapons.smg, weapons.shotgun, weapons.rifle).forEach { visual ->
+            require(visual.material.matches(Regex("[A-Z0-9_]{1,64}"))) { "Weapon material is invalid" }
+            require(visual.customModelData >= 0) { "Weapon custom-model-data cannot be negative" }
+        }
         require(arena.template in setOf("", "citadel-v1")) { "arena.template is unsupported" }
         if (arena.template.isNotEmpty()) {
             require(nodeMode == NodeMode.HOST) { "Only a HOST node may provision an arena template" }
@@ -236,6 +262,11 @@ class ArcEventsConfig(private val config: Config) {
 
         private fun parseBound(world: String, raw: String): EventLocation? = parseLocation(world, raw)?.copy(yaw = 0f, pitch = 0f)
     }
+
+    private fun firearmVisual(path: String, fallback: String): FirearmVisualSettings = FirearmVisualSettings(
+        material = config.string("$path.material", fallback).trim().uppercase(),
+        customModelData = config.int("$path.custom-model-data", 0),
+    )
 }
 
 object ArcEventsRedisBootstrap {

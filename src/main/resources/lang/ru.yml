@@ -2,7 +2,7 @@ prefix: '<#d75a5a>События <#666666>•'
 command:
   player-only: '<prefix> <#c42323>Эта команда доступна только игроку.'
   no-permission: '<prefix> <#c42323>У вас нет доступа к этому действию.'
-  help: '<prefix> <#e6fff3>Меню и правила: <#92bed8>/events<#e6fff3>.<newline><#666666>• <#e6fff3>Очередь: <#92bed8>/events join<#8c8c8c> • <#e6fff3>выйти: <#92bed8>/events leave<newline><#666666>• <#e6fff3>Матч: <#92bed8>/events status<#8c8c8c> • <#e6fff3>магазин: <#92bed8>/events shop'
+  help: '<prefix> <#e6fff3>Меню и правила: <#92bed8>/events<#e6fff3>.<newline><#666666>• <#e6fff3>Очередь: <#92bed8>/events join<#8c8c8c> • <#e6fff3>выйти: <#92bed8>/events leave<newline><#666666>• <#e6fff3>Матч: <#92bed8>/events status<#8c8c8c> • <#e6fff3>состав: <#92bed8>/events roster<newline><#666666>• <#e6fff3>Магазин: <#92bed8>/events shop<#8c8c8c> • <#e6fff3>итоги: <#92bed8>/events report'
   unknown: '<prefix> <#c42323>Неизвестно<#8c8c8c>: <#e6fff3><input>'
   failed: '<prefix> <#c42323>Действие не выполнено.<newline><#666666>• <#e6fff3>Причина: <reason>'
   reload-ok: '<prefix> <#2bba43>Конфигурация и локали обновлены.'
@@ -52,6 +52,12 @@ menu:
       - '<#8c8c8c>Убийства: <#e3b341><kills>'
       - '<#8c8c8c>Смерти: <#d84a4a><deaths>'
       - '<#8c8c8c>Карма: <#5fb3ff><karma>'
+    roster-name: '<#92bed8><bold>Состав раунда'
+    roster-lore:
+      - '<#f2f0e6>Живые, пропавшие и найденные игроки.'
+      - '<#f2f0e6>Скрытые роли откроются по уликам.'
+      - ''
+      - '<#666666>• <#92bed8>Нажмите<#f2f0e6>, чтобы открыть <#666666>•'
     help-name: '<#92bed8><bold>Как играть'
     help-lore:
       - '<#f2f0e6>Роли, тела, улики и магазины.'
@@ -63,6 +69,11 @@ menu:
       - '<#f2f0e6>и инструменты детективов.'
       - ''
       - '<#666666>• <#ff9f0f>Доступен во время матча <#666666>•'
+    report-name: '<#e3b341><bold>Итоги раунда'
+    report-lore:
+      - '<#f2f0e6>Роли, урон и журнал столкновений.'
+      - ''
+      - '<#666666>• <#e3b341>Нажмите<#f2f0e6>, чтобы открыть <#666666>•'
     admin-name: '<#c58cff><bold>Управление событием'
     admin-lore:
       - '<#f2f0e6>Очередь, матч, сеть и восстановление.'
@@ -86,6 +97,12 @@ menu:
     evidence-lore:
       - '<#f2f0e6>Нажмите ПКМ по телу, чтобы открыть роль.'
       - '<#f2f0e6>Сканер ДНК показывает след убийцы.'
+    weapons-name: '<#ff9f0f><bold>Оружие на карте'
+    weapons-lore:
+      - '<#f2f0e6>Пистолеты, ПП, дробовики и винтовки'
+      - '<#f2f0e6>лежат в разных частях цитадели.'
+      - ''
+      - '<#8c8c8c>ПКМ — огонь <#666666>• <#8c8c8c>F — перезарядка'
     controls-name: '<#92bed8><bold>Команды'
     controls-lore:
       - '<#8c8c8c>/events shop <#f2f0e6>— магазин роли'
@@ -163,6 +180,81 @@ menu:
     close-name: '<#d84a4a><bold>Закрыть'
     close-lore:
       - '<#f2f0e6>Закрыть это меню.'
+    previous-name: '<#92bed8><bold>Предыдущая страница'
+    previous-lore:
+      - '<#f2f0e6>Показать более новые записи.'
+    next-name: '<#92bed8><bold>Следующая страница'
+    next-lore:
+      - '<#f2f0e6>Показать более старые записи.'
+  roster:
+    title: '<#d9d6c8>Состав раунда'
+    player-name: '<#f2f0e6><player>'
+    player-lore:
+      - '<#8c8c8c>Состояние: <status>'
+      - '<#8c8c8c>Роль: <role>'
+  body:
+    title: '<#d9d6c8>Осмотр тела'
+    victim-name: '<#f2f0e6><player>'
+    victim-lore:
+      - '<#8c8c8c>Установленная роль: <role>'
+    time-name: '<#e3b341><bold>Время смерти'
+    time-lore:
+      - '<#f2f0e6>Прошло: <#e3b341><seconds> с'
+    cause-name: '<#d84a4a><bold>Причина смерти'
+    cause-lore:
+      - '<#8c8c8c>Оружие: <weapon>'
+      - '<#8c8c8c>Урон: <#f2f0e6><damage>'
+      - '<#8c8c8c>Попадание: <hit>'
+    dna-name: '<#5fb3ff><bold>Исследовать ДНК'
+    dna-lore:
+      - '<#f2f0e6>Детектив со сканером увидит'
+      - '<#f2f0e6>направление к живому убийце.'
+      - ''
+      - '<#666666>• <#5fb3ff>Нажмите<#f2f0e6>, чтобы сканировать <#666666>•'
+    dna-lost-name: '<#8c8c8c><bold>ДНК утрачена'
+    dna-lost-lore:
+      - '<#f2f0e6>След устарел или убийца уже выбыл.'
+    call-name: '<#92bed8><bold>Позвать детектива'
+    call-lore:
+      - '<#f2f0e6>Передать найденное тело детективам.'
+      - ''
+      - '<#666666>• <#92bed8>Нажмите<#f2f0e6>, чтобы отправить координаты <#666666>•'
+    called-name: '<#5fb3ff><bold>Детектив вызван'
+    called-lore:
+      - '<#f2f0e6>Координаты уже переданы.'
+    roster-name: '<#92bed8><bold>Состав раунда'
+    roster-lore:
+      - '<#f2f0e6>Сверить найденную роль со списком.'
+  report:
+    title: '<#d9d6c8>Итоги раунда'
+    summary-name: '<#e3b341><bold>Результат'
+    summary-lore:
+      - '<#8c8c8c>Победили: <winner>'
+      - '<#8c8c8c>Причина: <#f2f0e6><reason>'
+      - '<#8c8c8c>Длительность: <#f2f0e6><time>'
+      - '<#8c8c8c>Записей урона: <#f2f0e6><events>'
+    player-name: '<#f2f0e6><player>'
+    player-lore:
+      - '<#8c8c8c>Роль: <role>'
+      - '<#8c8c8c>Устранения: <#e3b341><kills>'
+      - '<#8c8c8c>Урон: <#f2f0e6><damage>'
+      - '<#8c8c8c>Урон союзникам: <#d84a4a><friendly>'
+    combat-name: '<#92bed8><bold>Журнал столкновений'
+    combat-lore:
+      - '<#f2f0e6>Последовательность всех попаданий.'
+      - '<#8c8c8c>Записей: <#f2f0e6><events>'
+      - ''
+      - '<#666666>• <#92bed8>Нажмите<#f2f0e6>, чтобы открыть <#666666>•'
+  combat:
+    title: '<#d9d6c8>Журнал · <page>/<pages>'
+    entry-name: '<#f2f0e6>Запись #<sequence>'
+    entry-lore:
+      - '<#8c8c8c><attacker> → <#f2f0e6><victim>'
+      - '<#8c8c8c>Оружие: <weapon>'
+      - '<#8c8c8c>Урон: <#f2f0e6><damage> <#666666>• <flags>'
+    back-name: '<#e3b341><bold>Вернуться к итогам'
+    back-lore:
+      - '<#f2f0e6>Открыть общий результат раунда.'
 
 state:
   arena-ready: '<#7bd88f>готова'
@@ -243,6 +335,88 @@ body:
   already: '<prefix> <#e6fff3>Роль игрока <#92bed8><player><#8c8c8c>: <role><#e6fff3>.'
   dna: '<prefix> <#e6fff3>ДНК: <#d84a4a><killer><#8c8c8c> • <#e3b341><distance> блоков<#e6fff3>.'
   dna-lost: '<prefix> <#ff9f0f>ДНК-след потерян.'
+  unavailable: '<prefix> <#ff9f0f>Это тело больше нельзя исследовать.'
+  scanner-detective-only: '<prefix> <#ff9f0f>Исследовать ДНК может только детектив.'
+  scanner-required: '<prefix> <#ff9f0f>Для исследования нужен сканер ДНК.'
+  detective-already-called: '<prefix> <#ff9f0f>Детектив уже получил координаты.'
+  no-detective: '<prefix> <#ff9f0f>В живых не осталось детективов.'
+  detective-called: '<prefix> <#92bed8>Найдено тело <#f2f0e6><victim><#8c8c8c> • <#e3b341><x>, <y>, <z>'
+  detective-call-sent: '<prefix> <#2bba43>Координаты переданы детективам.'
+  hit-head: '<#d84a4a>в голову'
+  hit-body: '<#f2f0e6>в корпус'
+
+weapon:
+  pistol-name: '<#e3b341><bold>Пистолет'
+  pistol-lore:
+    - '<#8c8c8c>Магазин: <#f2f0e6><loaded>/<#f2f0e6><magazine>'
+    - '<#8c8c8c>Урон: <#f2f0e6><damage> <#666666>• <#8c8c8c>дальность: <#f2f0e6><range>'
+    - ''
+    - '<#666666>• <#e3b341>ПКМ<#f2f0e6> — огонь <#666666>• <#e3b341>F<#f2f0e6> — перезарядка'
+  smg-name: '<#e3b341><bold>Пистолет-пулемёт'
+  smg-lore:
+    - '<#8c8c8c>Магазин: <#f2f0e6><loaded>/<#f2f0e6><magazine>'
+    - '<#8c8c8c>Урон: <#f2f0e6><damage> <#666666>• <#8c8c8c>дальность: <#f2f0e6><range>'
+    - ''
+    - '<#666666>• <#e3b341>ПКМ<#f2f0e6> — огонь <#666666>• <#e3b341>F<#f2f0e6> — перезарядка'
+  shotgun-name: '<#e3b341><bold>Дробовик'
+  shotgun-lore:
+    - '<#8c8c8c>Магазин: <#f2f0e6><loaded>/<#f2f0e6><magazine>'
+    - '<#8c8c8c>Урон: <#f2f0e6><damage> <#666666>• <#8c8c8c>дальность: <#f2f0e6><range>'
+    - ''
+    - '<#666666>• <#e3b341>ПКМ<#f2f0e6> — огонь <#666666>• <#e3b341>F<#f2f0e6> — перезарядка'
+  rifle-name: '<#e3b341><bold>Винтовка'
+  rifle-lore:
+    - '<#8c8c8c>Магазин: <#f2f0e6><loaded>/<#f2f0e6><magazine>'
+    - '<#8c8c8c>Урон: <#f2f0e6><damage> <#666666>• <#8c8c8c>дальность: <#f2f0e6><range>'
+    - ''
+    - '<#666666>• <#e3b341>ПКМ<#f2f0e6> — огонь <#666666>• <#e3b341>F<#f2f0e6> — перезарядка'
+  ammunition-name: '<#f2f0e6>Патроны'
+  ammunition-lore:
+    - '<#8c8c8c>Количество: <#f2f0e6><rounds>'
+    - '<#f2f0e6>Подходят ко всему оружию раунда.'
+  ammo-actionbar: '<weapon> <#666666>• <#f2f0e6><loaded>/<#f2f0e6><magazine> <#666666>• <#8c8c8c>запас <#f2f0e6><reserve>'
+  empty-actionbar: '<#d84a4a>Магазин пуст <#666666>• <#f2f0e6>нажмите F'
+  reloading-actionbar: '<#e3b341>Перезарядка…'
+  magazine-full-actionbar: '<#8c8c8c>Магазин уже полный'
+  no-ammo-actionbar: '<#d84a4a>Нет патронов в запасе'
+  reload-complete-actionbar: '<#2bba43>Готово <#666666>• <#f2f0e6><loaded>/<#f2f0e6><magazine>'
+  kind:
+    firearm-pistol: '<#f2f0e6>пистолет'
+    firearm-smg: '<#f2f0e6>пистолет-пулемёт'
+    firearm-shotgun: '<#f2f0e6>дробовик'
+    firearm-rifle: '<#f2f0e6>винтовка'
+    traitor-blade: '<#d84a4a>клинок предателя'
+    melee: '<#f2f0e6>ближний бой'
+    environment: '<#8c8c8c>окружение'
+
+roster:
+  status:
+    alive: '<#7bd88f>жив'
+    missing: '<#e3b341>пропал'
+    confirmed_dead: '<#d84a4a>смерть подтверждена'
+    disconnected: '<#8c8c8c>отключился'
+  role-hidden: '<#8c8c8c>не установлена'
+
+report:
+  item-name: '<#e3b341><bold>Итоги раунда'
+  item-lore:
+    - '<#f2f0e6>Роли, урон и журнал столкновений.'
+    - ''
+    - '<#666666>• <#e3b341>ПКМ<#f2f0e6>, чтобы открыть <#666666>•'
+  ready: '<prefix> <#e6fff3>Итоги готовы: откройте книгу или <#92bed8>/events report<#e6fff3>.'
+  unavailable: '<prefix> <#ff9f0f>Итоги прошлого раунда недоступны.'
+  winner-innocents: '<#7bd88f>мирные'
+  winner-traitors: '<#d84a4a>предатели'
+  reason:
+    elimination: 'одна команда устранена'
+    timeout: 'время раунда истекло'
+    admin: 'раунд остановлен администратором'
+    shutdown: 'сервер остановлен'
+    insufficient_players: 'не хватило игроков'
+  flag-friendly: '<#d84a4a>союзный урон'
+  flag-lethal: '<#d84a4a>устранение'
+  flag-headshot: '<#e3b341>в голову'
+  flag-hit: '<#8c8c8c>попадание'
 
 shop:
   bought: '<prefix> <#2bba43>Получено: <#e3b341><item><#8c8c8c> • <#e3b341><credits> кр.'

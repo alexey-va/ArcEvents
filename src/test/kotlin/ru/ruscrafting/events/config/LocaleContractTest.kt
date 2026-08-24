@@ -40,7 +40,7 @@ class LocaleContractTest : StringSpec({
     companion object {
         private val roots = listOf(
             "prefix", "command", "reason", "menu", "state", "phase", "queue", "match", "role",
-            "loadout", "body", "shop", "team", "chat", "admin", "debug",
+            "loadout", "body", "weapon", "roster", "report", "shop", "team", "chat", "admin", "debug",
         )
 
         private fun leaves(config: Config): Set<String> = roots.flatMap { root -> collect(config, root) }.toSet()

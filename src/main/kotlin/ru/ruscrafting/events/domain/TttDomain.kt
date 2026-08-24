@@ -23,11 +23,15 @@ data class TttParticipant(
     val kills: Int = 0,
     val deaths: Int = 0,
     val friendlyKills: Int = 0,
+    val damageDealt: Double = 0.0,
+    val friendlyDamage: Double = 0.0,
 ) {
     fun validated(): TttParticipant = apply {
         require(playerName.matches(Regex("[A-Za-z0-9_]{1,16}"))) { "Invalid player name" }
         require(originServer.matches(Regex("[a-z0-9_-]{1,32}"))) { "Invalid origin server" }
         require(credits in 0..64 && kills in 0..64 && deaths in 0..1 && friendlyKills in 0..64)
+        require(damageDealt.isFinite() && damageDealt in 0.0..100_000.0)
+        require(friendlyDamage.isFinite() && friendlyDamage in 0.0..damageDealt)
     }
 }
 
@@ -169,6 +173,24 @@ class TttMatchEngine(
         return if (outcome is MatchOutcome.Finished) finish(changed, outcome.winner, outcome.reason) to outcome else changed to outcome
     }
 
+    fun recordDamage(match: TttMatch, victimId: UUID, attackerId: UUID?, finalDamage: Double): TttMatch {
+        require(match.phase == MatchPhase.ACTIVE)
+        require(finalDamage.isFinite() && finalDamage >= 0.0)
+        if (attackerId == null || attackerId == victimId || finalDamage == 0.0) return match
+        val victim = match.participant(victimId) ?: return match
+        val attacker = match.participant(attackerId) ?: return match
+        if (victim.status != ParticipantStatus.ALIVE || attacker.status != ParticipantStatus.ALIVE) return match
+        val friendly = attacker.role.team == victim.role.team
+        val updated = attacker.copy(
+            damageDealt = (attacker.damageDealt + finalDamage).coerceAtMost(100_000.0),
+            friendlyDamage = (attacker.friendlyDamage + if (friendly) finalDamage else 0.0).coerceAtMost(100_000.0),
+        )
+        return match.copy(
+            revision = match.revision + 1,
+            participants = match.participants + (attackerId to updated),
+        ).validated(minimumPlayers, maximumPlayers)
+    }
+
     fun disconnect(match: TttMatch, playerId: UUID): Pair<TttMatch, MatchOutcome> {
         require(match.phase in setOf(MatchPhase.PREPARING, MatchPhase.COUNTDOWN, MatchPhase.ACTIVE))
         val player = requireNotNull(match.participants[playerId])
@@ -253,7 +275,8 @@ data class PlayerEventStats(
     fun record(matchId: UUID, participant: TttParticipant, winner: TttTeam?): PlayerEventStats {
         if (lastMatchId == matchId.toString()) return this
         val won = winner != null && participant.role.team == winner
-        val friendlyPenalty = participant.friendlyKills * 100
+        val friendlyPenalty = participant.friendlyKills * 75 + kotlin.math.ceil(participant.friendlyDamage * 2.0).toInt()
+        val cleanRoundRecovery = if (participant.friendlyDamage < 0.5 && participant.friendlyKills == 0) 20 else 0
         return copy(
             revision = revision + 1,
             lastMatchId = matchId.toString(),
@@ -263,7 +286,9 @@ data class PlayerEventStats(
             innocentWins = innocentWins + if (won && participant.role != TttRole.TRAITOR) 1 else 0,
             kills = kills + participant.kills,
             deaths = deaths + participant.deaths,
-            karma = (karma - friendlyPenalty).coerceIn(0, 2000),
+            karma = (karma + cleanRoundRecovery - friendlyPenalty).coerceIn(100, 1000),
         ).validated()
     }
+
+    fun damageMultiplier(): Double = (0.5 + karma.coerceIn(0, 1000) / 2_000.0).coerceIn(0.5, 1.0)
 }

@@ -4,6 +4,7 @@ import net.kyori.adventure.bossbar.BossBar
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.title.Title
 import org.bukkit.GameMode
+import org.bukkit.FluidCollisionMode
 import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.NamespacedKey
@@ -11,6 +12,7 @@ import org.bukkit.Particle
 import org.bukkit.Sound
 import org.bukkit.attribute.Attribute
 import org.bukkit.entity.ArmorStand
+import org.bukkit.entity.Item
 import org.bukkit.entity.Player
 import org.bukkit.entity.Projectile
 import org.bukkit.inventory.ItemStack
@@ -32,6 +34,11 @@ import ru.ruscrafting.events.domain.MatchOutcome
 import ru.ruscrafting.events.domain.MatchPhase
 import ru.ruscrafting.events.domain.ParticipantStatus
 import ru.ruscrafting.events.domain.PlayerEventStats
+import ru.ruscrafting.events.domain.CombatRecord
+import ru.ruscrafting.events.domain.FirearmSpread
+import ru.ruscrafting.events.domain.RosterEntry
+import ru.ruscrafting.events.domain.RosterStatus
+import ru.ruscrafting.events.domain.ShotDirection
 import ru.ruscrafting.events.domain.RoleAllocationSettings
 import ru.ruscrafting.events.domain.RecentAttackLedger
 import ru.ruscrafting.events.domain.TttMatch
@@ -49,6 +56,7 @@ import java.util.concurrent.TimeUnit
 import java.util.logging.Level
 import kotlin.math.ceil
 import kotlin.math.max
+import kotlin.random.Random
 
 data class ServiceSnapshot(
     val serverId: String,
@@ -78,7 +86,11 @@ data class BodyRecord(
     val killedAtMs: Long,
     val location: Location,
     val entityId: UUID,
+    val weaponKey: String,
+    val finalDamage: Double,
+    val headshot: Boolean,
     var discovered: Boolean = false,
+    var detectiveCalled: Boolean = false,
 )
 
 enum class AdminStopResult { MATCH, RESERVATION, NO_MATCH }
@@ -89,6 +101,7 @@ class ArcEventsService(
     private val locale: ArcEventsLocale,
     private val escrow: PlayerStateEscrow,
     private val items: TttItems,
+    private val firearms: TttFirearms,
     private val network: EventNetworkCoordinator,
     private val debug: ArcEventsDebug,
     private val redisConnected: () -> Boolean,
@@ -104,7 +117,13 @@ class ArcEventsService(
     private val teleportAuthorizer = InternalTeleportAuthorizer()
     private val recentAttacks = RecentAttackLedger(clock = clock)
     private val projectiles = mutableSetOf<UUID>()
+    private val lootEntities = mutableSetOf<UUID>()
     private val bodies = linkedMapOf<UUID, BodyRecord>()
+    private val combatLog = mutableListOf<CombatRecord>()
+    private val shotCooldownUntil = mutableMapOf<UUID, Long>()
+    private val reloadTasks = mutableMapOf<UUID, ScheduledTask>()
+    private var pendingHit: PendingHitContext? = null
+    private var roundReport: RoundReportView? = null
     private val bodyKey = NamespacedKey(plugin, "body_id")
     private val projectileMatchKey = NamespacedKey(plugin, "projectile_match")
     private var bossBar: BossBar? = null
@@ -149,12 +168,56 @@ class ArcEventsService(
     fun currentMatch(): TttMatch? = match
     fun participant(playerId: UUID): TttParticipant? = match?.participant(playerId)
     fun stats(playerId: UUID): PlayerEventStats = network.stats(playerId)
+    fun report(): RoundReportView? = roundReport
     fun bodyId(entityId: UUID): UUID? = bodies.values.firstOrNull { it.entityId == entityId }?.bodyId
     override fun isParticipant(playerId: UUID): Boolean = match?.participant(playerId) != null
     override fun isAlive(playerId: UUID): Boolean = participant(playerId)?.status == ParticipantStatus.ALIVE
     override fun phase(): MatchPhase? = match?.phase
     fun activeMatchId(): String? = match?.matchId?.toString()
     fun arenaReady(): Boolean = settings().let { arenaInspector.ready(it.arena, it.ttt.maximumPlayers) }
+
+    fun roster(viewerId: UUID): RosterView? {
+        val current = match ?: return null
+        if (current.phase != MatchPhase.ACTIVE) return null
+        val viewer = current.participant(viewerId) ?: return null
+        val discoveredVictims = bodies.values.filter(BodyRecord::discovered).map(BodyRecord::victimId).toSet()
+        return RosterView(current.participants.values.sortedBy(TttParticipant::playerName).map { participant ->
+            val status = when {
+                participant.status == ParticipantStatus.DISCONNECTED -> RosterStatus.DISCONNECTED
+                participant.status == ParticipantStatus.ALIVE || participant.status == ParticipantStatus.RESERVED -> RosterStatus.ALIVE
+                participant.playerId in discoveredVictims -> RosterStatus.CONFIRMED_DEAD
+                else -> RosterStatus.MISSING
+            }
+            val visibleRole = when {
+                participant.playerId == viewerId -> participant.role
+                participant.role == TttRole.DETECTIVE -> participant.role
+                participant.playerId in discoveredVictims -> participant.role
+                viewer.role == TttRole.TRAITOR && participant.role == TttRole.TRAITOR -> participant.role
+                else -> null
+            }
+            RosterEntry(participant.playerId, participant.playerName, status, visibleRole)
+        })
+    }
+
+    fun bodyEvidence(viewerId: UUID, bodyId: UUID): BodyEvidenceView? {
+        val current = match ?: return null
+        if (current.participant(viewerId) == null) return null
+        val body = bodies[bodyId]?.takeIf { it.matchId == current.matchId && it.discovered } ?: return null
+        return BodyEvidenceView(
+            bodyId = body.bodyId,
+            victimId = body.victimId,
+            victimName = body.victimName,
+            role = body.role,
+            secondsSinceDeath = ((clock() - body.killedAtMs).coerceAtLeast(0) / 1_000L),
+            weaponKey = body.weaponKey,
+            finalDamage = body.finalDamage,
+            headshot = body.headshot,
+            dnaAvailable = body.killerId?.let { killerId ->
+                clock() - body.killedAtMs <= settings().weapons.dnaSeconds * 1_000L && isAlive(killerId)
+            } == true,
+            detectiveCalled = body.detectiveCalled,
+        )
+    }
 
     fun onReservation(batch: ReservationBatch): Boolean {
         if (!started || match != null || reservation != null) {
@@ -265,6 +328,39 @@ class ArcEventsService(
         recentAttacks.record(current.matchId, victimId, attackerId)
     }
 
+    override fun damageMultiplier(attackerId: UUID?): Double {
+        val current = match ?: return 1.0
+        val attacker = attackerId?.let(current::participant) ?: return 1.0
+        if (current.phase != MatchPhase.ACTIVE || attacker.status != ParticipantStatus.ALIVE) return 1.0
+        return network.stats(attacker.playerId).damageMultiplier()
+    }
+
+    override fun recordDamage(victim: Player, attacker: Player?, finalDamage: Double, lethal: Boolean) {
+        val current = match ?: return
+        if (current.phase != MatchPhase.ACTIVE || finalDamage <= 0.0 || !finalDamage.isFinite()) return
+        val victimParticipant = current.participant(victim.uniqueId) ?: return
+        val attackerParticipant = attacker?.uniqueId?.let(current::participant)
+        val hit = pendingHit?.takeIf { it.attackerId == attacker?.uniqueId && it.victimId == victim.uniqueId }
+        val weaponKey = hit?.weaponKey ?: weaponKey(attacker)
+        val friendly = attackerParticipant != null && attackerParticipant.role.team == victimParticipant.role.team
+        val record = CombatRecord(
+            sequence = combatLog.size + 1,
+            occurredAtMs = clock(),
+            attackerId = attackerParticipant?.playerId,
+            attackerName = attackerParticipant?.playerName,
+            victimId = victimParticipant.playerId,
+            victimName = victimParticipant.playerName,
+            weapon = weaponKey,
+            finalDamage = finalDamage.coerceAtMost(100.0),
+            friendly = friendly,
+            headshot = hit?.headshot == true,
+            lethal = lethal,
+        ).validated()
+        combatLog += record
+        if (combatLog.size > 512) combatLog.removeAt(0)
+        match = engine().recordDamage(current, victim.uniqueId, attackerParticipant?.playerId, finalDamage)
+    }
+
     override fun shouldCancelDamage(victimId: UUID, attackerId: UUID?, projectile: Boolean, projectileMatchId: UUID?): Boolean {
         val current = match
         if (projectileMatchId != null && projectileMatchId != current?.matchId) return true
@@ -367,22 +463,69 @@ class ArcEventsService(
                 "role" to roleName(body.role, player),
             )))
         }
-        val inspector = current.participant(player.uniqueId) ?: return
-        if (inspector.role == TttRole.DETECTIVE &&
-            items.kind(player.inventory.itemInMainHand) == EventItemKind.DETECTIVE_SCANNER &&
-            belongsToCurrentMatch(player.uniqueId, player.inventory.itemInMainHand)
+    }
+
+    fun scanBody(player: Player, bodyId: UUID): Boolean {
+        val body = bodies[bodyId] ?: return false
+        val current = match ?: return false
+        val inspector = current.participant(player.uniqueId) ?: return false
+        if (body.matchId != current.matchId || !body.discovered || current.phase != MatchPhase.ACTIVE ||
+            inspector.status != ParticipantStatus.ALIVE || inspector.role != TttRole.DETECTIVE
         ) {
-            val killer = body.killerId?.let(plugin.server::getPlayer)?.takeIf { isAlive(it.uniqueId) }
-            if (killer == null) {
-                player.sendMessage(locale.render("body.dna-lost", player))
-            } else {
-                player.compassTarget = killer.location
-                player.sendMessage(locale.render("body.dna", player, mapOf(
-                    "killer" to Component.text(killer.name),
-                    "distance" to locale.text(ceil(player.location.distance(killer.location)).toInt()),
-                )))
-            }
+            player.sendMessage(locale.render("body.scanner-detective-only", player))
+            return false
         }
+        val scanner = player.inventory.contents.any { item ->
+            items.kind(item) == EventItemKind.DETECTIVE_SCANNER && items.belongsTo(item, current.matchId.toString())
+        }
+        if (!scanner) {
+            player.sendMessage(locale.render("body.scanner-required", player))
+            return false
+        }
+        val killer = body.killerId?.let(plugin.server::getPlayer)?.takeIf { isAlive(it.uniqueId) }
+            ?.takeIf { clock() - body.killedAtMs <= settings().weapons.dnaSeconds * 1_000L }
+        if (killer == null) {
+            player.sendMessage(locale.render("body.dna-lost", player))
+            return false
+        }
+        player.compassTarget = killer.location
+        player.sendMessage(locale.render("body.dna", player, mapOf(
+            "killer" to Component.text(killer.name),
+            "distance" to locale.text(ceil(player.location.distance(killer.location)).toInt()),
+        )))
+        return true
+    }
+
+    fun callDetective(player: Player, bodyId: UUID): Boolean {
+        val body = bodies[bodyId] ?: return false
+        val current = match ?: return false
+        if (body.matchId != current.matchId || current.phase != MatchPhase.ACTIVE ||
+            current.participant(player.uniqueId)?.status != ParticipantStatus.ALIVE || !body.discovered
+        ) return false
+        if (body.detectiveCalled) {
+            player.sendMessage(locale.render("body.detective-already-called", player))
+            return false
+        }
+        val detectives = current.participants.values.filter { it.role == TttRole.DETECTIVE && it.status == ParticipantStatus.ALIVE }
+            .mapNotNull { plugin.server.getPlayer(it.playerId) }
+        if (detectives.isEmpty()) {
+            player.sendMessage(locale.render("body.no-detective", player))
+            return false
+        }
+        body.detectiveCalled = true
+        detectives.forEach { detective ->
+            detective.compassTarget = body.location
+            detective.sendMessage(locale.render("body.detective-called", detective, mapOf(
+                "player" to Component.text(player.name),
+                "victim" to Component.text(body.victimName),
+                "x" to locale.text(body.location.blockX),
+                "y" to locale.text(body.location.blockY),
+                "z" to locale.text(body.location.blockZ),
+            )))
+            if (settings().ui.sounds) detective.playSound(detective.location, Sound.BLOCK_BELL_USE, 0.8f, 1.15f)
+        }
+        player.sendMessage(locale.render("body.detective-call-sent", player))
+        return true
     }
 
     fun buy(player: Player, offer: ShopOffer): Boolean {
@@ -429,9 +572,125 @@ class ArcEventsService(
             EventItemKind.TRAITOR_RADAR -> activateRadar(player, current)
             EventItemKind.TRAITOR_SMOKE -> activateSmoke(player)
             EventItemKind.DETECTIVE_MEDKIT -> activateMedkit(player)
-            EventItemKind.SHOP, EventItemKind.DETECTIVE_SCANNER,
-            EventItemKind.TRAITOR_BLADE, EventItemKind.DETECTIVE_ARMOR -> false
+            EventItemKind.SHOP, EventItemKind.FIREARM, EventItemKind.AMMUNITION, EventItemKind.ROUND_REPORT,
+            EventItemKind.DETECTIVE_SCANNER, EventItemKind.TRAITOR_BLADE, EventItemKind.DETECTIVE_ARMOR -> false
         }
+    }
+
+    override fun useFirearm(player: Player): Boolean {
+        val current = match ?: return false
+        val participant = current.participant(player.uniqueId) ?: return false
+        val held = player.inventory.itemInMainHand
+        val state = firearms.state(held) ?: return false
+        if (!settings().weapons.enabled || current.phase != MatchPhase.ACTIVE || participant.status != ParticipantStatus.ALIVE ||
+            state.matchId != current.matchId.toString()
+        ) return false
+        if (reloadTasks.containsKey(player.uniqueId)) {
+            player.sendActionBar(locale.render("weapon.reloading-actionbar", player))
+            return false
+        }
+        val spec = firearms.spec(state.id)
+        val now = clock()
+        if (now < (shotCooldownUntil[player.uniqueId] ?: 0L)) return false
+        if (state.loaded < spec.roundsPerShot) {
+            shotCooldownUntil[player.uniqueId] = now + 350L
+            player.sendActionBar(locale.render("weapon.empty-actionbar", player))
+            if (settings().ui.sounds) player.playSound(player.location, Sound.BLOCK_LEVER_CLICK, 0.7f, 1.7f)
+            return false
+        }
+        shotCooldownUntil[player.uniqueId] = now + spec.cooldownTicks * 50L
+        val loaded = state.loaded - spec.roundsPerShot
+        player.inventory.setItemInMainHand(firearms.updateLoaded(held, player, loaded))
+        val eye = player.eyeLocation.clone()
+        val base = eye.direction.normalize()
+        val random = Random(now xor player.uniqueId.mostSignificantBits xor combatLog.size.toLong())
+        repeat(spec.pellets) {
+            val yaw = (random.nextDouble() * 2.0 - 1.0) * spec.spreadDegrees
+            val pitch = (random.nextDouble() * 2.0 - 1.0) * spec.spreadDegrees
+            val spread = FirearmSpread.apply(ShotDirection(base.x, base.y, base.z), yaw, pitch)
+            fireRay(player, state.id.name.lowercase(), eye, Vector(spread.x, spread.y, spread.z), spec.range, spec.damagePerPellet)
+        }
+        if (settings().ui.sounds) {
+            val sound = when (state.id) {
+                ru.ruscrafting.events.domain.FirearmId.PISTOL -> Sound.ENTITY_FIREWORK_ROCKET_BLAST
+                ru.ruscrafting.events.domain.FirearmId.SMG -> Sound.ENTITY_FIREWORK_ROCKET_LARGE_BLAST
+                ru.ruscrafting.events.domain.FirearmId.SHOTGUN -> Sound.ENTITY_GENERIC_EXPLODE
+                ru.ruscrafting.events.domain.FirearmId.RIFLE -> Sound.ENTITY_FIREWORK_ROCKET_TWINKLE_FAR
+            }
+            player.world.playSound(player.location, sound, 0.85f, when (state.id) {
+                ru.ruscrafting.events.domain.FirearmId.SHOTGUN -> 0.75f
+                ru.ruscrafting.events.domain.FirearmId.RIFLE -> 1.3f
+                else -> 1.05f
+            })
+        }
+        player.sendActionBar(locale.render("weapon.ammo-actionbar", player, mapOf(
+            "weapon" to locale.render("weapon.${state.id.name.lowercase()}-name", player),
+            "loaded" to locale.text(loaded),
+            "magazine" to locale.text(spec.magazineSize),
+            "reserve" to locale.text(firearms.reserveAmmo(player, current.matchId.toString())),
+        )))
+        return true
+    }
+
+    override fun reloadFirearm(player: Player): Boolean {
+        val current = match ?: return false
+        val participant = current.participant(player.uniqueId) ?: return false
+        val state = firearms.state(player.inventory.itemInMainHand) ?: return false
+        if (current.phase != MatchPhase.ACTIVE || participant.status != ParticipantStatus.ALIVE || state.matchId != current.matchId.toString()) return false
+        val spec = firearms.spec(state.id)
+        if (state.loaded >= spec.magazineSize) {
+            player.sendActionBar(locale.render("weapon.magazine-full-actionbar", player))
+            return false
+        }
+        if (firearms.reserveAmmo(player, state.matchId) == 0) {
+            player.sendActionBar(locale.render("weapon.no-ammo-actionbar", player))
+            return false
+        }
+        if (reloadTasks.containsKey(player.uniqueId)) return false
+        player.sendActionBar(locale.render("weapon.reloading-actionbar", player))
+        if (settings().ui.sounds) player.playSound(player.location, Sound.ITEM_ARMOR_EQUIP_IRON, 0.5f, 1.4f)
+        reloadTasks[player.uniqueId] = Tasks.scheduler.runLater(spec.reloadTicks.toLong()) {
+            reloadTasks.remove(player.uniqueId)
+            val live = match
+            val held = player.inventory.itemInMainHand
+            val latest = firearms.state(held)
+            if (!player.isOnline || live?.matchId != current.matchId || live.phase != MatchPhase.ACTIVE ||
+                latest?.id != state.id || latest.matchId != state.matchId
+            ) return@runLater
+            val needed = spec.magazineSize - latest.loaded
+            val consumed = firearms.consumeReserve(player, latest.matchId, needed)
+            if (consumed <= 0) return@runLater
+            player.inventory.setItemInMainHand(firearms.updateLoaded(held, player, latest.loaded + consumed))
+            player.sendActionBar(locale.render("weapon.reload-complete-actionbar", player, mapOf(
+                "loaded" to locale.text(latest.loaded + consumed),
+                "magazine" to locale.text(spec.magazineSize),
+                "reserve" to locale.text(firearms.reserveAmmo(player, latest.matchId)),
+            )))
+            if (settings().ui.sounds) player.playSound(player.location, Sound.BLOCK_IRON_TRAPDOOR_CLOSE, 0.55f, 1.5f)
+        }
+        return true
+    }
+
+    override fun canDropLoot(player: Player, item: ItemStack?): Boolean {
+        val current = match ?: return false
+        return current.phase == MatchPhase.ACTIVE && current.participant(player.uniqueId)?.status == ParticipantStatus.ALIVE &&
+            firearms.isLoot(item, current.matchId.toString())
+    }
+
+    override fun registerDroppedLoot(item: Item) {
+        val current = match ?: return item.remove()
+        if (!firearms.isLoot(item.itemStack, current.matchId.toString())) return item.remove()
+        lootEntities.removeIf { entityId -> plugin.server.getEntity(entityId)?.isValid != true }
+        item.pickupDelay = 20
+        item.setUnlimitedLifetime(true)
+        item.setCanMobPickup(false)
+        lootEntities += item.uniqueId
+    }
+
+    override fun canPickupLoot(player: Player, item: Item): Boolean {
+        val current = match ?: return false
+        return current.phase == MatchPhase.ACTIVE && current.participant(player.uniqueId)?.status == ParticipantStatus.ALIVE &&
+            firearms.isLoot(item.itemStack, current.matchId.toString())
     }
 
     fun teamChat(player: Player, rawMessage: String) {
@@ -489,12 +748,15 @@ class ArcEventsService(
             "detectives" to state.detectives,
             "recovery" to state.recoveryPending,
             "remaining" to state.secondsRemaining,
+            "loot" to lootEntities.count { plugin.server.getEntity(it)?.isValid == true },
+            "combat" to combatLog.size,
         )
     }
 
     fun qaPlayer(playerName: String): String {
         val player = plugin.server.getPlayerExact(playerName)
         val participant = player?.uniqueId?.let(::participant)
+        val firearm = player?.let { firearms.state(it.inventory.itemInMainHand) }
         return ArcEventsDebug.qa(
             "server" to settings().serverId,
             "player" to (player?.name ?: playerName.take(16)),
@@ -505,6 +767,12 @@ class ArcEventsService(
             "status" to (participant?.status?.name?.lowercase() ?: "none"),
             "credits" to (participant?.credits ?: 0),
             "kills" to (participant?.kills ?: 0),
+            "damage" to (participant?.damageDealt?.let { "%.1f".format(it) } ?: "0.0"),
+            "friendly_damage" to (participant?.friendlyDamage?.let { "%.1f".format(it) } ?: "0.0"),
+            "firearm" to (firearm?.id?.name?.lowercase() ?: "-"),
+            "loaded" to (firearm?.loaded ?: 0),
+            "reserve" to (player?.let { activeMatchId()?.let { matchId -> firearms.reserveAmmo(it, matchId) } } ?: 0),
+            "reloading" to (player?.uniqueId in reloadTasks),
             "recovery" to (player?.let { escrow.pendingFor(it.uniqueId) } ?: false),
         )
     }
@@ -595,6 +863,9 @@ class ArcEventsService(
         val entries = batch.entries.filter { entry -> online.any { it.uniqueId.toString() == entry.playerId } }
         val engine = engine()
         recentAttacks.clear()
+        combatLog.clear()
+        roundReport = null
+        cleanupLoot()
         val created = engine.create(
             batch.matchId,
             entries.map(QueueEntry::queuedPlayer),
@@ -714,6 +985,7 @@ class ArcEventsService(
         if (current.phase != MatchPhase.COUNTDOWN) return
         match = engine().activate(current, clock())
         countdownRemaining = 0
+        spawnLoot(requireNotNull(match))
         createBossBar()
         requireNotNull(match).participants.values.mapNotNull { plugin.server.getPlayer(it.playerId) }.forEach { player ->
             player.sendMessage(locale.render("match.started", player))
@@ -772,6 +1044,24 @@ class ArcEventsService(
         hideBossBar()
         val title = if (current.winner == TttTeam.TRAITORS) "match.winner-traitors-title" else "match.winner-innocents-title"
         val subtitle = if (current.winner == TttTeam.TRAITORS) "match.winner-traitors-subtitle" else "match.winner-innocents-subtitle"
+        roundReport = RoundReportView(
+            matchId = current.matchId,
+            winner = requireNotNull(current.winner),
+            reason = requireNotNull(current.endReason),
+            durationSeconds = ((clock() - (current.activeAtMs ?: current.createdAtMs)).coerceAtLeast(0L) / 1_000L),
+            participants = current.participants.values.sortedByDescending(TttParticipant::kills).map { participant ->
+                RoundParticipantView(
+                    participant.playerId,
+                    participant.playerName,
+                    participant.role,
+                    participant.kills,
+                    participant.deaths,
+                    participant.damageDealt,
+                    participant.friendlyDamage,
+                )
+            },
+            combat = combatLog.toList(),
+        )
         current.participants.values.forEach { participant ->
             plugin.server.getPlayer(participant.playerId)?.let { player ->
                 player.showTitle(Title.title(
@@ -779,6 +1069,8 @@ class ArcEventsService(
                     locale.render(subtitle, player),
                     Title.Times.times(Duration.ofMillis(250), Duration.ofSeconds(4), Duration.ofMillis(750)),
                 ))
+                player.inventory.setItem(4, items.roundReport(player, current.matchId.toString()))
+                player.sendMessage(locale.render("report.ready", player))
             }
             network.recordStats(participant.playerId) { it.record(current.matchId, participant, current.winner) }
         }
@@ -813,6 +1105,7 @@ class ArcEventsService(
         match = engine().restoring(current)
         cleanupBodies()
         cleanupProjectiles()
+        cleanupLoot()
         radarTasks.values.forEach(ScheduledTask::cancel)
         radarTasks.clear()
         val restoredOnline = mutableSetOf<UUID>()
@@ -865,13 +1158,17 @@ class ArcEventsService(
             armorStand.isInvulnerable = true
             armorStand.isCollidable = false
             armorStand.isCustomNameVisible = true
-            armorStand.customName(locale.render("body.unidentified", values = mapOf("player" to Component.text(player.name))))
+            armorStand.customName(locale.render("body.unidentified", values = mapOf("player" to Component.text("???"))))
             armorStand.equipment.helmet = head
             armorStand.persistentDataContainer.set(bodyKey, PersistentDataType.STRING, bodyId.toString())
         }
+        val lethal = combatLog.lastOrNull { it.victimId == participant.playerId && it.lethal }
         bodies[bodyId] = BodyRecord(
             bodyId, requireNotNull(match).matchId, participant.playerId, participant.playerName,
             participant.role, killerId, clock(), location, stand.uniqueId,
+            weaponKey = lethal?.weapon ?: "environment",
+            finalDamage = lethal?.finalDamage ?: 0.0,
+            headshot = lethal?.headshot == true,
         )
         tasks += Tasks.scheduler.runLater(settings().ttt.bodyDespawnSeconds * 20L) {
             bodies.remove(bodyId)?.let { plugin.server.getEntity(it.entityId)?.remove() }
@@ -889,6 +1186,84 @@ class ArcEventsService(
     private fun cleanupProjectiles() {
         projectiles.forEach { plugin.server.getEntity(it)?.remove() }
         projectiles.clear()
+    }
+
+    private fun spawnLoot(current: TttMatch) {
+        if (!settings().weapons.enabled || settings().arena.template != TttCitadelBlueprint.TEMPLATE) return
+        cleanupLoot()
+        val world = requireNotNull(plugin.server.getWorld(settings().arena.world))
+        val seed = current.matchId.mostSignificantBits xor current.matchId.leastSignificantBits
+        TttCitadelLoot.layout(seed).forEach { spawn ->
+            val stack = spawn.firearm?.let { firearms.firearmItem(it, null, current.matchId.toString()) }
+                ?: firearms.ammunition(null, current.matchId.toString(), spawn.ammunition)
+            val location = Location(world, spawn.point.x, spawn.point.y, spawn.point.z)
+            val item = world.dropItem(location, stack) { dropped ->
+                dropped.pickupDelay = 0
+                dropped.setUnlimitedLifetime(true)
+                dropped.setCanMobPickup(false)
+                dropped.velocity = Vector()
+            }
+            lootEntities += item.uniqueId
+        }
+        debug.event("loot_spawned", "match" to current.matchId, "entities" to lootEntities.size)
+    }
+
+    private fun cleanupLoot() {
+        lootEntities.forEach { plugin.server.getEntity(it)?.remove() }
+        lootEntities.clear()
+        reloadTasks.values.forEach(ScheduledTask::cancel)
+        reloadTasks.clear()
+        shotCooldownUntil.clear()
+    }
+
+    private fun fireRay(
+        shooter: Player,
+        firearmId: String,
+        origin: Location,
+        direction: Vector,
+        range: Double,
+        baseDamage: Double,
+    ) {
+        val current = match ?: return
+        val result = shooter.world.rayTrace(
+            origin,
+            direction,
+            range,
+            FluidCollisionMode.NEVER,
+            true,
+            0.12,
+        ) { entity ->
+            entity is Player && entity.uniqueId != shooter.uniqueId &&
+                current.participant(entity.uniqueId)?.status == ParticipantStatus.ALIVE
+        }
+        val endpoint = result?.hitPosition ?: origin.toVector().add(direction.clone().multiply(range))
+        if (settings().ui.particles) {
+            val distance = origin.toVector().distance(endpoint)
+            var travelled = 1.0
+            while (travelled < distance && travelled < 90.0) {
+                val point = origin.clone().add(direction.clone().multiply(travelled))
+                shooter.world.spawnParticle(Particle.CRIT, point, 1, 0.0, 0.0, 0.0, 0.0)
+                travelled += 1.5
+            }
+        }
+        val target = result?.hitEntity as? Player ?: return
+        val headshot = result.hitPosition.y >= target.eyeLocation.y - 0.38
+        pendingHit = PendingHitContext(shooter.uniqueId, target.uniqueId, "firearm.$firearmId", headshot)
+        try {
+            target.damage(baseDamage * if (headshot) 1.5 else 1.0, shooter)
+        } finally {
+            pendingHit = null
+        }
+        if (headshot && settings().ui.sounds) shooter.playSound(shooter.location, Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.45f, 1.8f)
+    }
+
+    private fun weaponKey(attacker: Player?): String {
+        if (attacker == null) return "environment"
+        firearms.state(attacker.inventory.itemInMainHand)?.let { return "firearm.${it.id.name.lowercase()}" }
+        return when (items.kind(attacker.inventory.itemInMainHand)) {
+            EventItemKind.TRAITOR_BLADE -> "traitor-blade"
+            else -> "melee"
+        }
     }
 
     private fun rewardKiller(current: TttMatch, victimId: UUID, killerId: UUID?): TttMatch {
@@ -1049,6 +1424,7 @@ class ArcEventsService(
         hideBossBar()
         cleanupBodies()
         cleanupProjectiles()
+        cleanupLoot()
         radarTasks.values.forEach(ScheduledTask::cancel)
         radarTasks.clear()
         cleanupRetryTask?.cancel()

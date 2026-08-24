@@ -29,6 +29,8 @@ class ArcEventsCommand(
             "leave" -> player(sender)?.let(service::leaveQueue)
             "status" -> player(sender)?.let(service::status)
             "shop" -> player(sender)?.let { menu.open(it, EventsView.Shop) }
+            "roster" -> player(sender)?.let { menu.open(it, EventsView.Roster) }
+            "report" -> player(sender)?.let { menu.open(it, EventsView.Report) }
             "team" -> team(sender, args.drop(1))
             "admin" -> admin(sender, args.drop(1))
             "qa" -> qa(sender, args.drop(1))
@@ -42,7 +44,7 @@ class ArcEventsCommand(
     override fun onTabComplete(sender: CommandSender, command: Command, alias: String, args: Array<out String>): List<String> {
         val options = when (args.size) {
             1 -> buildList {
-                addAll(listOf("menu", "join", "leave", "status", "shop", "team", "help"))
+                addAll(listOf("menu", "join", "leave", "status", "shop", "roster", "report", "team", "help"))
                 if (sender.hasPermission("arcevents.admin")) add("admin")
                 if (sender.hasPermission("arcevents.qa")) add("qa")
                 if (sender.hasPermission("arcevents.debug")) add("debug")
