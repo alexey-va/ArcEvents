@@ -52,8 +52,8 @@ class ArcEventsCommand(
                 if (sender.hasPermission("arcevents.debug")) add("debug")
             }
             2 -> when (args[0].lowercase()) {
-                "admin" -> listOf("menu", "status", "player", "network", "recovery", "start", "stop", "reload", "recover")
-                "qa" -> listOf("status", "player", "network", "recovery")
+                "admin" -> listOf("menu", "status", "player", "network", "arenas", "arena", "recovery", "start", "stop", "reload", "recover")
+                "qa" -> listOf("status", "player", "network", "arenas", "recovery")
                 "debug" -> DEBUG_ACTIONS
                 else -> emptyList()
             }
@@ -66,11 +66,12 @@ class ArcEventsCommand(
         val root = args.getOrNull(0)?.lowercase()
         val action = args.getOrNull(1)?.lowercase()
         if (args.size == 3 && root in setOf("qa", "admin") && action == "player") return servicePlayerNames()
+        if (args.size == 3 && root == "admin" && action in setOf("arena", "start")) return arenaIds(includeAuto = true)
         if (root != "debug") return emptyList()
         return when (args.size) {
             3 -> when (action) {
                 "player", "credit", "role", "health", "weapon", "ammo", "item", "kill", "revive", "discover", "dna", "call", "menu", "close" -> servicePlayerNames()
-                "bootstrap" -> servicePlayerNames()
+                "bootstrap" -> arenaIds(includeAuto = true) + servicePlayerNames()
                 "end" -> listOf("innocents", "traitors")
                 "timer" -> listOf("5", "30", "60", "300")
                 "loot" -> listOf("status", "respawn", "clear")
@@ -118,8 +119,20 @@ class ArcEventsCommand(
             "status" -> sender.sendMessage(Component.text(service.qaStatus()))
             "player" -> sender.sendMessage(Component.text(service.qaPlayer(args.getOrNull(1).orEmpty().take(16))))
             "network" -> sendNetwork(sender)
+            "arenas" -> sendArenas(sender)
+            "arena" -> {
+                val arena = args.getOrNull(1)?.lowercase()
+                sender.sendMessage(locale.render(if (service.selectNextArena(arena)) "admin.arena-selected" else "admin.arena-selection-failed", sender, mapOf(
+                    "arena" to locale.text(arena ?: "auto"),
+                )))
+            }
             "recovery" -> sender.sendMessage(Component.text(service.qaRecovery()))
-            "start" -> sendStartResult(sender, admin = true)
+            "start" -> {
+                val arena = args.getOrNull(1)?.lowercase()
+                if (arena != null && !service.selectNextArena(arena)) {
+                    sender.sendMessage(locale.render("admin.arena-selection-failed", sender, mapOf("arena" to locale.text(arena))))
+                } else sendStartResult(sender, admin = true)
+            }
             "stop" -> sender.sendMessage(locale.render(stopMessage(service.stopByAdmin()), sender))
             "reload" -> {
                 val result = reload()
@@ -138,6 +151,7 @@ class ArcEventsCommand(
             "status" -> sender.sendMessage(Component.text(service.qaStatus()))
             "player" -> sender.sendMessage(Component.text(service.qaPlayer(args.getOrNull(1).orEmpty().take(16))))
             "network" -> sendNetwork(sender)
+            "arenas" -> sendArenas(sender)
             "recovery" -> sender.sendMessage(Component.text(service.qaRecovery()))
             else -> sender.sendMessage(Component.text(service.qaStatus()))
         }
@@ -155,6 +169,7 @@ class ArcEventsCommand(
             "status" -> return sender.sendMessage(Component.text(service.qaStatus()))
             "player" -> return sender.sendMessage(Component.text(service.qaPlayer(args.getOrNull(1).orEmpty().take(16))))
             "network" -> return sendNetwork(sender)
+            "arenas" -> return sendArenas(sender)
             "recovery" -> return sender.sendMessage(Component.text(service.qaRecovery()))
             "bodies" -> {
                 service.qaBodies().ifEmpty { listOf(ArcEventsDebug.qa("server" to settings().serverId, "bodies" to 0)) }
@@ -171,10 +186,11 @@ class ArcEventsCommand(
         }
         val result = when (action) {
             "bootstrap" -> {
-                val requested = args.drop(1)
+                val requestedArena = args.getOrNull(1)?.lowercase()?.takeIf { it in arenaIds(includeAuto = true) }
+                val requested = args.drop(if (requestedArena == null) 1 else 2)
                 val players = if (requested.isEmpty()) plugin.server.onlinePlayers.toList() else requested.mapNotNull(::servicePlayer)
                 if (requested.isNotEmpty() && players.size != requested.distinct().size) DebugMutationResult.PLAYER_NOT_FOUND
-                else service.debugStartLocal(players)
+                else service.debugStartLocal(players, requestedArena)
             }
             "advance" -> service.debugAdvance()
             "end" -> parseTeam(args.getOrNull(1))?.let(service::debugEnd) ?: DebugMutationResult.INVALID_ARGUMENT
@@ -274,6 +290,7 @@ class ArcEventsCommand(
         "main" -> EventsView.Main
         "help" -> EventsView.Help
         "admin" -> EventsView.Admin
+        "arenas" -> EventsView.Arenas
         "shop" -> EventsView.Shop
         "roster" -> EventsView.Roster
         "report" -> EventsView.Report
@@ -282,6 +299,11 @@ class ArcEventsCommand(
 
     private fun sendNetwork(sender: CommandSender) {
         service.qaNetwork().ifEmpty { listOf(ArcEventsDebug.qa("server" to settings().serverId, "nodes" to 0)) }
+            .forEach { sender.sendMessage(Component.text(it)) }
+    }
+
+    private fun sendArenas(sender: CommandSender) {
+        service.qaArenas().ifEmpty { listOf(ArcEventsDebug.qa("server" to settings().serverId, "arenas" to 0)) }
             .forEach { sender.sendMessage(Component.text(it)) }
     }
 
@@ -316,11 +338,15 @@ class ArcEventsCommand(
     private fun deny(sender: CommandSender) { sender.sendMessage(locale.render("command.no-permission", sender)) }
 
     private fun servicePlayerNames(): List<String> = plugin.server.onlinePlayers.map(Player::getName)
+    private fun arenaIds(includeAuto: Boolean = false): List<String> = buildList {
+        if (includeAuto) add("auto")
+        addAll(service.arenaEntries().map(ArenaPoolEntry::id))
+    }.distinct()
     private fun servicePlayer(name: String): Player? = plugin.server.getPlayerExact(name)
 
     companion object {
         internal val DEBUG_ACTIONS = listOf(
-            "help", "status", "player", "network", "recovery", "bodies",
+            "help", "status", "player", "network", "arenas", "recovery", "bodies",
             "start", "bootstrap", "advance", "end", "timer", "credit", "role", "health",
             "weapon", "ammo", "item", "kill", "revive", "discover", "dna", "call",
             "loot", "menu", "close", "cleanup",
@@ -329,7 +355,7 @@ class ArcEventsCommand(
             "traitor_blade", "traitor_radar", "traitor_smoke",
             "detective_scanner", "detective_medkit", "detective_armor",
         )
-        internal val DEBUG_VIEWS = listOf("main", "help", "admin", "shop", "roster", "report")
+        internal val DEBUG_VIEWS = listOf("main", "help", "admin", "arenas", "shop", "roster", "report")
         internal fun validOptionalInteger(raw: String?): Boolean = raw == null || raw.toIntOrNull() != null
     }
 }

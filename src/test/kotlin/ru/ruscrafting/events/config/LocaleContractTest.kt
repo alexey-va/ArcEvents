@@ -39,7 +39,7 @@ class LocaleContractTest : StringSpec({
 }) {
     companion object {
         private val roots = listOf(
-            "prefix", "command", "reason", "menu", "state", "phase", "queue", "match", "role",
+            "prefix", "command", "reason", "menu", "arena", "state", "phase", "queue", "match", "role",
             "loadout", "body", "weapon", "roster", "report", "shop", "team", "chat", "admin", "debug", "hud", "guide",
         )
 

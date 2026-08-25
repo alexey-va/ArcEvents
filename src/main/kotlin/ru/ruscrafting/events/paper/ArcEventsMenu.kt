@@ -26,6 +26,7 @@ sealed interface EventsView {
     data object Main : EventsView
     data object Help : EventsView
     data object Admin : EventsView
+    data object Arenas : EventsView
     data object Shop : EventsView
     data object Roster : EventsView
     data class Body(val bodyId: UUID) : EventsView
@@ -54,6 +55,7 @@ class ArcEventsMenu(
             EventsView.Main -> openMain(player)
             EventsView.Help -> openHelp(player)
             EventsView.Admin -> openAdmin(player)
+            EventsView.Arenas -> openArenas(player)
             EventsView.Shop -> openShop(player)
             EventsView.Roster -> openRoster(player)
             is EventsView.Body -> openBody(player, view.bodyId)
@@ -90,6 +92,7 @@ class ArcEventsMenu(
             EventsView.Main -> clickMain(player, slot)
             EventsView.Help -> if (slot == 36) open(player, EventsView.Main) else if (slot == 44) player.closeInventory()
             EventsView.Admin -> clickAdmin(player, slot)
+            EventsView.Arenas -> clickArenas(player, slot)
             EventsView.Shop -> clickShop(player, slot)
             EventsView.Roster -> clickRoster(player, slot)
             is EventsView.Body -> clickBody(player, view.bodyId, slot)
@@ -176,6 +179,10 @@ class ArcEventsMenu(
             "queue" to locale.text(state.queueSize),
             "recovery" to locale.text(state.recoveryPending),
         )))
+        inventory.setItem(20, item(Material.FILLED_MAP, player, "menu.admin.arenas-name", "menu.admin.arenas-lore", mapOf(
+            "arenas" to locale.text(service.arenaEntries().count(ArenaPoolEntry::ready)),
+            "active" to (state.arenaId?.let { arenaName(it, player) } ?: locale.render("arena.auto.name", player)),
+        )))
         inventory.setItem(29, item(Material.LIME_CONCRETE, player, "menu.admin.start-name", "menu.admin.start-lore"))
         inventory.setItem(31, item(Material.RED_CONCRETE, player, "menu.admin.stop-name", "menu.admin.stop-lore"))
         inventory.setItem(33, item(Material.CLOCK, player, "menu.admin.reload-name", "menu.admin.reload-lore"))
@@ -188,6 +195,7 @@ class ArcEventsMenu(
     private fun clickAdmin(player: Player, slot: Int) {
         if (!player.hasPermission("arcevents.admin")) return
         when (slot) {
+            20 -> open(player, EventsView.Arenas)
             29 -> {
                 service.startFromQueue(player).thenAccept { result ->
                     if (!player.isOnline) return@thenAccept
@@ -213,6 +221,49 @@ class ArcEventsMenu(
             }
             45 -> open(player, EventsView.Main)
             53 -> player.closeInventory()
+        }
+    }
+
+    private fun openArenas(player: Player) {
+        if (!player.hasPermission("arcevents.admin")) return
+        val inventory = inventory(player, EventsView.Arenas, 54, "menu.arenas.title")
+        service.arenaEntries().take(ARENA_SLOTS.size).zip(ARENA_SLOTS).forEach { (arena, slot) ->
+            val material = when {
+                arena.active -> Material.NETHER_STAR
+                arena.next -> Material.CLOCK
+                arena.ready -> Material.LIME_CONCRETE
+                else -> Material.RED_CONCRETE
+            }
+            inventory.setItem(slot, item(material, player, "menu.arenas.entry-name", "menu.arenas.entry-lore", mapOf(
+                "arena" to arenaName(arena.id, player),
+                "world" to locale.text(arena.world),
+                "template" to locale.text(arena.template.ifEmpty { "—" }),
+                "state" to locale.render(when {
+                    arena.active -> "arena.state.active"
+                    arena.next -> "arena.state.next"
+                    arena.ready -> "arena.state.ready"
+                    else -> "arena.state.unavailable"
+                }, player),
+            )))
+        }
+        inventory.setItem(40, item(Material.COMPASS, player, "menu.arenas.auto-name", "menu.arenas.auto-lore"))
+        inventory.setItem(45, item(Material.ARROW, player, "menu.common.back-name", "menu.common.back-lore"))
+        inventory.setItem(53, item(Material.BARRIER, player, "menu.common.close-name", "menu.common.close-lore"))
+        player.openInventory(inventory)
+    }
+
+    private fun clickArenas(player: Player, slot: Int) {
+        if (!player.hasPermission("arcevents.admin")) return
+        val selected = if (slot == 40) "auto" else service.arenaEntries().getOrNull(ARENA_SLOTS.indexOf(slot))?.id
+        when {
+            selected != null -> {
+                player.sendMessage(locale.render(if (service.selectNextArena(selected)) "admin.arena-selected" else "admin.arena-selection-failed", player, mapOf(
+                    "arena" to arenaName(selected, player),
+                )))
+                open(player, EventsView.Arenas)
+            }
+            slot == 45 -> open(player, EventsView.Admin)
+            slot == 53 -> player.closeInventory()
         }
     }
 
@@ -486,6 +537,11 @@ class ArcEventsMenu(
 
     private fun weaponName(key: String, player: Player): Component = locale.render("weapon.kind.${key.replace('.', '-')}", player)
 
+    private fun arenaName(id: String, player: Player): Component = locale.render(
+        "arena.${if (id.equals("default", true)) "citadel" else id.lowercase()}.name",
+        player,
+    )
+
     private fun formatDuration(seconds: Long): String = "%d:%02d".format(seconds / 60, seconds % 60)
 
     private fun startMessage(result: ReservationStartResult): String = when (result) {
@@ -501,6 +557,10 @@ class ArcEventsMenu(
         AdminStopResult.MATCH -> "admin.stopped"
         AdminStopResult.RESERVATION -> "admin.reservation-cancelled"
         AdminStopResult.NO_MATCH -> "admin.no-match"
+    }
+
+    companion object {
+        private val ARENA_SLOTS = listOf(10, 12, 14, 16, 28, 30, 32, 34)
     }
 
 }

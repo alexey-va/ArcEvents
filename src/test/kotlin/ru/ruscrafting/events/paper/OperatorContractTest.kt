@@ -80,7 +80,7 @@ class OperatorContractTest : StringSpec({
             "item", "kill", "revive", "discover", "dna", "call", "loot", "menu", "cleanup",
         )) shouldBe true
         ArcEventsCommand.DEBUG_ITEMS.size shouldBe 6
-        ArcEventsCommand.DEBUG_VIEWS shouldBe listOf("main", "help", "admin", "shop", "roster", "report")
+        ArcEventsCommand.DEBUG_VIEWS shouldBe listOf("main", "help", "admin", "arenas", "shop", "roster", "report")
         ArcEventsCommand.validOptionalInteger(null) shouldBe true
         ArcEventsCommand.validOptionalInteger("0") shouldBe true
         ArcEventsCommand.validOptionalInteger("full") shouldBe false

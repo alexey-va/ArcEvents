@@ -36,7 +36,7 @@ class ArcEventsPlugin : JavaPlugin() {
             settings = ArcEventsConfig.load(dataRoot)
             ArcEventsLocale.validateFiles(dataRoot)
             locale = ArcEventsLocale(dataRoot) { settings }
-            if (settings.arena.template == TttCitadelBlueprint.TEMPLATE) TttCitadelLoot.validate()
+            if (settings.arenas.any { it.template == TttCitadelBlueprint.TEMPLATE }) TttCitadelLoot.validate()
             ArenaWorldProvisioner(this).ensureLoaded(settings)
             val redisConfig = ArcEventsRedisBootstrap.load(dataRoot, settings)
             val manager = RedisManager(
@@ -54,6 +54,7 @@ class ArcEventsPlugin : JavaPlugin() {
             val hud = TttHud(this, { settings }, locale)
             val lootScene = TttLootScene(this) { settings }
             val arenaInspector = ArenaRuntimeInspector(this)
+            val arenaPool = ArenaPool({ settings }, arenaInspector::ready)
             lateinit var activeService: ArcEventsService
             val smokeGrenades = TttSmokeGrenades(
                 plugin = this,
@@ -90,7 +91,7 @@ class ArcEventsPlugin : JavaPlugin() {
                 network = coordinator,
                 debug = debug,
                 redisConnected = manager::isConnected,
-                arenaInspector = arenaInspector,
+                arenaPool = arenaPool,
             )
             service = activeService
             val menu = ArcEventsMenu(activeService, items, locale, { settings }, ::reloadPlugin)
@@ -129,11 +130,10 @@ class ArcEventsPlugin : JavaPlugin() {
         require(candidate.nodeMode == current.nodeMode) { "node-mode requires a restart" }
         require(candidate.hostServer == current.hostServer) { "host-server requires a restart" }
         require(candidate.network.enabled == current.network.enabled) { "network.enabled requires a restart" }
-        require(candidate.arena.world == current.arena.world) { "arena.world requires a restart" }
-        require(candidate.arena.template == current.arena.template) { "arena.template requires a restart" }
-        if (!current.arena.enabled && candidate.arena.enabled && candidate.arena.template.isNotEmpty()) {
-            error("enabling a provisioned arena requires a restart")
+        require(candidate.arenas.map { Triple(it.id, it.world, it.template) } == current.arenas.map { Triple(it.id, it.world, it.template) }) {
+            "arena ids, worlds and templates require a restart"
         }
+        require(candidate.arenas.map { it.enabled } == current.arenas.map { it.enabled }) { "arena enablement requires a restart" }
         require(service?.matchState()?.first == null) { "configuration cannot reload during a reservation or match" }
         ArcEventsLocale.validateFiles(dataRoot)
         ConfigManager.reloadAll()

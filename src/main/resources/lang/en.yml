@@ -105,7 +105,7 @@ menu:
     weapons-name: '<#ff9f0f><bold>Weapons on the map'
     weapons-lore:
       - '<#f2f0e6>Pistols, SMGs, shotguns, and rifles'
-      - '<#f2f0e6>are spread around the citadel.'
+      - '<#f2f0e6>are spread around the selected map.'
       - ''
       - '<#8c8c8c>Right-click — fire <#666666>• <#8c8c8c>F — reload'
     controls-name: '<#92bed8><bold>Commands'
@@ -121,6 +121,12 @@ menu:
       - '<#8c8c8c>Match: <#f2f0e6><match>'
       - '<#8c8c8c>Queue: <#f2f0e6><queue>'
       - '<#8c8c8c>Recoveries: <#f2f0e6><recovery>'
+    arenas-name: '<#92bed8><bold>Round maps'
+    arenas-lore:
+      - '<#8c8c8c>Ready maps: <#f2f0e6><arenas>'
+      - '<#8c8c8c>Current: <active>'
+      - ''
+      - '<#666666>• <#92bed8>Click<#f2f0e6> to choose the next map <#666666>•'
     start-name: '<#7bd88f><bold>Start from queue'
     start-lore:
       - '<#f2f0e6>Add you and start a ready roster.'
@@ -137,6 +143,19 @@ menu:
     recover-lore:
       - '<#f2f0e6>Restore every currently available player.'
       - '<#8c8c8c>A record is removed only after verification.'
+  arenas:
+    title: '<#d9d6c8>Hidden Roles Maps'
+    entry-name: '<arena>'
+    entry-lore:
+      - '<#8c8c8c>Status: <state>'
+      - '<#8c8c8c>World: <#f2f0e6><world>'
+      - '<#8c8c8c>Template: <#f2f0e6><template>'
+      - ''
+      - '<#666666>• <#92bed8>Click<#f2f0e6> to make this the next map <#666666>•'
+    auto-name: '<#e3b341><bold>Automatic rotation'
+    auto-lore:
+      - '<#f2f0e6>Choose a ready map from the pool for every match.'
+      - '<#8c8c8c>The match id makes the choice reproducible.'
   shop:
     title: '<#d9d6c8>Role Shop · <credits> cr.'
     credits-name: '<#e3b341><bold>Role credits'
@@ -261,6 +280,23 @@ menu:
     back-name: '<#e3b341><bold>Back to report'
     back-lore:
       - '<#f2f0e6>Open the round summary.'
+
+arena:
+  auto:
+    name: '<#e3b341>automatic rotation'
+  citadel:
+    name: '<#d6a8ff><bold>Citadel'
+  inferno:
+    name: '<#e3b341><bold>Inferno'
+  mirage:
+    name: '<#e3b341><bold>Mirage'
+  nuke:
+    name: '<#e3b341><bold>Nuke'
+  state:
+    ready: '<#7bd88f>ready'
+    active: '<#d6a8ff>hosting the current match'
+    next: '<#e3b341>selected next'
+    unavailable: '<#d84a4a>not ready'
 
 state:
   arena-ready: '<#7bd88f>ready'
@@ -481,6 +517,8 @@ chat:
 
 admin:
   arena-unavailable: '<prefix> <#c42323>Arena not ready: check its world and points.'
+  arena-selected: '<prefix> <#2bba43>Next map: <arena><#e6fff3>.'
+  arena-selection-failed: '<prefix> <#c42323>Map <arena> cannot be selected: it is not ready or a match is active.'
   started: '<prefix> <#2bba43>Roster reservation started.'
   start-failed: '<prefix> <#c42323>Not enough players are queued.'
   start-recovery-pending: '<prefix> <#ff9f0f>Finish restoring your player state first.'
@@ -493,7 +531,7 @@ admin:
 
 debug:
   disabled: '<prefix> <#c42323>Debug is disabled in config.yml.'
-  usage: '<prefix> <#e6fff3>Debug harness:<newline><#666666>• <#92bed8>[status]|[player]|[network]|[recovery]|[bodies] <#8c8c8c>— snapshots<newline><#666666>• <#92bed8>[start]|[bootstrap]|[advance]|[end]|[timer]|[cleanup] <#8c8c8c>— round<newline><#666666>• <#92bed8>[credit]|[role]|[health]|[kill]|[revive] <#8c8c8c>— player<newline><#666666>• <#92bed8>[weapon]|[ammo]|[item]|[loot] <#8c8c8c>— equipment<newline><#666666>• <#92bed8>[discover]|[dna]|[call]|[menu]|[close] <#8c8c8c>— evidence and GUI'
+  usage: '<prefix> <#e6fff3>Debug harness:<newline><#666666>• <#92bed8>[status]|[player]|[network]|[arenas]|[recovery]|[bodies] <#8c8c8c>— snapshots<newline><#666666>• <#92bed8>[start]|[bootstrap &lt;arena|auto&gt;]|[advance]|[end]|[timer]|[cleanup] <#8c8c8c>— round<newline><#666666>• <#92bed8>[credit]|[role]|[health]|[kill]|[revive] <#8c8c8c>— player<newline><#666666>• <#92bed8>[weapon]|[ammo]|[item]|[loot] <#8c8c8c>— equipment<newline><#666666>• <#92bed8>[discover]|[dna]|[call]|[menu]|[close] <#8c8c8c>— evidence and GUI'
   applied: '<prefix> <#2bba43>Debug action applied: <#e3b341><action><#e6fff3>.'
   rejected: '<prefix> <#c42323>Action <#e3b341><action> <#c42323>was rejected<#8c8c8c>: <#f2f0e6><reason><#8c8c8c>.'
   reason:

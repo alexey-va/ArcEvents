@@ -150,6 +150,7 @@ internal class ArcEventsDialogMenu(
                 ),
             )),
             listOf(
+                button(player, "menu.admin.arenas-name", "menu.admin.arenas-lore", EventsView.Admin, 20),
                 button(player, "menu.admin.start-name", "menu.admin.start-lore", EventsView.Admin, 29),
                 button(player, "menu.admin.stop-name", "menu.admin.stop-lore", EventsView.Admin, 31),
                 button(player, "menu.admin.reload-name", "menu.admin.reload-lore", EventsView.Admin, 33),

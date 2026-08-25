@@ -50,6 +50,7 @@ data class EventBounds(
 }
 
 data class ArenaSettings(
+    val id: String,
     val enabled: Boolean,
     val world: String,
     val template: String,
@@ -57,6 +58,7 @@ data class ArenaSettings(
     val spectator: EventLocation?,
     val bounds: EventBounds?,
     val spawns: List<EventLocation>,
+    val lootSpawns: List<EventLocation>,
 ) {
     fun operational(maximumPlayers: Int): Boolean = runCatching {
         require(enabled)
@@ -67,6 +69,8 @@ data class ArenaSettings(
         require(spawns.distinctBy { Triple(it.x, it.y, it.z) }.size == spawns.size)
         require(bounds.contains(lobby) && bounds.contains(spectator))
         require(spawns.all { bounds.contains(it.validated()) })
+        require(lootSpawns.distinctBy { Triple(it.x, it.y, it.z) }.size == lootSpawns.size)
+        require(lootSpawns.all { bounds.contains(it.validated()) })
     }.isSuccess
 }
 
@@ -195,23 +199,12 @@ class ArcEventsConfig(private val config: Config) {
             rifle = firearmVisual("weapons.visuals.rifle", "NETHERITE_SHOVEL"),
         )
 
-    val arena: ArenaSettings
-        get() {
-            val world = config.string("arena.world", "pvp").trim()
-            val lobby = parseLocation(world, config.string("arena.lobby", ""))
-            val spectator = parseLocation(world, config.string("arena.spectator", ""))
-            val minimum = parseBound(world, config.string("arena.minimum", ""))
-            val maximum = parseBound(world, config.string("arena.maximum", ""))
-            return ArenaSettings(
-                enabled = config.bool("arena.enabled", false),
-                world = world,
-                template = config.string("arena.template", "").trim().lowercase(),
-                lobby = lobby,
-                spectator = spectator,
-                bounds = if (minimum != null && maximum != null) EventBounds(minimum, maximum) else null,
-                spawns = config.stringList("arena.spawns", emptyList()).mapNotNull { parseLocation(world, it) },
-            )
-        }
+    val arenas: List<ArenaSettings>
+        get() = config.keys("arenas").sorted().map { id -> parseArena(id, "arenas.$id") }
+            .ifEmpty { listOf(parseArena("default", "arena")) }
+
+    /** Legacy convenience for safe relay defaults and older integrations. */
+    val arena: ArenaSettings get() = arenas.first()
 
     fun validated(): ArcEventsConfig = apply {
         require(enabled) { "ArcEvents is disabled in config.yml" }
@@ -250,22 +243,37 @@ class ArcEventsConfig(private val config: Config) {
             require(visual.material.matches(Regex("[A-Z0-9_]{1,64}"))) { "Weapon material is invalid" }
             require(visual.customModelData >= 0) { "Weapon custom-model-data cannot be negative" }
         }
-        require(arena.template in setOf("", "citadel-v1")) { "arena.template is unsupported" }
-        if (arena.template.isNotEmpty()) {
-            require(nodeMode == NodeMode.HOST) { "Only a HOST node may provision an arena template" }
-            require(arena.world.matches(Regex("[A-Za-z0-9_-]{1,32}"))) { "A provisioned arena requires a safe world name" }
-            require(arena.world !in setOf("world", "world_nether", "world_the_end", "pvp", "parkour1")) {
-                "A provisioned arena must use a dedicated world"
+        require(arenas.size in 1..16) { "Arena count is outside the safety limit" }
+        require(arenas.map(ArenaSettings::id).distinct().size == arenas.size) { "Arena ids must be unique" }
+        require(arenas.map(ArenaSettings::world).distinct().size == arenas.size) { "Arena worlds must be unique" }
+        arenas.forEach { arena ->
+            require(arena.id.matches(ARENA_ID)) { "arena id is invalid" }
+            require(arena.template in SUPPORTED_TEMPLATES) { "arena ${arena.id} template is unsupported" }
+            if (arena.template.isNotEmpty()) {
+                require(nodeMode == NodeMode.HOST) { "Only a HOST node may provision an arena template" }
+                require(arena.world.matches(Regex("[A-Za-z0-9_-]{1,32}"))) { "A provisioned arena requires a safe world name" }
+                require(arena.world !in PROTECTED_WORLDS) { "A provisioned arena must use a dedicated world" }
+            }
+            if (arena.enabled) require(arena.operational(ttt.maximumPlayers)) {
+                "Enabled arena ${arena.id} is incomplete or contains an unsafe location"
+            }
+            require(arena.spawns.size <= 64) { "Arena ${arena.id} has too many player spawns" }
+            require(arena.lootSpawns.size <= 128) { "Arena ${arena.id} has too many loot spawns" }
+            if (arena.enabled && weapons.enabled && arena.template !in setOf("", "citadel-v1")) {
+                require(arena.lootSpawns.size >= ttt.maximumPlayers) {
+                    "Imported arena ${arena.id} requires at least ${ttt.maximumPlayers} loot spawns"
+                }
             }
         }
-        if (arena.enabled) require(arena.operational(ttt.maximumPlayers)) {
-            "Enabled arena is incomplete or contains an unsafe location"
-        }
+        if (nodeMode == NodeMode.HOST) require(arenas.any(ArenaSettings::enabled)) { "HOST node requires an enabled arena" }
         if (nodeMode == NodeMode.HOST) require(serverId == hostServer) { "HOST node must equal host-server" }
     }
 
     companion object {
         private val SERVER_ID = Regex("[a-z0-9_-]{1,32}")
+        private val ARENA_ID = Regex("[a-z0-9_-]{1,32}")
+        private val SUPPORTED_TEMPLATES = setOf("", "citadel-v1", "cs2-inferno-v1", "cs2-nuke-v1", "cs2-mirage-v1")
+        private val PROTECTED_WORLDS = setOf("world", "world_nether", "world_the_end", "pvp", "parkour1")
 
         fun load(dataRoot: Path): ArcEventsConfig = ArcEventsConfig(ConfigManager.of(dataRoot, "config.yml")).validated()
 
@@ -292,6 +300,25 @@ class ArcEventsConfig(private val config: Config) {
         material = config.string("$path.material", fallback).trim().uppercase(),
         customModelData = config.int("$path.custom-model-data", 0),
     )
+
+    private fun parseArena(id: String, path: String): ArenaSettings {
+        val world = config.string("$path.world", "pvp").trim()
+        val lobby = parseLocation(world, config.string("$path.lobby", ""))
+        val spectator = parseLocation(world, config.string("$path.spectator", ""))
+        val minimum = parseBound(world, config.string("$path.minimum", ""))
+        val maximum = parseBound(world, config.string("$path.maximum", ""))
+        return ArenaSettings(
+            id = id.trim().lowercase(),
+            enabled = config.bool("$path.enabled", false),
+            world = world,
+            template = config.string("$path.template", "").trim().lowercase(),
+            lobby = lobby,
+            spectator = spectator,
+            bounds = if (minimum != null && maximum != null) EventBounds(minimum, maximum) else null,
+            spawns = config.stringList("$path.spawns", emptyList()).mapNotNull { parseLocation(world, it) },
+            lootSpawns = config.stringList("$path.loot-spawns", emptyList()).mapNotNull { parseLocation(world, it) },
+        )
+    }
 }
 
 object ArcEventsRedisBootstrap {

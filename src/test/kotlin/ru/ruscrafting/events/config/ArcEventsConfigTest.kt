@@ -4,6 +4,7 @@ import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import java.nio.file.Files
+import java.nio.file.Path
 
 class ArcEventsConfigTest : StringSpec({
     "bundled defaults are a safe relay with a disabled arena" {
@@ -39,6 +40,15 @@ class ArcEventsConfigTest : StringSpec({
         } finally {
             root.toFile().deleteRecursively()
         }
+    }
+
+    "reviewed parkour profile exposes four complete isolated arenas" {
+        val repository = Path.of(System.getProperty("arcevents.repositoryRoot"))
+        val config = ArcEventsConfig.inspect(repository.resolve("parkour/plugins/ArcEvents"))
+
+        config.arenas.map(ArenaSettings::id) shouldBe listOf("citadel", "inferno", "mirage", "nuke")
+        config.arenas.all { it.operational(config.ttt.maximumPlayers) } shouldBe true
+        config.arenas.filter { it.template.startsWith("cs2-") }.all { it.lootSpawns.size == 32 } shouldBe true
     }
 
     "built-in templates require a host and a dedicated safe world" {

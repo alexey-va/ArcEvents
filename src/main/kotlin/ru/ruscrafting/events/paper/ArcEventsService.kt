@@ -64,6 +64,7 @@ data class ServiceSnapshot(
     val redisConnected: Boolean,
     val hostAvailable: Boolean,
     val arenaReady: Boolean,
+    val arenaId: String?,
     val queueSize: Int,
     val matchId: UUID?,
     val phase: MatchPhase?,
@@ -127,7 +128,7 @@ class ArcEventsService(
     private val network: EventNetworkCoordinator,
     private val debug: ArcEventsDebug,
     private val redisConnected: () -> Boolean,
-    private val arenaInspector: ArenaRuntimeInspector,
+    private val arenaPool: ArenaPool,
     private val clock: () -> Long = System::currentTimeMillis,
 ) : ArcEventsGameplayBoundary, AutoCloseable {
     @Volatile
@@ -171,6 +172,7 @@ class ArcEventsService(
             redisConnected = redisConnected(),
             hostAvailable = network.hostAvailable(),
             arenaReady = arenaReady(),
+            arenaId = arenaPool.active()?.id,
             queueSize = network.queueSize,
             matchId = active?.matchId ?: pendingReservation?.matchId,
             phase = active?.phase ?: pendingReservation?.let { MatchPhase.RESERVED },
@@ -195,7 +197,10 @@ class ArcEventsService(
     override fun isAlive(playerId: UUID): Boolean = participant(playerId)?.status == ParticipantStatus.ALIVE
     override fun phase(): MatchPhase? = match?.phase
     fun activeMatchId(): String? = match?.matchId?.toString()
-    fun arenaReady(): Boolean = settings().let { arenaInspector.ready(it.arena, it.ttt.maximumPlayers) }
+    fun arenaReady(): Boolean = arenaPool.anyReady()
+    fun activeArenaId(): String? = arenaPool.active()?.id
+    fun arenaEntries(): List<ArenaPoolEntry> = arenaPool.entries()
+    fun selectNextArena(id: String?): Boolean = arenaPool.selectNext(id)
 
     fun roster(viewerId: UUID): RosterView? {
         val current = match ?: return null
@@ -244,6 +249,7 @@ class ArcEventsService(
         if (!started || match != null || reservation != null) {
             return false
         }
+        if (arenaPool.reserve(batch.matchId) == null) return false
         reservation = batch
         arrivals.clear()
         debug.event("reservation_created", "match" to batch.matchId, "players" to batch.entries.size)
@@ -319,6 +325,7 @@ class ArcEventsService(
         reservation?.let { pending ->
             reservation = null
             arrivals.clear()
+            arenaPool.release(pending.matchId)
             network.releaseReservation(pending)
             return AdminStopResult.RESERVATION
         }
@@ -765,6 +772,7 @@ class ArcEventsService(
             "redis" to if (state.redisConnected) "up" else "down",
             "host" to if (state.hostAvailable) "ready" else "unavailable",
             "arena" to if (state.arenaReady) "ready" else "disabled",
+            "arena_id" to (state.arenaId ?: "-"),
             "phase" to (state.phase?.name?.lowercase() ?: "idle"),
             "match" to (state.matchId ?: "-"),
             "queue" to state.queueSize,
@@ -817,17 +825,28 @@ class ArcEventsService(
         )
     }
 
+    fun qaArenas(): List<String> = arenaPool.entries().map { arena ->
+        ArcEventsDebug.qa(
+            "server" to settings().serverId,
+            "arena" to arena.id,
+            "world" to arena.world,
+            "template" to arena.template,
+            "ready" to arena.ready,
+            "active" to arena.active,
+            "next" to arena.next,
+        )
+    }
+
     fun qaRecovery(): String = ArcEventsDebug.qa(
         "server" to settings().serverId,
         "pending" to escrow.pendingCount(),
         "players" to escrow.pendingPlayers().sortedBy(UUID::toString).joinToString(",").ifEmpty { "-" },
     )
 
-    fun debugStartLocal(players: List<Player>): DebugMutationResult {
+    fun debugStartLocal(players: List<Player>, arenaId: String? = null): DebugMutationResult {
         val currentSettings = settings()
         if (!currentSettings.debugMutationsAllowed) return DebugMutationResult.MUTATIONS_DISABLED
         if (currentSettings.nodeMode != NodeMode.HOST) return DebugMutationResult.WRONG_NODE
-        if (!arenaReady()) return DebugMutationResult.ARENA_UNAVAILABLE
         if (match != null || reservation != null) return DebugMutationResult.BUSY
         val online = players.filter(Player::isOnline).distinctBy(Player::getUniqueId)
         if (online.size !in currentSettings.ttt.minimumPlayers..currentSettings.ttt.maximumPlayers) {
@@ -847,6 +866,7 @@ class ArcEventsService(
             seed = matchId.mostSignificantBits xor matchId.leastSignificantBits,
             nowMs = clock(),
         )
+        val arena = arenaPool.reserve(matchId, arenaId) ?: return DebugMutationResult.ARENA_UNAVAILABLE
         return runCatching {
             recentAttacks.clear()
             combatLog.clear()
@@ -858,7 +878,7 @@ class ArcEventsService(
             match = engine.prepare(created)
             preparationRemaining = currentSettings.ttt.preparationSeconds
             applyEventState(online, requireNotNull(match))
-            debug.event("debug_match_preparing", "match" to matchId, "players" to online.size)
+            debug.event("debug_match_preparing", "match" to matchId, "players" to online.size, "arena" to arena.id)
             DebugMutationResult.APPLIED
         }.getOrElse { failure ->
             plugin.logger.log(Level.SEVERE, "ArcEvents debug bootstrap failed for $matchId", failure)
@@ -1032,7 +1052,7 @@ class ArcEventsService(
         items.givePreparationLoadout(player, current.matchId.toString())
         items.revealRoleLoadout(player, participant.role, current.matchId.toString())
         val index = current.participants.keys.indexOf(player.uniqueId).coerceAtLeast(0)
-        teleport(player, settings().arena.spawns[index])
+        teleport(player, requireNotNull(arenaPool.active()).spawns[index])
         return DebugMutationResult.APPLIED
     }
 
@@ -1101,11 +1121,11 @@ class ArcEventsService(
         teleportAuthorizer.isAuthorized(playerId, destination)
 
     override fun withinArena(location: Location): Boolean {
-        val bounds = settings().arena.bounds ?: return false
+        val bounds = arenaPool.active()?.bounds ?: return false
         return bounds.contains(location.eventLocation())
     }
 
-    fun arenaBounds(): EventBounds? = settings().arena.bounds
+    fun arenaBounds(): EventBounds? = arenaPool.active()?.bounds
 
     private fun startReservedRoster() {
         val batch = reservation ?: return
@@ -1115,6 +1135,7 @@ class ArcEventsService(
         arrivals.clear()
         val currentSettings = settings()
         if (online.size < currentSettings.ttt.minimumPlayers) {
+            arenaPool.release(batch.matchId)
             network.releaseReservation(batch)
             debug.event("reservation_cancelled", "match" to batch.matchId, "arrived" to online.size)
             return
@@ -1171,8 +1192,7 @@ class ArcEventsService(
     }
 
     private fun applyEventState(players: List<Player>, current: TttMatch) {
-        val arena = settings().arena
-        require(arenaReady())
+        val arena = requireNotNull(arenaPool.active()) { "Match ${current.matchId} has no arena lease" }
         players.forEachIndexed { index, player ->
             player.closeInventory()
             player.activePotionEffects.forEach { player.removePotionEffect(it.type) }
@@ -1414,6 +1434,7 @@ class ArcEventsService(
         cleanupRetryTask = null
         debug.event("match_released", "match" to current.matchId, "phase" to current.phase, "recovery" to escrow.pendingCount())
         recentAttacks.clear()
+        arenaPool.release(current.matchId)
         match = null
     }
 
@@ -1462,17 +1483,35 @@ class ArcEventsService(
     }
 
     private fun spawnLoot(current: TttMatch) {
-        if (!settings().weapons.enabled || settings().arena.template != TttCitadelBlueprint.TEMPLATE) return
+        if (!settings().weapons.enabled) return
+        val arena = arenaPool.active() ?: return
         cleanupLoot()
-        val world = requireNotNull(plugin.server.getWorld(settings().arena.world))
+        val world = requireNotNull(plugin.server.getWorld(arena.world))
         val seed = current.matchId.mostSignificantBits xor current.matchId.leastSignificantBits
-        TttCitadelLoot.layout(seed).forEach { spawn ->
-            val stack = spawn.firearm?.let { firearms.firearmItem(it, null, current.matchId.toString()) }
-                ?: firearms.ammunition(null, current.matchId.toString(), spawn.ammunition)
-            val location = Location(world, spawn.point.x, spawn.point.y, spawn.point.z)
+        val layout = if (arena.template == TttCitadelBlueprint.TEMPLATE) {
+            TttCitadelLoot.layout(seed).map { spawn ->
+                Triple(spawn.point.x, spawn.point.y, spawn.point.z) to (spawn.firearm to spawn.ammunition)
+            }
+        } else {
+            importedLoot(arena.lootSpawns, seed)
+        }
+        layout.forEach { (coordinates, reward) ->
+            val (firearm, ammunition) = reward
+            val stack = firearm?.let { firearms.firearmItem(it, null, current.matchId.toString()) }
+                ?: firearms.ammunition(null, current.matchId.toString(), ammunition)
+            val location = Location(world, coordinates.first, coordinates.second, coordinates.third)
             lootScene.spawn(location, stack)
         }
-        debug.event("loot_spawned", "match" to current.matchId, "entities" to lootScene.size)
+        debug.event("loot_spawned", "match" to current.matchId, "arena" to arena.id, "entities" to lootScene.size)
+    }
+
+    private fun importedLoot(points: List<EventLocation>, seed: Long): List<Pair<Triple<Double, Double, Double>, Pair<FirearmId?, Int>>> {
+        val shuffled = points.shuffled(Random(seed))
+        val firearms = listOf(FirearmId.PISTOL, FirearmId.SMG, FirearmId.SHOTGUN, FirearmId.RIFLE)
+        return shuffled.mapIndexed { index, point ->
+            val reward = if (index % 3 == 2) null to 12 else firearms[(index / 2) % firearms.size] to 0
+            Triple(point.x, point.y, point.z) to reward
+        }
     }
 
     private fun cleanupLoot() {
@@ -1685,6 +1724,7 @@ class ArcEventsService(
             runCatching { network.releaseReservation(pending).get(2, TimeUnit.SECONDS) }
                 .onFailure { plugin.logger.log(Level.SEVERE, "Could not preserve reservation returns for ${pending.matchId}", it) }
         }
+        arenaPool.clear()
         reservation = null
         arrivals.clear()
         when (match?.phase) {

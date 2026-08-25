@@ -105,7 +105,7 @@ menu:
     weapons-name: '<#ff9f0f><bold>Оружие на карте'
     weapons-lore:
       - '<#f2f0e6>Пистолеты, ПП, дробовики и винтовки'
-      - '<#f2f0e6>лежат в разных частях цитадели.'
+      - '<#f2f0e6>лежат в разных частях выбранной карты.'
       - ''
       - '<#8c8c8c>ПКМ — огонь <#666666>• <#8c8c8c>F — перезарядка'
     controls-name: '<#92bed8><bold>Команды'
@@ -121,6 +121,12 @@ menu:
       - '<#8c8c8c>Матч: <#f2f0e6><match>'
       - '<#8c8c8c>Очередь: <#f2f0e6><queue>'
       - '<#8c8c8c>Восстановления: <#f2f0e6><recovery>'
+    arenas-name: '<#92bed8><bold>Карты раунда'
+    arenas-lore:
+      - '<#8c8c8c>Готово карт: <#f2f0e6><arenas>'
+      - '<#8c8c8c>Сейчас: <active>'
+      - ''
+      - '<#666666>• <#92bed8>Нажмите<#f2f0e6>, чтобы выбрать следующую <#666666>•'
     start-name: '<#7bd88f><bold>Запустить из очереди'
     start-lore:
       - '<#f2f0e6>Добавить вас и запустить готовый состав.'
@@ -137,6 +143,19 @@ menu:
     recover-lore:
       - '<#f2f0e6>Вернуть состояние всем доступным игрокам.'
       - '<#8c8c8c>Запись удалится только после проверки.'
+  arenas:
+    title: '<#d9d6c8>Карты тайных ролей'
+    entry-name: '<arena>'
+    entry-lore:
+      - '<#8c8c8c>Состояние: <state>'
+      - '<#8c8c8c>Мир: <#f2f0e6><world>'
+      - '<#8c8c8c>Шаблон: <#f2f0e6><template>'
+      - ''
+      - '<#666666>• <#92bed8>Нажмите<#f2f0e6>, чтобы назначить следующей <#666666>•'
+    auto-name: '<#e3b341><bold>Автоматическая ротация'
+    auto-lore:
+      - '<#f2f0e6>Выбирать готовую карту из набора для каждого матча.'
+      - '<#8c8c8c>Выбор воспроизводим по идентификатору матча.'
   shop:
     title: '<#d9d6c8>Магазин роли · <credits> кр.'
     credits-name: '<#e3b341><bold>Кредиты роли'
@@ -261,6 +280,23 @@ menu:
     back-name: '<#e3b341><bold>Вернуться к итогам'
     back-lore:
       - '<#f2f0e6>Открыть общий результат раунда.'
+
+arena:
+  auto:
+    name: '<#e3b341>автоматическая ротация'
+  citadel:
+    name: '<#d6a8ff><bold>Цитадель'
+  inferno:
+    name: '<#e3b341><bold>Inferno'
+  mirage:
+    name: '<#e3b341><bold>Mirage'
+  nuke:
+    name: '<#e3b341><bold>Nuke'
+  state:
+    ready: '<#7bd88f>готова'
+    active: '<#d6a8ff>идёт текущий матч'
+    next: '<#e3b341>назначена следующей'
+    unavailable: '<#d84a4a>не готова'
 
 state:
   arena-ready: '<#7bd88f>готова'
@@ -481,6 +517,8 @@ chat:
 
 admin:
   arena-unavailable: '<prefix> <#c42323>Арена не готова: проверьте мир и точки.'
+  arena-selected: '<prefix> <#2bba43>Следующая карта: <arena><#e6fff3>.'
+  arena-selection-failed: '<prefix> <#c42323>Карту <arena> нельзя выбрать: она не готова или матч уже идёт.'
   started: '<prefix> <#2bba43>Резервирование состава запущено.'
   start-failed: '<prefix> <#c42323>В очереди недостаточно игроков.'
   start-recovery-pending: '<prefix> <#ff9f0f>Сначала завершите восстановление состояния.'
@@ -493,7 +531,7 @@ admin:
 
 debug:
   disabled: '<prefix> <#c42323>Debug выключен в config.yml.'
-  usage: '<prefix> <#e6fff3>Отладочный стенд:<newline><#666666>• <#92bed8>[status]|[player]|[network]|[recovery]|[bodies] <#8c8c8c>— снимки<newline><#666666>• <#92bed8>[start]|[bootstrap]|[advance]|[end]|[timer]|[cleanup] <#8c8c8c>— раунд<newline><#666666>• <#92bed8>[credit]|[role]|[health]|[kill]|[revive] <#8c8c8c>— игрок<newline><#666666>• <#92bed8>[weapon]|[ammo]|[item]|[loot] <#8c8c8c>— снаряжение<newline><#666666>• <#92bed8>[discover]|[dna]|[call]|[menu]|[close] <#8c8c8c>— улики и GUI'
+  usage: '<prefix> <#e6fff3>Отладочный стенд:<newline><#666666>• <#92bed8>[status]|[player]|[network]|[arenas]|[recovery]|[bodies] <#8c8c8c>— снимки<newline><#666666>• <#92bed8>[start]|[bootstrap &lt;arena|auto&gt;]|[advance]|[end]|[timer]|[cleanup] <#8c8c8c>— раунд<newline><#666666>• <#92bed8>[credit]|[role]|[health]|[kill]|[revive] <#8c8c8c>— игрок<newline><#666666>• <#92bed8>[weapon]|[ammo]|[item]|[loot] <#8c8c8c>— снаряжение<newline><#666666>• <#92bed8>[discover]|[dna]|[call]|[menu]|[close] <#8c8c8c>— улики и GUI'
   applied: '<prefix> <#2bba43>Отладочное действие выполнено: <#e3b341><action><#e6fff3>.'
   rejected: '<prefix> <#c42323>Действие <#e3b341><action> <#c42323>не выполнено<#8c8c8c>: <#f2f0e6><reason><#8c8c8c>.'
   reason:
