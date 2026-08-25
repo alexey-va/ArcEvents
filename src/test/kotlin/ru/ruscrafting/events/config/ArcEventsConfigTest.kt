@@ -19,6 +19,7 @@ class ArcEventsConfigTest : StringSpec({
             config.weapons.dnaSeconds shouldBe 90
             config.weapons.rifle.material shouldBe "NETHERITE_SHOVEL"
             config.weapons.rifle.customModelData shouldBe 0
+            config.ttt.preparationSeconds shouldBe 30
             config.ui.dialogsEnabled shouldBe false
             config.debug.enabled shouldBe false
             config.debug.allowedServerIds shouldBe setOf("lab")

@@ -165,6 +165,26 @@ class RedisEventNetworkRepository(
             val beforeRaw = values.firstOrNull()
             val before = beforeRaw?.let { runCatching { decodeQueue(it) }.getOrNull() }
             if (before != null && before.expiresAtMs >= nowMs) {
+                if (before.state == QueueState.QUEUED &&
+                    (before.playerName != playerName || before.originServer != originServer)
+                ) {
+                    val refreshed = before.copy(
+                        playerName = playerName,
+                        originServer = originServer,
+                    ).validated()
+                    return@thenCompose redis.compareAndSetMapEntry(
+                        QUEUE_KEY,
+                        field,
+                        beforeRaw,
+                        encode(refreshed),
+                    ).thenCompose { changed ->
+                        if (changed) {
+                            CompletableFuture.completedFuture(QueueJoinResult.Existing(refreshed))
+                        } else {
+                            joinAttempt(playerId, playerName, originServer, nowMs, lifetimeMs, attempt + 1)
+                        }
+                    }
+                }
                 return@thenCompose CompletableFuture.completedFuture(QueueJoinResult.Existing(before))
             }
             val after = QueueEntry(

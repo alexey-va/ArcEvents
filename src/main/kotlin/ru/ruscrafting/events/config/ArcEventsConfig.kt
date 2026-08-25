@@ -160,7 +160,7 @@ class ArcEventsConfig(private val config: Config) {
         get() = TttSettings(
             minimumPlayers = config.int("ttt.minimum-players", 4),
             maximumPlayers = config.int("ttt.maximum-players", 16),
-            preparationSeconds = config.int("ttt.preparation-seconds", 12),
+            preparationSeconds = config.int("ttt.preparation-seconds", 30),
             countdownSeconds = config.int("ttt.countdown-seconds", 8),
             roundSeconds = config.int("ttt.round-seconds", 600),
             postRoundSeconds = config.int("ttt.post-round-seconds", 12),

@@ -116,8 +116,9 @@ flag disabled until modern-client acceptance QA is explicitly selected.
 
 ## Round presentation
 
-TTT follows three visible stages. During preparation, players are already free
-to scout the arena, collect or drop map firearms, and open the briefing book,
+TTT follows three visible stages. During the 30-second preparation, players
+are already free to scout the arena, collect or drop map firearms, and open
+the briefing book,
 while roles remain hidden and all combat is blocked. The role reveal starts a
 short countdown, equips only the relevant role shop, and then unlocks the
 active round.

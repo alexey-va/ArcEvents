@@ -24,6 +24,32 @@ class RedisEventNetworkRepositoryTest : StringSpec({
         repository.leaveQueue(player, 2_000).join() shouldBe QueueLeaveResult.Missing
     }
 
+    "queued player refreshes the current origin without losing FIFO position" {
+        val repository = RedisEventNetworkRepository(InMemoryRedis(ServerIdentity { "spawn" }))
+        val player = uuid(7)
+        val joined = repository.joinQueue(player, "Player7", "survival", 1_000, 60_000).join() as QueueJoinResult.Joined
+
+        val refreshed = repository.joinQueue(player, "Player7", "spawn", 2_000, 60_000).join() as QueueJoinResult.Existing
+
+        refreshed.entry.originServer shouldBe "spawn"
+        refreshed.entry.joinedAtMs shouldBe joined.entry.joinedAtMs
+        refreshed.entry.expiresAtMs shouldBe joined.entry.expiresAtMs
+        repository.loadQueue(2_000).join().single() shouldBe refreshed.entry
+    }
+
+    "reserved player keeps the committed origin when another backend repeats join" {
+        val repository = RedisEventNetworkRepository(InMemoryRedis(ServerIdentity { "parkour" }))
+        (1..4).forEach { repository.joinQueue(uuid(it), "Player$it", "survival", it.toLong(), 60_000).join() }
+        val matchId = uuid(99)
+        repository.reserve(matchId, "parkour", 4, 4, 5_000, 30_000).join()!!
+
+        val existing = repository.joinQueue(uuid(1), "Player1", "spawn", 6_000, 60_000).join() as QueueJoinResult.Existing
+
+        existing.entry.state shouldBe QueueState.RESERVED
+        existing.entry.originServer shouldBe "survival"
+        existing.entry.matchId shouldBe matchId.toString()
+    }
+
     "host reserves the oldest bounded roster and claims arrival idempotently only at its destination" {
         val repository = RedisEventNetworkRepository(InMemoryRedis(ServerIdentity { "parkour" }))
         (1..6).forEach { index ->

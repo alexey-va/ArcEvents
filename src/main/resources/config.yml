@@ -33,7 +33,7 @@ ui:
 ttt:
   minimum-players: 4
   maximum-players: 16
-  preparation-seconds: 12
+  preparation-seconds: 30
   countdown-seconds: 8
   round-seconds: 600
   post-round-seconds: 12
