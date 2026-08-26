@@ -53,18 +53,18 @@ class ArcEventsConfigTest : StringSpec({
         config.arenas.all { it.operational(config.ttt.maximumPlayers) } shouldBe true
         config.arenas.filter { it.template.startsWith("cs2-") }.all { it.lootSpawns.size == 32 } shouldBe true
         config.weapons.visuals.mapValues { (_, visual) -> visual.customModelData } shouldBe mapOf(
-            FirearmId.FLINTLOCK to 10030,
-            FirearmId.REVOLVER to 10031,
-            FirearmId.HAND_CANNON to 10043,
-            FirearmId.DOUBLE_BARREL to 10036,
-            FirearmId.FIVE_SEVEN to 12365,
-            FirearmId.G36 to 12366,
-            FirearmId.AEK_971 to 12363,
-            FirearmId.RPL_20 to 12373,
-            FirearmId.VEPR_12 to 12375,
-            FirearmId.M1_GARAND to 12368,
-            FirearmId.VSS_VINTOREZ to 12377,
-            FirearmId.MCMILLAN to 12370,
+            FirearmId.FLINTLOCK to 2100101,
+            FirearmId.REVOLVER to 2100102,
+            FirearmId.HAND_CANNON to 2100104,
+            FirearmId.DOUBLE_BARREL to 2100103,
+            FirearmId.FIVE_SEVEN to 2100002,
+            FirearmId.G36 to 2100003,
+            FirearmId.AEK_971 to 2100001,
+            FirearmId.RPL_20 to 2100006,
+            FirearmId.VEPR_12 to 2100007,
+            FirearmId.M1_GARAND to 2100004,
+            FirearmId.VSS_VINTOREZ to 2100008,
+            FirearmId.MCMILLAN to 2100005,
         )
         config.weapons.lootEffect.enabled shouldBe true
         config.weapons.lootEffect.customModelData.values.toSet() shouldBe setOf(2, 3, 4, 5, 6)
