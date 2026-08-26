@@ -133,6 +133,18 @@ class ArcEventsMenu(
             "karma" to locale.text(stats.karma),
         )))
         inventory.setItem(33, item(Material.KNOWLEDGE_BOOK, player, "menu.main.help-name", "menu.main.help-lore"))
+        if (player.hasPermission("arcevents.start")) {
+            inventory.setItem(38, item(
+                if (state.hostAvailable && state.queueSize >= settings().ttt.minimumPlayers) Material.LIME_CONCRETE else Material.GRAY_CONCRETE,
+                player,
+                "menu.main.start-name",
+                "menu.main.start-lore",
+                mapOf(
+                    "queue" to locale.text(state.queueSize),
+                    "minimum" to locale.text(settings().ttt.minimumPlayers),
+                ),
+            ))
+        }
         inventory.setItem(40, item(Material.NETHER_STAR, player, "menu.main.shop-name", "menu.main.shop-lore"))
         if (service.report() != null && service.participant(player.uniqueId) != null) {
             inventory.setItem(41, item(Material.WRITTEN_BOOK, player, "menu.main.report-name", "menu.main.report-lore"))
@@ -149,6 +161,16 @@ class ArcEventsMenu(
             24 -> { player.closeInventory(); service.leaveQueue(player) }
             29 -> open(player, EventsView.Roster)
             33 -> open(player, EventsView.Help)
+            38 -> if (player.hasPermission("arcevents.start")) {
+                player.closeInventory()
+                service.startFromQueue(player).thenAccept { result ->
+                    Tasks.scheduler.runSync {
+                        if (player.isOnline) {
+                            player.sendMessage(locale.render(reservationStartMessage(result, StartMessageAudience.PLAYER), player))
+                        }
+                    }
+                }
+            }
             40 -> open(player, EventsView.Shop)
             41 -> open(player, EventsView.Report)
             49 -> if (player.hasPermission("arcevents.admin")) open(player, EventsView.Admin)
@@ -198,9 +220,11 @@ class ArcEventsMenu(
             20 -> open(player, EventsView.Arenas)
             29 -> {
                 service.startFromQueue(player).thenAccept { result ->
-                    if (!player.isOnline) return@thenAccept
-                    player.sendMessage(locale.render(startMessage(result), player))
-                    open(player, EventsView.Admin)
+                    Tasks.scheduler.runSync {
+                        if (!player.isOnline) return@runSync
+                        player.sendMessage(locale.render(reservationStartMessage(result, StartMessageAudience.ADMIN), player))
+                        open(player, EventsView.Admin)
+                    }
                 }
             }
             31 -> {
@@ -543,15 +567,6 @@ class ArcEventsMenu(
     )
 
     private fun formatDuration(seconds: Long): String = "%d:%02d".format(seconds / 60, seconds % 60)
-
-    private fun startMessage(result: ReservationStartResult): String = when (result) {
-        ReservationStartResult.STARTED -> "admin.started"
-        ReservationStartResult.ARENA_UNAVAILABLE -> "admin.arena-unavailable"
-        ReservationStartResult.BUSY -> "admin.busy"
-        ReservationStartResult.INSUFFICIENT_PLAYERS -> "admin.start-failed"
-        ReservationStartResult.RECOVERY_PENDING -> "admin.start-recovery-pending"
-        ReservationStartResult.NETWORK_FAILURE -> "admin.network-failed"
-    }
 
     private fun stopMessage(result: AdminStopResult): String = when (result) {
         AdminStopResult.MATCH -> "admin.stopped"

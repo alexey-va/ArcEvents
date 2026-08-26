@@ -2,7 +2,7 @@ prefix: '<#d75a5a>Events <#666666>•'
 command:
   player-only: '<prefix> <#c42323>This command is only available to players.'
   no-permission: '<prefix> <#c42323>You do not have access to this action.'
-  help: '<prefix> <#e6fff3>Menu and rules: <#92bed8>/events<#e6fff3>.<newline><#666666>• <#e6fff3>Queue: <#92bed8>/events join<#8c8c8c> • <#e6fff3>leave: <#92bed8>/events leave<newline><#666666>• <#e6fff3>Match: <#92bed8>/events status<#8c8c8c> • <#e6fff3>roster: <#92bed8>/events roster<newline><#666666>• <#e6fff3>Shop: <#92bed8>/events shop<#8c8c8c> • <#e6fff3>report: <#92bed8>/events report'
+  help: '<prefix> <#e6fff3>Menu and rules: <#92bed8>/events<#e6fff3>.<newline><#666666>• <#e6fff3>Queue: <#92bed8>/events join<#8c8c8c> • <#e6fff3>leave: <#92bed8>/events leave<newline><#666666>• <#e6fff3>Start a ready roster: <#92bed8>/events start<newline><#666666>• <#e6fff3>Match: <#92bed8>/events status<#8c8c8c> • <#e6fff3>roster: <#92bed8>/events roster<newline><#666666>• <#e6fff3>Shop: <#92bed8>/events shop<#8c8c8c> • <#e6fff3>report: <#92bed8>/events report'
   unknown: '<prefix> <#c42323>Unknown<#8c8c8c>: <#e6fff3><input>'
   failed: '<prefix> <#c42323>Action failed.<newline><#666666>• <#e6fff3>Reason: <reason>'
   reload-ok: '<prefix> <#2bba43>Configuration and locales reloaded.'
@@ -39,6 +39,12 @@ menu:
       - '<#f2f0e6>Release your place before reservation.'
       - ''
       - '<#666666>• <#d84a4a>Click<#f2f0e6> to leave <#666666>•'
+    start-name: '<#7bd88f><bold>Start ready roster'
+    start-lore:
+      - '<#f2f0e6>Start the match from any network node.'
+      - '<#8c8c8c>Players: <#e3b341><queue><#8c8c8c>/<#e3b341><minimum>'
+      - ''
+      - '<#666666>• <#7bd88f>Click<#f2f0e6> to start <#666666>•'
     status-name: '<#5fb3ff><bold>Network status'
     status-lore:
       - '<#8c8c8c>Node: <#f2f0e6><server>'
@@ -329,6 +335,12 @@ queue:
   full: '<prefix> <#c42323>Queue full. Try again later.'
   reserved: '<prefix> <#e6fff3>Roster ready. Moving you to <#e3b341>parkour<#e6fff3>.'
   reservation-expired: '<prefix> <#ff9f0f>Reservation expired. Join again.'
+  start-requested: '<prefix> <#2bba43>Roster locked. Transfer to the arena has started.'
+  start-insufficient: '<prefix> <#ff9f0f>There are not enough queued players to start yet.'
+  start-arena-unavailable: '<prefix> <#c42323>The arena is not ready. Try again later.'
+  start-busy: '<prefix> <#ff9f0f>Another match is starting or already active.'
+  start-recovery-pending: '<prefix> <#ff9f0f>The previous match must finish restoring first.'
+  start-network-failed: '<prefix> <#c42323>The event network did not confirm the start. Try again later.'
 
 match:
   unavailable: '<prefix> <#ff9f0f>You are not participating in a match.'

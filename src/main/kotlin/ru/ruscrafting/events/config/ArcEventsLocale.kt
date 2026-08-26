@@ -74,10 +74,12 @@ class ArcEventsLocale(
             "phase.idle", "phase.reserved", "phase.preparing", "phase.countdown", "phase.active",
             "phase.resolving", "phase.restoring", "phase.completed", "phase.cancelled",
             "menu.main.title", "menu.help.title", "menu.admin.title", "menu.arenas.title", "menu.shop.title",
-            "menu.main.join-unavailable-name", "menu.main.roster-name", "menu.main.report-name",
+            "menu.main.join-unavailable-name", "menu.main.start-name", "menu.main.roster-name", "menu.main.report-name",
             "menu.admin.arenas-name", "menu.arenas.entry-name", "menu.arenas.auto-name",
             "menu.roster.title", "menu.body.title", "menu.report.title", "menu.combat.title",
             "queue.joined", "queue.left", "queue.leave-reserved", "queue.unavailable", "queue.reserved",
+            "queue.start-requested", "queue.start-insufficient", "queue.start-arena-unavailable",
+            "queue.start-busy", "queue.start-recovery-pending", "queue.start-network-failed",
             "match.preparing-title", "match.preparing-subtitle", "match.preparing-guide", "match.started",
             "match.started-title", "match.started-subtitle", "match.eliminated-title",
             "match.eliminated-subtitle", "match.detectives-announced", "match.restored",
@@ -111,7 +113,7 @@ class ArcEventsLocale(
 
         val REQUIRED_LISTS = setOf(
             "menu.main.ttt-lore", "menu.main.join-lore", "menu.main.join-unavailable-lore",
-            "menu.main.leave-lore", "menu.main.status-lore",
+            "menu.main.leave-lore", "menu.main.start-lore", "menu.main.status-lore",
             "menu.main.stats-lore", "menu.main.help-lore", "menu.main.admin-lore",
             "menu.main.roster-lore", "menu.main.report-lore", "menu.help.weapons-lore",
             "menu.help.flow-lore",

@@ -6,6 +6,7 @@ import org.bukkit.command.CommandSender
 import org.bukkit.command.TabExecutor
 import org.bukkit.entity.Player
 import org.bukkit.plugin.Plugin
+import ru.arc.core.Tasks
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.domain.FirearmId
@@ -28,6 +29,11 @@ class ArcEventsCommand(
         when (args[0].lowercase()) {
             "menu" -> player(sender)?.let(menu::open)
             "join" -> player(sender)?.let(service::joinQueue)
+            "start" -> player(sender)?.let { player ->
+                if (player.hasPermission("arcevents.start")) {
+                    sendStartResult(player, StartMessageAudience.PLAYER)
+                } else deny(player)
+            }
             "leave" -> player(sender)?.let(service::leaveQueue)
             "status" -> player(sender)?.let(service::status)
             "shop" -> player(sender)?.let { menu.open(it, EventsView.Shop) }
@@ -47,6 +53,7 @@ class ArcEventsCommand(
         val options = when (args.size) {
             1 -> buildList {
                 addAll(listOf("menu", "join", "leave", "status", "shop", "roster", "report", "team", "help"))
+                if (sender.hasPermission("arcevents.start")) add("start")
                 if (sender.hasPermission("arcevents.admin")) add("admin")
                 if (sender.hasPermission("arcevents.qa")) add("qa")
                 if (sender.hasPermission("arcevents.debug")) add("debug")
@@ -131,7 +138,7 @@ class ArcEventsCommand(
                 val arena = args.getOrNull(1)?.lowercase()
                 if (arena != null && !service.selectNextArena(arena)) {
                     sender.sendMessage(locale.render("admin.arena-selection-failed", sender, mapOf("arena" to locale.text(arena))))
-                } else sendStartResult(sender, admin = true)
+                } else sendStartResult(sender, StartMessageAudience.ADMIN)
             }
             "stop" -> sender.sendMessage(locale.render(stopMessage(service.stopByAdmin()), sender))
             "reload" -> {
@@ -181,7 +188,7 @@ class ArcEventsCommand(
             return debugResult(sender, action, DebugMutationResult.MUTATIONS_DISABLED)
         }
         if (action == "start") {
-            sendStartResult(sender, admin = false)
+            sendStartResult(sender, StartMessageAudience.DEBUG)
             return
         }
         val result = when (action) {
@@ -307,20 +314,17 @@ class ArcEventsCommand(
             .forEach { sender.sendMessage(Component.text(it)) }
     }
 
-    private fun sendStartResult(sender: CommandSender, admin: Boolean) {
+    private fun sendStartResult(sender: CommandSender, audience: StartMessageAudience) {
         service.startFromQueue(sender as? Player).thenAccept { result ->
-            val key = if (!admin && result == ReservationStartResult.STARTED) "debug.applied" else startMessage(result)
-            sender.sendMessage(locale.render(key, sender, mapOf("action" to locale.text("start"))))
+            Tasks.scheduler.runSync {
+                if (sender is Player && !sender.isOnline) return@runSync
+                sender.sendMessage(locale.render(
+                    reservationStartMessage(result, audience),
+                    sender,
+                    mapOf("action" to locale.text("start")),
+                ))
+            }
         }
-    }
-
-    private fun startMessage(result: ReservationStartResult): String = when (result) {
-        ReservationStartResult.STARTED -> "admin.started"
-        ReservationStartResult.ARENA_UNAVAILABLE -> "admin.arena-unavailable"
-        ReservationStartResult.BUSY -> "admin.busy"
-        ReservationStartResult.INSUFFICIENT_PLAYERS -> "admin.start-failed"
-        ReservationStartResult.RECOVERY_PENDING -> "admin.start-recovery-pending"
-        ReservationStartResult.NETWORK_FAILURE -> "admin.network-failed"
     }
 
     private fun stopMessage(result: AdminStopResult): String = when (result) {

@@ -57,6 +57,14 @@ class OperatorContractTest : StringSpec({
         ReservationStartResult.entries.map(ReservationStartResult::name).contains("HOST_ONLY") shouldBe false
     }
 
+    "player start messages never expose admin or debug surfaces" {
+        ReservationStartResult.entries.forEach { result ->
+            reservationStartMessage(result, StartMessageAudience.PLAYER).startsWith("queue.start-") shouldBe true
+        }
+        reservationStartMessage(ReservationStartResult.STARTED, StartMessageAudience.ADMIN) shouldBe "admin.started"
+        reservationStartMessage(ReservationStartResult.STARTED, StartMessageAudience.DEBUG) shouldBe "debug.applied"
+    }
+
     "modern dialogs stay optional and fall back for old clients and item grids" {
         dialogFrontendSupported(false, MIN_DIALOG_PROTOCOL, EventsView.Main) shouldBe false
         dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL - 1, EventsView.Main) shouldBe false

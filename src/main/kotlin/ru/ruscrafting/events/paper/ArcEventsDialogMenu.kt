@@ -105,6 +105,19 @@ internal class ArcEventsDialogMenu(
                 add(button(player, "menu.main.roster-name", "menu.main.roster-lore", EventsView.Main, 29))
             }
             add(button(player, "menu.main.help-name", "menu.main.help-lore", EventsView.Main, 33))
+            if (player.hasPermission("arcevents.start")) {
+                add(button(
+                    player,
+                    "menu.main.start-name",
+                    "menu.main.start-lore",
+                    EventsView.Main,
+                    38,
+                    mapOf(
+                        "queue" to locale.text(state.queueSize),
+                        "minimum" to locale.text(settings().ttt.minimumPlayers),
+                    ),
+                ))
+            }
             add(button(player, "menu.main.shop-name", "menu.main.shop-lore", EventsView.Main, 40))
             if (service.report() != null && service.participant(player.uniqueId) != null) {
                 add(button(player, "menu.main.report-name", "menu.main.report-lore", EventsView.Main, 41))
@@ -212,8 +225,9 @@ internal class ArcEventsDialogMenu(
         loreKey: String,
         view: EventsView,
         slot: Int,
-    ): ActionButton = ActionButton.builder(TttItems.nonItalic(locale.render(nameKey, player)))
-        .tooltip(Component.join(JoinConfiguration.newlines(), locale.lore(loreKey, player).map(TttItems::nonItalic)))
+        placeholders: Map<String, Component> = emptyMap(),
+    ): ActionButton = ActionButton.builder(TttItems.nonItalic(locale.render(nameKey, player, placeholders)))
+        .tooltip(Component.join(JoinConfiguration.newlines(), locale.lore(loreKey, player, placeholders).map(TttItems::nonItalic)))
         .width(150)
         .action(DialogAction.customClick(
             DialogActionCallback { _, audience ->

@@ -2,7 +2,7 @@ prefix: '<#d75a5a>События <#666666>•'
 command:
   player-only: '<prefix> <#c42323>Эта команда доступна только игроку.'
   no-permission: '<prefix> <#c42323>У вас нет доступа к этому действию.'
-  help: '<prefix> <#e6fff3>Меню и правила: <#92bed8>/events<#e6fff3>.<newline><#666666>• <#e6fff3>Очередь: <#92bed8>/events join<#8c8c8c> • <#e6fff3>выйти: <#92bed8>/events leave<newline><#666666>• <#e6fff3>Матч: <#92bed8>/events status<#8c8c8c> • <#e6fff3>состав: <#92bed8>/events roster<newline><#666666>• <#e6fff3>Магазин: <#92bed8>/events shop<#8c8c8c> • <#e6fff3>итоги: <#92bed8>/events report'
+  help: '<prefix> <#e6fff3>Меню и правила: <#92bed8>/events<#e6fff3>.<newline><#666666>• <#e6fff3>Очередь: <#92bed8>/events join<#8c8c8c> • <#e6fff3>выйти: <#92bed8>/events leave<newline><#666666>• <#e6fff3>Запуск готового состава: <#92bed8>/events start<newline><#666666>• <#e6fff3>Матч: <#92bed8>/events status<#8c8c8c> • <#e6fff3>состав: <#92bed8>/events roster<newline><#666666>• <#e6fff3>Магазин: <#92bed8>/events shop<#8c8c8c> • <#e6fff3>итоги: <#92bed8>/events report'
   unknown: '<prefix> <#c42323>Неизвестно<#8c8c8c>: <#e6fff3><input>'
   failed: '<prefix> <#c42323>Действие не выполнено.<newline><#666666>• <#e6fff3>Причина: <reason>'
   reload-ok: '<prefix> <#2bba43>Конфигурация и локали обновлены.'
@@ -39,6 +39,12 @@ menu:
       - '<#f2f0e6>Освободить место до резервирования матча.'
       - ''
       - '<#666666>• <#d84a4a>Нажмите<#f2f0e6>, чтобы выйти <#666666>•'
+    start-name: '<#7bd88f><bold>Запустить готовый состав'
+    start-lore:
+      - '<#f2f0e6>Начать матч с любой ноды сети.'
+      - '<#8c8c8c>Игроков: <#e3b341><queue><#8c8c8c>/<#e3b341><minimum>'
+      - ''
+      - '<#666666>• <#7bd88f>Нажмите<#f2f0e6>, чтобы запустить <#666666>•'
     status-name: '<#5fb3ff><bold>Состояние сети'
     status-lore:
       - '<#8c8c8c>Узел: <#f2f0e6><server>'
@@ -329,6 +335,12 @@ queue:
   full: '<prefix> <#c42323>Очередь заполнена. Попробуйте позже.'
   reserved: '<prefix> <#e6fff3>Состав собран. Переносим вас на <#e3b341>parkour<#e6fff3>.'
   reservation-expired: '<prefix> <#ff9f0f>Резерв истёк. Встаньте в очередь снова.'
+  start-requested: '<prefix> <#2bba43>Состав закреплён. Перенос на арену начался.'
+  start-insufficient: '<prefix> <#ff9f0f>Для запуска пока недостаточно игроков в очереди.'
+  start-arena-unavailable: '<prefix> <#c42323>Арена сейчас не готова. Попробуйте позже.'
+  start-busy: '<prefix> <#ff9f0f>Другой матч уже запускается или идёт.'
+  start-recovery-pending: '<prefix> <#ff9f0f>Сначала должно завершиться восстановление прошлого матча.'
+  start-network-failed: '<prefix> <#c42323>Сеть событий не подтвердила запуск. Повторите позже.'
 
 match:
   unavailable: '<prefix> <#ff9f0f>Вы сейчас не участвуете в матче.'
