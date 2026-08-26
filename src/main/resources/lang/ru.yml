@@ -334,7 +334,7 @@ queue:
   unavailable: '<prefix> <#c42323>Арена недоступна. Откройте <#92bed8>/events<#e6fff3>.'
   full: '<prefix> <#c42323>Очередь заполнена. Попробуйте позже.'
   reserved: '<prefix> <#e6fff3>Состав собран. Переносим вас на <#e3b341>parkour<#e6fff3>.'
-  reservation-expired: '<prefix> <#ff9f0f>Резерв истёк. Встаньте в очередь снова.'
+  returned: '<prefix> <#e6fff3>Вы вернулись на исходный сервер.'
   start-requested: '<prefix> <#2bba43>Состав закреплён. Перенос на арену начался.'
   start-insufficient: '<prefix> <#ff9f0f>Для запуска пока недостаточно игроков в очереди.'
   start-arena-unavailable: '<prefix> <#c42323>Арена сейчас не готова. Попробуйте позже.'

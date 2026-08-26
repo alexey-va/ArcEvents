@@ -334,7 +334,7 @@ queue:
   unavailable: '<prefix> <#c42323>Arena unavailable. Open <#92bed8>/events<#e6fff3>.'
   full: '<prefix> <#c42323>Queue full. Try again later.'
   reserved: '<prefix> <#e6fff3>Roster ready. Moving you to <#e3b341>parkour<#e6fff3>.'
-  reservation-expired: '<prefix> <#ff9f0f>Reservation expired. Join again.'
+  returned: '<prefix> <#e6fff3>You have returned to your original server.'
   start-requested: '<prefix> <#2bba43>Roster locked. Transfer to the arena has started.'
   start-insufficient: '<prefix> <#ff9f0f>There are not enough queued players to start yet.'
   start-arena-unavailable: '<prefix> <#c42323>The arena is not ready. Try again later.'

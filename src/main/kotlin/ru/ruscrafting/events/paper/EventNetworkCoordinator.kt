@@ -495,7 +495,7 @@ class EventNetworkCoordinator(
                 }
                 val player = plugin.server.getPlayer(playerId) ?: return@runSync
                 if (settings().serverId == origin || !settings().network.returnToOrigin) {
-                    player.sendMessage(locale.render("queue.reservation-expired", player))
+                    player.sendMessage(locale.render("queue.returned", player))
                     repository.acknowledgeReturn(playerId, matchId).whenComplete { acknowledged, acknowledgeFailure ->
                         if (acknowledgeFailure != null || acknowledged != true) {
                             plugin.logger.log(
@@ -528,7 +528,7 @@ class EventNetworkCoordinator(
     private fun finishPendingReturn(player: Player, entry: QueueEntry) {
         val matchId = UUID.fromString(requireNotNull(entry.matchId))
         if (settings().serverId == entry.originServer || !settings().network.returnToOrigin) {
-            player.sendMessage(locale.render("queue.reservation-expired", player))
+            player.sendMessage(locale.render("queue.returned", player))
             repository.acknowledgeReturn(player.uniqueId, matchId).whenComplete { acknowledged, failure ->
                 if (failure != null || acknowledged != true) {
                     plugin.logger.log(Level.WARNING, "ArcEvents could not acknowledge returned player ${player.uniqueId} for $matchId", failure)
