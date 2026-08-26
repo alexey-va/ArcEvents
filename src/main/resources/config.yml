@@ -47,10 +47,30 @@ weapons:
   enabled: true
   dna-seconds: 90
   visuals:
-    pistol: {material: IRON_HORSE_ARMOR, custom-model-data: 0}
-    smg: {material: GOLDEN_HORSE_ARMOR, custom-model-data: 0}
-    shotgun: {material: CROSSBOW, custom-model-data: 0}
-    rifle: {material: NETHERITE_SHOVEL, custom-model-data: 0}
+    flintlock: {material: IRON_HORSE_ARMOR, custom-model-data: 0}
+    revolver: {material: IRON_HORSE_ARMOR, custom-model-data: 0}
+    hand_cannon: {material: BLAZE_ROD, custom-model-data: 0}
+    double_barrel: {material: CROSSBOW, custom-model-data: 0}
+    five_seven: {material: GOLDEN_HORSE_ARMOR, custom-model-data: 0}
+    g36: {material: NETHERITE_HOE, custom-model-data: 0}
+    aek_971: {material: NETHERITE_HOE, custom-model-data: 0}
+    rpl_20: {material: NETHERITE_HOE, custom-model-data: 0}
+    vepr_12: {material: CROSSBOW, custom-model-data: 0}
+    m1_garand: {material: NETHERITE_SHOVEL, custom-model-data: 0}
+    vss_vintorez: {material: NETHERITE_SHOVEL, custom-model-data: 0}
+    mcmillan: {material: NETHERITE_SHOVEL, custom-model-data: 0}
+  # Optional animated resource-pack beam rendered under each loot display.
+  # Production profiles bind these slots to lemon_vfxdrop model IDs.
+  loot-effect:
+    enabled: false
+    material: POTION
+    common-custom-model-data: 0
+    uncommon-custom-model-data: 0
+    rare-custom-model-data: 0
+    epic-custom-model-data: 0
+    legendary-custom-model-data: 0
+    height: 0.08
+    scale: 0.9
 
 # A host refuses queue reservations until the arena is enabled and every
 # location is valid. Coordinates below are intentionally non-operational.

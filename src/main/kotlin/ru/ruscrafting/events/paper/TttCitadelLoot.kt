@@ -1,6 +1,7 @@
 package ru.ruscrafting.events.paper
 
 import ru.ruscrafting.events.domain.FirearmId
+import ru.ruscrafting.events.domain.TttFirearmCatalog
 import kotlin.random.Random
 
 data class CitadelLootSpawn(val point: CitadelPoint, val firearm: FirearmId?, val ammunition: Int)
@@ -26,24 +27,16 @@ object TttCitadelLoot {
         CitadelPoint(-32.0, 7.25, 24.0), CitadelPoint(32.0, 7.25, -24.0),
         CitadelPoint(-28.0, 16.25, 0.0), CitadelPoint(28.0, 16.25, 0.0),
     )
-    private val balancedWeapons = listOf(
-        FirearmId.PISTOL, FirearmId.PISTOL, FirearmId.PISTOL, FirearmId.PISTOL, FirearmId.PISTOL,
-        FirearmId.SMG, FirearmId.SMG, FirearmId.SMG, FirearmId.SMG, FirearmId.SMG,
-        FirearmId.SHOTGUN, FirearmId.SHOTGUN, FirearmId.SHOTGUN, FirearmId.SHOTGUN,
-        FirearmId.RIFLE, FirearmId.RIFLE, FirearmId.RIFLE, FirearmId.RIFLE,
-        FirearmId.PISTOL, FirearmId.SMG,
-    )
-
     fun layout(seed: Long): List<CitadelLootSpawn> {
         val random = Random(seed)
-        val weapons = balancedWeapons.shuffled(random)
+        val weapons = TttFirearmCatalog.lootSelection(weaponPoints.size, seed)
         val weaponLoot = weaponPoints.zip(weapons) { point, firearm -> CitadelLootSpawn(point, firearm, 0) }
         val ammoLoot = ammunitionPoints.map { point -> CitadelLootSpawn(point, null, listOf(12, 16, 20, 24).random(random)) }
         return weaponLoot + ammoLoot
     }
 
     fun validate() {
-        require(weaponPoints.size == balancedWeapons.size)
+        require(weaponPoints.size >= FirearmId.entries.size)
         require((weaponPoints + ammunitionPoints).distinctBy { Triple(it.x, it.y, it.z) }.size == weaponPoints.size + ammunitionPoints.size)
         (weaponPoints + ammunitionPoints).forEach { point ->
             require(point.x in TttCitadelBlueprint.PLAYABLE_MIN..TttCitadelBlueprint.PLAYABLE_MAX)

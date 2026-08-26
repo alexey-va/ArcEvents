@@ -82,7 +82,7 @@ class ArcEventsCommand(
                 "credit" -> listOf("-2", "-1", "1", "2", "16")
                 "role" -> listOf("innocent", "traitor", "detective")
                 "health" -> listOf("1", "10", "20")
-                "weapon" -> listOf("pistol", "smg", "shotgun", "rifle")
+                "weapon" -> FirearmId.entries.map { it.name.lowercase() }
                 "ammo" -> listOf("1", "12", "24", "64")
                 "item" -> DEBUG_ITEMS
                 "kill" -> servicePlayerNames()

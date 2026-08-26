@@ -8,6 +8,8 @@ import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
 import ru.arc.config.Config
 import ru.arc.config.ConfigManager
+import ru.ruscrafting.events.domain.FirearmId
+import ru.ruscrafting.events.domain.FirearmRarity
 import java.nio.file.Path
 
 class ArcEventsLocale(
@@ -88,7 +90,6 @@ class ArcEventsLocale(
             "guide.item-name",
             "loadout.blade", "loadout.crossbow", "loadout.rations", "loadout.ammunition",
             "body.unidentified", "body.identified", "body.discovered", "body.dna", "body.unavailable",
-            "weapon.pistol-name", "weapon.smg-name", "weapon.shotgun-name", "weapon.rifle-name",
             "weapon.ammunition-name", "weapon.ammo-actionbar", "weapon.reload-complete-actionbar",
             "roster.status.alive", "roster.status.missing", "roster.status.confirmed_dead", "roster.role-hidden",
             "report.item-name", "report.ready", "report.unavailable", "report.winner-innocents",
@@ -104,7 +105,9 @@ class ArcEventsLocale(
             "debug.reason.not-participant", "debug.reason.not-alive", "debug.reason.invalid-argument",
             "debug.reason.role-invariant", "debug.reason.inventory-full", "debug.reason.body-not-found",
             "debug.reason.precondition-failed", "debug.reason.internal-error",
-        )
+        ) + FirearmId.entries.flatMap { id ->
+            listOf("weapon.${id.name.lowercase()}-name", "weapon.kind.firearm-${id.name.lowercase()}")
+        } + FirearmRarity.entries.map { rarity -> "weapon.rarity.${rarity.name.lowercase()}" }
 
         val REQUIRED_LISTS = setOf(
             "menu.main.ttt-lore", "menu.main.join-lore", "menu.main.join-unavailable-lore",
@@ -117,8 +120,7 @@ class ArcEventsLocale(
             "menu.help.innocent-lore", "menu.help.traitor-lore", "menu.help.detective-lore",
             "menu.common.back-lore", "menu.admin.status-lore", "menu.admin.arenas-lore",
             "menu.arenas.entry-lore", "menu.arenas.auto-lore", "menu.shop.credits-lore",
-            "weapon.pistol-lore", "weapon.smg-lore", "weapon.shotgun-lore", "weapon.rifle-lore",
-            "weapon.ammunition-lore", "report.item-lore", "hud.preparing-tips", "guide.item-lore",
+            "weapon.firearm-lore", "weapon.ammunition-lore", "report.item-lore", "hud.preparing-tips", "guide.item-lore",
         )
 
         fun validateFiles(dataRoot: Path) {

@@ -12,6 +12,7 @@ import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.config.FirearmVisualSettings
 import ru.ruscrafting.events.domain.FirearmId
+import ru.ruscrafting.events.domain.FirearmRarity
 import ru.ruscrafting.events.domain.FirearmSpec
 import ru.ruscrafting.events.domain.TttFirearmCatalog
 
@@ -36,7 +37,7 @@ class TttFirearms(
         return ItemStack.of(material).also { item ->
             item.editMeta { meta ->
                 meta.displayName(TttItems.nonItalic(locale.render("weapon.${id.name.lowercase()}-name", player)))
-                meta.lore(locale.lore("weapon.${id.name.lowercase()}-lore", player, values(spec, loaded)).map(TttItems::nonItalic))
+                meta.lore(locale.lore("weapon.firearm-lore", player, values(spec, loaded, player)).map(TttItems::nonItalic))
                 meta.persistentDataContainer.set(itemKindKey, PersistentDataType.STRING, EventItemKind.FIREARM.name)
                 meta.persistentDataContainer.set(matchIdKey, PersistentDataType.STRING, matchId)
                 meta.persistentDataContainer.set(firearmKey, PersistentDataType.STRING, id.name)
@@ -108,6 +109,15 @@ class TttFirearms(
             pdc.get(itemKindKey, PersistentDataType.STRING) in setOf(EventItemKind.FIREARM.name, EventItemKind.AMMUNITION.name)
     }
 
+    fun lootRarity(item: ItemStack?): FirearmRarity? {
+        if (item == null || item.isEmpty) return null
+        return when (item.itemMeta.persistentDataContainer.get(itemKindKey, PersistentDataType.STRING)) {
+            EventItemKind.AMMUNITION.name -> FirearmRarity.COMMON
+            EventItemKind.FIREARM.name -> state(item)?.let { spec(it.id).rarity }
+            else -> null
+        }
+    }
+
     private fun ammunitionFor(item: ItemStack?, matchId: String): Boolean {
         if (item == null || item.isEmpty) return false
         val pdc = item.itemMeta.persistentDataContainer
@@ -115,24 +125,22 @@ class TttFirearms(
             pdc.get(matchIdKey, PersistentDataType.STRING) == matchId
     }
 
-    private fun values(spec: FirearmSpec, loaded: Int): Map<String, Component> = mapOf(
+    private fun values(spec: FirearmSpec, loaded: Int, player: Player?): Map<String, Component> = mapOf(
         "loaded" to locale.text(loaded),
         "magazine" to locale.text(spec.magazineSize),
         "damage" to locale.text(if (spec.pellets == 1) spec.damagePerPellet else "${spec.pellets}×${spec.damagePerPellet}"),
         "range" to locale.text(spec.range.toInt()),
+        "rarity" to locale.render("weapon.rarity.${spec.rarity.name.lowercase()}", player),
     )
 
-    private fun visual(id: FirearmId): FirearmVisualSettings = settings().weapons.let { weapons -> when (id) {
-        FirearmId.PISTOL -> weapons.pistol
-        FirearmId.SMG -> weapons.smg
-        FirearmId.SHOTGUN -> weapons.shotgun
-        FirearmId.RIFLE -> weapons.rifle
-    } }
+    private fun visual(id: FirearmId): FirearmVisualSettings = settings().weapons.visual(id)
 
     private fun fallback(id: FirearmId): Material = when (id) {
-        FirearmId.PISTOL -> Material.IRON_HORSE_ARMOR
-        FirearmId.SMG -> Material.GOLDEN_HORSE_ARMOR
-        FirearmId.SHOTGUN -> Material.CROSSBOW
-        FirearmId.RIFLE -> Material.NETHERITE_SHOVEL
+        FirearmId.FLINTLOCK, FirearmId.REVOLVER -> Material.IRON_HORSE_ARMOR
+        FirearmId.HAND_CANNON -> Material.BLAZE_ROD
+        FirearmId.DOUBLE_BARREL, FirearmId.VEPR_12 -> Material.CROSSBOW
+        FirearmId.FIVE_SEVEN -> Material.GOLDEN_HORSE_ARMOR
+        FirearmId.G36, FirearmId.AEK_971, FirearmId.RPL_20 -> Material.NETHERITE_HOE
+        FirearmId.M1_GARAND, FirearmId.VSS_VINTOREZ, FirearmId.MCMILLAN -> Material.NETHERITE_SHOVEL
     }
 }

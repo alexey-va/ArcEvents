@@ -5,6 +5,8 @@ import ru.arc.config.ConfigManager
 import ru.arc.redis.LegacyRedisSnapshot
 import ru.arc.redis.RedisConfigBootstrap
 import ru.arc.redis.RedisModuleConfig
+import ru.ruscrafting.events.domain.FirearmId
+import ru.ruscrafting.events.domain.FirearmRarity
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -103,14 +105,25 @@ data class UiItemSettings(val material: String, val customModelData: Int)
 
 data class FirearmVisualSettings(val material: String, val customModelData: Int)
 
+data class LootEffectSettings(
+    val enabled: Boolean,
+    val material: String,
+    val customModelData: Map<FirearmRarity, Int>,
+    val height: Double,
+    val scale: Double,
+) {
+    fun visual(rarity: FirearmRarity): FirearmVisualSettings =
+        FirearmVisualSettings(material, customModelData.getValue(rarity))
+}
+
 data class WeaponSettings(
     val enabled: Boolean,
     val dnaSeconds: Int,
-    val pistol: FirearmVisualSettings,
-    val smg: FirearmVisualSettings,
-    val shotgun: FirearmVisualSettings,
-    val rifle: FirearmVisualSettings,
-)
+    val visuals: Map<FirearmId, FirearmVisualSettings>,
+    val lootEffect: LootEffectSettings,
+) {
+    fun visual(id: FirearmId): FirearmVisualSettings = visuals.getValue(id)
+}
 
 data class UiSettings(
     val sounds: Boolean,
@@ -193,10 +206,18 @@ class ArcEventsConfig(private val config: Config) {
         get() = WeaponSettings(
             enabled = config.bool("weapons.enabled", true),
             dnaSeconds = config.int("weapons.dna-seconds", 90),
-            pistol = firearmVisual("weapons.visuals.pistol", "IRON_HORSE_ARMOR"),
-            smg = firearmVisual("weapons.visuals.smg", "GOLDEN_HORSE_ARMOR"),
-            shotgun = firearmVisual("weapons.visuals.shotgun", "CROSSBOW"),
-            rifle = firearmVisual("weapons.visuals.rifle", "NETHERITE_SHOVEL"),
+            visuals = FirearmId.entries.associateWith { id ->
+                firearmVisual("weapons.visuals.${id.name.lowercase()}", firearmFallback(id))
+            },
+            lootEffect = LootEffectSettings(
+                enabled = config.bool("weapons.loot-effect.enabled", false),
+                material = config.string("weapons.loot-effect.material", "POTION").trim().uppercase(),
+                customModelData = FirearmRarity.entries.associateWith { rarity ->
+                    config.int("weapons.loot-effect.${rarity.name.lowercase()}-custom-model-data", 0)
+                },
+                height = config.double("weapons.loot-effect.height", 0.08),
+                scale = config.double("weapons.loot-effect.scale", 0.9),
+            ),
         )
 
     val arenas: List<ArenaSettings>
@@ -239,10 +260,20 @@ class ArcEventsConfig(private val config: Config) {
         require(ttt.bodyDespawnSeconds in ttt.roundSeconds..3600)
         require(ui.filler.customModelData >= 0)
         require(weapons.dnaSeconds in 15..300)
-        listOf(weapons.pistol, weapons.smg, weapons.shotgun, weapons.rifle).forEach { visual ->
+        weapons.visuals.values.forEach { visual ->
             require(visual.material.matches(Regex("[A-Z0-9_]{1,64}"))) { "Weapon material is invalid" }
             require(visual.customModelData >= 0) { "Weapon custom-model-data cannot be negative" }
         }
+        require(weapons.visuals.keys == FirearmId.entries.toSet()) { "Every firearm requires a visual" }
+        require(weapons.lootEffect.material.matches(Regex("[A-Z0-9_]{1,64}"))) { "Loot effect material is invalid" }
+        require(weapons.lootEffect.customModelData.keys == FirearmRarity.entries.toSet()) {
+            "Every firearm rarity requires a loot effect model"
+        }
+        require(weapons.lootEffect.customModelData.values.all { it >= 0 }) {
+            "Loot effect custom-model-data cannot be negative"
+        }
+        require(weapons.lootEffect.height.isFinite() && weapons.lootEffect.height in -1.0..2.0)
+        require(weapons.lootEffect.scale.isFinite() && weapons.lootEffect.scale in 0.1..4.0)
         require(arenas.size in 1..16) { "Arena count is outside the safety limit" }
         require(arenas.map(ArenaSettings::id).distinct().size == arenas.size) { "Arena ids must be unique" }
         require(arenas.map(ArenaSettings::world).distinct().size == arenas.size) { "Arena worlds must be unique" }
@@ -300,6 +331,15 @@ class ArcEventsConfig(private val config: Config) {
         material = config.string("$path.material", fallback).trim().uppercase(),
         customModelData = config.int("$path.custom-model-data", 0),
     )
+
+    private fun firearmFallback(id: FirearmId): String = when (id) {
+        FirearmId.FLINTLOCK, FirearmId.REVOLVER -> "IRON_HORSE_ARMOR"
+        FirearmId.HAND_CANNON -> "BLAZE_ROD"
+        FirearmId.DOUBLE_BARREL, FirearmId.VEPR_12 -> "CROSSBOW"
+        FirearmId.FIVE_SEVEN -> "GOLDEN_HORSE_ARMOR"
+        FirearmId.G36, FirearmId.AEK_971, FirearmId.RPL_20 -> "NETHERITE_HOE"
+        FirearmId.M1_GARAND, FirearmId.VSS_VINTOREZ, FirearmId.MCMILLAN -> "NETHERITE_SHOVEL"
+    }
 
     private fun parseArena(id: String, path: String): ArenaSettings {
         val world = config.string("$path.world", "pvp").trim()

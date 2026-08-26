@@ -34,6 +34,7 @@ import ru.ruscrafting.events.domain.PlayerEventStats
 import ru.ruscrafting.events.domain.CombatRecord
 import ru.ruscrafting.events.domain.FirearmSpread
 import ru.ruscrafting.events.domain.FirearmId
+import ru.ruscrafting.events.domain.TttFirearmCatalog
 import ru.ruscrafting.events.domain.RosterEntry
 import ru.ruscrafting.events.domain.RosterStatus
 import ru.ruscrafting.events.domain.ShotDirection
@@ -646,17 +647,21 @@ class ArcEventsService(
             fireRay(player, state.id.name.lowercase(), eye, Vector(spread.x, spread.y, spread.z), spec.range, spec.damagePerPellet)
         }
         if (settings().ui.sounds) {
-            val sound = when (state.id) {
-                ru.ruscrafting.events.domain.FirearmId.PISTOL -> Sound.ENTITY_FIREWORK_ROCKET_BLAST
-                ru.ruscrafting.events.domain.FirearmId.SMG -> Sound.ENTITY_FIREWORK_ROCKET_LARGE_BLAST
-                ru.ruscrafting.events.domain.FirearmId.SHOTGUN -> Sound.ENTITY_GENERIC_EXPLODE
-                ru.ruscrafting.events.domain.FirearmId.RIFLE -> Sound.ENTITY_FIREWORK_ROCKET_TWINKLE_FAR
+            val (sound, volume, pitch) = when (state.id) {
+                FirearmId.FLINTLOCK -> Triple(Sound.ENTITY_FIREWORK_ROCKET_BLAST, 0.9f, 0.82f)
+                FirearmId.REVOLVER -> Triple(Sound.ENTITY_FIREWORK_ROCKET_BLAST, 0.82f, 1.0f)
+                FirearmId.FIVE_SEVEN -> Triple(Sound.ENTITY_FIREWORK_ROCKET_BLAST, 0.75f, 1.18f)
+                FirearmId.G36 -> Triple(Sound.ENTITY_FIREWORK_ROCKET_LARGE_BLAST, 0.8f, 1.02f)
+                FirearmId.AEK_971 -> Triple(Sound.ENTITY_FIREWORK_ROCKET_LARGE_BLAST, 0.86f, 0.92f)
+                FirearmId.RPL_20 -> Triple(Sound.ENTITY_FIREWORK_ROCKET_LARGE_BLAST, 0.95f, 0.76f)
+                FirearmId.DOUBLE_BARREL -> Triple(Sound.ENTITY_GENERIC_EXPLODE, 0.95f, 0.72f)
+                FirearmId.VEPR_12 -> Triple(Sound.ENTITY_GENERIC_EXPLODE, 0.82f, 0.86f)
+                FirearmId.HAND_CANNON -> Triple(Sound.ENTITY_GENERIC_EXPLODE, 1.05f, 0.62f)
+                FirearmId.M1_GARAND -> Triple(Sound.ENTITY_FIREWORK_ROCKET_TWINKLE_FAR, 0.9f, 1.05f)
+                FirearmId.VSS_VINTOREZ -> Triple(Sound.ENTITY_FIREWORK_ROCKET_TWINKLE_FAR, 0.72f, 1.28f)
+                FirearmId.MCMILLAN -> Triple(Sound.ENTITY_FIREWORK_ROCKET_TWINKLE_FAR, 1.0f, 0.72f)
             }
-            player.world.playSound(player.location, sound, 0.85f, when (state.id) {
-                ru.ruscrafting.events.domain.FirearmId.SHOTGUN -> 0.75f
-                ru.ruscrafting.events.domain.FirearmId.RIFLE -> 1.3f
-                else -> 1.05f
-            })
+            player.world.playSound(player.location, sound, volume, pitch)
         }
         player.sendActionBar(locale.render("weapon.ammo-actionbar", player, mapOf(
             "weapon" to locale.render("weapon.${state.id.name.lowercase()}-name", player),
@@ -1506,10 +1511,12 @@ class ArcEventsService(
     }
 
     private fun importedLoot(points: List<EventLocation>, seed: Long): List<Pair<Triple<Double, Double, Double>, Pair<FirearmId?, Int>>> {
-        val shuffled = points.shuffled(Random(seed))
-        val firearms = listOf(FirearmId.PISTOL, FirearmId.SMG, FirearmId.SHOTGUN, FirearmId.RIFLE)
+        val random = Random(seed)
+        val shuffled = points.shuffled(random)
+        val weaponCount = shuffled.indices.count { it % 3 != 2 }
+        val firearms = TttFirearmCatalog.lootSelection(weaponCount, seed xor LOOT_SEED_SALT).iterator()
         return shuffled.mapIndexed { index, point ->
-            val reward = if (index % 3 == 2) null to 12 else firearms[(index / 2) % firearms.size] to 0
+            val reward = if (index % 3 == 2) null to listOf(12, 16, 20, 24).random(random) else firearms.next() to 0
             Triple(point.x, point.y, point.z) to reward
         }
     }
@@ -1748,6 +1755,7 @@ class ArcEventsService(
     private fun Location.eventLocation(): EventLocation = EventLocation(world.name, x, y, z, yaw, pitch)
 
     companion object {
+        private const val LOOT_SEED_SALT = 0x5A17C0DEL
         private val LIVE_PHASES = setOf(MatchPhase.PREPARING, MatchPhase.COUNTDOWN, MatchPhase.ACTIVE)
         private val DEBUG_SPECIAL_ITEMS = setOf(
             EventItemKind.TRAITOR_BLADE,

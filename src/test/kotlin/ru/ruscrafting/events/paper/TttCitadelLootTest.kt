@@ -10,7 +10,7 @@ class TttCitadelLootTest : StringSpec({
         val layout = TttCitadelLoot.layout(42)
         layout.count { it.firearm != null } shouldBe 20
         layout.count { it.ammunition > 0 } shouldBe 12
-        FirearmId.entries.forEach { firearm -> (layout.count { it.firearm == firearm } >= 4) shouldBe true }
+        FirearmId.entries.forEach { firearm -> (layout.count { it.firearm == firearm } >= 1) shouldBe true }
     }
 
     "loot layout is deterministic per match seed" {

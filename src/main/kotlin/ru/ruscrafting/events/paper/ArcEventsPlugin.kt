@@ -52,7 +52,7 @@ class ArcEventsPlugin : JavaPlugin() {
             val items = TttItems(this, locale)
             val firearms = TttFirearms(this, locale) { settings }
             val hud = TttHud(this, { settings }, locale)
-            val lootScene = TttLootScene(this) { settings }
+            val lootScene = TttLootScene(this, firearms) { settings }
             val arenaInspector = ArenaRuntimeInspector(this)
             val arenaPool = ArenaPool({ settings }, arenaInspector::ready)
             lateinit var activeService: ArcEventsService

@@ -6,11 +6,21 @@ import io.kotest.matchers.shouldBe
 import kotlin.math.sqrt
 
 class TttCombatTest : StringSpec({
-    "firearm catalog has four distinct balanced weapon contracts" {
+    "firearm catalog exposes twelve distinct balanced weapon contracts" {
         TttFirearmCatalog.specs.keys shouldBe FirearmId.entries.toSet()
-        TttFirearmCatalog.specs.values.map(FirearmSpec::magazineSize).distinct().size shouldBe 4
-        TttFirearmCatalog.specs.getValue(FirearmId.SHOTGUN).pellets shouldBe 8
-        TttFirearmCatalog.specs.getValue(FirearmId.RIFLE).range shouldBe 90.0
+        TttFirearmCatalog.specs.size shouldBe 12
+        TttFirearmCatalog.specs.values.map(FirearmSpec::magazineSize).distinct().size shouldBe 9
+        TttFirearmCatalog.specs.getValue(FirearmId.DOUBLE_BARREL).pellets shouldBe 10
+        TttFirearmCatalog.specs.getValue(FirearmId.MCMILLAN).range shouldBe 120.0
+        TttFirearmCatalog.specs.values.map(FirearmSpec::rarity).toSet() shouldBe FirearmRarity.entries.toSet()
+    }
+
+    "large map loot guarantees every firearm and remains deterministic" {
+        val loot = TttFirearmCatalog.lootSelection(20, 42)
+        loot.size shouldBe 20
+        loot.toSet() shouldBe FirearmId.entries.toSet()
+        TttFirearmCatalog.lootSelection(20, 42) shouldBe loot
+        (TttFirearmCatalog.lootSelection(20, 43) != loot) shouldBe true
     }
 
     "zero spread preserves a normalized ray" {

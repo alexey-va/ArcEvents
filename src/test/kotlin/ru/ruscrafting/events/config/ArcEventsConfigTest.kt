@@ -3,6 +3,7 @@ package ru.ruscrafting.events.config
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
+import ru.ruscrafting.events.domain.FirearmId
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -18,8 +19,10 @@ class ArcEventsConfigTest : StringSpec({
             config.arena.operational(config.ttt.maximumPlayers) shouldBe false
             config.weapons.enabled shouldBe true
             config.weapons.dnaSeconds shouldBe 90
-            config.weapons.rifle.material shouldBe "NETHERITE_SHOVEL"
-            config.weapons.rifle.customModelData shouldBe 0
+            config.weapons.visual(FirearmId.MCMILLAN).material shouldBe "NETHERITE_SHOVEL"
+            config.weapons.visual(FirearmId.MCMILLAN).customModelData shouldBe 0
+            config.weapons.visuals.keys shouldBe FirearmId.entries.toSet()
+            config.weapons.lootEffect.enabled shouldBe false
             config.ttt.preparationSeconds shouldBe 30
             config.ui.dialogsEnabled shouldBe false
             config.debug.enabled shouldBe false
@@ -42,13 +45,29 @@ class ArcEventsConfigTest : StringSpec({
         }
     }
 
-    "reviewed parkour profile exposes four complete isolated arenas" {
+    "reviewed parkour profile exposes the three complete CS2 arenas" {
         val repository = Path.of(System.getProperty("arcevents.repositoryRoot"))
         val config = ArcEventsConfig.inspect(repository.resolve("parkour/plugins/ArcEvents"))
 
-        config.arenas.map(ArenaSettings::id) shouldBe listOf("citadel", "inferno", "mirage", "nuke")
+        config.arenas.map(ArenaSettings::id) shouldBe listOf("inferno", "mirage", "nuke")
         config.arenas.all { it.operational(config.ttt.maximumPlayers) } shouldBe true
         config.arenas.filter { it.template.startsWith("cs2-") }.all { it.lootSpawns.size == 32 } shouldBe true
+        config.weapons.visuals.mapValues { (_, visual) -> visual.customModelData } shouldBe mapOf(
+            FirearmId.FLINTLOCK to 10030,
+            FirearmId.REVOLVER to 10031,
+            FirearmId.HAND_CANNON to 10043,
+            FirearmId.DOUBLE_BARREL to 10036,
+            FirearmId.FIVE_SEVEN to 12365,
+            FirearmId.G36 to 12366,
+            FirearmId.AEK_971 to 12363,
+            FirearmId.RPL_20 to 12373,
+            FirearmId.VEPR_12 to 12375,
+            FirearmId.M1_GARAND to 12368,
+            FirearmId.VSS_VINTOREZ to 12377,
+            FirearmId.MCMILLAN to 12370,
+        )
+        config.weapons.lootEffect.enabled shouldBe true
+        config.weapons.lootEffect.customModelData.values.toSet() shouldBe setOf(2, 3, 4, 5, 6)
     }
 
     "built-in templates require a host and a dedicated safe world" {

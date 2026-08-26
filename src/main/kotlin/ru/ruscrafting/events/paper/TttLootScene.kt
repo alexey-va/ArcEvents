@@ -1,6 +1,7 @@
 package ru.ruscrafting.events.paper
 
 import org.bukkit.Location
+import org.bukkit.Material
 import org.bukkit.Particle
 import org.bukkit.entity.Display
 import org.bukkit.entity.Item
@@ -17,9 +18,10 @@ import java.util.UUID
 /** Owns the invisible pickup entities and their animated ItemDisplay presentation. */
 class TttLootScene(
     private val plugin: Plugin,
+    private val firearms: TttFirearms,
     private val settings: () -> ArcEventsConfig,
 ) : AutoCloseable {
-    private data class LootEntity(val pickupId: UUID, val displayId: UUID?)
+    private data class LootEntity(val pickupId: UUID, val itemDisplayId: UUID?, val effectDisplayId: UUID?)
 
     private val entities = linkedMapOf<UUID, LootEntity>()
     private var animationTask: ScheduledTask? = null
@@ -37,21 +39,24 @@ class TttLootScene(
     fun register(item: Item, pickupDelay: Int = 20) {
         consume(item.uniqueId)
         configurePickup(item, pickupDelay)
-        val display = if (settings().ui.lootDisplays) createDisplay(item) else null
-        item.setVisibleByDefault(display == null)
-        entities[item.uniqueId] = LootEntity(item.uniqueId, display?.uniqueId)
+        val itemDisplay = if (settings().ui.lootDisplays) createItemDisplay(item) else null
+        val effectDisplay = if (itemDisplay != null) createEffectDisplay(item) else null
+        item.setVisibleByDefault(itemDisplay == null)
+        entities[item.uniqueId] = LootEntity(item.uniqueId, itemDisplay?.uniqueId, effectDisplay?.uniqueId)
         ensureAnimation()
     }
 
     fun consume(itemId: UUID) {
         val tracked = entities.remove(itemId) ?: return
-        tracked.displayId?.let { plugin.server.getEntity(it)?.remove() }
+        tracked.itemDisplayId?.let { plugin.server.getEntity(it)?.remove() }
+        tracked.effectDisplayId?.let { plugin.server.getEntity(it)?.remove() }
         if (entities.isEmpty()) stopAnimation()
     }
 
     fun clear() {
         entities.values.forEach { tracked ->
-            tracked.displayId?.let { plugin.server.getEntity(it)?.remove() }
+            tracked.itemDisplayId?.let { plugin.server.getEntity(it)?.remove() }
+            tracked.effectDisplayId?.let { plugin.server.getEntity(it)?.remove() }
             plugin.server.getEntity(tracked.pickupId)?.remove()
         }
         entities.clear()
@@ -69,7 +74,7 @@ class TttLootScene(
         item.isPersistent = false
     }
 
-    private fun createDisplay(item: Item): ItemDisplay = item.world.spawn(
+    private fun createItemDisplay(item: Item): ItemDisplay = item.world.spawn(
         item.location.clone().add(0.0, DISPLAY_HEIGHT, 0.0),
         ItemDisplay::class.java,
     ) { display ->
@@ -87,6 +92,39 @@ class TttLootScene(
         display.setTransformationMatrix(Matrix4f().scale(DISPLAY_SCALE))
     }
 
+    private fun createEffectDisplay(item: Item): ItemDisplay? {
+        val rarity = firearms.lootRarity(item.itemStack) ?: return null
+        val effect = settings().weapons.lootEffect
+        if (!effect.enabled) return null
+        val visual = effect.visual(rarity)
+        val material = Material.matchMaterial(visual.material)?.takeIf(Material::isItem) ?: return null
+        if (visual.customModelData <= 0) return null
+        val stack = ItemStack.of(material).also { shown ->
+            shown.editMeta { meta ->
+                val model = meta.customModelDataComponent
+                model.floats = listOf(visual.customModelData.toFloat())
+                meta.setCustomModelDataComponent(model)
+            }
+        }
+        return item.world.spawn(
+            item.location.clone().add(0.0, effect.height, 0.0),
+            ItemDisplay::class.java,
+        ) { display ->
+            display.setItemStack(stack)
+            display.itemDisplayTransform = ItemDisplay.ItemDisplayTransform.FIXED
+            display.billboard = Display.Billboard.FIXED
+            display.brightness = Display.Brightness(15, 15)
+            display.setGravity(false)
+            display.isInvulnerable = true
+            display.isPersistent = false
+            display.isSilent = true
+            display.viewRange = 0.75f
+            display.interpolationDelay = 0
+            display.interpolationDuration = ROTATION_TICKS
+            display.setTransformationMatrix(Matrix4f().scale(effect.scale.toFloat()))
+        }
+    }
+
     private fun ensureAnimation() {
         if (animationTask != null) return
         animationTask = Tasks.scheduler.runTimer(1L, ANIMATION_STEP_TICKS.toLong()) { animate() }
@@ -98,21 +136,41 @@ class TttLootScene(
         if (rotate) rotation += Math.PI.toFloat() + ROTATION_EPSILON
         val iterator = entities.entries.iterator()
         while (iterator.hasNext()) {
-            val (_, tracked) = iterator.next()
+            val entry = iterator.next()
+            val tracked = entry.value
             val pickup = plugin.server.getEntity(tracked.pickupId) as? Item
             if (pickup?.isValid != true) {
-                tracked.displayId?.let { plugin.server.getEntity(it)?.remove() }
+                tracked.itemDisplayId?.let { plugin.server.getEntity(it)?.remove() }
+                tracked.effectDisplayId?.let { plugin.server.getEntity(it)?.remove() }
                 iterator.remove()
                 continue
             }
-            val display = tracked.displayId?.let { plugin.server.getEntity(it) as? ItemDisplay }
-            if (display?.isValid != true) continue
+            val display = tracked.itemDisplayId?.let { plugin.server.getEntity(it) as? ItemDisplay }
+            if (display?.isValid != true) {
+                tracked.effectDisplayId?.let { plugin.server.getEntity(it)?.remove() }
+                pickup.setVisibleByDefault(true)
+                entry.setValue(tracked.copy(itemDisplayId = null, effectDisplayId = null))
+                continue
+            }
+            val effectDisplay = tracked.effectDisplayId?.let { plugin.server.getEntity(it) as? ItemDisplay }
+            val current = if (tracked.effectDisplayId != null && effectDisplay?.isValid != true) {
+                tracked.copy(effectDisplayId = null).also(entry::setValue)
+            } else {
+                tracked
+            }
             if (rotate) {
                 display.interpolationDelay = 0
                 display.interpolationDuration = ROTATION_TICKS
                 display.setTransformationMatrix(Matrix4f().scale(DISPLAY_SCALE).rotateY(rotation))
+                effectDisplay?.takeIf(ItemDisplay::isValid)?.also { animatedEffect ->
+                    animatedEffect.interpolationDelay = 0
+                    animatedEffect.interpolationDuration = ROTATION_TICKS
+                    animatedEffect.setTransformationMatrix(
+                        Matrix4f().scale(settings().weapons.lootEffect.scale.toFloat()).rotateY(-rotation * 0.5f),
+                    )
+                }
             }
-            if (settings().ui.particles && animationTicks % PARTICLE_TICKS == 0) {
+            if (current.effectDisplayId == null && settings().ui.particles && animationTicks % PARTICLE_TICKS == 0) {
                 display.world.spawnParticle(
                     Particle.END_ROD,
                     display.location,

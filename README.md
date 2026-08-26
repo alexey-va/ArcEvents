@@ -33,9 +33,8 @@ Reservation cancellation moves each selected route to `RETURN_PENDING` with
 bounded CAS retries, so host restarts, duplicate join events, and an interrupted
 proxy transfer remain recoverable.
 
-Production rotates between the deterministic built-in `citadel-v1` and three
-reviewed imported worlds: `cs2-inferno-v1`, `cs2-mirage-v1`, and
-`cs2-nuke-v1`. One arena is leased when a reservation is accepted and released
+Production rotates between three reviewed imported worlds:
+`cs2-inferno-v1`, `cs2-mirage-v1`, and `cs2-nuke-v1`. One arena is leased when a reservation is accepted and released
 only after player restoration finishes. An administrator may choose the next
 ready arena once or return to deterministic automatic rotation. Imported
 worlds require exact ownership/source markers, no datapacks or symlinks, and a
@@ -43,39 +42,6 @@ startup scan that rejects command-block tile entities. Command blocks are also
 disabled by world gamerule. Runtime readiness requires solid footing, two
 passable blocks, and WorldGuard/Paper PvP permission at every player-facing
 point.
-
-The built-in Citadel remains a central three-storey keep, four themed wings,
-covered links, ramparts, an undercroft, and sixteen audited spawns across three
-elevations. Its profile is now one entry under the arena pool:
-
-```yaml
-arenas:
-  citadel:
-    enabled: true
-    world: arcevents_ttt
-    template: citadel-v1
-    lobby: '0.5,42,0.5,180,0'
-    spectator: '0.5,38,0.5,0,0'
-    minimum: '-66.5,4,-66.5'
-    maximum: '66.5,48,66.5'
-    spawns:
-      - '-12.5,16,-12.5,45,0'
-      - '12.5,16,-12.5,-45,0'
-      - '-12.5,16,12.5,135,0'
-      - '12.5,16,12.5,-135,0'
-      - '-8.5,16,-39.5,0,0'
-      - '8.5,16,-47.5,180,0'
-      - '38.5,16,-8.5,90,0'
-      - '47.5,16,8.5,-90,0'
-      - '-8.5,16,38.5,0,0'
-      - '8.5,16,47.5,180,0'
-      - '-38.5,16,-8.5,90,0'
-      - '-47.5,16,8.5,-90,0'
-      - '-12.5,26,-7.5,90,0'
-      - '12.5,26,7.5,-90,0'
-      - '-42.5,7,0.5,90,0'
-      - '42.5,7,0.5,-90,0'
-```
 
 The recovery, exact-destination teleport authorization, generic GUI background,
 and post-match return contracts intentionally follow the proven ArcDuels
@@ -109,6 +75,23 @@ bundled and production configs allow only `lab`, while production keeps debug
 disabled. Tab completion covers actions, players, roles, teams, equipment,
 amounts, and views.
 
+## Firearms and loot
+
+TTT currently has twelve ballistic contracts: flintlock pistol, revolver, hand
+cannon, double-barrel shotgun, FN Five-seveN, G36, AEK-971, RPL-20, Vepr-12,
+M1 Garand, VSS Vintorez, and McMillan. The server remains authoritative for
+ammo, cooldowns, ray hits, headshots, damage, and match ownership. The parkour
+runtime maps those contracts to stable custom-model-data IDs from the
+`voxelspawns_megaflintlocks` and `gold_guns` ItemsAdder namespaces; bundled
+defaults remain dependency-free vanilla items.
+
+Large arena layouts guarantee one of every firearm before filling remaining
+weapon points from the weighted rarity pool. Ammo remains universal and
+match-scoped. `lemon_vfxdrop` model IDs 2–6 render the animated rarity beam
+under the rotating weapon display, while a hidden signed item owns pickup
+collision. Every display and pickup is removed together on pickup, cleanup,
+round end, or plugin shutdown.
+
 ## Interface frontends
 
 Chest inventories remain the complete, stable UI and own the item-dense shop,
@@ -132,8 +115,8 @@ Each participant gets a locale-aware sidebar, per-player boss bar, contextual
 action bar, phase titles, and restrained transition particles. The previous
 scoreboard is restored when the event ends. Map pickups use a hidden
 server-authoritative item for collision plus a temporary rotating `ItemDisplay`
-and particles for presentation; `ui.loot-displays` can disable only that visual
-layer. Smoke grenades are throwable snowball projectiles and create an
+and an animated rarity beam for presentation; `ui.loot-displays` can disable
+only that visual layer. Smoke grenades are throwable snowball projectiles and create an
 eight-second cloud that repeatedly applies blindness and darkness to every
 living participant inside it, including the thrower.
 
