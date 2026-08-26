@@ -3,6 +3,7 @@ package ru.ruscrafting.events.paper
 import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.Particle
+import org.bukkit.World
 import org.bukkit.entity.Display
 import org.bukkit.entity.Item
 import org.bukkit.entity.ItemDisplay
@@ -21,9 +22,15 @@ class TttLootScene(
     private val firearms: TttFirearms,
     private val settings: () -> ArcEventsConfig,
 ) : AutoCloseable {
-    private data class LootEntity(val pickupId: UUID, val itemDisplayId: UUID?, val effectDisplayId: UUID?)
+    private data class LootEntity(
+        val pickupId: UUID,
+        val itemDisplayId: UUID?,
+        val effectDisplayId: UUID?,
+        val chunkKey: LootChunkKey,
+    )
 
     private val entities = linkedMapOf<UUID, LootEntity>()
+    private val chunkTickets = LootChunkTicketRegistry(plugin)
     private var animationTask: ScheduledTask? = null
     private var animationTicks = 0
     private var rotation = 0f
@@ -38,18 +45,29 @@ class TttLootScene(
 
     fun register(item: Item, pickupDelay: Int = 20) {
         consume(item.uniqueId)
-        configurePickup(item, pickupDelay)
-        val itemDisplay = if (settings().ui.lootDisplays) createItemDisplay(item) else null
-        val effectDisplay = if (itemDisplay != null) createEffectDisplay(item) else null
-        item.setVisibleByDefault(itemDisplay == null)
-        entities[item.uniqueId] = LootEntity(item.uniqueId, itemDisplay?.uniqueId, effectDisplay?.uniqueId)
-        ensureAnimation()
+        val chunkKey = chunkTickets.acquire(item.location)
+        var itemDisplay: ItemDisplay? = null
+        var effectDisplay: ItemDisplay? = null
+        try {
+            configurePickup(item, pickupDelay)
+            itemDisplay = if (settings().ui.lootDisplays) createItemDisplay(item) else null
+            effectDisplay = if (itemDisplay != null) createEffectDisplay(item) else null
+            item.setVisibleByDefault(itemDisplay == null)
+            entities[item.uniqueId] = LootEntity(item.uniqueId, itemDisplay?.uniqueId, effectDisplay?.uniqueId, chunkKey)
+            ensureAnimation()
+        } catch (failure: Throwable) {
+            itemDisplay?.remove()
+            effectDisplay?.remove()
+            chunkTickets.release(chunkKey)
+            throw failure
+        }
     }
 
     fun consume(itemId: UUID) {
         val tracked = entities.remove(itemId) ?: return
         tracked.itemDisplayId?.let { plugin.server.getEntity(it)?.remove() }
         tracked.effectDisplayId?.let { plugin.server.getEntity(it)?.remove() }
+        chunkTickets.release(tracked.chunkKey)
         if (entities.isEmpty()) stopAnimation()
     }
 
@@ -60,6 +78,7 @@ class TttLootScene(
             plugin.server.getEntity(tracked.pickupId)?.remove()
         }
         entities.clear()
+        chunkTickets.clear()
         stopAnimation()
     }
 
@@ -143,6 +162,7 @@ class TttLootScene(
                 tracked.itemDisplayId?.let { plugin.server.getEntity(it)?.remove() }
                 tracked.effectDisplayId?.let { plugin.server.getEntity(it)?.remove() }
                 iterator.remove()
+                chunkTickets.release(tracked.chunkKey)
                 continue
             }
             val display = tracked.itemDisplayId?.let { plugin.server.getEntity(it) as? ItemDisplay }
@@ -199,5 +219,42 @@ class TttLootScene(
         private const val PARTICLE_TICKS = 10
         private const val ROTATION_TICKS = 40
         private const val ROTATION_EPSILON = 0.01f
+    }
+}
+
+internal data class LootChunkKey(val worldId: UUID, val x: Int, val z: Int)
+
+/** Keeps non-persistent TTT pickups and displays loaded for the lifetime of their loot scene. */
+internal class LootChunkTicketRegistry(private val plugin: Plugin) {
+    private data class Ticket(val world: World, var references: Int, val removeOnRelease: Boolean)
+
+    private val tickets = linkedMapOf<LootChunkKey, Ticket>()
+
+    fun acquire(location: Location): LootChunkKey {
+        val world = location.world
+        val key = LootChunkKey(world.uid, location.blockX shr 4, location.blockZ shr 4)
+        val current = tickets[key]
+        if (current != null) {
+            current.references += 1
+            return key
+        }
+        val added = world.addPluginChunkTicket(key.x, key.z, plugin)
+        tickets[key] = Ticket(world, 1, added)
+        return key
+    }
+
+    fun release(key: LootChunkKey) {
+        val ticket = tickets[key] ?: return
+        ticket.references -= 1
+        if (ticket.references > 0) return
+        tickets.remove(key)
+        if (ticket.removeOnRelease) ticket.world.removePluginChunkTicket(key.x, key.z, plugin)
+    }
+
+    fun clear() {
+        tickets.forEach { (key, ticket) ->
+            if (ticket.removeOnRelease) ticket.world.removePluginChunkTicket(key.x, key.z, plugin)
+        }
+        tickets.clear()
     }
 }
