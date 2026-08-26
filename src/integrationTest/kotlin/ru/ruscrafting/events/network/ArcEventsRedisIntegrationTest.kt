@@ -42,7 +42,7 @@ class ArcEventsRedisIntegrationTest : StringSpec({
             val routes = java.util.Collections.synchronizedList(mutableListOf<Pair<EventNetworkMessage, String>>())
             val reservedBatch = AtomicReference<ReservationBatch?>()
             val matchId = UUID(0, 100)
-            spawnRepository.register { message, origin ->
+            spawnRepository.register(originAllowed = { it == "parkour" }) { message, origin ->
                 when (message.signal) {
                     EventNetworkSignal.START_RESULT -> {
                         startResult.set(message to origin)
@@ -55,7 +55,7 @@ class ArcEventsRedisIntegrationTest : StringSpec({
                     else -> Unit
                 }
             }
-            parkourRepository.register { message, origin ->
+            parkourRepository.register(originAllowed = { it == "spawn" }) { message, origin ->
                 if (message.signal == EventNetworkSignal.START_REQUEST && message.destinationServer == "parkour") {
                     parkourRepository.reserve(matchId, "parkour", 4, 16, 2_000, 30_000).whenComplete { batch, failure ->
                         require(failure == null && batch != null)

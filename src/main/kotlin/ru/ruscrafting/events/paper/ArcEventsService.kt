@@ -875,9 +875,15 @@ class ArcEventsService(
             cleanupProjectiles()
             cleanupLoot()
             val prepared = runtime.prepare(created, currentSettings.ttt.preparationSeconds)
-            escrow.prepare(matchId, online, online.associate { it.uniqueId to currentSettings.serverId }, clock())
-            mutationAttempted = true
-            applyEventState(online, prepared)
+            escrow.commitThenMutate(
+                matchId,
+                online,
+                online.associate { it.uniqueId to currentSettings.serverId },
+                clock(),
+            ) {
+                mutationAttempted = true
+                applyEventState(online, prepared)
+            }
             debug.event("debug_match_preparing", "match" to matchId, "players" to online.size, "arena" to arena.id)
             DebugMutationResult.APPLIED
         }.getOrElse { failure ->
@@ -1158,14 +1164,15 @@ class ArcEventsService(
                 nowMs = clock(),
             )
             val prepared = runtime.prepare(created, currentSettings.ttt.preparationSeconds)
-            escrow.prepare(
+            escrow.commitThenMutate(
                 batch.matchId,
                 online,
                 entries.associate { UUID.fromString(it.playerId) to it.originServer },
                 clock(),
-            )
-            mutationAttempted = true
-            applyEventState(online, prepared)
+            ) {
+                mutationAttempted = true
+                applyEventState(online, prepared)
+            }
             network.completeReservation(batch.matchId, online.map(Player::getUniqueId)).whenComplete { _, failure ->
                 Tasks.scheduler.runSync {
                     val prepared = match

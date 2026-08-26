@@ -6,6 +6,7 @@ import org.bukkit.plugin.Plugin
 import ru.arc.core.ScheduledTask
 import ru.arc.core.Tasks
 import ru.arc.network.BackendServerId
+import ru.arc.network.LeasedNetworkDirectory
 import ru.arc.paper.network.BackendTransfer
 import ru.arc.paper.network.BackendTransferResult
 import ru.arc.redis.RedisManager
@@ -61,6 +62,10 @@ class EventNetworkCoordinator(
         private set
     @Volatile
     private var nodes: List<HostNode> = emptyList()
+    @Volatile
+    private var nodeDirectoryLeaseMillis: Long = settings().network.heartbeatStaleSeconds * 1_000L
+    @Volatile
+    private var nodeDirectory = newNodeDirectory(nodeDirectoryLeaseMillis)
     private var eventBus: OriginBoundRedisBus<EventNetworkMessage>? = null
     private val tasks = mutableListOf<ScheduledTask>()
     private val statistics = ConcurrentHashMap<UUID, PlayerEventStats>()
@@ -567,10 +572,36 @@ class EventNetworkCoordinator(
 
     private fun refreshNodes() {
         val current = settings()
-        repository.loadNodes(clock(), current.network.heartbeatStaleSeconds * 1_000L).whenComplete { loaded, failure ->
-            if (failure == null && loaded != null) nodes = loaded
+        val leaseMillis = current.network.heartbeatStaleSeconds * 1_000L
+        val directory = directoryFor(leaseMillis)
+        repository.loadNodes().whenComplete { loaded, failure ->
+            if (failure != null || loaded == null) return@whenComplete
+            val now = clock()
+            loaded.asSequence()
+                .filter { it.heartbeatAtMs <= now + FUTURE_SKEW_MS }
+                .forEach { node ->
+                    directory.observe(
+                        key = node.serverId,
+                        origin = node.serverId,
+                        value = node,
+                        observedAtMillis = node.heartbeatAtMs,
+                    )
+                }
+            nodes = directory.snapshot().map { it.value }.sortedBy(HostNode::serverId)
         }
     }
+
+    @Synchronized
+    private fun directoryFor(leaseMillis: Long): LeasedNetworkDirectory<String, HostNode> {
+        if (leaseMillis != nodeDirectoryLeaseMillis) {
+            nodeDirectoryLeaseMillis = leaseMillis
+            nodeDirectory = newNodeDirectory(leaseMillis)
+        }
+        return nodeDirectory
+    }
+
+    private fun newNodeDirectory(leaseMillis: Long): LeasedNetworkDirectory<String, HostNode> =
+        LeasedNetworkDirectory(leaseMillis = leaseMillis, maxEntries = MAX_NETWORK_NODES, clock = clock)
 
     private fun heartbeat() {
         val current = settings()
@@ -597,6 +628,8 @@ class EventNetworkCoordinator(
         tasks.clear()
         eventBus?.close()
         eventBus = null
+        nodeDirectory.clear()
+        nodes = emptyList()
         pendingStartTimeouts.values.forEach(ScheduledTask::cancel)
         pendingStartTimeouts.clear()
         pendingStarts.values.forEach { it.complete(ReservationStartResult.NETWORK_FAILURE) }
@@ -611,6 +644,7 @@ class EventNetworkCoordinator(
         private const val START_REQUEST_TIMEOUT_TICKS = 12L * 20L
         private const val START_MESSAGE_MAX_AGE_MS = 10_000L
         private const val START_FUTURE_SKEW_MS = 2_000L
+        private const val MAX_NETWORK_NODES = 1_024
         private val START_SIGNALS = setOf(EventNetworkSignal.START_REQUEST, EventNetworkSignal.START_RESULT)
     }
 }

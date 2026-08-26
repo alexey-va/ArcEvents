@@ -52,10 +52,9 @@ class RedisEventNetworkRepository(
     fun saveNode(node: HostNode): CompletableFuture<*> =
         redis.saveMapEntries(NODES_KEY, node.serverId, nodeCodec.encode(node.validated()))
 
-    fun loadNodes(nowMs: Long, staleAfterMs: Long): CompletableFuture<List<HostNode>> =
+    fun loadNodes(): CompletableFuture<List<HostNode>> =
         redis.loadMap(NODES_KEY).thenApply { values ->
             values.values.map(nodeCodec::decode)
-                .filter { it.heartbeatAtMs >= nowMs - staleAfterMs && it.heartbeatAtMs <= nowMs + FUTURE_SKEW_MS }
                 .sortedBy(HostNode::serverId)
         }
 
@@ -326,7 +325,6 @@ class RedisEventNetworkRepository(
         private const val MAX_JSON_CHARS = 64_000
         private const val MAX_CAS_ATTEMPTS = 12
         private const val MAX_CLEANUP = 256
-        private const val FUTURE_SKEW_MS = 60_000L
         private const val MESSAGE_DEDUPLICATION_MS = 15L * 60L * 1_000L
         private const val MAX_SEEN_MESSAGES = 20_000
         private val QUEUE_FIELDS = setOf(

@@ -8,6 +8,7 @@ import ru.arc.config.ConfigManager
 import ru.arc.core.PaperArcRuntime
 import ru.arc.core.Tasks
 import ru.arc.paper.network.BungeeBackendTransfer
+import ru.arc.paper.runtime.PaperPluginRuntime
 import ru.arc.redis.RedisManager
 import ru.arc.redis.ServerIdentity
 import ru.ruscrafting.events.config.ArcEventsConfig
@@ -26,6 +27,7 @@ class ArcEventsPlugin : JavaPlugin() {
     private var network: EventNetworkCoordinator? = null
     private var service: ArcEventsService? = null
     private var transfer: BungeeBackendTransfer? = null
+    private var pluginRuntime: PaperPluginRuntime? = null
 
     override fun onEnable() {
         saveDefaultConfig()
@@ -33,6 +35,10 @@ class ArcEventsPlugin : JavaPlugin() {
         saveResourceIfMissing("lang/en.yml")
         saveResourceIfMissing("modules/redis.yml")
         PaperArcRuntime.installScheduling(this)
+        val lifecycle = PaperPluginRuntime(this, "arc-events").also {
+            pluginRuntime = it
+            it.start("version" to pluginMeta.version)
+        }
         try {
             val dataRoot = dataFolder.toPath()
             settings = ArcEventsConfig.load(dataRoot)
@@ -46,6 +52,7 @@ class ArcEventsPlugin : JavaPlugin() {
                 ServerIdentity { settings.serverId },
                 LoggerFactory.getLogger("ArcEvents.Redis"),
             )
+            lifecycle.own(manager)
             if (!manager.isConnected() || !runBlocking { manager.healthCheck() }) error("Redis connection is unavailable")
             redis = manager
             val repository = RedisEventNetworkRepository(manager, Gson())
@@ -68,7 +75,7 @@ class ArcEventsPlugin : JavaPlugin() {
             )
             val backendTransfer = BungeeBackendTransfer(this) { failure ->
                 logger.log(Level.WARNING, "ArcEvents backend transfer send failed", failure)
-            }.also { transfer = it }
+            }.also { transfer = it; lifecycle.own(it) }
             val coordinator = EventNetworkCoordinator(
                 plugin = this,
                 settings = { settings },
@@ -83,6 +90,7 @@ class ArcEventsPlugin : JavaPlugin() {
                 onArrival = { activeService.onArrival(it) },
             )
             network = coordinator
+            lifecycle.own(coordinator)
             activeService = ArcEventsService(
                 plugin = this,
                 settings = { settings },
@@ -99,6 +107,7 @@ class ArcEventsPlugin : JavaPlugin() {
                 arenaPool = arenaPool,
             )
             service = activeService
+            lifecycle.own(activeService)
             val menu = ArcEventsMenu(activeService, items, locale, { settings }, ::reloadPlugin)
             val command = ArcEventsCommand(this, activeService, menu, locale, { settings }, ::reloadPlugin)
             requireNotNull(getCommand("arcevents")).apply {
@@ -108,6 +117,12 @@ class ArcEventsPlugin : JavaPlugin() {
             server.pluginManager.registerEvents(ArcEventsListener(activeService, menu, items), this)
             coordinator.start()
             activeService.start()
+            lifecycle.ready(
+                "server" to settings.serverId,
+                "mode" to settings.nodeMode,
+                "arena_ready" to activeService.arenaReady(),
+                "redis" to manager.isConnected(),
+            )
             logger.info(
                 "ArcEvents enabled node=${settings.serverId} mode=${settings.nodeMode} host=${settings.hostServer} " +
                     "arenaReady=${activeService.arenaReady()} redisConnected=${manager.isConnected()}",
@@ -119,10 +134,8 @@ class ArcEventsPlugin : JavaPlugin() {
     }
 
     override fun onDisable() {
-        runCatching { service?.close() }.onFailure { logger.log(Level.SEVERE, "Could not close ArcEvents service", it) }
-        runCatching { network?.close() }.onFailure { logger.log(Level.SEVERE, "Could not close ArcEvents network", it) }
-        runCatching { transfer?.close() }.onFailure { logger.log(Level.SEVERE, "Could not close ArcEvents transfer", it) }
-        runCatching { redis?.close() }.onFailure { logger.log(Level.SEVERE, "Could not close ArcEvents Redis", it) }
+        runCatching { pluginRuntime?.close() }.onFailure { logger.log(Level.SEVERE, "Could not close ArcEvents runtime", it) }
+        pluginRuntime = null
         Tasks.reset()
     }
 

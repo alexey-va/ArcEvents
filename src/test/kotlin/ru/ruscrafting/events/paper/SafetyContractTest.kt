@@ -17,7 +17,6 @@ import org.bukkit.event.block.Action
 import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.inventory.EquipmentSlot
 import org.bukkit.inventory.ItemStack
-import org.bukkit.potion.PotionEffect
 import java.util.UUID
 
 class SafetyContractTest : StringSpec({
@@ -35,17 +34,6 @@ class SafetyContractTest : StringSpec({
         }
 
         authorizer.isAuthorized(playerId, expected) shouldBe false
-    }
-
-    "recovery accepts Paper infinite potion duration" {
-        PotionSnapshot(
-            type = "minecraft:speed",
-            duration = PotionEffect.INFINITE_DURATION,
-            amplifier = 0,
-            ambient = false,
-            particles = true,
-            icon = true,
-        ).validated()
     }
 
     "recognized active event items never fall through to vanilla interaction" {

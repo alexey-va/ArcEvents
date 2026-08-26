@@ -125,11 +125,10 @@ class RedisEventNetworkRepositoryTest : StringSpec({
         repository.loadQueue(5_000).join().all { it.state == QueueState.QUEUED } shouldBe true
     }
 
-    "host heartbeats expire and statistics update by CAS" {
+    "host heartbeat repository returns validated advertisements and statistics update by CAS" {
         val repository = RedisEventNetworkRepository(InMemoryRedis())
         repository.saveNode(HostNode("parkour", "HOST", true, true, null, null, 4, 16, 10_000)).join()
-        repository.loadNodes(20_000, 15_000).join().map(HostNode::serverId) shouldBe listOf("parkour")
-        repository.loadNodes(30_001, 15_000).join() shouldBe emptyList()
+        repository.loadNodes().join().map(HostNode::serverId) shouldBe listOf("parkour")
 
         val participant = TttParticipant(uuid(9), "Player9", "spawn", TttRole.TRAITOR, ParticipantStatus.DEAD, 0, 2, 1)
         val matchId = uuid(900)
