@@ -26,6 +26,17 @@ class RedisEventNetworkRepositoryTest : StringSpec({
         repository.loadQueueEntry(player).join() shouldBe null
     }
 
+    "queued count reads shared state and excludes reservations" {
+        val repository = RedisEventNetworkRepository(InMemoryRedis(ServerIdentity { "spawn" }))
+        repository.joinQueue(uuid(1), "Player1", "spawn", 1_000, 60_000).join()
+        repository.joinQueue(uuid(2), "Player2", "survival", 1_001, 60_000).join()
+
+        repository.loadQueuedCount(2_000).join() shouldBe 2
+
+        repository.reserve(uuid(9), "parkour", 1, 1, 2_001, 60_000).join()
+        repository.loadQueuedCount(2_002).join() shouldBe 1
+    }
+
     "queued player refreshes the current origin without losing FIFO position" {
         val repository = RedisEventNetworkRepository(InMemoryRedis(ServerIdentity { "spawn" }))
         val player = uuid(7)

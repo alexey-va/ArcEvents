@@ -50,6 +50,9 @@ class RedisEventNetworkRepository(
             .sortedWith(compareBy<QueueEntry> { it.joinedAtMs }.thenBy { it.playerId })
     }
 
+    fun loadQueuedCount(nowMs: Long): CompletableFuture<Int> =
+        loadQueue(nowMs).thenApply { queue -> queue.count { it.state == QueueState.QUEUED } }
+
     fun loadQueueEntry(playerId: UUID): CompletableFuture<QueueEntry?> =
         redis.loadMapEntries(QUEUE_KEY, playerId.toString()).thenApply { values ->
             values.firstOrNull()?.let { raw -> runCatching { decodeQueue(raw) }.getOrNull() }

@@ -101,17 +101,32 @@ class EventNetworkCoordinator(
                     return@runSync
                 }
                 when (result) {
-                    is QueueJoinResult.Joined -> {
-                        player.sendMessage(locale.render("queue.joined", player, mapOf(
-                            "queue" to locale.text((queueSize + 1).coerceAtMost(current.ttt.maximumPlayers)),
-                            "minimum" to locale.text(current.ttt.minimumPlayers),
-                        )))
-                        refresh()
-                    }
+                    is QueueJoinResult.Joined -> sendJoinedMessage(player, current)
                     is QueueJoinResult.Existing -> player.sendMessage(locale.render("queue.already", player))
                     QueueJoinResult.Contended -> player.sendMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.contended", player))))
                     null -> Unit
                 }
+            }
+        }
+    }
+
+    private fun sendJoinedMessage(player: Player, current: ArcEventsConfig) {
+        repository.loadQueuedCount(clock()).whenComplete { authoritativeSize, failure ->
+            Tasks.scheduler.runSync {
+                if (!started || !player.isOnline) return@runSync
+                if (failure != null) {
+                    plugin.logger.log(Level.FINE, "ArcEvents queue count refresh failed after join", failure)
+                }
+                val displaySize = if (failure == null && authoritativeSize != null) {
+                    authoritativeSize
+                } else {
+                    queueSize + 1
+                }.coerceIn(1, current.ttt.maximumPlayers)
+                player.sendMessage(locale.render("queue.joined", player, mapOf(
+                    "queue" to locale.text(displaySize),
+                    "minimum" to locale.text(current.ttt.minimumPlayers),
+                )))
+                refresh()
             }
         }
     }
