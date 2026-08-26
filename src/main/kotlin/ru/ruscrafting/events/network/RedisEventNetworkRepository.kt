@@ -50,6 +50,11 @@ class RedisEventNetworkRepository(
             .sortedWith(compareBy<QueueEntry> { it.joinedAtMs }.thenBy { it.playerId })
     }
 
+    fun loadQueueEntry(playerId: UUID): CompletableFuture<QueueEntry?> =
+        redis.loadMapEntries(QUEUE_KEY, playerId.toString()).thenApply { values ->
+            values.firstOrNull()?.let { raw -> runCatching { decodeQueue(raw) }.getOrNull() }
+        }
+
     fun reserve(
         matchId: UUID,
         destinationServer: String,

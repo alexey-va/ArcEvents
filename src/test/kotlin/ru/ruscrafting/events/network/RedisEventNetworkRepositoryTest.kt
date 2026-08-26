@@ -20,8 +20,10 @@ class RedisEventNetworkRepositoryTest : StringSpec({
         repository.joinQueue(player, "Player1", "spawn", 1_000, 60_000).join()::class shouldBe QueueJoinResult.Joined::class
         repository.joinQueue(player, "Player1", "spawn", 2_000, 60_000).join()::class shouldBe QueueJoinResult.Existing::class
         repository.loadQueue(2_000).join().map(QueueEntry::playerId) shouldBe listOf(player.toString())
+        repository.loadQueueEntry(player).join()?.playerId shouldBe player.toString()
         repository.leaveQueue(player, 2_000).join() shouldBe QueueLeaveResult.Left
         repository.leaveQueue(player, 2_000).join() shouldBe QueueLeaveResult.Missing
+        repository.loadQueueEntry(player).join() shouldBe null
     }
 
     "queued player refreshes the current origin without losing FIFO position" {

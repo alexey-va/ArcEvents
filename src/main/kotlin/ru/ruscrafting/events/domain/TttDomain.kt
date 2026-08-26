@@ -139,7 +139,9 @@ class TttMatchEngine(
 
     fun countdown(match: TttMatch): TttMatch {
         require(match.phase == MatchPhase.PREPARING)
-        val participants = match.participants.mapValues { (_, value) -> value.copy(status = ParticipantStatus.ALIVE) }
+        val participants = match.participants.mapValues { (_, value) ->
+            if (value.status == ParticipantStatus.RESERVED) value.copy(status = ParticipantStatus.ALIVE) else value
+        }
         return match.copy(revision = match.revision + 1, phase = MatchPhase.COUNTDOWN, participants = participants)
             .validated(minimumPlayers, maximumPlayers)
     }

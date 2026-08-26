@@ -47,6 +47,31 @@ The recovery, exact-destination teleport authorization, generic GUI background,
 and post-match return contracts intentionally follow the proven ArcDuels
 patterns while keeping ArcEvents' event protocol and state machine independent.
 
+## Game runtime architecture
+
+Paper integration is split from authoritative game state. `ArcEventsService`
+is the host adapter for players, inventories, HUD, arenas and network messages;
+it does not own TTT match transitions directly. `EventGameRuntime` is the small
+mode boundary, and `TttMatchRuntime` owns the current match, exact phase clocks,
+recent-attacker attribution, bounded combat history, cancellation and recovery
+transitions. A future mode implements its own runtime rather than adding a
+second state machine to the Paper service.
+
+Mode-specific world artifacts are lifecycle owners as well. In particular,
+`TttBodyRegistry` owns corpse entities, evidence records, despawn tasks,
+diagnostics and cleanup. Firearms, smoke, loot presentation and HUD already
+have equivalent focused owners. Session tasks are separate from the permanent
+one-second service tick, so ending one mode cannot accidentally cancel the
+plugin heartbeat or leave a previous round's work alive.
+
+Cross-server movement is fail-closed. A `ROUTE_PLAYER` message is acted on only
+when Redis still contains the exact `RESERVED` tuple for player, match and
+destination and the reservation has not expired. A return message likewise
+requires the exact `RETURN_PENDING` tuple and recorded origin. Adding another
+mode still requires a mode-aware queue partition and protocol migration; the
+runtime boundary keeps that network migration independent from the new game's
+rules and Bukkit presentation.
+
 ## Commands
 
 - `/events` — player hub.
@@ -90,7 +115,8 @@ weapon points from the weighted rarity pool. Ammo remains universal and
 match-scoped. `lemon_vfxdrop` model IDs 2–6 render the animated rarity beam
 under the rotating weapon display, while a hidden signed item owns pickup
 collision. Every display and pickup is removed together on pickup, cleanup,
-round end, or plugin shutdown.
+round end, or plugin shutdown. Cosmetic spawn failures degrade to a visible
+pickup and never cancel the gameplay round.
 
 ## Interface frontends
 

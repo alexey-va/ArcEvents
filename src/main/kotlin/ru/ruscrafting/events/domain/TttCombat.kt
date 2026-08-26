@@ -114,7 +114,7 @@ data class CombatRecord(
     val lethal: Boolean,
 ) {
     fun validated(): CombatRecord = apply {
-        require(sequence in 1..10_000)
+        require(sequence > 0)
         require(occurredAtMs >= 0)
         require(attackerName == null || attackerName.matches(Regex("[A-Za-z0-9_]{1,16}")))
         require(victimName.matches(Regex("[A-Za-z0-9_]{1,16}")))

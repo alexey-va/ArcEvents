@@ -54,6 +54,15 @@ class TttMatchEngineTest : StringSpec({
         restored.participants.values.all { it.status == ParticipantStatus.RESTORED } shouldBe true
     }
 
+    "countdown never revives a player disconnected during preparation" {
+        val engine = TttMatchEngine(4, 16, 60_000)
+        val preparing = engine.prepare(engine.create(UUID.randomUUID(), players(6), allocation, 99, 1_000))
+        val disconnectedId = preparing.participants.keys.first()
+        val disconnected = engine.disconnect(preparing, disconnectedId).first
+
+        engine.countdown(disconnected).participant(disconnectedId)?.status shouldBe ParticipantStatus.DISCONNECTED
+    }
+
     "eliminating the final traitor ends the round for innocents" {
         val active = activeMatch(6, allocation)
         val traitor = active.participants.values.single { it.role == TttRole.TRAITOR }

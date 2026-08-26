@@ -324,6 +324,7 @@ queue:
   already: '<prefix> <#ff9f0f>You are already queued or reserved.'
   left: '<prefix> <#e6fff3>You left the queue.'
   not-queued: '<prefix> <#ff9f0f>You are not in the queue.'
+  leave-reserved: '<prefix> <#ff9f0f>Roster locked. You will return after the match.'
   unavailable: '<prefix> <#c42323>Arena unavailable. Open <#92bed8>/events<#e6fff3>.'
   full: '<prefix> <#c42323>Queue full. Try again later.'
   reserved: '<prefix> <#e6fff3>Roster ready. Moving you to <#e3b341>parkour<#e6fff3>.'

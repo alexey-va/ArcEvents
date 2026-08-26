@@ -77,7 +77,7 @@ class ArcEventsLocale(
             "menu.main.join-unavailable-name", "menu.main.roster-name", "menu.main.report-name",
             "menu.admin.arenas-name", "menu.arenas.entry-name", "menu.arenas.auto-name",
             "menu.roster.title", "menu.body.title", "menu.report.title", "menu.combat.title",
-            "queue.joined", "queue.left", "queue.unavailable", "queue.reserved",
+            "queue.joined", "queue.left", "queue.leave-reserved", "queue.unavailable", "queue.reserved",
             "match.preparing-title", "match.preparing-subtitle", "match.preparing-guide", "match.started",
             "match.started-title", "match.started-subtitle", "match.eliminated-title",
             "match.eliminated-subtitle", "match.detectives-announced", "match.restored",

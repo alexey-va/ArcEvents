@@ -16,6 +16,7 @@ import ru.ruscrafting.events.domain.PlayerEventStats
 import ru.ruscrafting.events.domain.TttTeam
 import ru.ruscrafting.events.network.EventNetworkMessage
 import ru.ruscrafting.events.network.EventNetworkSignal
+import ru.ruscrafting.events.network.EventRoutePolicy
 import ru.ruscrafting.events.network.HostNode
 import ru.ruscrafting.events.network.QueueEntry
 import ru.ruscrafting.events.network.QueueJoinResult
@@ -101,11 +102,11 @@ class EventNetworkCoordinator(
                 }
                 when (result) {
                     is QueueJoinResult.Joined -> {
-                        refresh()
                         player.sendMessage(locale.render("queue.joined", player, mapOf(
                             "queue" to locale.text((queueSize + 1).coerceAtMost(current.ttt.maximumPlayers)),
                             "minimum" to locale.text(current.ttt.minimumPlayers),
                         )))
+                        refresh()
                     }
                     is QueueJoinResult.Existing -> player.sendMessage(locale.render("queue.already", player))
                     QueueJoinResult.Contended -> player.sendMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.contended", player))))
@@ -129,7 +130,7 @@ class EventNetworkCoordinator(
                         refresh()
                     }
                     QueueLeaveResult.Missing -> player.sendMessage(locale.render("queue.not-queued", player))
-                    is QueueLeaveResult.Reserved -> player.sendMessage(locale.render("queue.already", player))
+                    is QueueLeaveResult.Reserved -> player.sendMessage(locale.render("queue.leave-reserved", player))
                     QueueLeaveResult.Contended -> player.sendMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.contended", player))))
                     null -> Unit
                 }
@@ -438,14 +439,26 @@ class EventNetworkCoordinator(
 
     private fun route(message: EventNetworkMessage) {
         val playerId = message.playerId?.let(UUID::fromString) ?: return
-        val player = plugin.server.getPlayer(playerId) ?: return
+        val matchId = message.matchId?.let(UUID::fromString) ?: return
         val destination = message.destinationServer ?: return
-        player.sendMessage(locale.render("queue.reserved", player))
-        if (settings().serverId == destination) {
-            handleJoin(player)
-        } else if (settings().network.transferOnReservation) {
-            if (!transfer.connect(player, destination)) {
-                player.sendMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.transfer", player))))
+        repository.loadQueueEntry(playerId).whenComplete { entry, failure ->
+            Tasks.scheduler.runSync {
+                if (!started) return@runSync
+                if (failure != null) {
+                    plugin.logger.log(Level.WARNING, "ArcEvents route authorization failed for $playerId", failure)
+                    return@runSync
+                }
+                if (!EventRoutePolicy.toMatch(entry, playerId, matchId, destination, clock())) {
+                    debug.event("route_rejected", "player" to playerId, "match" to matchId, "destination" to destination)
+                    return@runSync
+                }
+                val player = plugin.server.getPlayer(playerId) ?: return@runSync
+                player.sendMessage(locale.render("queue.reserved", player))
+                if (settings().serverId == destination) {
+                    handleJoin(player)
+                } else if (settings().network.transferOnReservation && !transfer.connect(player, destination)) {
+                    player.sendMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.transfer", player))))
+                }
             }
         }
     }
@@ -453,17 +466,34 @@ class EventNetworkCoordinator(
     private fun routeReturn(message: EventNetworkMessage) {
         val playerId = message.playerId?.let(UUID::fromString) ?: return
         val matchId = message.matchId?.let(UUID::fromString) ?: return
-        val player = plugin.server.getPlayer(playerId) ?: return
         val origin = message.destinationServer ?: return
-        if (settings().serverId == origin || !settings().network.returnToOrigin) {
-            player.sendMessage(locale.render("queue.reservation-expired", player))
-            repository.acknowledgeReturn(playerId, matchId).whenComplete { acknowledged, failure ->
-                if (failure != null || acknowledged != true) {
-                    plugin.logger.log(Level.WARNING, "ArcEvents could not acknowledge returned player $playerId for $matchId", failure)
+        repository.loadQueueEntry(playerId).whenComplete { entry, failure ->
+            Tasks.scheduler.runSync {
+                if (!started) return@runSync
+                if (failure != null) {
+                    plugin.logger.log(Level.WARNING, "ArcEvents return authorization failed for $playerId", failure)
+                    return@runSync
+                }
+                if (!EventRoutePolicy.toOrigin(entry, playerId, matchId, origin)) {
+                    debug.event("return_route_rejected", "player" to playerId, "match" to matchId, "origin" to origin)
+                    return@runSync
+                }
+                val player = plugin.server.getPlayer(playerId) ?: return@runSync
+                if (settings().serverId == origin || !settings().network.returnToOrigin) {
+                    player.sendMessage(locale.render("queue.reservation-expired", player))
+                    repository.acknowledgeReturn(playerId, matchId).whenComplete { acknowledged, acknowledgeFailure ->
+                        if (acknowledgeFailure != null || acknowledged != true) {
+                            plugin.logger.log(
+                                Level.WARNING,
+                                "ArcEvents could not acknowledge returned player $playerId for $matchId",
+                                acknowledgeFailure,
+                            )
+                        }
+                    }
+                } else {
+                    returnPlayer(player, origin)
                 }
             }
-        } else {
-            returnPlayer(player, origin)
         }
     }
 

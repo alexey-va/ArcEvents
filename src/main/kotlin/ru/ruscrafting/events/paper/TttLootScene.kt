@@ -15,6 +15,7 @@ import ru.arc.core.ScheduledTask
 import ru.arc.core.Tasks
 import ru.ruscrafting.events.config.ArcEventsConfig
 import java.util.UUID
+import java.util.logging.Level
 
 /** Owns the invisible pickup entities and their animated ItemDisplay presentation. */
 class TttLootScene(
@@ -34,12 +35,20 @@ class TttLootScene(
     private var animationTask: ScheduledTask? = null
     private var animationTicks = 0
     private var rotation = 0f
+    private var itemDisplayFailureLogged = false
+    private var effectDisplayFailureLogged = false
+    private var cleanupFailureLogged = false
 
     val size: Int get() = entities.size
 
     fun spawn(location: Location, stack: ItemStack): Item {
         val item = location.world.dropItem(location, stack) { configurePickup(it, pickupDelay = 0) }
-        register(item, pickupDelay = 0)
+        try {
+            register(item, pickupDelay = 0)
+        } catch (failure: Throwable) {
+            runCatching(item::remove)
+            throw failure
+        }
         return item
     }
 
@@ -50,35 +59,49 @@ class TttLootScene(
         var effectDisplay: ItemDisplay? = null
         try {
             configurePickup(item, pickupDelay)
-            itemDisplay = if (settings().ui.lootDisplays) createItemDisplay(item) else null
-            effectDisplay = if (itemDisplay != null) createEffectDisplay(item) else null
+            itemDisplay = if (settings().ui.lootDisplays) {
+                runCatching { createItemDisplay(item) }
+                    .onFailure { logPresentationFailure(effect = false, it) }
+                    .getOrNull()
+            } else {
+                null
+            }
+            effectDisplay = if (itemDisplay != null) {
+                runCatching { createEffectDisplay(item) }
+                    .onFailure { logPresentationFailure(effect = true, it) }
+                    .getOrNull()
+            } else {
+                null
+            }
             item.setVisibleByDefault(itemDisplay == null)
             entities[item.uniqueId] = LootEntity(item.uniqueId, itemDisplay?.uniqueId, effectDisplay?.uniqueId, chunkKey)
             ensureAnimation()
         } catch (failure: Throwable) {
-            itemDisplay?.remove()
-            effectDisplay?.remove()
-            chunkTickets.release(chunkKey)
+            entities.remove(item.uniqueId)
+            removeEntity(itemDisplay?.uniqueId)
+            removeEntity(effectDisplay?.uniqueId)
+            releaseChunk(chunkKey)
             throw failure
         }
     }
 
     fun consume(itemId: UUID) {
         val tracked = entities.remove(itemId) ?: return
-        tracked.itemDisplayId?.let { plugin.server.getEntity(it)?.remove() }
-        tracked.effectDisplayId?.let { plugin.server.getEntity(it)?.remove() }
-        chunkTickets.release(tracked.chunkKey)
+        removeEntity(tracked.itemDisplayId)
+        removeEntity(tracked.effectDisplayId)
+        releaseChunk(tracked.chunkKey)
         if (entities.isEmpty()) stopAnimation()
     }
 
     fun clear() {
-        entities.values.forEach { tracked ->
-            tracked.itemDisplayId?.let { plugin.server.getEntity(it)?.remove() }
-            tracked.effectDisplayId?.let { plugin.server.getEntity(it)?.remove() }
-            plugin.server.getEntity(tracked.pickupId)?.remove()
-        }
+        val trackedEntities = entities.values.toList()
         entities.clear()
-        chunkTickets.clear()
+        trackedEntities.forEach { tracked ->
+            removeEntity(tracked.itemDisplayId)
+            removeEntity(tracked.effectDisplayId)
+            removeEntity(tracked.pickupId)
+        }
+        runCatching(chunkTickets::clear).onFailure(::logCleanupFailure)
         stopAnimation()
     }
 
@@ -159,16 +182,16 @@ class TttLootScene(
             val tracked = entry.value
             val pickup = plugin.server.getEntity(tracked.pickupId) as? Item
             if (pickup?.isValid != true) {
-                tracked.itemDisplayId?.let { plugin.server.getEntity(it)?.remove() }
-                tracked.effectDisplayId?.let { plugin.server.getEntity(it)?.remove() }
+                removeEntity(tracked.itemDisplayId)
+                removeEntity(tracked.effectDisplayId)
                 iterator.remove()
-                chunkTickets.release(tracked.chunkKey)
+                releaseChunk(tracked.chunkKey)
                 continue
             }
             val display = tracked.itemDisplayId?.let { plugin.server.getEntity(it) as? ItemDisplay }
             if (display?.isValid != true) {
-                tracked.effectDisplayId?.let { plugin.server.getEntity(it)?.remove() }
-                pickup.setVisibleByDefault(true)
+                removeEntity(tracked.effectDisplayId)
+                runCatching { pickup.setVisibleByDefault(true) }.onFailure { logPresentationFailure(effect = false, it) }
                 entry.setValue(tracked.copy(itemDisplayId = null, effectDisplayId = null))
                 continue
             }
@@ -179,37 +202,70 @@ class TttLootScene(
                 tracked
             }
             if (rotate) {
-                display.interpolationDelay = 0
-                display.interpolationDuration = ROTATION_TICKS
-                display.setTransformationMatrix(Matrix4f().scale(DISPLAY_SCALE).rotateY(rotation))
+                runCatching {
+                    display.interpolationDelay = 0
+                    display.interpolationDuration = ROTATION_TICKS
+                    display.setTransformationMatrix(Matrix4f().scale(DISPLAY_SCALE).rotateY(rotation))
+                }.onFailure { logPresentationFailure(effect = false, it) }
                 effectDisplay?.takeIf(ItemDisplay::isValid)?.also { animatedEffect ->
-                    animatedEffect.interpolationDelay = 0
-                    animatedEffect.interpolationDuration = ROTATION_TICKS
-                    animatedEffect.setTransformationMatrix(
-                        Matrix4f().scale(settings().weapons.lootEffect.scale.toFloat()).rotateY(-rotation * 0.5f),
-                    )
+                    runCatching {
+                        animatedEffect.interpolationDelay = 0
+                        animatedEffect.interpolationDuration = ROTATION_TICKS
+                        animatedEffect.setTransformationMatrix(
+                            Matrix4f().scale(settings().weapons.lootEffect.scale.toFloat()).rotateY(-rotation * 0.5f),
+                        )
+                    }.onFailure { logPresentationFailure(effect = true, it) }
                 }
             }
             if (current.effectDisplayId == null && settings().ui.particles && animationTicks % PARTICLE_TICKS == 0) {
-                display.world.spawnParticle(
-                    Particle.END_ROD,
-                    display.location,
-                    1,
-                    0.12,
-                    0.08,
-                    0.12,
-                    0.001,
-                )
+                runCatching {
+                    display.world.spawnParticle(
+                        Particle.END_ROD,
+                        display.location,
+                        1,
+                        0.12,
+                        0.08,
+                        0.12,
+                        0.001,
+                    )
+                }.onFailure { logPresentationFailure(effect = true, it) }
             }
         }
         if (entities.isEmpty()) stopAnimation()
     }
 
     private fun stopAnimation() {
-        animationTask?.cancel()
+        animationTask?.let { task -> runCatching(task::cancel).onFailure(::logCleanupFailure) }
         animationTask = null
         animationTicks = 0
         rotation = 0f
+    }
+
+    private fun removeEntity(entityId: UUID?) {
+        if (entityId == null) return
+        runCatching { plugin.server.getEntity(entityId)?.remove() }.onFailure(::logCleanupFailure)
+    }
+
+    private fun releaseChunk(chunkKey: LootChunkKey) {
+        runCatching { chunkTickets.release(chunkKey) }.onFailure(::logCleanupFailure)
+    }
+
+    private fun logPresentationFailure(effect: Boolean, failure: Throwable) {
+        if (effect) {
+            if (effectDisplayFailureLogged) return
+            effectDisplayFailureLogged = true
+            plugin.logger.log(Level.WARNING, "ArcEvents loot VFX is unavailable; pickups remain usable", failure)
+        } else {
+            if (itemDisplayFailureLogged) return
+            itemDisplayFailureLogged = true
+            plugin.logger.log(Level.WARNING, "ArcEvents loot display is unavailable; using visible pickups", failure)
+        }
+    }
+
+    private fun logCleanupFailure(failure: Throwable) {
+        if (cleanupFailureLogged) return
+        cleanupFailureLogged = true
+        plugin.logger.log(Level.WARNING, "ArcEvents could not fully clean one loot presentation", failure)
     }
 
     companion object {

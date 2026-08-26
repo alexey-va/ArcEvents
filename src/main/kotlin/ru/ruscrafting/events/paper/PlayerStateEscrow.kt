@@ -278,6 +278,12 @@ class RecoveryBatchStore(
         batch.pending().firstOrNull { it.playerId == playerId.toString() }?.let { batch to it }
     }
 
+    fun pendingPlayers(matchId: UUID): Set<UUID> {
+        val file = path(matchId)
+        if (!Files.isRegularFile(file)) return emptySet()
+        return read(file).pending().map { UUID.fromString(it.playerId) }.toSet()
+    }
+
     @Synchronized
     private fun write(batch: RecoveryBatch) {
         val validated = batch.validated(gson)
@@ -317,6 +323,8 @@ class PlayerStateEscrow(
 
     fun pendingCount(): Int = store.loadAll().sumOf { it.pending().size }
 
+    fun pendingCount(matchId: UUID): Int = store.pendingPlayers(matchId).size
+
     fun recover(player: Player, teleport: (Location) -> Boolean = player::teleport): PlayerRecovery? {
         val (batch, snapshot) = store.pendingFor(player.uniqueId) ?: return null
         apply(player, snapshot, teleport)
@@ -329,6 +337,8 @@ class PlayerStateEscrow(
 
     fun pendingPlayers(): Set<UUID> = store.loadAll().flatMap(RecoveryBatch::pending)
         .map { UUID.fromString(it.playerId) }.toSet()
+
+    fun pendingPlayers(matchId: UUID): Set<UUID> = store.pendingPlayers(matchId)
 
     private fun apply(player: Player, snapshot: PlayerStateSnapshot, teleport: (Location) -> Boolean) {
         val world = requireNotNull(player.server.getWorld(snapshot.world)) { "Recovery world ${snapshot.world} is not loaded" }

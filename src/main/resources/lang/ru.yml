@@ -324,6 +324,7 @@ queue:
   already: '<prefix> <#ff9f0f>Вы уже в очереди или составе.'
   left: '<prefix> <#e6fff3>Вы покинули очередь.'
   not-queued: '<prefix> <#ff9f0f>Вы не находитесь в очереди.'
+  leave-reserved: '<prefix> <#ff9f0f>Состав закреплён. Возврат — после матча.'
   unavailable: '<prefix> <#c42323>Арена недоступна. Откройте <#92bed8>/events<#e6fff3>.'
   full: '<prefix> <#c42323>Очередь заполнена. Попробуйте позже.'
   reserved: '<prefix> <#e6fff3>Состав собран. Переносим вас на <#e3b341>parkour<#e6fff3>.'
