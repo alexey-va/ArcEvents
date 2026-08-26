@@ -2,6 +2,8 @@ package ru.ruscrafting.events.paper
 
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
+import ru.arc.network.BackendServerId
+import ru.arc.paper.network.BungeeConnectPayload
 import ru.ruscrafting.events.domain.MatchPhase
 import ru.ruscrafting.events.domain.ParticipantStatus
 import ru.ruscrafting.events.domain.TttMatch
@@ -13,7 +15,7 @@ import java.util.UUID
 
 class OperatorContractTest : StringSpec({
     "backend transfer uses the bounded BungeeCord Connect contract" {
-        val bytes = BungeeBackendTransfer.encodeConnect("parkour")
+        val bytes = BungeeConnectPayload.encode(BackendServerId.of("parkour"))
         DataInputStream(ByteArrayInputStream(bytes)).use { input ->
             input.readUTF() shouldBe "Connect"
             input.readUTF() shouldBe "parkour"

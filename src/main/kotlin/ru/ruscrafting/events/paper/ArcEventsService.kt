@@ -19,6 +19,7 @@ import org.bukkit.plugin.Plugin
 import org.bukkit.util.Vector
 import ru.arc.core.ScheduledTask
 import ru.arc.core.Tasks
+import ru.arc.paper.teleport.ScopedTeleportAuthorizer
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.config.EventBounds
@@ -122,7 +123,7 @@ class ArcEventsService(
     private val sessionTasks = mutableListOf<ScheduledTask>()
     private var mainTickTask: ScheduledTask? = null
     private val radarTasks = mutableMapOf<UUID, ScheduledTask>()
-    private val teleportAuthorizer = InternalTeleportAuthorizer()
+    private val teleportAuthorizer = ScopedTeleportAuthorizer()
     private val projectiles = mutableSetOf<UUID>()
     private val bodyRegistry = TttBodyRegistry(plugin, locale, clock)
     private val shotCooldownUntil = mutableMapOf<UUID, Long>()

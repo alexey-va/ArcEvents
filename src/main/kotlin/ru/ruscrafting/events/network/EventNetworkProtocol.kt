@@ -1,5 +1,7 @@
 package ru.ruscrafting.events.network
 
+import ru.arc.network.BackendServerId
+import ru.arc.network.NetworkPlayerName
 import ru.ruscrafting.events.domain.MatchEndReason
 import ru.ruscrafting.events.domain.MatchPhase
 import ru.ruscrafting.events.domain.PlayerEventStats
@@ -22,8 +24,8 @@ data class QueueEntry(
 ) {
     fun validated(): QueueEntry = apply {
         require(UUID.fromString(playerId).toString() == playerId) { "Invalid queue player id" }
-        require(playerName.matches(PLAYER_NAME)) { "Invalid queue player name" }
-        require(originServer.matches(SERVER_ID)) { "Invalid queue origin" }
+        NetworkPlayerName.of(playerName)
+        BackendServerId.of(originServer)
         require(mode == "ttt") { "Unsupported event mode" }
         require(joinedAtMs > 0 && expiresAtMs > joinedAtMs)
         when (state) {
@@ -34,12 +36,12 @@ data class QueueEntry(
             QueueState.RESERVED -> {
                 require(expiresAtMs - joinedAtMs <= MAX_QUEUE_MS)
                 require(UUID.fromString(requireNotNull(matchId)).toString() == matchId)
-                require(requireNotNull(destinationServer).matches(SERVER_ID))
+                BackendServerId.of(requireNotNull(destinationServer))
             }
             QueueState.ARRIVED, QueueState.MATCHED, QueueState.RETURN_PENDING -> {
                 require(expiresAtMs == Long.MAX_VALUE)
                 require(UUID.fromString(requireNotNull(matchId)).toString() == matchId)
-                require(requireNotNull(destinationServer).matches(SERVER_ID))
+                BackendServerId.of(requireNotNull(destinationServer))
             }
         }
     }
@@ -47,8 +49,6 @@ data class QueueEntry(
     fun queuedPlayer(): QueuedPlayer = QueuedPlayer(UUID.fromString(playerId), playerName, originServer, joinedAtMs)
 
     companion object {
-        private val PLAYER_NAME = Regex("[A-Za-z0-9_]{1,16}")
-        private val SERVER_ID = Regex("[a-z0-9_-]{1,32}")
         private const val MAX_QUEUE_MS = 60 * 60 * 1000L
     }
 }
@@ -65,7 +65,7 @@ data class HostNode(
     val heartbeatAtMs: Long,
 ) {
     fun validated(): HostNode = apply {
-        require(serverId.matches(Regex("[a-z0-9_-]{1,32}")))
+        BackendServerId.of(serverId)
         require(mode in setOf("RELAY", "HOST"))
         require(queueSize in 0..10_000 && capacity in 0..32)
         require(heartbeatAtMs > 0)
@@ -104,7 +104,7 @@ data class EventNetworkMessage(
         require(occurredAtMs > 0)
         matchId?.let { require(UUID.fromString(it).toString() == it) }
         playerId?.let { require(UUID.fromString(it).toString() == it) }
-        destinationServer?.let { require(it.matches(Regex("[a-z0-9_-]{1,32}"))) }
+        destinationServer?.let(BackendServerId::of)
         queueSize?.let { require(it in 0..10_000) }
         replyTo?.let { require(UUID.fromString(it).toString() == it) }
         when (signal) {

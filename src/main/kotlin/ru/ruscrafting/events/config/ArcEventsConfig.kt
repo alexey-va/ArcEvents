@@ -2,6 +2,7 @@ package ru.ruscrafting.events.config
 
 import ru.arc.config.Config
 import ru.arc.config.ConfigManager
+import ru.arc.network.BackendServerId
 import ru.arc.redis.LegacyRedisSnapshot
 import ru.arc.redis.RedisConfigBootstrap
 import ru.arc.redis.RedisModuleConfig
@@ -229,15 +230,15 @@ class ArcEventsConfig(private val config: Config) {
 
     fun validated(): ArcEventsConfig = apply {
         require(enabled) { "ArcEvents is disabled in config.yml" }
-        require(serverId.matches(SERVER_ID)) { "server-id is invalid" }
-        require(hostServer.matches(SERVER_ID)) { "host-server is invalid" }
+        BackendServerId.of(serverId)
+        BackendServerId.of(hostServer)
         require(defaultLocale in setOf("ru", "en")) { "locale.default must be ru or en" }
-        require(debug.allowedServerIds.isNotEmpty() && debug.allowedServerIds.all { it.matches(SERVER_ID) }) {
+        require(debug.allowedServerIds.isNotEmpty() && debug.allowedServerIds.all { BackendServerId.parseOrNull(it) != null }) {
             "debug.allowed-server-ids contains an invalid server id"
         }
         val network = network
         require(network.enabled) { "Redis coordination is mandatory for ArcEvents" }
-        require(network.allowedOrigins.isNotEmpty() && network.allowedOrigins.all { it.matches(SERVER_ID) }) {
+        require(network.allowedOrigins.isNotEmpty() && network.allowedOrigins.all { BackendServerId.parseOrNull(it) != null }) {
             "network.allowed-origins contains an invalid server id"
         }
         require(serverId in network.allowedOrigins && hostServer in network.allowedOrigins) {
@@ -301,7 +302,6 @@ class ArcEventsConfig(private val config: Config) {
     }
 
     companion object {
-        private val SERVER_ID = Regex("[a-z0-9_-]{1,32}")
         private val ARENA_ID = Regex("[a-z0-9_-]{1,32}")
         private val SUPPORTED_TEMPLATES = setOf("", "citadel-v1", "cs2-inferno-v1", "cs2-nuke-v1", "cs2-mirage-v1")
         private val PROTECTED_WORLDS = setOf("world", "world_nether", "world_the_end", "pvp", "parkour1")

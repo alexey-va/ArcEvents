@@ -1,13 +1,12 @@
 package ru.ruscrafting.events.config
 
 import net.kyori.adventure.text.Component
-import net.kyori.adventure.text.minimessage.MiniMessage
-import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder
-import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver
 import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
 import ru.arc.config.Config
 import ru.arc.config.ConfigManager
+import ru.arc.text.ConfigLocaleCatalog
+import ru.arc.text.LocalizedMiniMessage
 import ru.ruscrafting.events.domain.FirearmId
 import ru.ruscrafting.events.domain.FirearmRarity
 import java.nio.file.Path
@@ -18,53 +17,28 @@ class ArcEventsLocale(
 ) {
     private val russian = ConfigManager.of(dataRoot, "lang/ru.yml")
     private val english = ConfigManager.of(dataRoot, "lang/en.yml")
-    private val mini = MiniMessage.miniMessage()
+    private val renderer = LocalizedMiniMessage(
+        catalogs = mapOf("ru" to ConfigLocaleCatalog(russian), "en" to ConfigLocaleCatalog(english)),
+        defaultLocale = { settings().defaultLocale },
+    )
 
     fun render(
         path: String,
         audience: CommandSender? = null,
         values: Map<String, Component> = emptyMap(),
-    ): Component = deserialize(raw(path, audience), audience, values)
+    ): Component = renderer.render(path, localeTag(audience), values)
 
     fun lore(
         path: String,
         audience: CommandSender? = null,
         values: Map<String, Component> = emptyMap(),
-    ): List<Component> {
-        val selected = select(audience)
-        val fallback = fallback()
-        val lines = selected.stringListOrNull(path)?.takeIf { it.isNotEmpty() }
-            ?: fallback.stringListOrNull(path).orEmpty()
-        return lines.map { deserialize(it, audience, values) }
-    }
+    ): List<Component> = renderer.renderLines(path, localeTag(audience), values)
 
-    fun text(value: Any?): Component = Component.text(value?.toString().orEmpty())
+    fun text(value: Any?): Component = renderer.literal(value)
 
-    private fun raw(path: String, audience: CommandSender?): String {
-        val selected = select(audience)
-        return selected.stringOrNull(path)?.takeIf(String::isNotBlank)
-            ?: fallback().stringOrNull(path)?.takeIf(String::isNotBlank)
-            ?: path
-    }
-
-    private fun deserialize(
-        raw: String,
-        audience: CommandSender?,
-        values: Map<String, Component>,
-    ): Component {
-        val prefixRaw = select(audience).stringOrNull("prefix")?.takeIf(String::isNotBlank)
-            ?: fallback().string("prefix", "<#d75a5a>Events <#666666>•")
-        val builder = TagResolver.builder().resolver(Placeholder.component("prefix", mini.deserialize(prefixRaw)))
-        values.forEach { (name, value) -> builder.resolver(Placeholder.component(name, value)) }
-        return mini.deserialize(raw, builder.build())
-    }
-
-    private fun fallback(): Config = if (settings().defaultLocale == "en") english else russian
-
-    private fun select(audience: CommandSender?): Config {
-        if (!settings().useClientLocale || audience !is Player) return fallback()
-        return if (audience.locale().language.equals("ru", ignoreCase = true)) russian else english
-    }
+    private fun localeTag(audience: CommandSender?): String =
+        if (settings().useClientLocale && audience is Player) audience.locale().toLanguageTag()
+        else settings().defaultLocale
 
     companion object {
         val REQUIRED_SCALARS = setOf(

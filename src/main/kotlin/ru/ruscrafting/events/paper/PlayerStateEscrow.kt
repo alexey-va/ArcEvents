@@ -3,6 +3,7 @@
 package ru.ruscrafting.events.paper
 
 import com.google.gson.Gson
+import com.google.gson.JsonParser
 import org.bukkit.GameMode
 import org.bukkit.Location
 import org.bukkit.NamespacedKey
@@ -12,16 +13,35 @@ import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
 import org.bukkit.potion.PotionEffect
 import org.bukkit.util.Vector
-import java.nio.ByteBuffer
-import java.nio.channels.FileChannel
+import ru.arc.network.BackendServerId
+import ru.arc.paper.playerstate.PaperPlayerStateCodec
+import ru.arc.paper.playerstate.PaperPlayerStateEnvelope
+import ru.arc.paper.playerstate.PaperPlayerStateService
+import ru.arc.persistence.DurableRecordJournal
 import java.nio.charset.StandardCharsets
-import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
-import java.nio.file.StandardOpenOption
 import java.security.MessageDigest
 import java.util.Base64
 import java.util.UUID
+
+sealed interface EscrowedPlayerState {
+    val playerId: String
+    val returnServer: String
+}
+
+data class CorePlayerState(
+    override val playerId: String,
+    override val returnServer: String,
+    val envelope: PaperPlayerStateEnvelope,
+) : EscrowedPlayerState {
+    fun validated(codec: PaperPlayerStateCodec): CorePlayerState = apply {
+        val playerUuid = UUID.fromString(playerId)
+        require(playerUuid.toString() == playerId) { "Recovery player id is not canonical" }
+        BackendServerId.of(returnServer)
+        val decoded = codec.decode(requireNotNull(envelope))
+        require(decoded.playerId == playerUuid) { "Recovery envelope belongs to a different player" }
+    }
+}
 
 data class PotionSnapshot(
     val type: String,
@@ -47,8 +67,8 @@ data class PotionSnapshot(
 data class PlayerStateSnapshot(
     val formatVersion: Int = 1,
     val matchId: String,
-    val playerId: String,
-    val returnServer: String,
+    override val playerId: String,
+    override val returnServer: String,
     val checksum: String,
     val capturedAtMs: Long,
     val storageBase64: String,
@@ -91,12 +111,12 @@ data class PlayerStateSnapshot(
     val swimming: Boolean,
     val sprinting: Boolean,
     val potionEffects: List<PotionSnapshot>,
-) {
+) : EscrowedPlayerState {
     fun validated(gson: Gson): PlayerStateSnapshot = apply {
         require(formatVersion == 1)
         require(UUID.fromString(matchId).toString() == matchId)
         require(UUID.fromString(playerId).toString() == playerId)
-        require(returnServer.matches(Regex("[a-z0-9_-]{1,32}")))
+        BackendServerId.of(returnServer)
         require(checksum.matches(Regex("[a-f0-9]{64}")))
         require(checksum == calculateChecksum(copy(checksum = ""), gson)) { "Player-state checksum mismatch" }
         require(capturedAtMs > 0)
@@ -127,212 +147,172 @@ data class PlayerStateSnapshot(
         private const val MAX_CONTAINER_CHARS = 3_000_000
         private const val MAX_ITEM_CHARS = 1_000_000
 
-        fun capture(matchId: UUID, player: Player, returnServer: String, nowMs: Long, gson: Gson): PlayerStateSnapshot {
-            require(player.isOnline) { "Cannot capture an offline player" }
-            val location = player.location
-            val compassTarget = player.compassTarget
-            val unsigned = PlayerStateSnapshot(
-                matchId = matchId.toString(),
-                playerId = player.uniqueId.toString(),
-                returnServer = returnServer,
-                checksum = "",
-                capturedAtMs = nowMs,
-                storageBase64 = encodeItems(player.inventory.storageContents),
-                armorBase64 = encodeItems(player.inventory.armorContents),
-                offhandBase64 = encodeItem(player.inventory.itemInOffHand),
-                cursorBase64 = encodeItem(player.itemOnCursor),
-                selectedSlot = player.inventory.heldItemSlot,
-                compassWorld = compassTarget.world.name,
-                compassX = compassTarget.x,
-                compassY = compassTarget.y,
-                compassZ = compassTarget.z,
-                world = location.world.name,
-                x = location.x,
-                y = location.y,
-                z = location.z,
-                yaw = location.yaw,
-                pitch = location.pitch,
-                health = player.health,
-                absorption = player.absorptionAmount,
-                foodLevel = player.foodLevel,
-                saturation = player.saturation,
-                exhaustion = player.exhaustion,
-                level = player.level,
-                exp = player.exp,
-                totalExperience = player.totalExperience,
-                gameMode = player.gameMode.name,
-                allowFlight = player.allowFlight,
-                flying = player.isFlying,
-                flySpeed = player.flySpeed,
-                walkSpeed = player.walkSpeed,
-                velocityX = player.velocity.x,
-                velocityY = player.velocity.y,
-                velocityZ = player.velocity.z,
-                fireTicks = player.fireTicks,
-                fallDistance = player.fallDistance,
-                remainingAir = player.remainingAir,
-                noDamageTicks = player.noDamageTicks.coerceAtLeast(0),
-                freezeTicks = player.freezeTicks.coerceAtLeast(0),
-                gliding = player.isGliding,
-                swimming = player.isSwimming,
-                sprinting = player.isSprinting,
-                potionEffects = player.activePotionEffects.map { it.snapshot() },
-            )
-            return unsigned.copy(checksum = calculateChecksum(unsigned, gson)).validated(gson)
-        }
-
-        private fun encodeItems(items: Array<out ItemStack?>): String =
-            Base64.getEncoder().encodeToString(ItemStack.serializeItemsAsBytes(items))
-
-        private fun encodeItem(item: ItemStack?): String? = item?.takeUnless(ItemStack::isEmpty)?.serializeAsBytes()
-            ?.let(Base64.getEncoder()::encodeToString)
-
         private fun calculateChecksum(unsigned: PlayerStateSnapshot, gson: Gson): String = MessageDigest.getInstance("SHA-256")
             .digest(gson.toJson(unsigned).toByteArray(StandardCharsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
-
-        private fun PotionEffect.snapshot(): PotionSnapshot = PotionSnapshot(
-            type = type.key.toString(),
-            duration = duration,
-            amplifier = amplifier,
-            ambient = isAmbient,
-            particles = hasParticles(),
-            icon = hasIcon(),
-            hidden = hiddenPotionEffect?.snapshot(),
-        )
     }
 }
 
 data class RecoveryBatch(
-    val formatVersion: Int = 1,
+    val formatVersion: Int = CURRENT_FORMAT_VERSION,
+    val matchId: String,
+    val createdAtMs: Long,
+    val snapshots: List<PlayerStateSnapshot> = emptyList(),
+    val states: List<CorePlayerState> = emptyList(),
+    val restoredPlayerIds: Set<String> = emptySet(),
+) {
+    fun validated(gson: Gson, codec: PaperPlayerStateCodec): RecoveryBatch = apply {
+        require(formatVersion in LEGACY_FORMAT_VERSION..CURRENT_FORMAT_VERSION) { "Unsupported recovery batch format" }
+        require(UUID.fromString(matchId).toString() == matchId)
+        require(createdAtMs > 0)
+        when (formatVersion) {
+            LEGACY_FORMAT_VERSION -> {
+                require(states.isEmpty()) { "Legacy recovery batch cannot contain core envelopes" }
+                require(snapshots.size in 1..MAX_PLAYERS)
+                require(snapshots.all { it.matchId == matchId })
+                snapshots.forEach { it.validated(gson) }
+            }
+            CURRENT_FORMAT_VERSION -> {
+                require(snapshots.isEmpty()) { "Current recovery batch cannot contain legacy snapshots" }
+                require(states.size in 1..MAX_PLAYERS)
+                states.forEach { it.validated(codec) }
+            }
+        }
+        val all = allStates()
+        require(all.map(EscrowedPlayerState::playerId).distinct().size == all.size)
+        require(restoredPlayerIds.all { restored -> all.any { it.playerId == restored } })
+    }
+
+    fun allStates(): List<EscrowedPlayerState> = when (formatVersion) {
+        LEGACY_FORMAT_VERSION -> snapshots
+        CURRENT_FORMAT_VERSION -> states
+        else -> error("Unsupported recovery batch format")
+    }
+
+    fun pending(): List<EscrowedPlayerState> = allStates().filter { it.playerId !in restoredPlayerIds }
+
+    companion object {
+        const val LEGACY_FORMAT_VERSION = 1
+        const val CURRENT_FORMAT_VERSION = 2
+        const val MAX_PLAYERS = 32
+    }
+}
+
+private data class LegacyRecoveryBatchWire(
+    val formatVersion: Int,
     val matchId: String,
     val createdAtMs: Long,
     val snapshots: List<PlayerStateSnapshot>,
     val restoredPlayerIds: Set<String> = emptySet(),
-) {
-    fun validated(gson: Gson): RecoveryBatch = apply {
-        require(formatVersion == 1)
-        require(UUID.fromString(matchId).toString() == matchId)
-        require(createdAtMs > 0)
-        require(snapshots.size in 1..32)
-        require(snapshots.map(PlayerStateSnapshot::playerId).distinct().size == snapshots.size)
-        require(snapshots.all { it.matchId == matchId })
-        snapshots.forEach { it.validated(gson) }
-        require(restoredPlayerIds.all { restored -> snapshots.any { it.playerId == restored } })
-    }
-
-    fun pending(): List<PlayerStateSnapshot> = snapshots.filter { it.playerId !in restoredPlayerIds }
-}
+)
 
 class RecoveryBatchStore(
     dataRoot: Path,
     private val gson: Gson = Gson(),
+    private val stateCodec: PaperPlayerStateCodec = PaperPlayerStateCodec(),
 ) {
-    private val directory = dataRoot.resolve("data/recovery")
-
-    init {
-        Files.createDirectories(directory)
-    }
+    private val journal = DurableRecordJournal(
+        root = dataRoot,
+        relativeDirectory = Path.of("data/recovery"),
+        maxRecordBytes = MAX_BATCH_BYTES,
+        encode = { batch: RecoveryBatch -> (gson.toJson(batch) + "\n").toByteArray(StandardCharsets.UTF_8) },
+        decode = ::decodeBatch,
+        validate = { batch -> batch.validated(gson, stateCodec) },
+    )
 
     @Synchronized
-    fun prepare(matchId: UUID, players: List<Player>, returnServers: Map<UUID, String>, nowMs: Long): RecoveryBatch {
-        require(players.isNotEmpty() && players.size <= 32)
-        require(players.map(Player::getUniqueId).distinct().size == players.size)
-        require(players.all { it.uniqueId in returnServers })
+    fun prepare(matchId: UUID, states: List<CorePlayerState>, nowMs: Long): RecoveryBatch {
+        require(states.isNotEmpty() && states.size <= RecoveryBatch.MAX_PLAYERS)
         val batch = RecoveryBatch(
             matchId = matchId.toString(),
             createdAtMs = nowMs,
-            snapshots = players.map { PlayerStateSnapshot.capture(matchId, it, requireNotNull(returnServers[it.uniqueId]), nowMs, gson) },
-        ).validated(gson)
-        write(batch)
-        return read(path(matchId)).also { loaded -> require(loaded == batch) { "Recovery batch readback mismatch" } }
+            states = states,
+        ).validated(gson, stateCodec)
+        return journal.commit(matchId.toString(), batch)
     }
 
     @Synchronized
     fun acknowledge(matchId: UUID, playerId: UUID): RecoveryBatch? {
-        val file = path(matchId)
-        if (!Files.isRegularFile(file)) return null
-        val batch = read(file)
-        require(batch.snapshots.any { it.playerId == playerId.toString() })
-        val changed = batch.copy(restoredPlayerIds = batch.restoredPlayerIds + playerId.toString()).validated(gson)
+        val batch = journal.loadOrNull(matchId.toString()) ?: return null
+        require(batch.allStates().any { it.playerId == playerId.toString() })
+        val changed = batch.copy(restoredPlayerIds = batch.restoredPlayerIds + playerId.toString()).validated(gson, stateCodec)
         if (changed.pending().isEmpty()) {
-            Files.deleteIfExists(file)
+            journal.acknowledge(matchId.toString())
             return null
         }
-        write(changed)
-        return changed
+        return journal.commit(matchId.toString(), changed)
     }
 
     @Synchronized
-    fun loadAll(): List<RecoveryBatch> {
-        if (!Files.isDirectory(directory)) return emptyList()
-        return Files.list(directory).use { paths ->
-            paths.filter { it.fileName.toString().endsWith(".json") }
-                .map(::read)
-                .toList()
-                .sortedBy(RecoveryBatch::createdAtMs)
+    fun loadAll(): List<RecoveryBatch> = journal.loadAll().map { stored ->
+        stored.value.also { batch ->
+            require(stored.recordId == batch.matchId) { "Recovery batch filename does not match its match id" }
         }
-    }
+    }.sortedBy(RecoveryBatch::createdAtMs)
 
-    fun pendingFor(playerId: UUID): Pair<RecoveryBatch, PlayerStateSnapshot>? = loadAll().firstNotNullOfOrNull { batch ->
+    fun pendingFor(playerId: UUID): Pair<RecoveryBatch, EscrowedPlayerState>? = loadAll().firstNotNullOfOrNull { batch ->
         batch.pending().firstOrNull { it.playerId == playerId.toString() }?.let { batch to it }
     }
 
     fun pendingPlayers(matchId: UUID): Set<UUID> {
-        val file = path(matchId)
-        if (!Files.isRegularFile(file)) return emptySet()
-        return read(file).pending().map { UUID.fromString(it.playerId) }.toSet()
+        return journal.loadOrNull(matchId.toString())?.pending().orEmpty()
+            .map { UUID.fromString(it.playerId) }.toSet()
     }
 
-    @Synchronized
-    private fun write(batch: RecoveryBatch) {
-        val validated = batch.validated(gson)
-        val target = path(UUID.fromString(validated.matchId))
-        val temporary = Files.createTempFile(directory, ".${validated.matchId}-", ".tmp")
-        val bytes = (gson.toJson(validated) + "\n").toByteArray(StandardCharsets.UTF_8)
-        require(bytes.size <= MAX_BATCH_BYTES) { "Recovery batch is too large" }
-        FileChannel.open(temporary, StandardOpenOption.WRITE).use { channel ->
-            channel.write(ByteBuffer.wrap(bytes))
-            channel.force(true)
+    private fun decodeBatch(bytes: ByteArray): RecoveryBatch {
+        val raw = bytes.toString(StandardCharsets.UTF_8)
+        val root = JsonParser.parseString(raw).asJsonObject
+        return when (root.get("formatVersion")?.asInt) {
+            RecoveryBatch.LEGACY_FORMAT_VERSION -> {
+                val legacy = requireNotNull(gson.fromJson(root, LegacyRecoveryBatchWire::class.java))
+                RecoveryBatch(
+                    formatVersion = legacy.formatVersion,
+                    matchId = legacy.matchId,
+                    createdAtMs = legacy.createdAtMs,
+                    snapshots = legacy.snapshots,
+                    restoredPlayerIds = legacy.restoredPlayerIds,
+                )
+            }
+            RecoveryBatch.CURRENT_FORMAT_VERSION -> requireNotNull(gson.fromJson(root, RecoveryBatch::class.java))
+            else -> throw IllegalArgumentException("Unsupported recovery batch format")
         }
-        try {
-            Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-        } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
-            Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING)
-        }
     }
-
-    private fun read(file: Path): RecoveryBatch {
-        val size = Files.size(file)
-        require(size in 1..MAX_BATCH_BYTES.toLong()) { "Recovery batch has an invalid size" }
-        return gson.fromJson(Files.readString(file), RecoveryBatch::class.java).validated(gson)
-    }
-
-    private fun path(matchId: UUID): Path = directory.resolve("$matchId.json")
 
     companion object {
-        private const val MAX_BATCH_BYTES = 32 * 3_500_000
+        private const val MAX_BATCH_BYTES = 768L * 1024L * 1024L
     }
 }
 
 class PlayerStateEscrow(
     private val store: RecoveryBatchStore,
+    private val playerStates: PaperPlayerStateService = PaperPlayerStateService(),
 ) {
-    fun prepare(matchId: UUID, players: List<Player>, returnServers: Map<UUID, String>, nowMs: Long): RecoveryBatch =
-        store.prepare(matchId, players, returnServers, nowMs)
+    fun prepare(matchId: UUID, players: List<Player>, returnServers: Map<UUID, String>, nowMs: Long): RecoveryBatch {
+        require(players.isNotEmpty() && players.size <= RecoveryBatch.MAX_PLAYERS)
+        require(players.map(Player::getUniqueId).distinct().size == players.size)
+        require(players.all { it.uniqueId in returnServers })
+        val states = players.map { player ->
+            CorePlayerState(
+                playerId = player.uniqueId.toString(),
+                returnServer = requireNotNull(returnServers[player.uniqueId]).also(BackendServerId::of),
+                envelope = playerStates.captureEnvelope(player, nowMs),
+            )
+        }
+        return store.prepare(matchId, states, nowMs)
+    }
 
     fun pendingCount(): Int = store.loadAll().sumOf { it.pending().size }
 
     fun pendingCount(matchId: UUID): Int = store.pendingPlayers(matchId).size
 
     fun recover(player: Player, teleport: (Location) -> Boolean = player::teleport): PlayerRecovery? {
-        val (batch, snapshot) = store.pendingFor(player.uniqueId) ?: return null
-        apply(player, snapshot, teleport)
-        val mismatches = mismatches(player, snapshot)
-        require(mismatches.isEmpty()) { "Player state verification failed for ${player.uniqueId}: ${mismatches.joinToString(",")}" }
-        player.saveData()
+        val (batch, state) = store.pendingFor(player.uniqueId) ?: return null
+        when (state) {
+            is CorePlayerState -> playerStates.restoreAndVerify(player, state.envelope) { _, location -> teleport(location) }
+            is PlayerStateSnapshot -> restoreLegacy(player, state, teleport)
+        }
         store.acknowledge(UUID.fromString(batch.matchId), player.uniqueId)
-        return PlayerRecovery(UUID.fromString(batch.matchId), snapshot.returnServer)
+        return PlayerRecovery(UUID.fromString(batch.matchId), state.returnServer)
     }
 
     fun pendingPlayers(): Set<UUID> = store.loadAll().flatMap(RecoveryBatch::pending)
@@ -340,17 +320,25 @@ class PlayerStateEscrow(
 
     fun pendingPlayers(matchId: UUID): Set<UUID> = store.pendingPlayers(matchId)
 
-    private fun apply(player: Player, snapshot: PlayerStateSnapshot, teleport: (Location) -> Boolean) {
+    private fun restoreLegacy(player: Player, snapshot: PlayerStateSnapshot, teleport: (Location) -> Boolean) {
         val world = requireNotNull(player.server.getWorld(snapshot.world)) { "Recovery world ${snapshot.world} is not loaded" }
-        player.closeInventory()
-        player.inventory.storageContents = ItemStack.deserializeItemsFromBytes(Base64.getDecoder().decode(snapshot.storageBase64))
-        player.inventory.armorContents = ItemStack.deserializeItemsFromBytes(Base64.getDecoder().decode(snapshot.armorBase64))
-        player.inventory.setItemInOffHand(decodeItem(snapshot.offhandBase64) ?: ItemStack.empty())
-        player.setItemOnCursor(decodeItem(snapshot.cursorBase64) ?: ItemStack.empty())
-        player.inventory.heldItemSlot = snapshot.selectedSlot
         val compassWorld = requireNotNull(player.server.getWorld(snapshot.compassWorld)) {
             "Recovery compass world ${snapshot.compassWorld} is not loaded"
         }
+        val storage = ItemStack.deserializeItemsFromBytes(Base64.getDecoder().decode(snapshot.storageBase64))
+        val armor = ItemStack.deserializeItemsFromBytes(Base64.getDecoder().decode(snapshot.armorBase64))
+        val offhand = decodeItem(snapshot.offhandBase64) ?: ItemStack.empty()
+        val cursor = decodeItem(snapshot.cursorBase64) ?: ItemStack.empty()
+        val effects = snapshot.potionEffects.map { it.effect() }
+        require(teleport(Location(world, snapshot.x, snapshot.y, snapshot.z, snapshot.yaw, snapshot.pitch))) {
+            "Recovery teleport was rejected for ${player.uniqueId}"
+        }
+        player.closeInventory()
+        player.inventory.storageContents = storage
+        player.inventory.armorContents = armor
+        player.inventory.setItemInOffHand(offhand)
+        player.setItemOnCursor(cursor)
+        player.inventory.heldItemSlot = snapshot.selectedSlot
         player.compassTarget = Location(compassWorld, snapshot.compassX, snapshot.compassY, snapshot.compassZ)
         player.gameMode = GameMode.valueOf(snapshot.gameMode)
         player.allowFlight = snapshot.allowFlight
@@ -358,12 +346,7 @@ class PlayerStateEscrow(
         player.flySpeed = snapshot.flySpeed
         player.walkSpeed = snapshot.walkSpeed
         player.activePotionEffects.forEach { player.removePotionEffect(it.type) }
-        snapshot.potionEffects.forEach { saved ->
-            player.addPotionEffect(saved.effect())
-        }
-        require(teleport(Location(world, snapshot.x, snapshot.y, snapshot.z, snapshot.yaw, snapshot.pitch))) {
-            "Recovery teleport was rejected for ${player.uniqueId}"
-        }
+        effects.forEach(player::addPotionEffect)
         player.health = snapshot.health.coerceAtMost(requireNotNull(player.getAttribute(Attribute.MAX_HEALTH)).value)
         player.absorptionAmount = snapshot.absorption
         player.foodLevel = snapshot.foodLevel
@@ -382,6 +365,9 @@ class PlayerStateEscrow(
         player.isSwimming = snapshot.swimming
         player.isSprinting = snapshot.sprinting
         player.updateInventory()
+        val mismatches = mismatches(player, snapshot)
+        require(mismatches.isEmpty()) { "Player state verification failed for ${player.uniqueId}: ${mismatches.joinToString(",")}" }
+        player.saveData()
     }
 
     private fun mismatches(player: Player, snapshot: PlayerStateSnapshot): List<String> = buildList {

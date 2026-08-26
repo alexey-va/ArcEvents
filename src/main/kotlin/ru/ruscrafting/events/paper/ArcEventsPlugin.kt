@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory
 import ru.arc.config.ConfigManager
 import ru.arc.core.PaperArcRuntime
 import ru.arc.core.Tasks
+import ru.arc.paper.network.BungeeBackendTransfer
 import ru.arc.redis.RedisManager
 import ru.arc.redis.ServerIdentity
 import ru.ruscrafting.events.config.ArcEventsConfig
@@ -24,6 +25,7 @@ class ArcEventsPlugin : JavaPlugin() {
     private var redis: RedisManager? = null
     private var network: EventNetworkCoordinator? = null
     private var service: ArcEventsService? = null
+    private var transfer: BungeeBackendTransfer? = null
 
     override fun onEnable() {
         saveDefaultConfig()
@@ -64,13 +66,16 @@ class ArcEventsPlugin : JavaPlugin() {
                 },
                 targets = { server.onlinePlayers.filter { activeService.isAlive(it.uniqueId) } },
             )
+            val backendTransfer = BungeeBackendTransfer(this) { failure ->
+                logger.log(Level.WARNING, "ArcEvents backend transfer send failed", failure)
+            }.also { transfer = it }
             val coordinator = EventNetworkCoordinator(
                 plugin = this,
                 settings = { settings },
                 locale = locale,
                 repository = repository,
                 redis = manager,
-                transfer = BungeeBackendTransfer(this),
+                transfer = backendTransfer,
                 debug = debug,
                 matchState = { activeService.matchState() },
                 arenaReady = { activeService.arenaReady() },
@@ -101,7 +106,6 @@ class ArcEventsPlugin : JavaPlugin() {
                 tabCompleter = command
             }
             server.pluginManager.registerEvents(ArcEventsListener(activeService, menu, items), this)
-            server.messenger.registerOutgoingPluginChannel(this, BungeeBackendTransfer.CHANNEL)
             coordinator.start()
             activeService.start()
             logger.info(
@@ -117,8 +121,8 @@ class ArcEventsPlugin : JavaPlugin() {
     override fun onDisable() {
         runCatching { service?.close() }.onFailure { logger.log(Level.SEVERE, "Could not close ArcEvents service", it) }
         runCatching { network?.close() }.onFailure { logger.log(Level.SEVERE, "Could not close ArcEvents network", it) }
+        runCatching { transfer?.close() }.onFailure { logger.log(Level.SEVERE, "Could not close ArcEvents transfer", it) }
         runCatching { redis?.close() }.onFailure { logger.log(Level.SEVERE, "Could not close ArcEvents Redis", it) }
-        runCatching { server.messenger.unregisterOutgoingPluginChannel(this, BungeeBackendTransfer.CHANNEL) }
         Tasks.reset()
     }
 

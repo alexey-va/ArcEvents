@@ -155,10 +155,29 @@ class RedisEventNetworkRepositoryTest : StringSpec({
         val redis = InMemoryRedis(ServerIdentity { "spawn" })
         val repository = RedisEventNetworkRepository(redis)
         var received: Pair<EventNetworkMessage, String>? = null
-        repository.register { message, origin -> received = message to origin }
+        val bus = repository.register(originAllowed = { it == "spawn" }) { message, origin -> received = message to origin }
         val message = EventNetworkMessage.create(EventNetworkSignal.QUEUE_CHANGED, nowMs = 1_000, queueSize = 4)
         repository.publish(message)
         received shouldBe (message to "spawn")
+        bus.close()
+    }
+
+    "network listener rejects untrusted origins, malformed payloads, and replay" {
+        val redis = InMemoryRedis(ServerIdentity { "spawn" })
+        val repository = RedisEventNetworkRepository(redis)
+        val received = mutableListOf<Pair<EventNetworkMessage, String>>()
+        val bus = repository.register(originAllowed = { it == "survival" }) { message, origin -> received += message to origin }
+        val message = EventNetworkMessage.create(EventNetworkSignal.QUEUE_CHANGED, nowMs = 1_000, queueSize = 4)
+
+        repository.publish(message)
+        val raw = redis.getPublishedMessages().single().message
+        redis.simulateExternalMessage(RedisEventNetworkRepository.EVENT_CHANNEL, raw, "evil")
+        redis.simulateExternalMessage(RedisEventNetworkRepository.EVENT_CHANNEL, "{not-json", "survival")
+        redis.simulateExternalMessage(RedisEventNetworkRepository.EVENT_CHANNEL, raw, "survival")
+        redis.simulateExternalMessage(RedisEventNetworkRepository.EVENT_CHANNEL, raw, "survival")
+
+        received shouldBe listOf(message to "survival")
+        bus.close()
     }
 }) {
     companion object {

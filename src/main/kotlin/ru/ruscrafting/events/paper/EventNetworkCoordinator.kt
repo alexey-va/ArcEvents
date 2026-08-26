@@ -5,8 +5,11 @@ import org.bukkit.entity.Player
 import org.bukkit.plugin.Plugin
 import ru.arc.core.ScheduledTask
 import ru.arc.core.Tasks
-import ru.arc.redis.ChannelListener
+import ru.arc.network.BackendServerId
+import ru.arc.paper.network.BackendTransfer
+import ru.arc.paper.network.BackendTransferResult
 import ru.arc.redis.RedisManager
+import ru.arc.redis.safety.OriginBoundRedisBus
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.config.NodeMode
@@ -58,9 +61,8 @@ class EventNetworkCoordinator(
         private set
     @Volatile
     private var nodes: List<HostNode> = emptyList()
-    private var listener: ChannelListener? = null
+    private var eventBus: OriginBoundRedisBus<EventNetworkMessage>? = null
     private val tasks = mutableListOf<ScheduledTask>()
-    private val seen = ConcurrentHashMap<String, Long>()
     private val statistics = ConcurrentHashMap<UUID, PlayerEventStats>()
     private val pendingStarts = ConcurrentHashMap<String, CompletableFuture<ReservationStartResult>>()
     private val pendingStartTimeouts = ConcurrentHashMap<String, ScheduledTask>()
@@ -70,7 +72,10 @@ class EventNetworkCoordinator(
 
     fun start() {
         check(!started)
-        listener = repository.register(::receive)
+        eventBus = repository.register(
+            originAllowed = { origin -> settings().let { origin != it.serverId && origin in it.network.allowedOrigins } },
+            listener = ::receive,
+        )
         started = true
         refresh()
         heartbeat()
@@ -359,7 +364,7 @@ class EventNetworkCoordinator(
     fun returnPlayer(player: Player, originServer: String): Boolean {
         val current = settings()
         if (!current.network.returnToOrigin || originServer == current.serverId) return true
-        if (originServer !in current.network.allowedOrigins || !transfer.connect(player, originServer)) {
+        if (originServer !in current.network.allowedOrigins || !transferSent(player, originServer)) {
             player.sendMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.return-transfer", player))))
             return false
         }
@@ -400,7 +405,6 @@ class EventNetworkCoordinator(
         if (message.signal in START_SIGNALS &&
             (message.occurredAtMs < now - START_MESSAGE_MAX_AGE_MS || message.occurredAtMs > now + START_FUTURE_SKEW_MS)
         ) return
-        if (seen.size >= MAX_SEEN_MESSAGES || seen.putIfAbsent(message.eventId, now) != null) return
         Tasks.scheduler.runSync {
             if (!started) return@runSync
             when (message.signal) {
@@ -471,7 +475,7 @@ class EventNetworkCoordinator(
                 player.sendMessage(locale.render("queue.reserved", player))
                 if (settings().serverId == destination) {
                     handleJoin(player)
-                } else if (settings().network.transferOnReservation && !transfer.connect(player, destination)) {
+                } else if (settings().network.transferOnReservation && !transferSent(player, destination)) {
                     player.sendMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.transfer", player))))
                 }
             }
@@ -539,10 +543,12 @@ class EventNetworkCoordinator(
         }
     }
 
+    private fun transferSent(player: Player, destination: String): Boolean =
+        transfer.connect(player, BackendServerId.of(destination)) == BackendTransferResult.SENT
+
     private fun maintain() {
         if (!started) return
         val now = clock()
-        seen.entries.removeIf { it.value < now - MESSAGE_MAX_AGE_MS }
         repository.cleanup(now)
         if (!redis.isSubscriptionActive()) redis.init()
         refresh()
@@ -589,9 +595,8 @@ class EventNetworkCoordinator(
         started = false
         tasks.forEach(ScheduledTask::cancel)
         tasks.clear()
-        listener?.let(repository::unregister)
-        listener = null
-        seen.clear()
+        eventBus?.close()
+        eventBus = null
         pendingStartTimeouts.values.forEach(ScheduledTask::cancel)
         pendingStartTimeouts.clear()
         pendingStarts.values.forEach { it.complete(ReservationStartResult.NETWORK_FAILURE) }
@@ -602,7 +607,6 @@ class EventNetworkCoordinator(
     companion object {
         private const val MESSAGE_MAX_AGE_MS = 15 * 60 * 1_000L
         private const val FUTURE_SKEW_MS = 60_000L
-        private const val MAX_SEEN_MESSAGES = 4_096
         private const val MAX_PENDING_STARTS = 32
         private const val START_REQUEST_TIMEOUT_TICKS = 12L * 20L
         private const val START_MESSAGE_MAX_AGE_MS = 10_000L

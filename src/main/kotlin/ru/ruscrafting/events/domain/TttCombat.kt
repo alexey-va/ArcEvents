@@ -1,5 +1,6 @@
 package ru.ruscrafting.events.domain
 
+import ru.arc.network.NetworkPlayerName
 import java.util.UUID
 import kotlin.math.cos
 import kotlin.math.sin
@@ -116,8 +117,8 @@ data class CombatRecord(
     fun validated(): CombatRecord = apply {
         require(sequence > 0)
         require(occurredAtMs >= 0)
-        require(attackerName == null || attackerName.matches(Regex("[A-Za-z0-9_]{1,16}")))
-        require(victimName.matches(Regex("[A-Za-z0-9_]{1,16}")))
+        attackerName?.let(NetworkPlayerName::of)
+        NetworkPlayerName.of(victimName)
         require(weapon.length in 1..48)
         require(finalDamage.isFinite() && finalDamage in 0.0..100.0)
     }

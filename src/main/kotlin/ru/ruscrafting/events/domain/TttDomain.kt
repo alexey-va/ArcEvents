@@ -1,5 +1,7 @@
 package ru.ruscrafting.events.domain
 
+import ru.arc.network.BackendServerId
+import ru.arc.network.NetworkPlayerName
 import java.util.UUID
 import kotlin.math.max
 import kotlin.random.Random
@@ -27,8 +29,8 @@ data class TttParticipant(
     val friendlyDamage: Double = 0.0,
 ) {
     fun validated(): TttParticipant = apply {
-        require(playerName.matches(Regex("[A-Za-z0-9_]{1,16}"))) { "Invalid player name" }
-        require(originServer.matches(Regex("[a-z0-9_-]{1,32}"))) { "Invalid origin server" }
+        NetworkPlayerName.of(playerName)
+        BackendServerId.of(originServer)
         require(credits in 0..64 && kills in 0..64 && deaths in 0..1 && friendlyKills in 0..64)
         require(damageDealt.isFinite() && damageDealt in 0.0..100_000.0)
         require(friendlyDamage.isFinite() && friendlyDamage in 0.0..damageDealt)

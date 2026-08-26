@@ -1,35 +1,60 @@
 package ru.ruscrafting.events.network
 
 import com.google.gson.Gson
-import com.google.gson.JsonParseException
-import ru.arc.redis.ChannelListener
 import ru.arc.redis.RedisOperations
+import ru.arc.redis.safety.BoundedJsonCodec
+import ru.arc.redis.safety.JsonObjectContract
+import ru.arc.redis.safety.JsonResourceBounds
+import ru.arc.redis.safety.OriginBoundRedisBus
+import ru.arc.redis.safety.RecentMessageDeduplicator
+import ru.arc.redis.safety.RedisHashConsumeResult
+import ru.arc.redis.safety.RedisHashDecision
+import ru.arc.redis.safety.RedisHashUpdateResult
+import ru.arc.redis.safety.RedisHashUpdater
 import ru.ruscrafting.events.domain.PlayerEventStats
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 
 class RedisEventNetworkRepository(
     private val redis: RedisOperations,
-    private val gson: Gson = Gson(),
+    gson: Gson = Gson(),
 ) {
-    fun register(listener: (EventNetworkMessage, String) -> Unit): ChannelListener {
-        val channelListener = ChannelListener { _, raw, origin -> decodeMessage(raw)?.let { listener(it, origin) } }
-        redis.registerChannelUnique(EVENT_CHANNEL, channelListener)
-        return channelListener
-    }
+    private val queueCodec = codec(gson, QueueEntry::class.java, QUEUE_FIELDS, QUEUE_REQUIRED_FIELDS, QueueEntry::validated)
+    private val nodeCodec = codec(gson, HostNode::class.java, NODE_FIELDS, NODE_REQUIRED_FIELDS, HostNode::validated)
+    private val statsCodec = codec(gson, PlayerEventStats::class.java, STATS_FIELDS, STATS_REQUIRED_FIELDS, PlayerEventStats::validated)
+    private val messageCodec = codec(
+        gson,
+        EventNetworkMessage::class.java,
+        MESSAGE_FIELDS,
+        MESSAGE_REQUIRED_FIELDS,
+        EventNetworkMessage::validated,
+    )
+    private val queue = RedisHashUpdater(redis, QUEUE_KEY, queueCodec, MAX_CAS_ATTEMPTS)
+    private val stats = RedisHashUpdater(redis, STATS_KEY, statsCodec, MAX_CAS_ATTEMPTS)
 
-    fun unregister(listener: ChannelListener) = redis.unregisterChannel(EVENT_CHANNEL, listener)
+    fun register(
+        originAllowed: (String) -> Boolean,
+        listener: (EventNetworkMessage, String) -> Unit,
+    ): OriginBoundRedisBus<EventNetworkMessage> = OriginBoundRedisBus(
+        redis = redis,
+        channel = EVENT_CHANNEL,
+        codec = messageCodec,
+        originAllowed = originAllowed,
+        messageId = EventNetworkMessage::eventId,
+        deduplicator = RecentMessageDeduplicator(MESSAGE_DEDUPLICATION_MS, MAX_SEEN_MESSAGES),
+        onMessage = listener,
+    ).also(OriginBoundRedisBus<EventNetworkMessage>::register)
 
     fun publish(message: EventNetworkMessage) {
-        redis.publish(EVENT_CHANNEL, encode(message.validated()))
+        redis.publish(EVENT_CHANNEL, messageCodec.encode(message.validated()))
     }
 
     fun saveNode(node: HostNode): CompletableFuture<*> =
-        redis.saveMapEntries(NODES_KEY, node.serverId, encode(node.validated()))
+        redis.saveMapEntries(NODES_KEY, node.serverId, nodeCodec.encode(node.validated()))
 
     fun loadNodes(nowMs: Long, staleAfterMs: Long): CompletableFuture<List<HostNode>> =
         redis.loadMap(NODES_KEY).thenApply { values ->
-            values.values.mapNotNull { raw -> runCatching { decodeNode(raw) }.getOrNull() }
+            values.values.map(nodeCodec::decode)
                 .filter { it.heartbeatAtMs >= nowMs - staleAfterMs && it.heartbeatAtMs <= nowMs + FUTURE_SKEW_MS }
                 .sortedBy(HostNode::serverId)
         }
@@ -40,23 +65,72 @@ class RedisEventNetworkRepository(
         originServer: String,
         nowMs: Long,
         lifetimeMs: Long,
-    ): CompletableFuture<QueueJoinResult> = joinAttempt(playerId, playerName, originServer, nowMs, lifetimeMs, 0)
+    ): CompletableFuture<QueueJoinResult> {
+        val field = playerId.toString()
+        return queue.update(field) { current ->
+            if (current != null && current.expiresAtMs >= nowMs) {
+                val refreshed = if (
+                    current.state == QueueState.QUEUED &&
+                    (current.playerName != playerName || current.originServer != originServer)
+                ) current.copy(playerName = playerName, originServer = originServer).validated()
+                else current
+                RedisHashDecision.Write(refreshed)
+            } else {
+                RedisHashDecision.Write(
+                    QueueEntry(
+                        playerId = field,
+                        playerName = playerName,
+                        originServer = originServer,
+                        joinedAtMs = nowMs,
+                        expiresAtMs = nowMs + lifetimeMs,
+                    ).validated(),
+                )
+            }
+        }.thenApply { result ->
+            when (result) {
+                is RedisHashUpdateResult.Changed -> {
+                    val after = requireNotNull(result.after)
+                    if (result.before == null || requireNotNull(result.before).expiresAtMs < nowMs) QueueJoinResult.Joined(after)
+                    else QueueJoinResult.Existing(after)
+                }
+                is RedisHashUpdateResult.Unchanged -> QueueJoinResult.Existing(result.current)
+                is RedisHashUpdateResult.Rejected -> QueueJoinResult.Contended
+                is RedisHashUpdateResult.Contended -> QueueJoinResult.Contended
+            }
+        }
+    }
 
-    fun leaveQueue(playerId: UUID, nowMs: Long): CompletableFuture<QueueLeaveResult> = leaveAttempt(playerId, nowMs, 0)
+    fun leaveQueue(playerId: UUID, nowMs: Long): CompletableFuture<QueueLeaveResult> =
+        queue.update(playerId.toString()) { current ->
+            when {
+                current == null -> RedisHashDecision.Reject
+                current.expiresAtMs < nowMs -> RedisHashDecision.Delete
+                current.state != QueueState.QUEUED -> RedisHashDecision.Write(current)
+                else -> RedisHashDecision.Delete
+            }
+        }.thenApply { result ->
+            when (result) {
+                is RedisHashUpdateResult.Changed -> {
+                    val before = requireNotNull(result.before)
+                    if (before.expiresAtMs < nowMs) QueueLeaveResult.Missing else QueueLeaveResult.Left
+                }
+                is RedisHashUpdateResult.Unchanged -> QueueLeaveResult.Reserved(result.current)
+                is RedisHashUpdateResult.Rejected -> result.current?.let(QueueLeaveResult::Reserved) ?: QueueLeaveResult.Missing
+                is RedisHashUpdateResult.Contended -> QueueLeaveResult.Contended
+            }
+        }
 
     fun loadQueue(nowMs: Long): CompletableFuture<List<QueueEntry>> = redis.loadMap(QUEUE_KEY).thenApply { values ->
-        values.values.mapNotNull { raw -> runCatching { decodeQueue(raw) }.getOrNull() }
+        values.values.map(queueCodec::decode)
             .filter { it.expiresAtMs >= nowMs }
             .sortedWith(compareBy<QueueEntry> { it.joinedAtMs }.thenBy { it.playerId })
     }
 
     fun loadQueuedCount(nowMs: Long): CompletableFuture<Int> =
-        loadQueue(nowMs).thenApply { queue -> queue.count { it.state == QueueState.QUEUED } }
+        loadQueue(nowMs).thenApply { entries -> entries.count { it.state == QueueState.QUEUED } }
 
     fun loadQueueEntry(playerId: UUID): CompletableFuture<QueueEntry?> =
-        redis.loadMapEntries(QUEUE_KEY, playerId.toString()).thenApply { values ->
-            values.firstOrNull()?.let { raw -> runCatching { decodeQueue(raw) }.getOrNull() }
-        }
+        redis.loadMapEntries(QUEUE_KEY, playerId.toString()).thenApply { values -> values.firstOrNull()?.let(queueCodec::decode) }
 
     fun reserve(
         matchId: UUID,
@@ -65,166 +139,85 @@ class RedisEventNetworkRepository(
         maximum: Int,
         nowMs: Long,
         reservationMs: Long,
-    ): CompletableFuture<ReservationBatch?> = loadQueue(nowMs).thenCompose { queue ->
-        val candidates = queue.filter { it.state == QueueState.QUEUED }.take(maximum)
-        if (candidates.size < minimum) return@thenCompose CompletableFuture.completedFuture(null)
-        reserveCandidates(matchId, destinationServer, candidates, minimum, nowMs, reservationMs, 0, emptyList())
+    ): CompletableFuture<ReservationBatch?> = loadQueue(nowMs).thenCompose { entries ->
+        val candidates = entries.filter { it.state == QueueState.QUEUED }.take(maximum)
+        if (candidates.size < minimum) CompletableFuture.completedFuture(null)
+        else reserveCandidates(matchId, destinationServer, candidates, minimum, nowMs, reservationMs, 0, emptyList())
     }
 
-    fun claimReservation(
-        playerId: UUID,
-        currentServer: String,
-        nowMs: Long,
-    ): CompletableFuture<QueueEntry?> = claimReservationAttempt(playerId, currentServer, nowMs, 0)
+    fun claimReservation(playerId: UUID, currentServer: String, nowMs: Long): CompletableFuture<QueueEntry?> =
+        queue.update(playerId.toString()) { entry ->
+            when (entry?.state) {
+                QueueState.RESERVED -> if (entry.destinationServer == currentServer && entry.expiresAtMs >= nowMs) {
+                    RedisHashDecision.Write(entry.copy(state = QueueState.ARRIVED, expiresAtMs = Long.MAX_VALUE).validated())
+                } else RedisHashDecision.Reject
+                QueueState.ARRIVED -> if (entry.destinationServer == currentServer) RedisHashDecision.Write(entry) else RedisHashDecision.Reject
+                QueueState.MATCHED, QueueState.RETURN_PENDING -> if (
+                    currentServer == entry.originServer || currentServer == entry.destinationServer
+                ) RedisHashDecision.Write(entry) else RedisHashDecision.Reject
+                QueueState.QUEUED, null -> RedisHashDecision.Reject
+            }
+        }.thenApply { it.acceptedValue() }
 
-    fun releaseReservation(
-        matchId: UUID,
-        playerIds: Collection<UUID>? = null,
-    ): CompletableFuture<List<QueueEntry>> =
+    fun releaseReservation(matchId: UUID, playerIds: Collection<UUID>? = null): CompletableFuture<List<QueueEntry>> =
         redis.loadMap(QUEUE_KEY).thenCompose { values ->
             val selectedIds = playerIds?.map(UUID::toString)?.toSet()
-            val matchingPlayerIds = values.mapNotNull { (_, raw) ->
-                val entry = runCatching { decodeQueue(raw) }.getOrNull() ?: return@mapNotNull null
-                if (entry.matchId == matchId.toString() && entry.state in ROUTED_STATES &&
+            val matching = values.values.map(queueCodec::decode).filter { entry ->
+                entry.matchId == matchId.toString() && entry.state in ROUTED_STATES &&
                     (selectedIds == null || entry.playerId in selectedIds)
-                ) UUID.fromString(entry.playerId) else null
             }
-            val changes = matchingPlayerIds.map { playerId -> markMatchReturnPendingAttempt(playerId, matchId, 0) }
+            val changes = matching.map { entry -> markMatchReturnPending(UUID.fromString(entry.playerId), matchId) }
             CompletableFuture.allOf(*changes.toTypedArray()).thenApply { changes.mapNotNull(CompletableFuture<QueueEntry?>::join) }
         }
 
     fun completeReservation(matchId: UUID, playerIds: Collection<UUID>): CompletableFuture<Int> {
-        val completions = playerIds.distinct().map { playerId -> completeArrivalAttempt(matchId, playerId, 0) }
+        val completions = playerIds.distinct().map { playerId -> completeArrival(matchId, playerId) }
         return CompletableFuture.allOf(*completions.toTypedArray()).thenApply { completions.count { it.join() } }
     }
 
     fun markReturnPending(entry: QueueEntry): CompletableFuture<QueueEntry?> =
-        markReturnPendingAttempt(UUID.fromString(entry.playerId), UUID.fromString(requireNotNull(entry.matchId)), 0)
+        markReturnPending(UUID.fromString(entry.playerId), UUID.fromString(requireNotNull(entry.matchId)))
 
     fun prepareRecoveredReturn(playerId: UUID, matchId: UUID): CompletableFuture<QueueEntry?> =
-        markReturnPendingAttempt(playerId, matchId, 0)
+        markReturnPending(playerId, matchId)
 
     fun acknowledgeReturn(playerId: UUID, matchId: UUID): CompletableFuture<Boolean> =
-        acknowledgeReturnAttempt(playerId, matchId, 0)
-
-    private fun claimReservationAttempt(
-        playerId: UUID,
-        currentServer: String,
-        nowMs: Long,
-        attempt: Int,
-    ): CompletableFuture<QueueEntry?> {
-        if (attempt >= MAX_CAS_ATTEMPTS) return CompletableFuture.completedFuture(null)
-        return redis.loadMapEntries(QUEUE_KEY, playerId.toString()).thenCompose { values ->
-            val raw = values.firstOrNull() ?: return@thenCompose CompletableFuture.completedFuture(null)
-            val entry = runCatching { decodeQueue(raw) }.getOrNull()
-                ?: return@thenCompose redis.compareAndSetMapEntry(QUEUE_KEY, playerId.toString(), raw, null).thenApply { null }
-            when (entry.state) {
-                QueueState.QUEUED -> CompletableFuture.completedFuture(null)
-                QueueState.RESERVED -> {
-                    if (entry.destinationServer != currentServer || entry.expiresAtMs < nowMs) {
-                        CompletableFuture.completedFuture(null)
-                    } else {
-                        val arrived = entry.copy(state = QueueState.ARRIVED, expiresAtMs = Long.MAX_VALUE).validated()
-                        redis.compareAndSetMapEntry(QUEUE_KEY, playerId.toString(), raw, encode(arrived)).thenCompose { changed ->
-                            if (changed) CompletableFuture.completedFuture(arrived)
-                            else claimReservationAttempt(playerId, currentServer, nowMs, attempt + 1)
-                        }
-                    }
-                }
-                QueueState.ARRIVED -> CompletableFuture.completedFuture(entry.takeIf { it.destinationServer == currentServer })
-                QueueState.MATCHED, QueueState.RETURN_PENDING -> CompletableFuture.completedFuture(entry.takeIf {
-                    currentServer == it.originServer || currentServer == it.destinationServer
-                })
+        queue.update(playerId.toString()) { entry ->
+            when {
+                entry == null -> RedisHashDecision.Reject
+                entry.state == QueueState.RETURN_PENDING && entry.matchId == matchId.toString() -> RedisHashDecision.Delete
+                else -> RedisHashDecision.Reject
             }
+        }.thenApply { result ->
+            result is RedisHashUpdateResult.Changed || result is RedisHashUpdateResult.Rejected && result.current == null
         }
-    }
 
     fun cleanup(nowMs: Long): CompletableFuture<Int> = redis.loadMap(QUEUE_KEY).thenCompose { values ->
         val expired = values.entries.mapNotNull { (field, raw) ->
-            val entry = runCatching { decodeQueue(raw) }.getOrNull()
-            if (entry == null || entry.expiresAtMs < nowMs) field to raw else null
+            field.takeIf { queueCodec.decode(raw).expiresAtMs < nowMs }
         }.take(MAX_CLEANUP)
-        CompletableFuture.allOf(*expired.map { (field, raw) ->
-            redis.compareAndSetMapEntry(QUEUE_KEY, field, raw, null)
-        }.toTypedArray()).thenApply { expired.size }
+        val removals = expired.map { field -> queue.consume(field) { it.expiresAtMs < nowMs } }
+        CompletableFuture.allOf(*removals.toTypedArray()).thenApply {
+            removals.count { it.join() is RedisHashConsumeResult.Consumed }
+        }
     }
 
     fun loadStats(playerId: UUID): CompletableFuture<PlayerEventStats> =
         redis.loadMapEntries(STATS_KEY, playerId.toString()).thenApply { values ->
-            values.firstOrNull()?.let(::decodeStats) ?: PlayerEventStats()
+            values.firstOrNull()?.let(statsCodec::decode) ?: PlayerEventStats()
         }
 
     fun updateStats(
         playerId: UUID,
         transform: (PlayerEventStats) -> PlayerEventStats,
-    ): CompletableFuture<StatsUpdate> = updateStatsAttempt(playerId, transform, 0)
-
-    private fun joinAttempt(
-        playerId: UUID,
-        playerName: String,
-        originServer: String,
-        nowMs: Long,
-        lifetimeMs: Long,
-        attempt: Int,
-    ): CompletableFuture<QueueJoinResult> {
-        if (attempt >= MAX_CAS_ATTEMPTS) return CompletableFuture.completedFuture(QueueJoinResult.Contended)
-        val field = playerId.toString()
-        return redis.loadMapEntries(QUEUE_KEY, field).thenCompose { values ->
-            val beforeRaw = values.firstOrNull()
-            val before = beforeRaw?.let { runCatching { decodeQueue(it) }.getOrNull() }
-            if (before != null && before.expiresAtMs >= nowMs) {
-                if (before.state == QueueState.QUEUED &&
-                    (before.playerName != playerName || before.originServer != originServer)
-                ) {
-                    val refreshed = before.copy(
-                        playerName = playerName,
-                        originServer = originServer,
-                    ).validated()
-                    return@thenCompose redis.compareAndSetMapEntry(
-                        QUEUE_KEY,
-                        field,
-                        beforeRaw,
-                        encode(refreshed),
-                    ).thenCompose { changed ->
-                        if (changed) {
-                            CompletableFuture.completedFuture(QueueJoinResult.Existing(refreshed))
-                        } else {
-                            joinAttempt(playerId, playerName, originServer, nowMs, lifetimeMs, attempt + 1)
-                        }
-                    }
-                }
-                return@thenCompose CompletableFuture.completedFuture(QueueJoinResult.Existing(before))
-            }
-            val after = QueueEntry(
-                playerId = field,
-                playerName = playerName,
-                originServer = originServer,
-                joinedAtMs = nowMs,
-                expiresAtMs = nowMs + lifetimeMs,
-            ).validated()
-            redis.compareAndSetMapEntry(QUEUE_KEY, field, beforeRaw, encode(after)).thenCompose { changed ->
-                if (changed) CompletableFuture.completedFuture(QueueJoinResult.Joined(after))
-                else joinAttempt(playerId, playerName, originServer, nowMs, lifetimeMs, attempt + 1)
-            }
-        }
-    }
-
-    private fun leaveAttempt(playerId: UUID, nowMs: Long, attempt: Int): CompletableFuture<QueueLeaveResult> {
-        if (attempt >= MAX_CAS_ATTEMPTS) return CompletableFuture.completedFuture(QueueLeaveResult.Contended)
-        val field = playerId.toString()
-        return redis.loadMapEntries(QUEUE_KEY, field).thenCompose { values ->
-            val beforeRaw = values.firstOrNull() ?: return@thenCompose CompletableFuture.completedFuture(QueueLeaveResult.Missing)
-            val before = runCatching { decodeQueue(beforeRaw) }.getOrNull()
-            if (before == null || before.expiresAtMs < nowMs) {
-                return@thenCompose redis.compareAndSetMapEntry(QUEUE_KEY, field, beforeRaw, null).thenApply { QueueLeaveResult.Missing }
-            }
-            if (before.state != QueueState.QUEUED) {
-                return@thenCompose CompletableFuture.completedFuture(QueueLeaveResult.Reserved(before))
-            }
-            redis.compareAndSetMapEntry(QUEUE_KEY, field, beforeRaw, null).thenCompose { changed ->
-                if (changed) CompletableFuture.completedFuture(QueueLeaveResult.Left)
-                else leaveAttempt(playerId, nowMs, attempt + 1)
-            }
+    ): CompletableFuture<StatsUpdate> = stats.update(playerId.toString()) { current ->
+        RedisHashDecision.Write(transform(current ?: PlayerEventStats()).validated())
+    }.thenApply { result ->
+        when (result) {
+            is RedisHashUpdateResult.Changed -> StatsUpdate(result.before ?: PlayerEventStats(), requireNotNull(result.after))
+            is RedisHashUpdateResult.Unchanged -> StatsUpdate(result.current, result.current)
+            is RedisHashUpdateResult.Rejected -> error("Statistics update was unexpectedly rejected")
+            is RedisHashUpdateResult.Contended -> error("Statistics update remained contended after ${result.attempts} attempts")
         }
     }
 
@@ -243,146 +236,86 @@ class RedisEventNetworkRepository(
             return rollbackReservation(matchId, reserved, nowMs).thenApply { null }
         }
         val candidate = candidates[index]
-        val field = candidate.playerId
-        return redis.loadMapEntries(QUEUE_KEY, field).thenCompose { values ->
-            val raw = values.firstOrNull()
-            val current = raw?.let { runCatching { decodeQueue(it) }.getOrNull() }
-            if (current == null || current != candidate || current.state != QueueState.QUEUED || current.expiresAtMs < nowMs) {
-                return@thenCompose reserveCandidates(matchId, destinationServer, candidates, minimum, nowMs, reservationMs, index + 1, reserved)
-            }
-            val after = current.copy(
-                state = QueueState.RESERVED,
-                expiresAtMs = nowMs + reservationMs,
-                matchId = matchId.toString(),
-                destinationServer = destinationServer,
-            ).validated()
-            redis.compareAndSetMapEntry(QUEUE_KEY, field, raw, encode(after)).thenCompose { changed ->
-                reserveCandidates(
-                    matchId, destinationServer, candidates, minimum, nowMs, reservationMs, index + 1,
-                    if (changed) reserved + after else reserved,
+        return queue.update(candidate.playerId) { current ->
+            if (current == candidate && current.state == QueueState.QUEUED && current.expiresAtMs >= nowMs) {
+                RedisHashDecision.Write(
+                    current.copy(
+                        state = QueueState.RESERVED,
+                        expiresAtMs = nowMs + reservationMs,
+                        matchId = matchId.toString(),
+                        destinationServer = destinationServer,
+                    ).validated(),
                 )
-            }
+            } else RedisHashDecision.Reject
+        }.thenCompose { result ->
+            val after = (result as? RedisHashUpdateResult.Changed)?.after
+            reserveCandidates(
+                matchId,
+                destinationServer,
+                candidates,
+                minimum,
+                nowMs,
+                reservationMs,
+                index + 1,
+                if (after == null) reserved else reserved + after,
+            )
         }
     }
 
     private fun rollbackReservation(matchId: UUID, entries: List<QueueEntry>, nowMs: Long): CompletableFuture<*> =
-        CompletableFuture.allOf(*entries.map { entry ->
-            val reservedRaw = encode(entry)
-            val queued = entry.copy(
-                state = QueueState.QUEUED,
-                joinedAtMs = nowMs,
-                expiresAtMs = nowMs + 60_000,
-                matchId = null,
-                destinationServer = null,
-            ).validated()
-            redis.compareAndSetMapEntry(QUEUE_KEY, entry.playerId, reservedRaw, encode(queued))
+        CompletableFuture.allOf(*entries.map { expected ->
+            queue.update(expected.playerId) { current ->
+                if (current == expected && current.matchId == matchId.toString()) {
+                    RedisHashDecision.Write(
+                        current.copy(
+                            state = QueueState.QUEUED,
+                            joinedAtMs = nowMs,
+                            expiresAtMs = nowMs + 60_000L,
+                            matchId = null,
+                            destinationServer = null,
+                        ).validated(),
+                    )
+                } else RedisHashDecision.Reject
+            }
         }.toTypedArray())
 
-    private fun completeArrivalAttempt(matchId: UUID, playerId: UUID, attempt: Int): CompletableFuture<Boolean> {
-        if (attempt >= MAX_CAS_ATTEMPTS) return CompletableFuture.completedFuture(false)
-        return redis.loadMapEntries(QUEUE_KEY, playerId.toString()).thenCompose { values ->
-            val raw = values.firstOrNull() ?: return@thenCompose CompletableFuture.completedFuture(false)
-            val entry = runCatching { decodeQueue(raw) }.getOrNull()
-                ?: return@thenCompose CompletableFuture.completedFuture(false)
-            if (entry.matchId != matchId.toString()) {
-                return@thenCompose CompletableFuture.completedFuture(false)
+    private fun completeArrival(matchId: UUID, playerId: UUID): CompletableFuture<Boolean> =
+        queue.update(playerId.toString()) { entry ->
+            when {
+                entry == null || entry.matchId != matchId.toString() -> RedisHashDecision.Reject
+                entry.state == QueueState.MATCHED -> RedisHashDecision.Write(entry)
+                entry.state == QueueState.ARRIVED -> RedisHashDecision.Write(entry.copy(state = QueueState.MATCHED).validated())
+                else -> RedisHashDecision.Reject
             }
-            if (entry.state == QueueState.MATCHED) return@thenCompose CompletableFuture.completedFuture(true)
-            if (entry.state != QueueState.ARRIVED) return@thenCompose CompletableFuture.completedFuture(false)
-            val matched = entry.copy(state = QueueState.MATCHED).validated()
-            redis.compareAndSetMapEntry(QUEUE_KEY, playerId.toString(), raw, encode(matched)).thenCompose { changed ->
-                if (changed) CompletableFuture.completedFuture(true)
-                else completeArrivalAttempt(matchId, playerId, attempt + 1)
-            }
-        }
-    }
+        }.thenApply { result -> result is RedisHashUpdateResult.Changed || result is RedisHashUpdateResult.Unchanged }
 
-    private fun markReturnPendingAttempt(playerId: UUID, matchId: UUID, attempt: Int): CompletableFuture<QueueEntry?> {
-        if (attempt >= MAX_CAS_ATTEMPTS) return CompletableFuture.completedFuture(null)
-        return redis.loadMapEntries(QUEUE_KEY, playerId.toString()).thenCompose { values ->
-            val raw = values.firstOrNull() ?: return@thenCompose CompletableFuture.completedFuture(null)
-            val entry = runCatching { decodeQueue(raw) }.getOrNull()
-                ?: return@thenCompose CompletableFuture.completedFuture(null)
-            if (entry.matchId != matchId.toString()) return@thenCompose CompletableFuture.completedFuture(null)
-            if (entry.state == QueueState.RETURN_PENDING) return@thenCompose CompletableFuture.completedFuture(entry)
-            if (entry.state !in setOf(QueueState.ARRIVED, QueueState.MATCHED)) {
-                return@thenCompose CompletableFuture.completedFuture(null)
+    private fun markReturnPending(playerId: UUID, matchId: UUID): CompletableFuture<QueueEntry?> =
+        queue.update(playerId.toString()) { entry ->
+            when {
+                entry == null || entry.matchId != matchId.toString() -> RedisHashDecision.Reject
+                entry.state == QueueState.RETURN_PENDING -> RedisHashDecision.Write(entry)
+                entry.state in setOf(QueueState.ARRIVED, QueueState.MATCHED) -> RedisHashDecision.Write(
+                    entry.copy(state = QueueState.RETURN_PENDING, expiresAtMs = Long.MAX_VALUE).validated(),
+                )
+                else -> RedisHashDecision.Reject
             }
-            val pending = entry.copy(state = QueueState.RETURN_PENDING, expiresAtMs = Long.MAX_VALUE).validated()
-            redis.compareAndSetMapEntry(QUEUE_KEY, playerId.toString(), raw, encode(pending)).thenCompose { changed ->
-                if (changed) CompletableFuture.completedFuture(pending)
-                else markReturnPendingAttempt(playerId, matchId, attempt + 1)
+        }.thenApply { it.acceptedValue() }
+
+    private fun markMatchReturnPending(playerId: UUID, matchId: UUID): CompletableFuture<QueueEntry?> =
+        queue.update(playerId.toString()) { entry ->
+            when {
+                entry == null || entry.matchId != matchId.toString() || entry.state !in ROUTED_STATES -> RedisHashDecision.Reject
+                entry.state == QueueState.RETURN_PENDING -> RedisHashDecision.Write(entry)
+                else -> RedisHashDecision.Write(
+                    entry.copy(state = QueueState.RETURN_PENDING, expiresAtMs = Long.MAX_VALUE).validated(),
+                )
             }
-        }
-    }
+        }.thenApply { it.acceptedValue() }
 
-    private fun markMatchReturnPendingAttempt(playerId: UUID, matchId: UUID, attempt: Int): CompletableFuture<QueueEntry?> {
-        if (attempt >= MAX_CAS_ATTEMPTS) return CompletableFuture.completedFuture(null)
-        return redis.loadMapEntries(QUEUE_KEY, playerId.toString()).thenCompose { values ->
-            val raw = values.firstOrNull() ?: return@thenCompose CompletableFuture.completedFuture(null)
-            val entry = runCatching { decodeQueue(raw) }.getOrNull()
-                ?: return@thenCompose CompletableFuture.completedFuture(null)
-            if (entry.matchId != matchId.toString() || entry.state !in ROUTED_STATES) {
-                return@thenCompose CompletableFuture.completedFuture(null)
-            }
-            if (entry.state == QueueState.RETURN_PENDING) return@thenCompose CompletableFuture.completedFuture(entry)
-            val pending = entry.copy(state = QueueState.RETURN_PENDING, expiresAtMs = Long.MAX_VALUE).validated()
-            redis.compareAndSetMapEntry(QUEUE_KEY, playerId.toString(), raw, encode(pending)).thenCompose { changed ->
-                if (changed) CompletableFuture.completedFuture(pending)
-                else markMatchReturnPendingAttempt(playerId, matchId, attempt + 1)
-            }
-        }
-    }
-
-    private fun acknowledgeReturnAttempt(playerId: UUID, matchId: UUID, attempt: Int): CompletableFuture<Boolean> {
-        if (attempt >= MAX_CAS_ATTEMPTS) return CompletableFuture.completedFuture(false)
-        return redis.loadMapEntries(QUEUE_KEY, playerId.toString()).thenCompose { values ->
-            val raw = values.firstOrNull() ?: return@thenCompose CompletableFuture.completedFuture(true)
-            val entry = runCatching { decodeQueue(raw) }.getOrNull()
-                ?: return@thenCompose CompletableFuture.completedFuture(false)
-            if (entry.state != QueueState.RETURN_PENDING || entry.matchId != matchId.toString()) {
-                return@thenCompose CompletableFuture.completedFuture(false)
-            }
-            redis.compareAndSetMapEntry(QUEUE_KEY, playerId.toString(), raw, null).thenCompose { changed ->
-                if (changed) CompletableFuture.completedFuture(true)
-                else acknowledgeReturnAttempt(playerId, matchId, attempt + 1)
-            }
-        }
-    }
-
-    private fun updateStatsAttempt(
-        playerId: UUID,
-        transform: (PlayerEventStats) -> PlayerEventStats,
-        attempt: Int,
-    ): CompletableFuture<StatsUpdate> {
-        if (attempt >= MAX_CAS_ATTEMPTS) return CompletableFuture.failedFuture(IllegalStateException("Statistics update remained contended"))
-        val field = playerId.toString()
-        return redis.loadMapEntries(STATS_KEY, field).thenCompose { values ->
-            val beforeRaw = values.firstOrNull()
-            val before = beforeRaw?.let(::decodeStats) ?: PlayerEventStats()
-            val after = transform(before).validated()
-            redis.compareAndSetMapEntry(STATS_KEY, field, beforeRaw, encode(after)).thenCompose { changed ->
-                if (changed) CompletableFuture.completedFuture(StatsUpdate(before, after))
-                else updateStatsAttempt(playerId, transform, attempt + 1)
-            }
-        }
-    }
-
-    private fun encode(value: Any): String = gson.toJson(value).also {
-        require(it.length <= MAX_JSON_CHARS) { "ArcEvents Redis payload is too large" }
-    }
-
-    private fun decodeQueue(raw: String): QueueEntry = checked(raw) { gson.fromJson(it, QueueEntry::class.java).validated() }
-    private fun decodeNode(raw: String): HostNode = checked(raw) { gson.fromJson(it, HostNode::class.java).validated() }
-    private fun decodeStats(raw: String): PlayerEventStats = checked(raw) { gson.fromJson(it, PlayerEventStats::class.java).validated() }
-
-    private fun decodeMessage(raw: String): EventNetworkMessage? = runCatching {
-        checked(raw) { gson.fromJson(it, EventNetworkMessage::class.java).validated() }
-    }.getOrNull()
-
-    private fun <T> checked(raw: String, decode: (String) -> T): T {
-        if (raw.length > MAX_JSON_CHARS) throw JsonParseException("ArcEvents Redis payload is too large")
-        return decode(raw)
+    private fun RedisHashUpdateResult<QueueEntry>.acceptedValue(): QueueEntry? = when (this) {
+        is RedisHashUpdateResult.Changed -> after
+        is RedisHashUpdateResult.Unchanged -> current
+        is RedisHashUpdateResult.Rejected, is RedisHashUpdateResult.Contended -> null
     }
 
     companion object {
@@ -394,11 +327,51 @@ class RedisEventNetworkRepository(
         private const val MAX_CAS_ATTEMPTS = 12
         private const val MAX_CLEANUP = 256
         private const val FUTURE_SKEW_MS = 60_000L
+        private const val MESSAGE_DEDUPLICATION_MS = 15L * 60L * 1_000L
+        private const val MAX_SEEN_MESSAGES = 20_000
+        private val QUEUE_FIELDS = setOf(
+            "playerId", "playerName", "originServer", "mode", "state", "joinedAtMs", "expiresAtMs", "matchId",
+            "destinationServer",
+        )
+        private val QUEUE_REQUIRED_FIELDS = QUEUE_FIELDS - setOf("matchId", "destinationServer")
+        private val NODE_FIELDS = setOf(
+            "serverId", "mode", "available", "arenaReady", "phase", "matchId", "queueSize", "capacity", "heartbeatAtMs",
+        )
+        private val NODE_REQUIRED_FIELDS = NODE_FIELDS - setOf("phase", "matchId")
+        private val STATS_FIELDS = setOf(
+            "revision", "lastMatchId", "matches", "wins", "traitorWins", "innocentWins", "kills", "deaths", "karma",
+        )
+        private val STATS_REQUIRED_FIELDS = STATS_FIELDS - "lastMatchId"
+        private val MESSAGE_FIELDS = setOf(
+            "eventId", "signal", "occurredAtMs", "matchId", "playerId", "destinationServer", "queueSize", "winner",
+            "endReason", "replyTo", "startResult",
+        )
+        private val MESSAGE_REQUIRED_FIELDS = setOf("eventId", "signal", "occurredAtMs")
         private val ROUTED_STATES = setOf(
             QueueState.RESERVED,
             QueueState.ARRIVED,
             QueueState.MATCHED,
             QueueState.RETURN_PENDING,
+        )
+
+        private fun <T : Any> codec(
+            gson: Gson,
+            type: Class<T>,
+            fields: Set<String>,
+            requiredFields: Set<String>,
+            validate: (T) -> Unit,
+        ): BoundedJsonCodec<T> = BoundedJsonCodec(
+            gson = gson,
+            type = type,
+            rootContract = JsonObjectContract(fields, requiredFields),
+            bounds = JsonResourceBounds(
+                maxCharacters = MAX_JSON_CHARS,
+                maxDepth = 12,
+                maxContainerEntries = 10_000,
+                maxTotalNodes = 100_000,
+                maxStringCharacters = 4_096,
+            ),
+            validate = validate,
         )
     }
 }

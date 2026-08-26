@@ -2,6 +2,7 @@ package ru.ruscrafting.events.paper
 
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
+import ru.arc.paper.teleport.ScopedTeleportAuthorizer
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -25,7 +26,7 @@ class SafetyContractTest : StringSpec({
         val world = mockk<World>()
         every { world.uid } returns UUID.randomUUID()
         val expected = Location(world, 12.5, 70.0, -4.5, 90f, 10f)
-        val authorizer = InternalTeleportAuthorizer()
+        val authorizer = ScopedTeleportAuthorizer()
 
         authorizer.authorize(playerId, expected) {
             authorizer.isAuthorized(playerId, expected.clone()) shouldBe true
