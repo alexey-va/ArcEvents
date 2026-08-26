@@ -9,6 +9,8 @@ import ru.arc.core.PaperArcRuntime
 import ru.arc.core.Tasks
 import ru.arc.paper.network.BungeeBackendTransfer
 import ru.arc.paper.runtime.PaperPluginRuntime
+import ru.arc.observability.RuntimeHealthContribution
+import ru.arc.observability.RuntimeHealthState
 import ru.arc.redis.RedisManager
 import ru.arc.redis.ServerIdentity
 import ru.ruscrafting.events.config.ArcEventsConfig
@@ -108,6 +110,16 @@ class ArcEventsPlugin : JavaPlugin() {
             )
             service = activeService
             lifecycle.own(activeService)
+            lifecycle.registerHealth("runtime") {
+                val redisReady = manager.isConnected()
+                RuntimeHealthContribution(
+                    state = if (redisReady) RuntimeHealthState.UP else RuntimeHealthState.DEGRADED,
+                    recoveryBacklog = escrow.recoveryBacklog(),
+                    activeLeases = coordinator.activeLeaseCount(),
+                    schemas = mapOf("player_recovery" to RecoveryBatch.FORMAT_VERSION),
+                    dependencies = mapOf("redis" to redisReady),
+                )
+            }
             val menu = ArcEventsMenu(activeService, items, locale, { settings }, ::reloadPlugin)
             val command = ArcEventsCommand(this, activeService, menu, locale, { settings }, ::reloadPlugin)
             requireNotNull(getCommand("arcevents")).apply {
@@ -123,11 +135,13 @@ class ArcEventsPlugin : JavaPlugin() {
                 "arena_ready" to activeService.arenaReady(),
                 "redis" to manager.isConnected(),
             )
+            lifecycle.reportHealthEvery(HEALTH_REPORT_TICKS)
             logger.info(
                 "ArcEvents enabled node=${settings.serverId} mode=${settings.nodeMode} host=${settings.hostServer} " +
                     "arenaReady=${activeService.arenaReady()} redisConnected=${manager.isConnected()}",
             )
         } catch (failure: Throwable) {
+            runCatching { lifecycle.health.markDown(); lifecycle.emitHealth() }
             logger.log(Level.SEVERE, "ArcEvents failed closed during startup", failure)
             server.pluginManager.disablePlugin(this)
         }
@@ -159,5 +173,9 @@ class ArcEventsPlugin : JavaPlugin() {
 
     private fun saveResourceIfMissing(path: String) {
         if (!Files.isRegularFile(dataFolder.toPath().resolve(path))) saveResource(path, false)
+    }
+
+    private companion object {
+        const val HEALTH_REPORT_TICKS = 1_200L
     }
 }

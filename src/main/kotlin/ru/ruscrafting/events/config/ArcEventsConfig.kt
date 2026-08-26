@@ -3,7 +3,7 @@ package ru.ruscrafting.events.config
 import ru.arc.config.Config
 import ru.arc.config.ConfigManager
 import ru.arc.network.BackendServerId
-import ru.arc.redis.LegacyRedisSnapshot
+import ru.arc.redis.RedisConnectionSettingsSnapshot
 import ru.arc.redis.RedisConfigBootstrap
 import ru.arc.redis.RedisModuleConfig
 import ru.ruscrafting.events.domain.FirearmId
@@ -366,11 +366,11 @@ object ArcEventsRedisBootstrap {
         val redisPath = dataRoot.resolve("modules/redis.yml")
         val existed = Files.isRegularFile(redisPath)
         RedisConfigBootstrap.ensure(dataRoot) {
-            if (existed) null else readArcRedis(dataRoot, settings.serverId)
+            if (existed) null else readArcRedisSettings(dataRoot, settings.serverId)
         }
         val redisConfig = ConfigManager.ofModule(dataRoot, RedisModuleConfig.RESOURCE)
         if (redisConfig.bool("inherit-connection-from-arc", false)) {
-            val inherited = requireNotNull(readArcRedis(dataRoot, settings.serverId)) {
+            val inherited = requireNotNull(readArcRedisSettings(dataRoot, settings.serverId)) {
                 "ARC Redis profile is required when inherit-connection-from-arc is enabled"
             }
             inherited.applyTo(redisConfig)
@@ -387,12 +387,12 @@ object ArcEventsRedisBootstrap {
         return redis
     }
 
-    private fun readArcRedis(dataRoot: Path, serverId: String): LegacyRedisSnapshot? {
+    private fun readArcRedisSettings(dataRoot: Path, serverId: String): RedisConnectionSettingsSnapshot? {
         val arcRoot = dataRoot.parent?.resolve("ARC") ?: return null
         val sourcePath = arcRoot.resolve("modules/redis.yml")
         if (!Files.isRegularFile(sourcePath)) return null
         val source = Config(arcRoot, "modules/redis.yml")
-        return LegacyRedisSnapshot(
+        return RedisConnectionSettingsSnapshot(
             enabled = source.bool("enabled", true),
             host = source.string("host", "127.0.0.1"),
             port = source.int("port", 6379),

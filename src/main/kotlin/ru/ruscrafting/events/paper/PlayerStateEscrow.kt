@@ -17,6 +17,7 @@ import java.nio.file.Path
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionException
+import java.util.concurrent.atomic.AtomicInteger
 
 data class CorePlayerState(
     val playerId: String,
@@ -116,6 +117,7 @@ class PlayerStateEscrow(
     private val store: RecoveryBatchStore,
     private val playerStates: PaperPlayerStateService = PaperPlayerStateService(),
 ) {
+    private val cachedRecoveryBacklog = AtomicInteger(loadPendingCount())
     private val workflow = DurableRecoveryWorkflow<RecoveryBatch, PlayerRestoreReceipt>(
         commit = { candidate -> completed { store.commit(candidate) } },
         sameContent = RecoveryBatch::sameContent,
@@ -141,21 +143,33 @@ class PlayerStateEscrow(
             )
         }
         val candidate = RecoveryBatch(matchId = matchId.toString(), createdAtMs = nowMs, states = states)
-        return workflow.commitThenMutate(candidate) { committed -> completed { mutation(committed) } }.awaitUnwrapped()
+        return try {
+            workflow.commitThenMutate(candidate) { committed -> completed { mutation(committed) } }.awaitUnwrapped()
+        } finally {
+            refreshRecoveryBacklog()
+        }
     }
 
     fun pendingCount(): Int = store.loadAll().sumOf { it.pending().size }
+
+    /** Constant-time, thread-safe recovery gauge for runtime health sampling. */
+    fun recoveryBacklog(): Int = cachedRecoveryBacklog.get()
 
     fun pendingCount(matchId: UUID): Int = store.pendingPlayers(matchId).size
 
     fun recover(player: Player, teleport: (Location) -> Boolean = player::teleport): PlayerRecovery? {
         val (batch, state) = store.pendingFor(player.uniqueId) ?: return null
-        val completion = workflow.restoreThenAcknowledge(batch) {
-            completed {
-                playerStates.restoreAndVerify(player, state.envelope) { _, location -> teleport(location) }
-                PlayerRestoreReceipt(player.uniqueId, PlayerRecovery(UUID.fromString(batch.matchId), state.returnServer))
+        val completion = try {
+            workflow.restoreThenAcknowledge(batch) {
+                completed {
+                    playerStates.restoreAndVerify(player, state.envelope) { _, location -> teleport(location) }
+                    PlayerRestoreReceipt(player.uniqueId, PlayerRecovery(UUID.fromString(batch.matchId), state.returnServer))
+                }
             }
-        }.awaitUnwrapped()
+                .awaitUnwrapped()
+        } finally {
+            refreshRecoveryBacklog()
+        }
         if (completion is DurableRecoveryCompletion.ContentMismatch) {
             error("Recovery batch changed before exact acknowledgement for ${player.uniqueId}")
         }
@@ -168,6 +182,12 @@ class PlayerStateEscrow(
     fun pendingPlayers(matchId: UUID): Set<UUID> = store.pendingPlayers(matchId)
 
     private data class PlayerRestoreReceipt(val playerId: UUID, val recovery: PlayerRecovery)
+
+    private fun refreshRecoveryBacklog() {
+        runCatching(::loadPendingCount).onSuccess(cachedRecoveryBacklog::set)
+    }
+
+    private fun loadPendingCount(): Int = store.loadAll().sumOf { it.pending().size }
 
     private fun <T : Any> completed(operation: () -> T): CompletableFuture<T> =
         runCatching(operation).fold(CompletableFuture<T>::completedFuture, CompletableFuture<T>::failedFuture)

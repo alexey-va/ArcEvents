@@ -603,6 +603,9 @@ class EventNetworkCoordinator(
     private fun newNodeDirectory(leaseMillis: Long): LeasedNetworkDirectory<String, HostNode> =
         LeasedNetworkDirectory(leaseMillis = leaseMillis, maxEntries = MAX_NETWORK_NODES, clock = clock)
 
+    /** Constant-time in-memory gauge safe for runtime health sampling. */
+    fun activeLeaseCount(): Int = nodeDirectory.size()
+
     private fun heartbeat() {
         val current = settings()
         val (matchId, phase) = matchState()

@@ -40,6 +40,7 @@ dependencies {
     testImplementation("ru.arc:arc-core-paper-testing:1.0-SNAPSHOT")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     "integrationTestImplementation"(sourceSets.test.get().output)
+    "integrationTestImplementation"("ru.arc:arc-core-integration-testing:1.0-SNAPSHOT")
     configurations["integrationTestImplementation"].extendsFrom(configurations["testImplementation"])
     configurations["integrationTestRuntimeOnly"].extendsFrom(configurations["testRuntimeOnly"])
 }
