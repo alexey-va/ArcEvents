@@ -6,6 +6,7 @@ import io.kotest.matchers.ints.shouldBeGreaterThan
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import org.bukkit.Material
+import org.opentest4j.TestAbortedException
 import ru.ruscrafting.events.config.ArcEventsConfig
 import java.nio.file.Path
 
@@ -57,7 +58,8 @@ class TttCitadelBlueprintTest : StringSpec({
     }
 
     "reviewed lab profile exactly matches the blueprint anchors" {
-        val repository = Path.of(System.getProperty("arcevents.repositoryRoot"))
+        val repository = System.getProperty("ruscrafting.opsRoot")?.let(Path::of)
+            ?: throw TestAbortedException("RusCrafting ops checkout is not configured")
         val config = ArcEventsConfig.inspect(repository.resolve("scripts/lab/plugin-configs/ArcEvents"))
         val arena = config.arena
 

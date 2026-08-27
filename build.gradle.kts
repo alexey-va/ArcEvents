@@ -56,7 +56,10 @@ tasks {
     }
     test {
         useJUnitPlatform()
-        systemProperty("arcevents.repositoryRoot", projectDir.parentFile.absolutePath)
+        providers.gradleProperty("ruscraftingOpsRoot")
+            .orElse(providers.environmentVariable("RUSCRAFTING_OPS_ROOT"))
+            .orNull
+            ?.let { systemProperty("ruscrafting.opsRoot", it) }
     }
     register<Test>("integrationTest") {
         description = "Runs disposable cross-node Redis integration tests."

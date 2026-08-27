@@ -149,7 +149,7 @@ living participant inside it, including the thrower.
 ## Build
 
 ```bash
-../arc-core/gradlew -p . clean check shadowJar
+./gradlew clean check shadowJar
 ```
 
 The three production locale mirrors are governed by the durable `arcevents`

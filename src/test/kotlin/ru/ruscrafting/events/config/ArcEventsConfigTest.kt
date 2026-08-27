@@ -3,6 +3,7 @@ package ru.ruscrafting.events.config
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
+import org.opentest4j.TestAbortedException
 import ru.ruscrafting.events.domain.FirearmId
 import java.nio.file.Files
 import java.nio.file.Path
@@ -46,7 +47,7 @@ class ArcEventsConfigTest : StringSpec({
     }
 
     "reviewed parkour profile exposes the three complete CS2 arenas" {
-        val repository = Path.of(System.getProperty("arcevents.repositoryRoot"))
+        val repository = opsRoot()
         val config = ArcEventsConfig.inspect(repository.resolve("parkour/plugins/ArcEvents"))
 
         config.arenas.map(ArenaSettings::id) shouldBe listOf("inferno", "mirage", "nuke")
@@ -183,6 +184,9 @@ class ArcEventsConfigTest : StringSpec({
     }
 }) {
     companion object {
+        private fun opsRoot(): Path = System.getProperty("ruscrafting.opsRoot")?.let(Path::of)
+            ?: throw TestAbortedException("RusCrafting ops checkout is not configured")
+
         private fun redisConfig(inherit: Boolean, host: String, port: Int, password: String): String = """
             |enabled: true
             |inherit-connection-from-arc: $inherit

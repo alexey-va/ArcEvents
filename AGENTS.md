@@ -32,4 +32,6 @@ Standalone Kotlin/Paper plugin for network-wide RusCrafting custom events.
   explicitly non-italic.
 - Runtime recovery data belongs under `plugins/ArcEvents/data/` and is never
   tracked or deployed as configuration.
-- Build and test with `../arc-core/gradlew -p . clean check shadowJar`.
+- Build and test with `./gradlew clean check shadowJar`. Set
+  `RUSCRAFTING_OPS_ROOT=/absolute/path/to/ruscrafting-ops` to include tests
+  that verify tracked runtime profiles.
