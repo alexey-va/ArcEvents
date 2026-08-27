@@ -8,7 +8,8 @@ Standalone Kotlin/Paper plugin for network-wide RusCrafting custom events.
   `../arc-core/docs/shared-primitives.md` before adding
   infrastructure; ArcEvents owns only its event domain, Redis namespace, and
   protocol.
-- Paper tests use `ru.ruscrafting.arc:arc-core-paper-testing:2.0.0` and
+- Paper tests use the pinned `arcCoreVersion` through
+  `ru.ruscrafting.arc:arc-core-paper-testing` and
   `MockBukkitTestRuntime`; never pin or manage MockBukkit directly here.
 - Keep queues, role allocation, match state, win rules, statistics DTOs, and
   network messages independent of Bukkit.

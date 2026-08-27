@@ -6,11 +6,12 @@ import org.bukkit.plugin.Plugin
 import ru.arc.core.ScheduledTask
 import ru.arc.core.Tasks
 import ru.arc.network.BackendServerId
-import ru.arc.network.LeasedNetworkDirectory
 import ru.arc.paper.network.BackendTransfer
 import ru.arc.paper.network.BackendTransferResult
 import ru.arc.redis.RedisManager
-import ru.arc.redis.safety.OriginBoundRedisBus
+import ru.arc.redis.network.RedisPresenceDirectory
+import ru.arc.redis.network.RedisRequestReplyChannel
+import ru.arc.redis.network.RedisRequestResult
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.config.NodeMode
@@ -62,23 +63,29 @@ class EventNetworkCoordinator(
         private set
     @Volatile
     private var nodes: List<HostNode> = emptyList()
-    @Volatile
-    private var nodeDirectoryLeaseMillis: Long = settings().network.heartbeatStaleSeconds * 1_000L
-    @Volatile
-    private var nodeDirectory = newNodeDirectory(nodeDirectoryLeaseMillis)
-    private var eventBus: OriginBoundRedisBus<EventNetworkMessage>? = null
+    private var nodePresence: RedisPresenceDirectory<HostNode>? = null
+    private var nodePresenceLeaseMillis: Long = 0L
+    private var eventChannel: RedisRequestReplyChannel<EventNetworkMessage>? = null
     private val tasks = mutableListOf<ScheduledTask>()
     private val statistics = ConcurrentHashMap<UUID, PlayerEventStats>()
-    private val pendingStarts = ConcurrentHashMap<String, CompletableFuture<ReservationStartResult>>()
-    private val pendingStartTimeouts = ConcurrentHashMap<String, ScheduledTask>()
     private val startInFlight = AtomicBoolean(false)
     @Volatile
     private var started = false
 
     fun start() {
         check(!started)
-        eventBus = repository.register(
+        val initial = settings()
+        nodePresenceLeaseMillis = initial.network.heartbeatStaleSeconds * 1_000L
+        nodePresence = repository.openNodes(
+            originAllowed = { origin -> settings().let { origin == it.serverId || origin in it.network.allowedOrigins } },
+            entryAllowed = { node -> node.heartbeatAtMs <= clock() + FUTURE_SKEW_MS },
+            leaseMillis = nodePresenceLeaseMillis,
+            clockMillis = clock,
+        )
+        eventChannel = repository.openMessages(
             originAllowed = { origin -> settings().let { origin != it.serverId && origin in it.network.allowedOrigins } },
+            replyAllowed = ::replyAllowed,
+            onReplyRejected = { reason -> debug.event("network_reply_rejected", "reason" to reason) },
             listener = ::receive,
         )
         started = true
@@ -197,28 +204,32 @@ class EventNetworkCoordinator(
 
     private fun requestHostStart(current: ArcEventsConfig): CompletableFuture<ReservationStartResult> {
         if (!hostAvailable()) return CompletableFuture.completedFuture(ReservationStartResult.ARENA_UNAVAILABLE)
-        if (pendingStarts.size >= MAX_PENDING_STARTS) {
-            return CompletableFuture.completedFuture(ReservationStartResult.NETWORK_FAILURE)
-        }
         val request = EventNetworkMessage.create(
             signal = EventNetworkSignal.START_REQUEST,
             destinationServer = current.hostServer,
         )
-        val result = CompletableFuture<ReservationStartResult>()
-        pendingStarts[request.eventId] = result
-        pendingStartTimeouts[request.eventId] = Tasks.scheduler.runLater(START_REQUEST_TIMEOUT_TICKS) {
-            pendingStartTimeouts.remove(request.eventId)
-            pendingStarts.remove(request.eventId)?.complete(ReservationStartResult.NETWORK_FAILURE)
-        }
-        return runCatching {
-            repository.publish(request)
-            debug.event("start_requested", "origin" to current.serverId, "host" to current.hostServer, "request" to request.eventId)
-            result
-        }.getOrElse { failure ->
-            pendingStartTimeouts.remove(request.eventId)?.cancel()
-            pendingStarts.remove(request.eventId)
-            plugin.logger.log(Level.WARNING, "ArcEvents start request could not be published", failure)
-            CompletableFuture.completedFuture(ReservationStartResult.NETWORK_FAILURE)
+        debug.event("start_requested", "origin" to current.serverId, "host" to current.hostServer, "request" to request.eventId)
+        val channel = eventChannel ?: return CompletableFuture.completedFuture(ReservationStartResult.NETWORK_FAILURE)
+        return channel.request(request).thenApply { result ->
+            when (result) {
+                is RedisRequestResult.Reply -> {
+                    val outcome = result.message.startResult
+                        ?.let { runCatching { ReservationStartResult.valueOf(it) }.getOrNull() }
+                        ?: ReservationStartResult.NETWORK_FAILURE
+                    debug.event(
+                        "start_result_received",
+                        "host" to result.originServer,
+                        "request" to request.eventId,
+                        "result" to outcome,
+                    )
+                    outcome
+                }
+                is RedisRequestResult.InfrastructureFailure -> {
+                    plugin.logger.log(Level.WARNING, "ArcEvents start request infrastructure failed", result.cause)
+                    ReservationStartResult.NETWORK_FAILURE
+                }
+                else -> ReservationStartResult.NETWORK_FAILURE
+            }
         }
     }
 
@@ -270,7 +281,7 @@ class EventNetworkCoordinator(
                         playerId = UUID.fromString(entry.playerId),
                         destinationServer = current.serverId,
                     )
-                    repository.publish(message)
+                    publish(message)
                     route(message)
                 }
                 refresh()
@@ -317,11 +328,11 @@ class EventNetworkCoordinator(
         }
     }
 
-    fun announceStarted(matchId: UUID) = repository.publish(
+    fun announceStarted(matchId: UUID) = publish(
         EventNetworkMessage.create(EventNetworkSignal.MATCH_STARTED, matchId = matchId),
     )
 
-    fun announceEnded(matchId: UUID, winner: TttTeam?, reason: MatchEndReason) = repository.publish(
+    fun announceEnded(matchId: UUID, winner: TttTeam?, reason: MatchEndReason) = publish(
         EventNetworkMessage.create(EventNetworkSignal.MATCH_ENDED, matchId = matchId, winner = winner, endReason = reason),
     )
 
@@ -344,7 +355,7 @@ class EventNetworkCoordinator(
                         playerId = UUID.fromString(entry.playerId),
                         destinationServer = entry.originServer,
                     )
-                    repository.publish(message)
+                    publish(message)
                     routeReturn(message)
                 }
                 refresh()
@@ -401,6 +412,22 @@ class EventNetworkCoordinator(
 
     fun nodeSnapshot(): List<HostNode> = nodes
 
+    private fun publish(message: EventNetworkMessage) {
+        requireNotNull(eventChannel) { "ArcEvents network coordinator is not started" }.publish(message)
+    }
+
+    private fun replyAllowed(request: EventNetworkMessage, reply: EventNetworkMessage, origin: String): Boolean {
+        val current = settings()
+        val now = clock()
+        return request.signal == EventNetworkSignal.START_REQUEST &&
+            reply.signal == EventNetworkSignal.START_RESULT &&
+            origin == current.hostServer &&
+            origin in current.network.allowedOrigins &&
+            reply.destinationServer == current.serverId &&
+            reply.occurredAtMs >= now - START_MESSAGE_MAX_AGE_MS &&
+            reply.occurredAtMs <= now + START_FUTURE_SKEW_MS
+    }
+
     private fun receive(message: EventNetworkMessage, origin: String) {
         if (!started) return
         val current = settings()
@@ -420,8 +447,8 @@ class EventNetworkCoordinator(
                 EventNetworkSignal.ROUTE_PLAYER -> route(message)
                 EventNetworkSignal.RETURN_PLAYER -> routeReturn(message)
                 EventNetworkSignal.START_REQUEST -> handleStartRequest(message, origin)
-                EventNetworkSignal.START_RESULT -> handleStartResult(message, origin)
-                EventNetworkSignal.NODE_PROBE -> repository.publish(
+                EventNetworkSignal.START_RESULT -> Unit
+                EventNetworkSignal.NODE_PROBE -> publish(
                     EventNetworkMessage.create(EventNetworkSignal.NODE_ACK, replyTo = message.eventId),
                 )
                 EventNetworkSignal.NODE_ACK -> debug.event("node_ack", "origin" to origin, "reply" to message.replyTo)
@@ -437,7 +464,7 @@ class EventNetworkCoordinator(
             if (!started) return@whenComplete
             val outcome = if (failure == null && result != null) result else ReservationStartResult.NETWORK_FAILURE
             runCatching {
-                repository.publish(EventNetworkMessage.create(
+                publish(EventNetworkMessage.create(
                     signal = EventNetworkSignal.START_RESULT,
                     destinationServer = origin,
                     replyTo = message.eventId,
@@ -449,16 +476,6 @@ class EventNetworkCoordinator(
                 plugin.logger.log(Level.WARNING, "ArcEvents start result could not be published", publishFailure)
             }
         }
-    }
-
-    private fun handleStartResult(message: EventNetworkMessage, origin: String) {
-        val current = settings()
-        if (origin != current.hostServer || message.destinationServer != current.serverId) return
-        val requestId = message.replyTo ?: return
-        val result = message.startResult?.let { runCatching { ReservationStartResult.valueOf(it) }.getOrNull() } ?: return
-        pendingStartTimeouts.remove(requestId)?.cancel()
-        pendingStarts.remove(requestId)?.complete(result)
-        debug.event("start_result_received", "host" to origin, "request" to requestId, "result" to result)
     }
 
     private fun route(message: EventNetworkMessage) {
@@ -564,7 +581,7 @@ class EventNetworkCoordinator(
         repository.loadQueue(clock()).whenComplete { queue, failure ->
             if (failure == null && queue != null) {
                 queueSize = queue.count { it.state == ru.ruscrafting.events.network.QueueState.QUEUED }
-                repository.publish(EventNetworkMessage.create(EventNetworkSignal.QUEUE_CHANGED, queueSize = queueSize))
+                publish(EventNetworkMessage.create(EventNetworkSignal.QUEUE_CHANGED, queueSize = queueSize))
             }
         }
         refreshNodes()
@@ -573,44 +590,28 @@ class EventNetworkCoordinator(
     private fun refreshNodes() {
         val current = settings()
         val leaseMillis = current.network.heartbeatStaleSeconds * 1_000L
-        val directory = directoryFor(leaseMillis)
-        repository.loadNodes().whenComplete { loaded, failure ->
-            if (failure != null || loaded == null) return@whenComplete
-            val now = clock()
-            loaded.asSequence()
-                .filter { it.heartbeatAtMs <= now + FUTURE_SKEW_MS }
-                .forEach { node ->
-                    directory.observe(
-                        key = node.serverId,
-                        origin = node.serverId,
-                        value = node,
-                        observedAtMillis = node.heartbeatAtMs,
-                    )
-                }
-            nodes = directory.snapshot().map { it.value }.sortedBy(HostNode::serverId)
+        val presence = requireNotNull(nodePresence)
+        if (leaseMillis != nodePresenceLeaseMillis) {
+            nodePresenceLeaseMillis = leaseMillis
+            presence.updateLeaseMillis(leaseMillis)
+        }
+        presence.refresh().whenComplete { refreshed, failure ->
+            if (failure != null || refreshed == null) return@whenComplete
+            nodes = refreshed.values.sortedBy(HostNode::serverId)
+            if (refreshed.rejected.isNotEmpty()) {
+                debug.event("node_presence_rejected", "reasons" to refreshed.rejected)
+            }
         }
     }
-
-    @Synchronized
-    private fun directoryFor(leaseMillis: Long): LeasedNetworkDirectory<String, HostNode> {
-        if (leaseMillis != nodeDirectoryLeaseMillis) {
-            nodeDirectoryLeaseMillis = leaseMillis
-            nodeDirectory = newNodeDirectory(leaseMillis)
-        }
-        return nodeDirectory
-    }
-
-    private fun newNodeDirectory(leaseMillis: Long): LeasedNetworkDirectory<String, HostNode> =
-        LeasedNetworkDirectory(leaseMillis = leaseMillis, maxEntries = MAX_NETWORK_NODES, clock = clock)
 
     /** Constant-time in-memory gauge safe for runtime health sampling. */
-    fun activeLeaseCount(): Int = nodeDirectory.size()
+    fun activeLeaseCount(): Int = nodePresence?.activeLeaseCount() ?: 0
 
     private fun heartbeat() {
         val current = settings()
         val (matchId, phase) = matchState()
         val arenaReady = arenaReady()
-        repository.saveNode(
+        requireNotNull(nodePresence).publish(
             HostNode(
                 serverId = current.serverId,
                 mode = current.nodeMode.name,
@@ -629,25 +630,19 @@ class EventNetworkCoordinator(
         started = false
         tasks.forEach(ScheduledTask::cancel)
         tasks.clear()
-        eventBus?.close()
-        eventBus = null
-        nodeDirectory.clear()
+        eventChannel?.close()
+        eventChannel = null
+        nodePresence?.close()
+        nodePresence = null
         nodes = emptyList()
-        pendingStartTimeouts.values.forEach(ScheduledTask::cancel)
-        pendingStartTimeouts.clear()
-        pendingStarts.values.forEach { it.complete(ReservationStartResult.NETWORK_FAILURE) }
-        pendingStarts.clear()
         startInFlight.set(false)
     }
 
     companion object {
         private const val MESSAGE_MAX_AGE_MS = 15 * 60 * 1_000L
         private const val FUTURE_SKEW_MS = 60_000L
-        private const val MAX_PENDING_STARTS = 32
-        private const val START_REQUEST_TIMEOUT_TICKS = 12L * 20L
         private const val START_MESSAGE_MAX_AGE_MS = 10_000L
         private const val START_FUTURE_SKEW_MS = 2_000L
-        private const val MAX_NETWORK_NODES = 1_024
         private val START_SIGNALS = setOf(EventNetworkSignal.START_REQUEST, EventNetworkSignal.START_RESULT)
     }
 }

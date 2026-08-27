@@ -2,11 +2,15 @@ package ru.ruscrafting.events.network
 
 import com.google.gson.Gson
 import ru.arc.redis.RedisOperations
+import ru.arc.redis.network.RedisPresenceDirectory
+import ru.arc.redis.network.RedisReplayPolicy
+import ru.arc.redis.network.RedisReplyRejection
+import ru.arc.redis.network.RedisRequestReplyChannel
+import ru.arc.redis.network.RedisRequestTimeoutScheduler
+import ru.arc.redis.network.ArcTaskRedisRequestTimeoutScheduler
 import ru.arc.redis.safety.BoundedJsonCodec
 import ru.arc.redis.safety.JsonObjectContract
 import ru.arc.redis.safety.JsonResourceBounds
-import ru.arc.redis.safety.OriginBoundRedisBus
-import ru.arc.redis.safety.RecentMessageDeduplicator
 import ru.arc.redis.safety.RedisHashConsumeResult
 import ru.arc.redis.safety.RedisHashDecision
 import ru.arc.redis.safety.RedisHashUpdateResult
@@ -32,31 +36,46 @@ class RedisEventNetworkRepository(
     private val queue = RedisHashUpdater(redis, QUEUE_KEY, queueCodec, MAX_CAS_ATTEMPTS)
     private val stats = RedisHashUpdater(redis, STATS_KEY, statsCodec, MAX_CAS_ATTEMPTS)
 
-    fun register(
+    fun openMessages(
         originAllowed: (String) -> Boolean,
+        replyAllowed: (request: EventNetworkMessage, reply: EventNetworkMessage, origin: String) -> Boolean,
+        timeoutScheduler: RedisRequestTimeoutScheduler = ArcTaskRedisRequestTimeoutScheduler,
+        onReplyRejected: (RedisReplyRejection) -> Unit = {},
         listener: (EventNetworkMessage, String) -> Unit,
-    ): OriginBoundRedisBus<EventNetworkMessage> = OriginBoundRedisBus(
+    ): RedisRequestReplyChannel<EventNetworkMessage> = RedisRequestReplyChannel(
         redis = redis,
         channel = EVENT_CHANNEL,
         codec = messageCodec,
         originAllowed = originAllowed,
-        messageId = EventNetworkMessage::eventId,
-        deduplicator = RecentMessageDeduplicator(MESSAGE_DEDUPLICATION_MS, MAX_SEEN_MESSAGES),
+        requestId = EventNetworkMessage::eventId,
+        replyTo = EventNetworkMessage::replyTo,
+        replyAllowed = replyAllowed,
+        timeoutMillis = START_REQUEST_TIMEOUT_MS,
+        maxPending = MAX_PENDING_STARTS,
+        timeoutScheduler = timeoutScheduler,
+        replay = RedisReplayPolicy(EventNetworkMessage::eventId, MESSAGE_DEDUPLICATION_MS, MAX_SEEN_MESSAGES),
         onMessage = listener,
-    ).also(OriginBoundRedisBus<EventNetworkMessage>::register)
+        onReplyRejected = onReplyRejected,
+    )
 
-    fun publish(message: EventNetworkMessage) {
-        redis.publish(EVENT_CHANNEL, messageCodec.encode(message.validated()))
-    }
-
-    fun saveNode(node: HostNode): CompletableFuture<*> =
-        redis.saveMapEntries(NODES_KEY, node.serverId, nodeCodec.encode(node.validated()))
-
-    fun loadNodes(): CompletableFuture<List<HostNode>> =
-        redis.loadMap(NODES_KEY).thenApply { values ->
-            values.values.map(nodeCodec::decode)
-                .sortedBy(HostNode::serverId)
-        }
+    fun openNodes(
+        originAllowed: (String) -> Boolean,
+        entryAllowed: (HostNode) -> Boolean,
+        leaseMillis: Long,
+        clockMillis: () -> Long = System::currentTimeMillis,
+    ): RedisPresenceDirectory<HostNode> = RedisPresenceDirectory(
+        redis = redis,
+        hashKey = NODES_KEY,
+        codec = nodeCodec,
+        entryId = HostNode::serverId,
+        origin = HostNode::serverId,
+        observedAtMillis = HostNode::heartbeatAtMs,
+        originAllowed = originAllowed,
+        entryAllowed = entryAllowed,
+        leaseMillis = leaseMillis,
+        maxEntries = MAX_NETWORK_NODES,
+        clockMillis = clockMillis,
+    )
 
     fun joinQueue(
         playerId: UUID,
@@ -327,6 +346,9 @@ class RedisEventNetworkRepository(
         private const val MAX_CLEANUP = 256
         private const val MESSAGE_DEDUPLICATION_MS = 15L * 60L * 1_000L
         private const val MAX_SEEN_MESSAGES = 20_000
+        private const val START_REQUEST_TIMEOUT_MS = 12_000L
+        private const val MAX_PENDING_STARTS = 32
+        private const val MAX_NETWORK_NODES = 1_024
         private val QUEUE_FIELDS = setOf(
             "playerId", "playerName", "originServer", "mode", "state", "joinedAtMs", "expiresAtMs", "matchId",
             "destinationServer",

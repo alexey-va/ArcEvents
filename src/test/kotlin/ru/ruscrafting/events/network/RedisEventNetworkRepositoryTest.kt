@@ -127,8 +127,14 @@ class RedisEventNetworkRepositoryTest : StringSpec({
 
     "host heartbeat repository returns validated advertisements and statistics update by CAS" {
         val repository = RedisEventNetworkRepository(InMemoryRedis())
-        repository.saveNode(HostNode("parkour", "HOST", true, true, null, null, 4, 16, 10_000)).join()
-        repository.loadNodes().join().map(HostNode::serverId) shouldBe listOf("parkour")
+        val presence = repository.openNodes(
+            originAllowed = { true },
+            entryAllowed = { true },
+            leaseMillis = 60_000,
+            clockMillis = { 10_000 },
+        )
+        presence.publish(HostNode("parkour", "HOST", true, true, null, null, 4, 16, 10_000)).join()
+        presence.refresh().join().values.map(HostNode::serverId) shouldBe listOf("parkour")
 
         val participant = TttParticipant(uuid(9), "Player9", "spawn", TttRole.TRAITOR, ParticipantStatus.DEAD, 0, 2, 1)
         val matchId = uuid(900)
@@ -137,6 +143,7 @@ class RedisEventNetworkRepositoryTest : StringSpec({
         update.after.matches shouldBe 1
         repository.loadStats(uuid(9)).join() shouldBe update.after
         repository.updateStats(uuid(9)) { it.record(matchId, participant, TttTeam.TRAITORS) }.join().after shouldBe update.after
+        presence.close()
     }
 
     "legacy statistics JSON remains compatible without an idempotency field" {
@@ -154,9 +161,12 @@ class RedisEventNetworkRepositoryTest : StringSpec({
         val redis = InMemoryRedis(ServerIdentity { "spawn" })
         val repository = RedisEventNetworkRepository(redis)
         var received: Pair<EventNetworkMessage, String>? = null
-        val bus = repository.register(originAllowed = { it == "spawn" }) { message, origin -> received = message to origin }
+        val bus = repository.openMessages(
+            originAllowed = { it == "spawn" },
+            replyAllowed = { _, _, _ -> true },
+        ) { message, origin -> received = message to origin }
         val message = EventNetworkMessage.create(EventNetworkSignal.QUEUE_CHANGED, nowMs = 1_000, queueSize = 4)
-        repository.publish(message)
+        bus.publish(message)
         received shouldBe (message to "spawn")
         bus.close()
     }
@@ -165,10 +175,13 @@ class RedisEventNetworkRepositoryTest : StringSpec({
         val redis = InMemoryRedis(ServerIdentity { "spawn" })
         val repository = RedisEventNetworkRepository(redis)
         val received = mutableListOf<Pair<EventNetworkMessage, String>>()
-        val bus = repository.register(originAllowed = { it == "survival" }) { message, origin -> received += message to origin }
+        val bus = repository.openMessages(
+            originAllowed = { it == "survival" },
+            replyAllowed = { _, _, _ -> true },
+        ) { message, origin -> received += message to origin }
         val message = EventNetworkMessage.create(EventNetworkSignal.QUEUE_CHANGED, nowMs = 1_000, queueSize = 4)
 
-        repository.publish(message)
+        bus.publish(message)
         val raw = redis.getPublishedMessages().single().message
         redis.simulateExternalMessage(RedisEventNetworkRepository.EVENT_CHANNEL, raw, "evil")
         redis.simulateExternalMessage(RedisEventNetworkRepository.EVENT_CHANNEL, "{not-json", "survival")
