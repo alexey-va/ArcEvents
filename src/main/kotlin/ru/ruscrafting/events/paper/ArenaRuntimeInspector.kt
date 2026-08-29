@@ -23,21 +23,24 @@ class ArenaRuntimeInspector(private val plugin: Plugin) {
 
     @Suppress("DEPRECATION")
     fun ready(arena: ArenaSettings, maximumPlayers: Int): Boolean {
-        if (!arena.operational(maximumPlayers)) return false
+        if (!arena.enabled || arena.spawns.size < maximumPlayers) return false
+        val lobby = arena.lobby ?: return false
+        val spectator = arena.spectator ?: return false
         val world = plugin.server.getWorld(arena.world) ?: return false
         if (world.getGameRuleValue(GameRules.PVP) != true) return false
-        val points = buildList {
-            add(requireNotNull(arena.lobby))
-            add(requireNotNull(arena.spectator))
-            addAll(arena.spawns.take(maximumPlayers))
+        if (!ready(lobby) || !ready(spectator)) return false
+        for (index in 0 until maximumPlayers) {
+            if (!ready(arena.spawns[index])) return false
         }
-        return points.all { point ->
-            val location = point.bukkitLocation() ?: return@all false
-            val feet = location.block
-            val head = feet.getRelative(0, 1, 0)
-            val floor = feet.getRelative(0, -1, 0)
-            feet.isPassable && head.isPassable && floor.type.isSolid && worldGuard?.allowed(location) != false
-        }
+        return true
+    }
+
+    private fun ready(point: EventLocation): Boolean {
+        val location = point.bukkitLocation() ?: return false
+        val feet = location.block
+        val head = feet.getRelative(0, 1, 0)
+        val floor = feet.getRelative(0, -1, 0)
+        return feet.isPassable && head.isPassable && floor.type.isSolid && worldGuard?.allowed(location) != false
     }
 
     private fun EventLocation.bukkitLocation(): Location? = plugin.server.getWorld(world)?.let { loaded ->

@@ -49,6 +49,11 @@ dependencies {
 }
 
 tasks {
+    withType<Test>().configureEach {
+        // MockK/ByteBuddy must attach inside the forked JVM on JDK 25. Without this,
+        // the external helper can hang and leave an orphan Gradle Test Executor.
+        jvmArgs("-Djdk.attach.allowAttachSelf=true")
+    }
     withType<AbstractArchiveTask>().configureEach {
         isPreserveFileTimestamps = false
         isReproducibleFileOrder = true

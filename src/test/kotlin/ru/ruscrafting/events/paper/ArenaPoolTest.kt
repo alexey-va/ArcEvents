@@ -45,6 +45,57 @@ class ArenaPoolTest : StringSpec({
             root.toFile().deleteRecursively()
         }
     }
+
+    "availability stops after the first ready arena" {
+        val root = Files.createTempDirectory("arcevents-pool-availability-")
+        try {
+            Files.writeString(root.resolve("config.yml"), hostConfig())
+            val config = ArcEventsConfig.inspect(root)
+            val inspected = mutableListOf<String>()
+            val pool = ArenaPool({ config }) { arena, _ ->
+                inspected += arena.id
+                arena.id == "alpha"
+            }
+
+            pool.anyReady() shouldBe true
+            inspected shouldBe listOf("alpha")
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    "availability reuses a recent runtime inspection" {
+        val root = Files.createTempDirectory("arcevents-pool-availability-cache-")
+        try {
+            Files.writeString(root.resolve("config.yml"), hostConfig())
+            val config = ArcEventsConfig.inspect(root)
+            val inspected = mutableListOf<String>()
+            var current = config
+            var now = 1_000L
+            val pool = ArenaPool(
+                settings = { current },
+                ready = { arena, _ ->
+                    inspected += arena.id
+                    arena.id == "alpha"
+                },
+                clock = { now },
+            )
+
+            pool.anyReady() shouldBe true
+            pool.anyReady() shouldBe true
+            inspected shouldBe listOf("alpha")
+
+            current = ArcEventsConfig.inspect(root)
+            pool.anyReady() shouldBe true
+            inspected shouldBe listOf("alpha", "alpha")
+
+            now += 5 * 60_000L
+            pool.anyReady() shouldBe true
+            inspected shouldBe listOf("alpha", "alpha", "alpha")
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
 }) {
     companion object {
         private fun hostConfig(): String {

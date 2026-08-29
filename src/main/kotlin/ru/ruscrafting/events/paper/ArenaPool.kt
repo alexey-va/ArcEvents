@@ -16,14 +16,30 @@ data class ArenaPoolEntry(
 /** Owns the single-match arena lease and the one-shot administrator override. */
 class ArenaPool(
     private val settings: () -> ArcEventsConfig,
+    private val clock: () -> Long = System::currentTimeMillis,
     private val ready: (ArenaSettings, Int) -> Boolean,
 ) {
     private var activeMatchId: UUID? = null
     private var activeArenaId: String? = null
     private var nextArenaId: String? = null
+    private var availabilitySettings: ArcEventsConfig? = null
+    private var availabilityCheckedAt: Long? = null
+    private var availabilityReady = false
 
     @Synchronized
-    fun anyReady(): Boolean = readyArenas().isNotEmpty()
+    fun anyReady(): Boolean {
+        val current = settings()
+        val now = clock()
+        val checkedAt = availabilityCheckedAt
+        if (
+            availabilitySettings === current && checkedAt != null && now >= checkedAt &&
+            now - checkedAt < AVAILABILITY_CACHE_MILLIS
+        ) return availabilityReady
+        val maximumPlayers = current.ttt.maximumPlayers
+        return current.arenas.any { ready(it, maximumPlayers) }.also { available ->
+            cacheAvailability(current, now, available)
+        }
+    }
 
     @Synchronized
     fun active(): ArenaSettings? = activeArenaId?.let(::configured)
@@ -86,9 +102,22 @@ class ArenaPool(
     }
 
     private fun readyArenas(): List<ArenaSettings> {
-        val maximumPlayers = settings().ttt.maximumPlayers
-        return settings().arenas.filter { ready(it, maximumPlayers) }.sortedBy(ArenaSettings::id)
+        val current = settings()
+        val maximumPlayers = current.ttt.maximumPlayers
+        return current.arenas.filter { ready(it, maximumPlayers) }.sortedBy(ArenaSettings::id).also { arenas ->
+            cacheAvailability(current, clock(), arenas.isNotEmpty())
+        }
     }
 
     private fun configured(id: String): ArenaSettings? = settings().arenas.firstOrNull { it.id == id.lowercase() }
+
+    private fun cacheAvailability(current: ArcEventsConfig, checkedAt: Long, available: Boolean) {
+        availabilitySettings = current
+        availabilityCheckedAt = checkedAt
+        availabilityReady = available
+    }
+
+    private companion object {
+        const val AVAILABILITY_CACHE_MILLIS = 30_000L
+    }
 }
