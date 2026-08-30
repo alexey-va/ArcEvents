@@ -55,6 +55,7 @@ interface ArcEventsGameplayBoundary {
     fun recordDamage(victim: Player, attacker: Player?, finalDamage: Double, lethal: Boolean)
     fun phase(): MatchPhase?
     fun isAlive(playerId: UUID): Boolean
+    fun useTraitorBlade(attacker: Player, victim: Player): Boolean
     fun eliminate(player: Player, killerId: UUID? = null)
     fun registerProjectile(projectile: Projectile): Boolean
     fun projectileMatchId(projectile: Projectile): UUID?
@@ -109,6 +110,10 @@ class ArcEventsListener(
                 projectileMatchId = projectile?.let(service::projectileMatchId),
             )
         ) {
+            event.isCancelled = true
+            return
+        }
+        if (attacker != null && service.useTraitorBlade(attacker, victim)) {
             event.isCancelled = true
             return
         }

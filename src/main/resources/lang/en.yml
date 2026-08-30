@@ -217,9 +217,10 @@ menu:
     credits-lore:
       - '<#8c8c8c>Available: <#e3b341><credits>'
       - '<#f2f0e6>Purchases last until the round ends.'
-    traitor-blade-name: '<#d84a4a><bold>Traitor Blade'
+    traitor-blade-name: '<#d84a4a><bold>Single-use knife'
     traitor-blade-lore:
-      - '<#f2f0e6>A heavy concealed melee weapon.'
+      - '<#f2f0e6>Instantly eliminates a player on hit.'
+      - '<#f2f0e6>Disappears after a successful strike.'
       - ''
       - '<#8c8c8c>Cost: <#e3b341>2 credits'
     traitor-radar-name: '<#d84a4a><bold>Radar'
@@ -549,7 +550,7 @@ weapon:
     firearm-m1_garand: '<#f2f0e6>M1 Garand'
     firearm-vss_vintorez: '<#f2f0e6>VSS Vintorez'
     firearm-mcmillan: '<#f2f0e6>McMillan'
-    traitor-blade: '<#d84a4a>traitor blade'
+    traitor-blade: '<#d84a4a>single-use knife'
     melee: '<#f2f0e6>melee'
     environment: '<#8c8c8c>environment'
 

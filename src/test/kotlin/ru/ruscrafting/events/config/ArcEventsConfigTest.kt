@@ -30,17 +30,18 @@ class ArcEventsConfigTest : StringSpec({
             config.ui.lootDisplays shouldBe true
             config.ui.nameplates shouldBe NameplateSettings(
                 enabled = true,
-                reconcilePeriodTicks = 4L,
+                reconcilePeriodTicks = 2L,
                 maxDistance = 32.0,
                 lineWidth = 180,
                 viewRange = 0.5,
-                scale = 0.8,
+                scale = 0.95,
                 verticalOffset = 0.55,
-                shadowed = true,
-                background = NameplateBackgroundSettings(0, 0, 0, 0),
+                shadowed = false,
+                background = NameplateBackgroundSettings(80, 11, 15, 18),
                 hideInvisibleTargets = true,
                 hideSpectatorTargets = true,
                 requireLineOfSight = true,
+                minimumViewAlignment = 0.5,
                 healthPriority = 200,
                 summaryPriority = 100,
             )
@@ -60,7 +61,7 @@ class ArcEventsConfigTest : StringSpec({
             val current = ArcEventsConfig.load(root)
             val original = Files.readString(root.resolve("config.yml"))
 
-            Files.writeString(root.resolve("config.yml"), original.replace("scale: 0.8", "scale: 0.7"))
+            Files.writeString(root.resolve("config.yml"), original.replace("scale: 0.95", "scale: 0.7"))
             val nameplateCandidate = ArcEventsConfig.inspect(root)
             shouldNotThrowAny {
                 ArcEventsReloadPolicy.validate(current, nameplateCandidate, matchOrReservationActive = true)
@@ -96,6 +97,10 @@ class ArcEventsConfigTest : StringSpec({
             Files.writeString(root.resolve("config.yml"), original.replace("vertical-offset: 0.55", "vertical-offset: 8.0"))
             shouldThrow<IllegalArgumentException> { ArcEventsConfig.inspect(root) }
                 .message shouldBe "ui.nameplates.vertical-offset must be between -2 and 4"
+
+            Files.writeString(root.resolve("config.yml"), original.replace("minimum-view-alignment: 0.5", "minimum-view-alignment: 1.5"))
+            shouldThrow<IllegalArgumentException> { ArcEventsConfig.inspect(root) }
+                .message shouldBe "ui.nameplates.minimum-view-alignment must be between -1 and 1"
         } finally {
             root.toFile().deleteRecursively()
         }

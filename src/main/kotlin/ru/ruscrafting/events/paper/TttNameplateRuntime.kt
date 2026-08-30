@@ -16,7 +16,7 @@ class TttNameplateRuntime(
     private val statistics: (UUID) -> PlayerEventStats,
     private val onlinePlayer: (UUID) -> Player?,
     private val currentMatch: () -> TttMatch?,
-    private val rendererFactory: (PaperNameplateOptions) -> PaperPlayerNameplates,
+    private val rendererFactory: (PaperNameplateOptions, Double) -> PaperPlayerNameplates,
 ) : AutoCloseable {
     private var renderer: PaperPlayerNameplates? = null
     private var rows: TttNameplates? = null
@@ -29,7 +29,7 @@ class TttNameplateRuntime(
             return
         }
 
-        val candidateRenderer = rendererFactory(settings.toPaperOptions())
+        val candidateRenderer = rendererFactory(settings.toPaperOptions(), settings.minimumViewAlignment)
         val candidateRows = TttNameplates(
             registry = candidateRenderer.registry,
             locale = locale,

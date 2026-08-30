@@ -54,8 +54,9 @@ class TttNameplateRuntimeTest : StringSpec({
             statistics = { PlayerEventStats(matches = 3, wins = 1, karma = 900) },
             onlinePlayer = { player },
             currentMatch = { match },
-            rendererFactory = { candidate ->
+            rendererFactory = { candidate, minimumViewAlignment ->
                 options += candidate
+                minimumViewAlignment shouldBe 0.5
                 renderers.removeFirst()
             },
         )
@@ -95,6 +96,7 @@ class TttNameplateRuntimeTest : StringSpec({
             hideInvisibleTargets = true,
             hideSpectatorTargets = true,
             requireLineOfSight = true,
+            minimumViewAlignment = 0.5,
             healthPriority = 200,
             summaryPriority = 100,
         )

@@ -217,9 +217,10 @@ menu:
     credits-lore:
       - '<#8c8c8c>Доступно: <#e3b341><credits>'
       - '<#f2f0e6>Покупки действуют до конца раунда.'
-    traitor-blade-name: '<#d84a4a><bold>Клинок предателя'
+    traitor-blade-name: '<#d84a4a><bold>Одноразовый нож'
     traitor-blade-lore:
-      - '<#f2f0e6>Тяжёлый скрытый клинок ближнего боя.'
+      - '<#f2f0e6>Мгновенно устраняет игрока при попадании.'
+      - '<#f2f0e6>Исчезает после успешного удара.'
       - ''
       - '<#8c8c8c>Цена: <#e3b341>2 кредита'
     traitor-radar-name: '<#d84a4a><bold>Радар'
@@ -549,7 +550,7 @@ weapon:
     firearm-m1_garand: '<#f2f0e6>M1 Garand'
     firearm-vss_vintorez: '<#f2f0e6>ВСС «Винторез»'
     firearm-mcmillan: '<#f2f0e6>McMillan'
-    traitor-blade: '<#d84a4a>клинок предателя'
+    traitor-blade: '<#d84a4a>одноразовый нож'
     melee: '<#f2f0e6>ближний бой'
     environment: '<#8c8c8c>окружение'
 

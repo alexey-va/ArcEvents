@@ -12,6 +12,7 @@ import ru.arc.paper.nameplate.NativePaperNameplateVisibilityPolicy
 import ru.arc.paper.nameplate.PaperNameplateOptions
 import ru.arc.paper.nameplate.PaperNameplateVisibilityPolicy
 import ru.arc.paper.nameplate.PaperPlayerNameplates
+import ru.arc.paper.nameplate.ViewAlignedPaperNameplateVisibilityPolicy
 import ru.arc.paper.runtime.PaperPluginRuntime
 import ru.arc.observability.RuntimeHealthContribution
 import ru.arc.observability.RuntimeHealthState
@@ -111,7 +112,7 @@ class ArcEventsPlugin : JavaPlugin() {
                 statistics = coordinator::stats,
                 onlinePlayer = server::getPlayer,
                 currentMatch = { service?.currentMatch() },
-                rendererFactory = { options -> openNameplateRenderer(options) },
+                rendererFactory = ::openNameplateRenderer,
             )).also { nameplates = it }
             nameplateRuntime.reconfigure(settings.ui.nameplates)
             val hud = TttHud(this, { settings }, locale, nameplateRuntime)
@@ -223,8 +224,14 @@ class ArcEventsPlugin : JavaPlugin() {
         Unit
     }.onFailure { logger.log(Level.WARNING, "ArcEvents reload was rejected", it) }
 
-    private fun openNameplateRenderer(options: PaperNameplateOptions): PaperPlayerNameplates {
-        val nativeVisibility = NativePaperNameplateVisibilityPolicy(options)
+    private fun openNameplateRenderer(
+        options: PaperNameplateOptions,
+        minimumViewAlignment: Double,
+    ): PaperPlayerNameplates {
+        val nativeVisibility = ViewAlignedPaperNameplateVisibilityPolicy(
+            NativePaperNameplateVisibilityPolicy(options),
+            minimumViewAlignment,
+        )
         return PaperPlayerNameplates.open(
             plugin = this,
             options = options,

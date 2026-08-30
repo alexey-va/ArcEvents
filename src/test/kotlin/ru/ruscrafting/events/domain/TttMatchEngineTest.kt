@@ -74,7 +74,7 @@ class TttMatchEngineTest : StringSpec({
         finished.participant(killer.playerId)?.kills shouldBe 1
     }
 
-    "traitors win as soon as they reach parity" {
+    "traitors must eliminate the entire innocent team instead of winning at parity" {
         val engine = TttMatchEngine(4, 16, 60_000)
         var active = activeMatch(4, allocation)
         val traitor = active.participants.values.single { it.role == TttRole.TRAITOR }
@@ -83,7 +83,10 @@ class TttMatchEngineTest : StringSpec({
         first.second shouldBe MatchOutcome.Continue
         active = first.first
         val second = engine.eliminate(active, victims[1].playerId, traitor.playerId)
-        second.second shouldBe MatchOutcome.Finished(TttTeam.TRAITORS, MatchEndReason.ELIMINATION)
+        second.second shouldBe MatchOutcome.Continue
+        active = second.first
+        val final = engine.eliminate(active, victims[2].playerId, traitor.playerId)
+        final.second shouldBe MatchOutcome.Finished(TttTeam.TRAITORS, MatchEndReason.ELIMINATION)
     }
 
     "friendly eliminations are tracked and reduce karma" {

@@ -239,7 +239,7 @@ class TttMatchEngine(
         val innocents = alive.size - traitors
         return when {
             traitors == 0 -> MatchOutcome.Finished(TttTeam.INNOCENTS, MatchEndReason.ELIMINATION)
-            traitors >= innocents -> MatchOutcome.Finished(TttTeam.TRAITORS, MatchEndReason.ELIMINATION)
+            innocents == 0 -> MatchOutcome.Finished(TttTeam.TRAITORS, MatchEndReason.ELIMINATION)
             else -> MatchOutcome.Continue
         }
     }

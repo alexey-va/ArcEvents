@@ -128,6 +128,7 @@ data class NameplateSettings(
     val hideInvisibleTargets: Boolean,
     val hideSpectatorTargets: Boolean,
     val requireLineOfSight: Boolean,
+    val minimumViewAlignment: Double,
     val healthPriority: Int,
     val summaryPriority: Int,
 )
@@ -246,6 +247,7 @@ class ArcEventsConfig(private val config: Config) {
                 hideInvisibleTargets = config.bool("ui.nameplates.hide-invisible-targets", true),
                 hideSpectatorTargets = config.bool("ui.nameplates.hide-spectator-targets", true),
                 requireLineOfSight = config.bool("ui.nameplates.require-line-of-sight", true),
+                minimumViewAlignment = config.double("ui.nameplates.minimum-view-alignment", 0.5),
                 healthPriority = config.int("ui.nameplates.layers.health-priority", 200),
                 summaryPriority = config.int("ui.nameplates.layers.summary-priority", 100),
             ),
@@ -335,6 +337,9 @@ class ArcEventsConfig(private val config: Config) {
         }
         require(nameplates.verticalOffset.isFinite() && nameplates.verticalOffset in -2.0..4.0) {
             "ui.nameplates.vertical-offset must be between -2 and 4"
+        }
+        require(nameplates.minimumViewAlignment.isFinite() && nameplates.minimumViewAlignment in -1.0..1.0) {
+            "ui.nameplates.minimum-view-alignment must be between -1 and 1"
         }
         require(listOf(
             nameplates.background.alpha,

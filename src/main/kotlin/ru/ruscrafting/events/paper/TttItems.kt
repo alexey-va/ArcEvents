@@ -5,7 +5,6 @@ import net.kyori.adventure.text.format.TextDecoration
 import org.bukkit.Color
 import org.bukkit.Material
 import org.bukkit.NamespacedKey
-import org.bukkit.enchantments.Enchantment
 import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemFlag
 import org.bukkit.inventory.ItemStack
@@ -49,7 +48,7 @@ class TttItems(
     private val matchIdKey = NamespacedKey(plugin, "match_id")
 
     val traitorOffers = listOf(
-        ShopOffer(EventItemKind.TRAITOR_BLADE, Material.NETHERITE_SWORD, 2, "menu.shop.traitor-blade-name", "menu.shop.traitor-blade-lore"),
+        ShopOffer(EventItemKind.TRAITOR_BLADE, Material.IRON_SWORD, 2, "menu.shop.traitor-blade-name", "menu.shop.traitor-blade-lore"),
         ShopOffer(EventItemKind.TRAITOR_RADAR, Material.COMPASS, 1, "menu.shop.traitor-radar-name", "menu.shop.traitor-radar-lore"),
         ShopOffer(EventItemKind.TRAITOR_SMOKE, Material.FIREWORK_STAR, 1, "menu.shop.traitor-smoke-name", "menu.shop.traitor-smoke-lore"),
     )
@@ -109,12 +108,7 @@ class TttItems(
 
     fun purchasedItem(kind: EventItemKind, player: Player, matchId: String): ItemStack {
         val offer = (traitorOffers + detectiveOffers).first { it.kind == kind }
-        val item = offerItem(offer, player, matchId)
-        if (kind == EventItemKind.TRAITOR_BLADE) {
-            item.addUnsafeEnchantment(Enchantment.SHARPNESS, 3)
-            item.editMeta { it.addItemFlags(ItemFlag.HIDE_ENCHANTS) }
-        }
-        return item
+        return offerItem(offer, player, matchId)
     }
 
     fun roundReport(player: Player, matchId: String): ItemStack = tagged(

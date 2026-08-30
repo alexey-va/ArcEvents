@@ -508,6 +508,26 @@ class ArcEventsService(
         return current.phase != MatchPhase.ACTIVE
     }
 
+    override fun useTraitorBlade(attacker: Player, victim: Player): Boolean {
+        val current = match ?: return false
+        val attackerState = current.participant(attacker.uniqueId) ?: return false
+        val victimState = current.participant(victim.uniqueId) ?: return false
+        val held = attacker.inventory.itemInMainHand
+        if (current.phase != MatchPhase.ACTIVE ||
+            attackerState.status != ParticipantStatus.ALIVE ||
+            attackerState.role != TttRole.TRAITOR ||
+            victimState.status != ParticipantStatus.ALIVE ||
+            items.kind(held) != EventItemKind.TRAITOR_BLADE ||
+            !items.belongsTo(held, current.matchId.toString())
+        ) return false
+
+        runtime.recordAttack(victim.uniqueId, attacker.uniqueId)
+        recordDamage(victim, attacker, victim.health.coerceAtLeast(0.1), lethal = true)
+        consumeMainHand(attacker)
+        eliminate(victim, attacker.uniqueId)
+        return true
+    }
+
     override fun eliminate(player: Player, killerId: UUID?) {
         val current = match ?: return
         if (current.phase != MatchPhase.ACTIVE || current.participant(player.uniqueId)?.status != ParticipantStatus.ALIVE) return

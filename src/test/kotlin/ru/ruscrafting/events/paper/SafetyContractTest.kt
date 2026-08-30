@@ -18,6 +18,7 @@ import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.block.Action
 import org.bukkit.event.entity.ProjectileLaunchEvent
+import org.bukkit.event.entity.EntityDamageByEntityEvent
 import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.event.player.PlayerSwapHandItemsEvent
 import org.bukkit.event.server.BroadcastMessageEvent
@@ -115,6 +116,30 @@ class SafetyContractTest : StringSpec({
 
         verify(exactly = 1) { service.shouldCancelDamage(playerId, null, false, null) }
         verify(exactly = 1) { event.isCancelled = true }
+    }
+
+    "a valid traitor blade hit is consumed by the special-item path" {
+        val service = mockk<ArcEventsGameplayBoundary>(relaxed = true)
+        val attacker = mockk<Player>()
+        val victim = mockk<Player>()
+        val attackerId = UUID.randomUUID()
+        val victimId = UUID.randomUUID()
+        every { attacker.uniqueId } returns attackerId
+        every { victim.uniqueId } returns victimId
+        every { victim.location } returns mockk()
+        every { service.isParticipant(victimId) } returns true
+        every { service.shouldCancelDamage(victimId, attackerId, false, null) } returns false
+        every { service.useTraitorBlade(attacker, victim) } returns true
+        val event = mockk<EntityDamageByEntityEvent>(relaxed = true)
+        every { event.entity } returns victim
+        every { event.damager } returns attacker
+
+        ArcEventsListener(service, mockk(), mockk()).onDamage(event)
+
+        verify(exactly = 1) { service.useTraitorBlade(attacker, victim) }
+        verify(exactly = 1) { event.isCancelled = true }
+        verify(exactly = 0) { service.damageMultiplier(any()) }
+        verify(exactly = 0) { service.recordDamage(any(), any(), any(), any()) }
     }
 
     "admin participants still register match projectiles" {
