@@ -100,7 +100,7 @@ class EventNetworkCoordinator(
     fun join(player: Player) {
         val current = settings()
         if (!hostAvailable()) {
-            player.sendMessage(locale.render("queue.unavailable", player))
+            player.sendEventMessage(locale.render("queue.unavailable", player))
             return
         }
         repository.joinQueue(
@@ -114,13 +114,13 @@ class EventNetworkCoordinator(
                 if (!started || !player.isOnline) return@runSync
                 if (failure != null) {
                     plugin.logger.log(Level.WARNING, "ArcEvents queue join failed", failure)
-                    player.sendMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.network", player))))
+                    player.sendEventMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.network", player))))
                     return@runSync
                 }
                 when (result) {
                     is QueueJoinResult.Joined -> sendJoinedMessage(player, current)
-                    is QueueJoinResult.Existing -> player.sendMessage(locale.render("queue.already", player))
-                    QueueJoinResult.Contended -> player.sendMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.contended", player))))
+                    is QueueJoinResult.Existing -> player.sendEventMessage(locale.render("queue.already", player))
+                    QueueJoinResult.Contended -> player.sendEventMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.contended", player))))
                     null -> Unit
                 }
             }
@@ -139,7 +139,7 @@ class EventNetworkCoordinator(
                 } else {
                     queueSize + 1
                 }.coerceIn(1, current.ttt.maximumPlayers)
-                player.sendMessage(locale.render("queue.joined", player, mapOf(
+                player.sendEventMessage(locale.render("queue.joined", player, mapOf(
                     "queue" to locale.text(displaySize),
                     "minimum" to locale.text(current.ttt.minimumPlayers),
                 )))
@@ -153,17 +153,17 @@ class EventNetworkCoordinator(
             Tasks.scheduler.runSync {
                 if (!started || !player.isOnline) return@runSync
                 if (failure != null) {
-                    player.sendMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.network", player))))
+                    player.sendEventMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.network", player))))
                     return@runSync
                 }
                 when (result) {
                     QueueLeaveResult.Left -> {
-                        player.sendMessage(locale.render("queue.left", player))
+                        player.sendEventMessage(locale.render("queue.left", player))
                         refresh()
                     }
-                    QueueLeaveResult.Missing -> player.sendMessage(locale.render("queue.not-queued", player))
-                    is QueueLeaveResult.Reserved -> player.sendMessage(locale.render("queue.leave-reserved", player))
-                    QueueLeaveResult.Contended -> player.sendMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.contended", player))))
+                    QueueLeaveResult.Missing -> player.sendEventMessage(locale.render("queue.not-queued", player))
+                    is QueueLeaveResult.Reserved -> player.sendEventMessage(locale.render("queue.leave-reserved", player))
+                    QueueLeaveResult.Contended -> player.sendEventMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.contended", player))))
                     null -> Unit
                 }
             }
@@ -386,7 +386,7 @@ class EventNetworkCoordinator(
         val current = settings()
         if (!current.network.returnToOrigin || originServer == current.serverId) return true
         if (originServer !in current.network.allowedOrigins || !transferSent(player, originServer)) {
-            player.sendMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.return-transfer", player))))
+            player.sendEventMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.return-transfer", player))))
             return false
         }
         return true
@@ -499,11 +499,11 @@ class EventNetworkCoordinator(
                     return@runSync
                 }
                 val player = plugin.server.getPlayer(playerId) ?: return@runSync
-                player.sendMessage(locale.render("queue.reserved", player))
+                player.sendEventMessage(locale.render("queue.reserved", player))
                 if (settings().serverId == destination) {
                     handleJoin(player)
                 } else if (settings().network.transferOnReservation && !transferSent(player, destination)) {
-                    player.sendMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.transfer", player))))
+                    player.sendEventMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.transfer", player))))
                 }
             }
         }
@@ -526,7 +526,7 @@ class EventNetworkCoordinator(
                 }
                 val player = plugin.server.getPlayer(playerId) ?: return@runSync
                 if (settings().serverId == origin || !settings().network.returnToOrigin) {
-                    player.sendMessage(locale.render("queue.returned", player))
+                    player.sendEventMessage(locale.render("queue.returned", player))
                     repository.acknowledgeReturn(playerId, matchId).whenComplete { acknowledged, acknowledgeFailure ->
                         if (acknowledgeFailure != null || acknowledged != true) {
                             plugin.logger.log(
@@ -559,7 +559,7 @@ class EventNetworkCoordinator(
     private fun finishPendingReturn(player: Player, entry: QueueEntry) {
         val matchId = UUID.fromString(requireNotNull(entry.matchId))
         if (settings().serverId == entry.originServer || !settings().network.returnToOrigin) {
-            player.sendMessage(locale.render("queue.returned", player))
+            player.sendEventMessage(locale.render("queue.returned", player))
             repository.acknowledgeReturn(player.uniqueId, matchId).whenComplete { acknowledged, failure ->
                 if (failure != null || acknowledged != true) {
                     plugin.logger.log(Level.WARNING, "ArcEvents could not acknowledge returned player ${player.uniqueId} for $matchId", failure)

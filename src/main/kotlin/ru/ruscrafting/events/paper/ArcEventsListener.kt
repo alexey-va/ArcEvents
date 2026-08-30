@@ -38,6 +38,7 @@ import org.bukkit.event.player.PlayerMoveEvent
 import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.event.player.PlayerSwapHandItemsEvent
 import org.bukkit.event.player.PlayerTeleportEvent
+import org.bukkit.event.server.BroadcastMessageEvent
 import org.bukkit.inventory.EquipmentSlot
 import ru.arc.core.Tasks
 import ru.ruscrafting.events.domain.MatchPhase
@@ -144,12 +145,24 @@ class ArcEventsListener(
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onChat(event: AsyncChatEvent) {
-        if (!service.handlesMatchChat(event.player.uniqueId)) return
-        event.isCancelled = true
-        val player = event.player
-        val message = event.message()
-        Tasks.scheduler.runSync {
-            if (player.isOnline) service.sendMatchChat(player, message)
+        if (service.handlesMatchChat(event.player.uniqueId)) {
+            event.isCancelled = true
+            val player = event.player
+            val message = event.message()
+            Tasks.scheduler.runSync {
+                if (player.isOnline) service.sendMatchChat(player, message)
+            }
+            return
+        }
+        event.viewers().removeIf { audience ->
+            audience is Player && service.handlesMatchChat(audience.uniqueId)
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    fun onBroadcast(event: BroadcastMessageEvent) {
+        event.recipients.removeIf { recipient ->
+            recipient is Player && service.handlesMatchChat(recipient.uniqueId)
         }
     }
 

@@ -43,7 +43,7 @@ class ArenaWorldProvisioner(private val plugin: Plugin) {
             requireMarker(arena, marker)
             if (!builtIn) requireImportedWorld(worldFolder, arena)
             requireArenaChunks(existing, arena, generate = false)
-            if (!builtIn) sanitizeImportedEntities(existing, arena)
+            if (!builtIn) sanitizeImportedDecorations(existing, arena)
             configure(existing, arena)
             rejectCommandBlocks(existing, arena)
             return existing
@@ -64,7 +64,7 @@ class ArenaWorldProvisioner(private val plugin: Plugin) {
         if (builtIn && !folderExists) {
             Files.writeString(marker, arena.template + "\n", StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
         }
-        if (!builtIn) sanitizeImportedEntities(world, arena)
+        if (!builtIn) sanitizeImportedDecorations(world, arena)
         configure(world, arena)
         rejectCommandBlocks(world, arena)
         val action = if (folderExists) "Loaded" else "Provisioned"
@@ -142,26 +142,37 @@ class ArenaWorldProvisioner(private val plugin: Plugin) {
         }
     }
 
-    private fun sanitizeImportedEntities(world: World, arena: ArenaSettings) {
+    private fun sanitizeImportedDecorations(world: World, arena: ArenaSettings) {
         val bounds = requireNotNull(arena.bounds)
         val minChunkX = floor(bounds.minimum.x).toInt().floorDiv(16)
         val maxChunkX = ceil(bounds.maximum.x).toInt().floorDiv(16)
         val minChunkZ = floor(bounds.minimum.z).toInt().floorDiv(16)
         val maxChunkZ = ceil(bounds.maximum.z).toInt().floorDiv(16)
         val removed = linkedMapOf<String, Int>()
+        var removedBanners = 0
         for (chunkX in minChunkX..maxChunkX) for (chunkZ in minChunkZ..maxChunkZ) {
-            world.getChunkAt(chunkX, chunkZ).entities
+            val chunk = world.getChunkAt(chunkX, chunkZ)
+            chunk.entities
                 .filterNot { it is Player }
                 .forEach { entity ->
                     val type = entity.type.key.asString()
                     entity.remove()
                     removed[type] = removed.getOrDefault(type, 0) + 1
                 }
+            chunk.tileEntities
+                .filter { isImportedBlockDecoration(it.type) }
+                .forEach { banner ->
+                    banner.block.setType(Material.AIR, false)
+                    removedBanners++
+                }
         }
         if (removed.isNotEmpty()) {
             val summary = removed.entries.sortedByDescending(Map.Entry<String, Int>::value)
                 .joinToString { (type, count) -> "$type=$count" }
             plugin.logger.info("Removed imported arena entities id=${arena.id} world=${world.name} entities={$summary}")
+        }
+        if (removedBanners > 0) {
+            plugin.logger.info("Removed imported arena banners id=${arena.id} world=${world.name} banners=$removedBanners")
         }
     }
 
@@ -209,3 +220,5 @@ class ArenaWorldProvisioner(private val plugin: Plugin) {
         private val COMMAND_BLOCKS = setOf(Material.COMMAND_BLOCK, Material.CHAIN_COMMAND_BLOCK, Material.REPEATING_COMMAND_BLOCK)
     }
 }
+
+internal fun isImportedBlockDecoration(material: Material): Boolean = material.name.endsWith("_BANNER")

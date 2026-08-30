@@ -198,10 +198,10 @@ class TttHud(
                 val tips = locale.lore("hud.preparing-tips", player)
                 if (tips.isNotEmpty()) {
                     val elapsed = (totalSeconds - secondsRemaining).coerceAtLeast(0)
-                    player.sendActionBar(tips[(elapsed / PREPARING_TIP_SECONDS) % tips.size])
+                    player.sendEventActionBar(tips[(elapsed / PREPARING_TIP_SECONDS) % tips.size])
                 }
             }
-            match.phase == MatchPhase.COUNTDOWN -> player.sendActionBar(locale.render(
+            match.phase == MatchPhase.COUNTDOWN -> player.sendEventActionBar(locale.render(
                 "hud.countdown-actionbar",
                 player,
                 mapOf(
@@ -209,7 +209,7 @@ class TttHud(
                     "time" to locale.text(formatTime(secondsRemaining)),
                 ),
             ))
-            match.phase == MatchPhase.ACTIVE && participant.status == ParticipantStatus.ALIVE -> player.sendActionBar(locale.render(
+            match.phase == MatchPhase.ACTIVE && participant.status == ParticipantStatus.ALIVE -> player.sendEventActionBar(locale.render(
                 "role.actionbar",
                 player,
                 mapOf(

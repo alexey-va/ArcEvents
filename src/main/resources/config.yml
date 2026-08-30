@@ -17,14 +17,21 @@ locale:
   default: ru
   use-client-locale: true
 
+chat:
+  # Paper chat/viewer isolation is always active during a match. This optional
+  # layer also suppresses external player, disguised and system-chat packets.
+  # Requires a ProtocolLib build compatible with the exact Minecraft version.
+  packet-isolation:
+    enabled: false
+
 ui:
   sounds: true
   particles: true
   bossbar: true
   scoreboard: true
-  # Optional animated ItemDisplay layer. Keep disabled on gameplay nodes so
-  # map loot uses the lighter visible server-authoritative dropped item.
-  loot-displays: false
+  # Animated ItemDisplay presentation over the server-authoritative pickup.
+  # Imported map entities are removed separately and never survive arena load.
+  loot-displays: true
   # Paper Dialog API (1.21.6+ clients) for overview/help/admin screens.
   # Item-dense screens and older clients always use the chest GUI.
   dialogs-enabled: false

@@ -33,13 +33,21 @@ Reservation cancellation moves each selected route to `RETURN_PENDING` with
 bounded CAS retries, so host restarts, duplicate join events, and an interrupted
 proxy transfer remain recoverable.
 
+During match-owned phases, Paper chat viewers and Bukkit broadcast recipients
+exclude participants; living and spectator channels remain match-scoped.
+`chat.packet-isolation.enabled: true` may additionally suppress external player,
+disguised, system-chat, and action-bar packets through an installed ProtocolLib
+build compatible with the exact server version. This packet boundary is a
+soft-dependency and is disabled by default.
+
 Production rotates between three reviewed imported worlds:
 `cs2-inferno-v1`, `cs2-mirage-v1`, and `cs2-nuke-v1`. One arena is leased when a reservation is accepted and released
 only after player restoration finishes. An administrator may choose the next
 ready arena once or return to deterministic automatic rotation. Imported
 worlds require exact ownership/source markers, no datapacks or symlinks, and a
-startup scan that rejects command-block tile entities and removes imported
-non-player entities before a round can use the world. Command blocks are also
+startup scan that rejects command-block tile entities, removes imported
+non-player entities, and clears standing and wall banners before a round can
+use the world. Command blocks are also
 disabled by world gamerule. Every participant uses the same configured map
 spawn. Dedicated arena worlds cap view distance at six chunks and simulation
 distance at four. Runtime readiness requires solid footing, two passable
@@ -153,11 +161,11 @@ active round.
 
 Each participant gets a locale-aware sidebar, per-player boss bar, contextual
 action bar, phase titles, and restrained transition particles. The previous
-scoreboard is restored when the event ends. The performance profile uses the
-visible server-authoritative dropped item directly and relocates unsafe loot
-points to nearby non-barrier flooring. `ui.loot-displays` may opt into a
-temporary rotating `ItemDisplay` and rarity beam when a smaller map can afford
-that visual layer. Smoke grenades are throwable snowball projectiles and create an
+scoreboard is restored when the event ends. A hidden server-authoritative item
+owns pickup collision while `ui.loot-displays` presents the temporary rotating
+weapon model; unsafe loot points move to nearby non-barrier flooring. The
+optional rarity beam remains separately configurable. Smoke grenades are
+throwable snowball projectiles and create an
 eight-second cloud that repeatedly applies blindness and darkness to every
 living participant inside it, including the thrower.
 

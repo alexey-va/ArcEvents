@@ -155,6 +155,7 @@ class ArcEventsConfig(private val config: Config) {
     val hostServer: String get() = config.string("host-server", "parkour").trim().lowercase()
     val defaultLocale: String get() = config.string("locale.default", "ru").trim().lowercase()
     val useClientLocale: Boolean get() = config.bool("locale.use-client-locale", true)
+    val packetChatIsolationEnabled: Boolean get() = config.bool("chat.packet-isolation.enabled", false)
     val debug: DebugSettings
         get() = DebugSettings(
             enabled = config.bool("debug.enabled", false),
@@ -200,7 +201,7 @@ class ArcEventsConfig(private val config: Config) {
             particles = config.bool("ui.particles", true),
             bossBar = config.bool("ui.bossbar", true),
             scoreboard = config.bool("ui.scoreboard", true),
-            lootDisplays = config.bool("ui.loot-displays", false),
+            lootDisplays = config.bool("ui.loot-displays", true),
             dialogsEnabled = config.bool("ui.dialogs-enabled", false),
             filler = UiItemSettings(
                 material = config.string("ui.filler.material", "GRAY_STAINED_GLASS_PANE").uppercase(),

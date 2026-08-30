@@ -26,7 +26,8 @@ class ArcEventsConfigTest : StringSpec({
             config.weapons.lootEffect.enabled shouldBe false
             config.ttt.preparationSeconds shouldBe 30
             config.ui.dialogsEnabled shouldBe false
-            config.ui.lootDisplays shouldBe false
+            config.ui.lootDisplays shouldBe true
+            config.packetChatIsolationEnabled shouldBe false
             config.ui.back shouldBe UiItemSettings("BLUE_STAINED_GLASS_PANE", 11013)
             config.debug.enabled shouldBe false
             config.debug.allowedServerIds shouldBe setOf("lab")
@@ -91,7 +92,8 @@ class ArcEventsConfigTest : StringSpec({
             FirearmId.VSS_VINTOREZ to 2100008,
             FirearmId.MCMILLAN to 2100005,
         )
-        config.ui.lootDisplays shouldBe false
+        config.ui.lootDisplays shouldBe true
+        config.packetChatIsolationEnabled shouldBe false
         config.weapons.lootEffect.enabled shouldBe false
         config.weapons.lootEffect.customModelData.values.toSet() shouldBe setOf(2, 3, 4, 5, 6)
     }

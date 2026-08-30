@@ -237,7 +237,7 @@ class ArcEventsMenu(
         service.startFromQueue(player).thenAccept { result ->
             Tasks.scheduler.runSync {
                 if (player.isOnline) {
-                    player.sendMessage(locale.render(reservationStartMessage(result, StartMessageAudience.PLAYER), player))
+                    player.sendEventMessage(locale.render(reservationStartMessage(result, StartMessageAudience.PLAYER), player))
                 }
             }
         }
@@ -304,25 +304,25 @@ class ArcEventsMenu(
                 service.startFromQueue(player).thenAccept { result ->
                     Tasks.scheduler.runSync {
                         if (!player.isOnline) return@runSync
-                        player.sendMessage(locale.render(reservationStartMessage(result, StartMessageAudience.ADMIN), player))
+                        player.sendEventMessage(locale.render(reservationStartMessage(result, StartMessageAudience.ADMIN), player))
                         open(player, EventsView.Admin)
                     }
                 }
             }
             31 -> {
-                player.sendMessage(locale.render(stopMessage(service.stopByAdmin()), player))
+                player.sendEventMessage(locale.render(stopMessage(service.stopByAdmin()), player))
                 open(player, EventsView.Admin)
             }
             33 -> {
                 val result = reload()
-                player.sendMessage(locale.render(if (result.isSuccess) "command.reload-ok" else "command.reload-failed", player, mapOf(
+                player.sendEventMessage(locale.render(if (result.isSuccess) "command.reload-ok" else "command.reload-failed", player, mapOf(
                     "reason" to locale.text(result.exceptionOrNull()?.message ?: "unknown"),
                 )))
                 open(player, EventsView.Admin)
             }
             40 -> {
                 val count = service.retryRecovery()
-                player.sendMessage(locale.render("admin.recovery-started", player, mapOf("players" to locale.text(count))))
+                player.sendEventMessage(locale.render("admin.recovery-started", player, mapOf("players" to locale.text(count))))
                 open(player, EventsView.Admin)
             }
             45 -> open(player, EventsView.Main)
@@ -361,7 +361,7 @@ class ArcEventsMenu(
         val selected = if (slot == 40) "auto" else service.arenaEntries().getOrNull(ARENA_SLOTS.indexOf(slot))?.id
         when {
             selected != null -> {
-                player.sendMessage(locale.render(if (service.selectNextArena(selected)) "admin.arena-selected" else "admin.arena-selection-failed", player, mapOf(
+                player.sendEventMessage(locale.render(if (service.selectNextArena(selected)) "admin.arena-selected" else "admin.arena-selection-failed", player, mapOf(
                     "arena" to arenaName(selected, player),
                 )))
                 open(player, EventsView.Arenas)
@@ -374,7 +374,7 @@ class ArcEventsMenu(
         val current = service.currentMatch()
         val participant = current?.participant(player.uniqueId)
         if (!shopAccessible(current, participant)) {
-            player.sendMessage(locale.render("shop.unavailable", player))
+            player.sendEventMessage(locale.render("shop.unavailable", player))
             return
         }
         val activeMatch = requireNotNull(current)
@@ -415,7 +415,7 @@ class ArcEventsMenu(
     private fun openRoster(player: Player) {
         val roster = service.roster(player.uniqueId)
         if (roster == null) {
-            player.sendMessage(locale.render("match.unavailable", player))
+            player.sendEventMessage(locale.render("match.unavailable", player))
             return
         }
         val inventory = inventory(player, EventsView.Roster, 54, "menu.roster.title")
@@ -440,7 +440,7 @@ class ArcEventsMenu(
     private fun openBody(player: Player, bodyId: UUID) {
         val evidence = service.bodyEvidence(player.uniqueId, bodyId)
         if (evidence == null) {
-            player.sendMessage(locale.render("body.unavailable", player))
+            player.sendEventMessage(locale.render("body.unavailable", player))
             return
         }
         val inventory = inventory(player, EventsView.Body(bodyId), 45, "menu.body.title")
@@ -484,7 +484,7 @@ class ArcEventsMenu(
     private fun openReport(player: Player) {
         val report = service.report()
         if (report == null || service.participant(player.uniqueId) == null) {
-            player.sendMessage(locale.render("report.unavailable", player))
+            player.sendEventMessage(locale.render("report.unavailable", player))
             return
         }
         val inventory = inventory(player, EventsView.Report, 54, "menu.report.title")

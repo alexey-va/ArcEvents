@@ -24,7 +24,7 @@ class ArcEventsCommand(
 ) : TabExecutor {
     override fun onCommand(sender: CommandSender, command: Command, label: String, args: Array<out String>): Boolean {
         if (args.isEmpty()) {
-            if (sender is Player) menu.open(sender) else sender.sendMessage(locale.render("command.help", sender))
+            if (sender is Player) menu.open(sender) else sender.sendEventMessage(locale.render("command.help", sender))
             return true
         }
         when (args[0].lowercase()) {
@@ -45,8 +45,8 @@ class ArcEventsCommand(
             "admin" -> admin(sender, args.drop(1))
             "qa" -> qa(sender, args.drop(1))
             "debug" -> debug(sender, args.drop(1))
-            "help" -> sender.sendMessage(locale.render("command.help", sender))
-            else -> sender.sendMessage(locale.render("command.unknown", sender, mapOf("input" to Component.text(args[0].take(32)))))
+            "help" -> sender.sendEventMessage(locale.render("command.help", sender))
+            else -> sender.sendEventMessage(locale.render("command.unknown", sender, mapOf("input" to Component.text(args[0].take(32)))))
         }
         return true
     }
@@ -113,7 +113,7 @@ class ArcEventsCommand(
         val player = player(sender) ?: return
         if (!player.hasPermission("arcevents.teamchat")) return deny(sender)
         if (args.isEmpty()) {
-            sender.sendMessage(locale.render("team.usage", sender))
+            sender.sendEventMessage(locale.render("team.usage", sender))
             return
         }
         service.teamChat(player, args.joinToString(" "))
@@ -122,69 +122,69 @@ class ArcEventsCommand(
     private fun admin(sender: CommandSender, args: List<String>) {
         if (!sender.hasPermission("arcevents.admin")) return deny(sender)
         if (args.isEmpty() || args[0].equals("menu", true)) {
-            if (sender is Player) menu.open(sender, EventsView.Admin) else sender.sendMessage(locale.render("command.help", sender))
+            if (sender is Player) menu.open(sender, EventsView.Admin) else sender.sendEventMessage(locale.render("command.help", sender))
             return
         }
         when (args[0].lowercase()) {
-            "status" -> sender.sendMessage(Component.text(service.qaStatus()))
-            "player" -> sender.sendMessage(Component.text(service.qaPlayer(args.getOrNull(1).orEmpty().take(16))))
+            "status" -> sender.sendEventMessage(Component.text(service.qaStatus()))
+            "player" -> sender.sendEventMessage(Component.text(service.qaPlayer(args.getOrNull(1).orEmpty().take(16))))
             "network" -> sendNetwork(sender)
             "arenas" -> sendArenas(sender)
             "arena" -> {
                 val arena = args.getOrNull(1)?.lowercase()
-                sender.sendMessage(locale.render(if (service.selectNextArena(arena)) "admin.arena-selected" else "admin.arena-selection-failed", sender, mapOf(
+                sender.sendEventMessage(locale.render(if (service.selectNextArena(arena)) "admin.arena-selected" else "admin.arena-selection-failed", sender, mapOf(
                     "arena" to locale.text(arena ?: "auto"),
                 )))
             }
             "weapons" -> editWeaponPoints(sender, args.drop(1))
-            "recovery" -> sender.sendMessage(Component.text(service.qaRecovery()))
+            "recovery" -> sender.sendEventMessage(Component.text(service.qaRecovery()))
             "start" -> {
                 val arena = args.getOrNull(1)?.lowercase()
                 if (arena != null && !service.selectNextArena(arena)) {
-                    sender.sendMessage(locale.render("admin.arena-selection-failed", sender, mapOf("arena" to locale.text(arena))))
+                    sender.sendEventMessage(locale.render("admin.arena-selection-failed", sender, mapOf("arena" to locale.text(arena))))
                 } else sendStartResult(sender, StartMessageAudience.ADMIN)
             }
-            "stop" -> sender.sendMessage(locale.render(stopMessage(service.stopByAdmin()), sender))
+            "stop" -> sender.sendEventMessage(locale.render(stopMessage(service.stopByAdmin()), sender))
             "reload" -> {
                 val result = reload()
-                sender.sendMessage(locale.render(if (result.isSuccess) "command.reload-ok" else "command.reload-failed", sender, mapOf(
+                sender.sendEventMessage(locale.render(if (result.isSuccess) "command.reload-ok" else "command.reload-failed", sender, mapOf(
                     "reason" to locale.text(result.exceptionOrNull()?.message ?: "unknown"),
                 )))
             }
-            "recover" -> sender.sendMessage(locale.render("admin.recovery-started", sender, mapOf("players" to locale.text(service.retryRecovery()))))
-            else -> sender.sendMessage(locale.render("command.help", sender))
+            "recover" -> sender.sendEventMessage(locale.render("admin.recovery-started", sender, mapOf("players" to locale.text(service.retryRecovery()))))
+            else -> sender.sendEventMessage(locale.render("command.help", sender))
         }
     }
 
     private fun qa(sender: CommandSender, args: List<String>) {
         if (!sender.hasPermission("arcevents.qa")) return deny(sender)
         when (args.firstOrNull()?.lowercase() ?: "status") {
-            "status" -> sender.sendMessage(Component.text(service.qaStatus()))
-            "player" -> sender.sendMessage(Component.text(service.qaPlayer(args.getOrNull(1).orEmpty().take(16))))
+            "status" -> sender.sendEventMessage(Component.text(service.qaStatus()))
+            "player" -> sender.sendEventMessage(Component.text(service.qaPlayer(args.getOrNull(1).orEmpty().take(16))))
             "network" -> sendNetwork(sender)
             "arenas" -> sendArenas(sender)
-            "recovery" -> sender.sendMessage(Component.text(service.qaRecovery()))
-            else -> sender.sendMessage(Component.text(service.qaStatus()))
+            "recovery" -> sender.sendEventMessage(Component.text(service.qaRecovery()))
+            else -> sender.sendEventMessage(Component.text(service.qaStatus()))
         }
     }
 
     private fun debug(sender: CommandSender, args: List<String>) {
         if (!sender.hasPermission("arcevents.debug")) return deny(sender)
         if (!settings().debugEnabled) {
-            sender.sendMessage(locale.render("debug.disabled", sender))
+            sender.sendEventMessage(locale.render("debug.disabled", sender))
             return
         }
         val action = args.firstOrNull()?.lowercase() ?: "help"
         when (action) {
-            "help" -> return sender.sendMessage(locale.render("debug.usage", sender))
-            "status" -> return sender.sendMessage(Component.text(service.qaStatus()))
-            "player" -> return sender.sendMessage(Component.text(service.qaPlayer(args.getOrNull(1).orEmpty().take(16))))
+            "help" -> return sender.sendEventMessage(locale.render("debug.usage", sender))
+            "status" -> return sender.sendEventMessage(Component.text(service.qaStatus()))
+            "player" -> return sender.sendEventMessage(Component.text(service.qaPlayer(args.getOrNull(1).orEmpty().take(16))))
             "network" -> return sendNetwork(sender)
             "arenas" -> return sendArenas(sender)
-            "recovery" -> return sender.sendMessage(Component.text(service.qaRecovery()))
+            "recovery" -> return sender.sendEventMessage(Component.text(service.qaRecovery()))
             "bodies" -> {
                 service.qaBodies().ifEmpty { listOf(ArcEventsDebug.qa("server" to settings().serverId, "bodies" to 0)) }
-                    .forEach { sender.sendMessage(Component.text(it)) }
+                    .forEach { sender.sendEventMessage(Component.text(it)) }
                 return
             }
         }
@@ -245,7 +245,7 @@ class ArcEventsCommand(
                 "respawn" -> service.debugLoot(respawn = true)
                 "clear" -> service.debugLoot(respawn = false)
                 "status" -> {
-                    sender.sendMessage(Component.text(service.qaStatus()))
+                    sender.sendEventMessage(Component.text(service.qaStatus()))
                     return
                 }
                 else -> DebugMutationResult.INVALID_ARGUMENT
@@ -271,7 +271,7 @@ class ArcEventsCommand(
             "reason" to if (result == DebugMutationResult.APPLIED) Component.empty()
                 else locale.render("debug.reason.${result.name.lowercase().replace('_', '-')}", sender),
         )
-        sender.sendMessage(locale.render(if (result == DebugMutationResult.APPLIED) "debug.applied" else "debug.rejected", sender, values))
+        sender.sendEventMessage(locale.render(if (result == DebugMutationResult.APPLIED) "debug.applied" else "debug.rejected", sender, values))
     }
 
     private fun withPlayer(name: String?, action: (Player) -> DebugMutationResult): DebugMutationResult =
@@ -312,12 +312,12 @@ class ArcEventsCommand(
 
     private fun sendNetwork(sender: CommandSender) {
         service.qaNetwork().ifEmpty { listOf(ArcEventsDebug.qa("server" to settings().serverId, "nodes" to 0)) }
-            .forEach { sender.sendMessage(Component.text(it)) }
+            .forEach { sender.sendEventMessage(Component.text(it)) }
     }
 
     private fun sendArenas(sender: CommandSender) {
         service.qaArenas().ifEmpty { listOf(ArcEventsDebug.qa("server" to settings().serverId, "arenas" to 0)) }
-            .forEach { sender.sendMessage(Component.text(it)) }
+            .forEach { sender.sendEventMessage(Component.text(it)) }
     }
 
     private fun editWeaponPoints(sender: CommandSender, args: List<String>) {
@@ -327,11 +327,11 @@ class ArcEventsCommand(
             "remove" -> weaponPoints.remove(player)
             "show" -> weaponPoints.show(player)
             else -> {
-                sender.sendMessage(locale.render("admin.weapon-points.usage", sender))
+                sender.sendEventMessage(locale.render("admin.weapon-points.usage", sender))
                 return
             }
         }
-        sender.sendMessage(locale.render(
+        sender.sendEventMessage(locale.render(
             weaponPointMessage(feedback.result),
             sender,
             mapOf(
@@ -346,7 +346,7 @@ class ArcEventsCommand(
         service.startFromQueue(sender as? Player).thenAccept { result ->
             Tasks.scheduler.runSync {
                 if (sender is Player && !sender.isOnline) return@runSync
-                sender.sendMessage(locale.render(
+                sender.sendEventMessage(locale.render(
                     reservationStartMessage(result, audience),
                     sender,
                     mapOf("action" to locale.text("start")),
@@ -363,11 +363,11 @@ class ArcEventsCommand(
 
     private fun player(sender: CommandSender): Player? {
         if (sender is Player) return sender
-        sender.sendMessage(locale.render("command.player-only", sender))
+        sender.sendEventMessage(locale.render("command.player-only", sender))
         return null
     }
 
-    private fun deny(sender: CommandSender) { sender.sendMessage(locale.render("command.no-permission", sender)) }
+    private fun deny(sender: CommandSender) { sender.sendEventMessage(locale.render("command.no-permission", sender)) }
 
     private fun servicePlayerNames(): List<String> = plugin.server.onlinePlayers.map(Player::getName)
     private fun arenaIds(includeAuto: Boolean = false): List<String> = buildList {

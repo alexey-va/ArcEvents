@@ -2,6 +2,9 @@ package ru.ruscrafting.events.paper
 
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
+import io.papermc.paper.event.player.AsyncChatEvent
+import net.kyori.adventure.audience.Audience
 import ru.arc.paper.teleport.ScopedTeleportAuthorizer
 import io.mockk.every
 import io.mockk.mockk
@@ -17,6 +20,9 @@ import org.bukkit.event.block.Action
 import org.bukkit.event.entity.ProjectileLaunchEvent
 import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.event.player.PlayerSwapHandItemsEvent
+import org.bukkit.event.server.BroadcastMessageEvent
+import org.bukkit.command.CommandSender
+import net.kyori.adventure.text.Component
 import org.bukkit.inventory.EquipmentSlot
 import org.bukkit.inventory.ItemStack
 import ru.ruscrafting.events.domain.MatchPhase
@@ -128,5 +134,80 @@ class SafetyContractTest : StringSpec({
 
         verify(exactly = 1) { service.registerProjectile(projectile) }
         verify(exactly = 0) { event.isCancelled = true }
+    }
+
+    "global chat excludes players whose event chat is isolated" {
+        val service = mockk<ArcEventsGameplayBoundary>()
+        val sender = mockk<Player>()
+        val participant = mockk<Player>()
+        val outsider = mockk<Player>()
+        val nonPlayerAudience = mockk<Audience>()
+        val senderId = UUID.randomUUID()
+        val participantId = UUID.randomUUID()
+        val outsiderId = UUID.randomUUID()
+        every { sender.uniqueId } returns senderId
+        every { participant.uniqueId } returns participantId
+        every { outsider.uniqueId } returns outsiderId
+        every { service.handlesMatchChat(senderId) } returns false
+        every { service.handlesMatchChat(participantId) } returns true
+        every { service.handlesMatchChat(outsiderId) } returns false
+        val viewers = mutableSetOf<Audience>(participant, outsider, nonPlayerAudience)
+        val event = mockk<AsyncChatEvent>(relaxed = true)
+        every { event.player } returns sender
+        every { event.viewers() } returns viewers
+
+        ArcEventsListener(service, mockk(), mockk()).onChat(event)
+
+        viewers.shouldContainExactlyInAnyOrder(outsider, nonPlayerAudience)
+        verify(exactly = 0) { event.isCancelled = true }
+    }
+
+    "server broadcasts exclude players whose event chat is isolated" {
+        val service = mockk<ArcEventsGameplayBoundary>()
+        val participant = mockk<Player>()
+        val outsider = mockk<Player>()
+        val console = mockk<CommandSender>()
+        val participantId = UUID.randomUUID()
+        val outsiderId = UUID.randomUUID()
+        every { participant.uniqueId } returns participantId
+        every { outsider.uniqueId } returns outsiderId
+        every { service.handlesMatchChat(participantId) } returns true
+        every { service.handlesMatchChat(outsiderId) } returns false
+        val recipients = mutableSetOf<CommandSender>(participant, outsider, console)
+        val event = BroadcastMessageEvent(false, Component.text("outside"), recipients)
+
+        ArcEventsListener(service, mockk(), mockk()).onBroadcast(event)
+
+        recipients.shouldContainExactlyInAnyOrder(outsider, console)
+    }
+
+    "imported block sanitizer recognizes every banner palette variant" {
+        org.bukkit.Material.entries
+            .filter { it.name.endsWith("_BANNER") }
+            .all(::isImportedBlockDecoration) shouldBe true
+        isImportedBlockDecoration(org.bukkit.Material.ARMOR_STAND) shouldBe false
+    }
+
+    "packet isolation scope admits only the current ArcEvents recipient" {
+        val player = mockk<Player>()
+        val playerId = UUID.randomUUID()
+        val otherId = UUID.randomUUID()
+        every { player.uniqueId } returns playerId
+        ArcEventsMessageDelivery.activate()
+        try {
+            ArcEventsMessageDelivery.deliver(player) {
+                ArcEventsMessageDelivery.isInternal(playerId) shouldBe true
+                ArcEventsMessageDelivery.isInternal(otherId) shouldBe false
+            }
+            ArcEventsMessageDelivery.isInternal(playerId) shouldBe false
+        } finally {
+            ArcEventsMessageDelivery.deactivate()
+        }
+    }
+
+    "packet isolation suppresses only external messages to event participants" {
+        shouldSuppressChatPacket(isolatedRecipient = true, internalMessage = false) shouldBe true
+        shouldSuppressChatPacket(isolatedRecipient = true, internalMessage = true) shouldBe false
+        shouldSuppressChatPacket(isolatedRecipient = false, internalMessage = false) shouldBe false
     }
 })

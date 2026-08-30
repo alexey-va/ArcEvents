@@ -145,6 +145,27 @@ class ArcEventsPlugin : JavaPlugin() {
             )
             service = activeService
             lifecycle.own(activeService)
+            if (settings.packetChatIsolationEnabled) {
+                val protocolLib = server.pluginManager.getPlugin("ProtocolLib")
+                if (protocolLib?.isEnabled == true) {
+                    runCatching { openProtocolLibChatIsolation(this, activeService) }
+                        .onSuccess { isolation ->
+                            lifecycle.own(isolation)
+                            logger.info("ArcEvents packet chat isolation enabled through ProtocolLib ${protocolLib.pluginMeta.version}")
+                        }
+                        .onFailure { failure ->
+                            logger.log(
+                                Level.SEVERE,
+                                "ArcEvents could not enable packet chat isolation; using Paper isolation only",
+                                failure,
+                            )
+                        }
+                } else {
+                    logger.warning(
+                        "ArcEvents packet chat isolation was requested but ProtocolLib is not enabled; using Paper isolation only",
+                    )
+                }
+            }
             lifecycle.registerHealth("runtime") {
                 val redisReady = manager.isConnected()
                 RuntimeHealthContribution(
@@ -197,6 +218,9 @@ class ArcEventsPlugin : JavaPlugin() {
         require(candidate.nodeMode == current.nodeMode) { "node-mode requires a restart" }
         require(candidate.hostServer == current.hostServer) { "host-server requires a restart" }
         require(candidate.network.enabled == current.network.enabled) { "network.enabled requires a restart" }
+        require(candidate.packetChatIsolationEnabled == current.packetChatIsolationEnabled) {
+            "chat.packet-isolation.enabled requires a restart"
+        }
         require(candidate.arenas.map { Triple(it.id, it.world, it.template) } == current.arenas.map { Triple(it.id, it.world, it.template) }) {
             "arena ids, worlds and templates require a restart"
         }

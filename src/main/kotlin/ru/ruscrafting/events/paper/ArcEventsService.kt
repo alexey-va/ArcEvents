@@ -277,7 +277,7 @@ class ArcEventsService(
 
     fun joinQueue(player: Player) {
         if (hasPendingRecovery(player.uniqueId)) {
-            player.sendMessage(locale.render("match.restore-pending", player))
+            player.sendEventMessage(locale.render("match.restore-pending", player))
             return
         }
         network.join(player)
@@ -309,11 +309,11 @@ class ArcEventsService(
         hud.remove(player.uniqueId)
         val recovery = runCatching { recoverPlayer(player) }.getOrElse { failure ->
             plugin.logger.log(Level.SEVERE, "ArcEvents could not evacuate ${player.uniqueId}", failure)
-            player.sendMessage(locale.render("match.restore-pending", player))
+            player.sendEventMessage(locale.render("match.restore-pending", player))
             return
         }
         if (recovery == null) {
-            player.sendMessage(locale.render("match.restore-pending", player))
+            player.sendEventMessage(locale.render("match.restore-pending", player))
             return
         }
         completeRecovery(player, recovery, "match.evacuated")
@@ -330,17 +330,17 @@ class ArcEventsService(
         if (current == null || current.phase !in LIVE_PHASES || participant == null ||
             participant.status in setOf(ParticipantStatus.DISCONNECTED, ParticipantStatus.RESTORED) || arena == null
         ) {
-            player.sendMessage(locale.render("match.spawn-return-unavailable", player))
+            player.sendEventMessage(locale.render("match.spawn-return-unavailable", player))
             return
         }
         if (mapSpawnReturns.containsKey(player.uniqueId)) {
-            player.sendMessage(locale.render("match.spawn-return-already", player))
+            player.sendEventMessage(locale.render("match.spawn-return-already", player))
             return
         }
 
         val request = MapSpawnReturn(current.matchId, player.location.clone(), MAP_SPAWN_RETURN_SECONDS)
         mapSpawnReturns[player.uniqueId] = request
-        player.sendMessage(locale.render(
+        player.sendEventMessage(locale.render(
             "match.spawn-return-requested",
             player,
             mapOf("seconds" to locale.text(MAP_SPAWN_RETURN_SECONDS)),
@@ -362,7 +362,7 @@ class ArcEventsService(
             }
             request.secondsRemaining -= 1
             if (request.secondsRemaining > 0) {
-                player.sendActionBar(locale.render(
+                player.sendEventActionBar(locale.render(
                     "match.spawn-return-actionbar",
                     player,
                     mapOf("seconds" to locale.text(request.secondsRemaining)),
@@ -373,10 +373,10 @@ class ArcEventsService(
             mapSpawnReturns.remove(player.uniqueId)
             request.task?.cancel()
             runCatching { teleport(player, arena.playerSpawn) }
-                .onSuccess { player.sendMessage(locale.render("match.spawn-return-complete", player)) }
+                .onSuccess { player.sendEventMessage(locale.render("match.spawn-return-complete", player)) }
                 .onFailure { failure ->
                     plugin.logger.log(Level.WARNING, "ArcEvents could not return ${player.uniqueId} to the map spawn", failure)
-                    player.sendMessage(locale.render("match.spawn-return-unavailable", player))
+                    player.sendEventMessage(locale.render("match.spawn-return-unavailable", player))
                 }
         }
     }
@@ -386,7 +386,7 @@ class ArcEventsService(
         request.task?.let { task -> runCatching(task::cancel) }
         if (notify) {
             plugin.server.getPlayer(playerId)?.let { player ->
-                player.sendActionBar(locale.render("match.spawn-return-cancelled", player))
+                player.sendEventActionBar(locale.render("match.spawn-return-cancelled", player))
             }
         }
     }
@@ -398,7 +398,7 @@ class ArcEventsService(
             if (pending) {
                 val recovery = runCatching { recoverPlayer(player) }.getOrElse {
                     plugin.logger.log(Level.SEVERE, "ArcEvents could not restore ${player.uniqueId} on join", it)
-                    player.sendMessage(locale.render("match.restore-pending", player))
+                    player.sendEventMessage(locale.render("match.restore-pending", player))
                     return@runLater
                 }
                 if (recovery != null) {
@@ -533,7 +533,7 @@ class ArcEventsService(
                 locale.render("match.eliminated-subtitle", player),
                 Title.Times.times(Duration.ofMillis(150), Duration.ofSeconds(3), Duration.ofMillis(400)),
             ))
-            player.sendMessage(locale.render("match.spectator", player))
+            player.sendEventMessage(locale.render("match.spectator", player))
             broadcast("match.eliminated", mapOf("player" to Component.text(player.name)))
         }.onFailure { failure ->
             plugin.logger.log(Level.SEVERE, "ArcEvents could not apply elimination presentation for ${player.uniqueId}", failure)
@@ -590,7 +590,7 @@ class ArcEventsService(
         }
         val key = if (spectator) "chat.spectator-message" else "chat.match-message"
         recipients.mapNotNull { plugin.server.getPlayer(it.playerId) }.forEach { recipient ->
-            recipient.sendMessage(locale.render(key, recipient, mapOf(
+            recipient.sendEventMessage(locale.render(key, recipient, mapOf(
                 "player" to Component.text(player.name),
                 "message" to message,
             )))
@@ -612,7 +612,7 @@ class ArcEventsService(
                 "role" to roleName(body.role, player),
             ))
         } else {
-            player.sendMessage(locale.render("body.already", player, mapOf(
+            player.sendEventMessage(locale.render("body.already", player, mapOf(
                 "player" to Component.text(body.victimName),
                 "role" to roleName(body.role, player),
             )))
@@ -626,24 +626,24 @@ class ArcEventsService(
         if (body.matchId != current.matchId || !body.discovered || current.phase != MatchPhase.ACTIVE ||
             inspector.status != ParticipantStatus.ALIVE || inspector.role != TttRole.DETECTIVE
         ) {
-            player.sendMessage(locale.render("body.scanner-detective-only", player))
+            player.sendEventMessage(locale.render("body.scanner-detective-only", player))
             return false
         }
         val scanner = player.inventory.contents.any { item ->
             items.kind(item) == EventItemKind.DETECTIVE_SCANNER && items.belongsTo(item, current.matchId.toString())
         }
         if (!scanner) {
-            player.sendMessage(locale.render("body.scanner-required", player))
+            player.sendEventMessage(locale.render("body.scanner-required", player))
             return false
         }
         val killer = body.killerId?.let(plugin.server::getPlayer)?.takeIf { isAlive(it.uniqueId) }
             ?.takeIf { clock() - body.killedAtMs <= settings().weapons.dnaSeconds * 1_000L }
         if (killer == null) {
-            player.sendMessage(locale.render("body.dna-lost", player))
+            player.sendEventMessage(locale.render("body.dna-lost", player))
             return false
         }
         player.compassTarget = killer.location
-        player.sendMessage(locale.render("body.dna", player, mapOf(
+        player.sendEventMessage(locale.render("body.dna", player, mapOf(
             "killer" to Component.text(killer.name),
             "distance" to locale.text(ceil(player.location.distance(killer.location)).toInt()),
         )))
@@ -657,19 +657,19 @@ class ArcEventsService(
             current.participant(player.uniqueId)?.status != ParticipantStatus.ALIVE || !body.discovered
         ) return false
         if (body.detectiveCalled) {
-            player.sendMessage(locale.render("body.detective-already-called", player))
+            player.sendEventMessage(locale.render("body.detective-already-called", player))
             return false
         }
         val detectives = current.participants.values.filter { it.role == TttRole.DETECTIVE && it.status == ParticipantStatus.ALIVE }
             .mapNotNull { plugin.server.getPlayer(it.playerId) }
         if (detectives.isEmpty()) {
-            player.sendMessage(locale.render("body.no-detective", player))
+            player.sendEventMessage(locale.render("body.no-detective", player))
             return false
         }
         body.detectiveCalled = true
         detectives.forEach { detective ->
             detective.compassTarget = body.location
-            detective.sendMessage(locale.render("body.detective-called", detective, mapOf(
+            detective.sendEventMessage(locale.render("body.detective-called", detective, mapOf(
                 "player" to Component.text(player.name),
                 "victim" to Component.text(body.victimName),
                 "x" to locale.text(body.location.blockX),
@@ -678,32 +678,32 @@ class ArcEventsService(
             )))
             if (settings().ui.sounds) detective.playSound(detective.location, Sound.BLOCK_BELL_USE, 0.8f, 1.15f)
         }
-        player.sendMessage(locale.render("body.detective-call-sent", player))
+        player.sendEventMessage(locale.render("body.detective-call-sent", player))
         return true
     }
 
     fun buy(player: Player, offer: ShopOffer): Boolean {
         val current = match
         if (current == null) {
-            player.sendMessage(locale.render("shop.unavailable", player))
+            player.sendEventMessage(locale.render("shop.unavailable", player))
             return false
         }
         val participant = current.participant(player.uniqueId)
         if (current.phase != MatchPhase.ACTIVE || participant?.status != ParticipantStatus.ALIVE ||
             participant.role == TttRole.INNOCENT || offer !in offers(participant.role)
         ) {
-            player.sendMessage(locale.render("shop.unavailable", player))
+            player.sendEventMessage(locale.render("shop.unavailable", player))
             return false
         }
         if (participant.credits < offer.cost) {
-            player.sendMessage(locale.render("shop.insufficient", player))
+            player.sendEventMessage(locale.render("shop.insufficient", player))
             return false
         }
         val purchased = items.purchasedItem(offer.kind, player, current.matchId.toString())
         if (offer.kind == EventItemKind.DETECTIVE_ARMOR) {
             player.inventory.chestplate = purchased
         } else if (player.inventory.addItem(purchased).isNotEmpty()) {
-            player.sendMessage(locale.render("shop.inventory-full", player))
+            player.sendEventMessage(locale.render("shop.inventory-full", player))
             return false
         }
         val updated = participant.copy(credits = participant.credits - offer.cost)
@@ -711,7 +711,7 @@ class ArcEventsService(
             revision = current.revision + 1,
             participants = current.participants + (player.uniqueId to updated),
         ))
-        player.sendMessage(locale.render("shop.bought", player, mapOf(
+        player.sendEventMessage(locale.render("shop.bought", player, mapOf(
             "item" to locale.render(offer.nameKey, player),
             "credits" to locale.text(updated.credits),
         )))
@@ -743,7 +743,7 @@ class ArcEventsService(
             state.matchId != current.matchId.toString()
         ) return false
         if (reloadTasks.containsKey(player.uniqueId)) {
-            player.sendActionBar(locale.render("weapon.reloading-actionbar", player))
+            player.sendEventActionBar(locale.render("weapon.reloading-actionbar", player))
             return false
         }
         val spec = firearms.spec(state.id)
@@ -751,7 +751,7 @@ class ArcEventsService(
         if (now < (shotCooldownUntil[player.uniqueId] ?: 0L)) return false
         if (state.loaded < spec.roundsPerShot) {
             shotCooldownUntil[player.uniqueId] = now + 350L
-            player.sendActionBar(locale.render("weapon.empty-actionbar", player))
+            player.sendEventActionBar(locale.render("weapon.empty-actionbar", player))
             if (settings().ui.sounds) player.playSound(player.location, Sound.BLOCK_LEVER_CLICK, 0.7f, 1.7f)
             return false
         }
@@ -784,7 +784,7 @@ class ArcEventsService(
             }
             player.world.playSound(player.location, sound, volume, pitch)
         }
-        player.sendActionBar(locale.render("weapon.ammo-actionbar", player, mapOf(
+        player.sendEventActionBar(locale.render("weapon.ammo-actionbar", player, mapOf(
             "weapon" to locale.render("weapon.${state.id.name.lowercase()}-name", player),
             "loaded" to locale.text(loaded),
             "magazine" to locale.text(spec.magazineSize),
@@ -800,15 +800,15 @@ class ArcEventsService(
         if (current.phase != MatchPhase.ACTIVE || participant.status != ParticipantStatus.ALIVE || state.matchId != current.matchId.toString()) return false
         val spec = firearms.spec(state.id)
         if (state.loaded >= spec.magazineSize) {
-            player.sendActionBar(locale.render("weapon.magazine-full-actionbar", player))
+            player.sendEventActionBar(locale.render("weapon.magazine-full-actionbar", player))
             return false
         }
         if (firearms.reserveAmmo(player, state.matchId) == 0) {
-            player.sendActionBar(locale.render("weapon.no-ammo-actionbar", player))
+            player.sendEventActionBar(locale.render("weapon.no-ammo-actionbar", player))
             return false
         }
         if (reloadTasks.containsKey(player.uniqueId)) return false
-        player.sendActionBar(locale.render("weapon.reloading-actionbar", player))
+        player.sendEventActionBar(locale.render("weapon.reloading-actionbar", player))
         if (settings().ui.sounds) player.playSound(player.location, Sound.ITEM_ARMOR_EQUIP_IRON, 0.5f, 1.4f)
         reloadTasks[player.uniqueId] = Tasks.scheduler.runLater(spec.reloadTicks.toLong()) {
             reloadTasks.remove(player.uniqueId)
@@ -822,7 +822,7 @@ class ArcEventsService(
             val consumed = firearms.consumeReserve(player, latest.matchId, needed)
             if (consumed <= 0) return@runLater
             player.inventory.setItemInMainHand(firearms.updateLoaded(held, player, latest.loaded + consumed))
-            player.sendActionBar(locale.render("weapon.reload-complete-actionbar", player, mapOf(
+            player.sendEventActionBar(locale.render("weapon.reload-complete-actionbar", player, mapOf(
                 "loaded" to locale.text(latest.loaded + consumed),
                 "magazine" to locale.text(spec.magazineSize),
                 "reserve" to locale.text(firearms.reserveAmmo(player, latest.matchId)),
@@ -866,7 +866,7 @@ class ArcEventsService(
                 val dropped = player.world.dropItem(player.location, remainder)
                 lootScene.register(dropped, pickupDelay = 20)
             }
-            player.sendActionBar(locale.render(
+            player.sendEventActionBar(locale.render(
                 "weapon.pickup-ammo-actionbar",
                 player,
                 mapOf("rounds" to locale.text(rounds)),
@@ -878,7 +878,7 @@ class ArcEventsService(
         val current = match
         val sender = current?.participant(player.uniqueId)
         if (current?.phase != MatchPhase.ACTIVE || sender?.status != ParticipantStatus.ALIVE || sender.role == TttRole.INNOCENT) {
-            player.sendMessage(locale.render("team.unavailable", player))
+            player.sendEventMessage(locale.render("team.unavailable", player))
             return
         }
         val message = Component.text(rawMessage.trim().take(180))
@@ -890,7 +890,7 @@ class ArcEventsService(
             }
         }
         recipients.mapNotNull { plugin.server.getPlayer(it.playerId) }.forEach { recipient ->
-            recipient.sendMessage(locale.render("team.message", recipient, mapOf(
+            recipient.sendEventMessage(locale.render("team.message", recipient, mapOf(
                 "role" to roleName(sender.role, recipient),
                 "player" to Component.text(player.name),
                 "message" to message,
@@ -901,10 +901,10 @@ class ArcEventsService(
     fun status(player: Player) {
         val current = match
         if (current == null || current.participant(player.uniqueId) == null) {
-            player.sendMessage(locale.render("match.unavailable", player))
+            player.sendEventMessage(locale.render("match.unavailable", player))
             return
         }
-        player.sendMessage(locale.render("match.status", player, mapOf(
+        player.sendEventMessage(locale.render("match.status", player, mapOf(
             "phase" to locale.render("phase.${current.phase.name.lowercase()}", player),
             "alive" to locale.text(visibleAliveCount(current)),
             "players" to locale.text(current.participants.size),
@@ -1390,7 +1390,7 @@ class ArcEventsService(
                 locale.render("match.preparing-subtitle", player),
                 Title.Times.times(Duration.ofMillis(250), Duration.ofSeconds(3), Duration.ofMillis(500)),
             ))
-            player.sendMessage(locale.render("match.preparing-guide", player))
+            player.sendEventMessage(locale.render("match.preparing-guide", player))
             if (settings().ui.particles) {
                 player.world.spawnParticle(Particle.END_ROD, player.location.add(0.0, 1.0, 0.0), 18, 0.7, 0.8, 0.7, 0.015)
             }
@@ -1457,7 +1457,7 @@ class ArcEventsService(
         }
         val active = runtime.activate()
         active.participants.values.mapNotNull { plugin.server.getPlayer(it.playerId) }.forEach { player ->
-            player.sendMessage(locale.render("match.started", player))
+            player.sendEventMessage(locale.render("match.started", player))
             player.showTitle(Title.title(
                 locale.render("match.started-title", player),
                 locale.render("match.started-subtitle", player),
@@ -1544,7 +1544,7 @@ class ArcEventsService(
                         Title.Times.times(Duration.ofMillis(250), Duration.ofSeconds(4), Duration.ofMillis(750)),
                     ))
                     player.inventory.setItem(4, items.roundReport(player, current.matchId.toString()))
-                    player.sendMessage(locale.render("report.ready", player))
+                    player.sendEventMessage(locale.render("report.ready", player))
                 }.onFailure { failure ->
                     plugin.logger.log(Level.WARNING, "ArcEvents could not show the round report to ${participant.playerId}", failure)
                 }
@@ -1615,7 +1615,7 @@ class ArcEventsService(
                 }
                 .onFailure {
                     plugin.logger.log(Level.SEVERE, "ArcEvents could not restore ${player.uniqueId}", it)
-                    player.sendMessage(locale.render("match.restore-pending", player))
+                    player.sendEventMessage(locale.render("match.restore-pending", player))
                 }
         }
         val currentPending = pendingPlayers(current.matchId)?.size ?: -1
@@ -1657,7 +1657,7 @@ class ArcEventsService(
         runCatching { markRecovered(player.uniqueId, recovery) }.onFailure { failure ->
             plugin.logger.log(Level.SEVERE, "ArcEvents could not record recovery for ${player.uniqueId}", failure)
         }
-        runCatching { player.sendMessage(locale.render(messageKey, player)) }
+        runCatching { player.sendEventMessage(locale.render(messageKey, player)) }
         runCatching { network.returnRecoveredPlayer(player, recovery) }.onFailure { failure ->
             plugin.logger.log(Level.SEVERE, "ArcEvents could not prepare return for ${player.uniqueId}", failure)
             runCatching { network.handleJoin(player) }
@@ -1781,12 +1781,12 @@ class ArcEventsService(
         val actor = current.participant(player.uniqueId) ?: return false
         val target = radarTarget(player, current, actor)
         if (target == null) {
-            player.sendMessage(locale.render("shop.radar-empty", player))
+            player.sendEventMessage(locale.render("shop.radar-empty", player))
             return false
         }
         consumeMainHand(player)
         player.compassTarget = target.location
-        player.sendMessage(locale.render("shop.radar-active", player, mapOf("target" to Component.text(target.name))))
+        player.sendEventMessage(locale.render("shop.radar-active", player, mapOf("target" to Component.text(target.name))))
         radarTasks.remove(player.uniqueId)?.cancel()
         radarTasks[player.uniqueId] = Tasks.scheduler.runTimer(20L, 20L) {
             val active = match
@@ -1811,14 +1811,14 @@ class ArcEventsService(
         val current = match ?: return false
         if (smokeGrenades.launch(player, current.matchId) == null) return false
         consumeMainHand(player)
-        player.sendMessage(locale.render("shop.smoke-used", player))
+        player.sendEventMessage(locale.render("shop.smoke-used", player))
         return true
     }
 
     private fun activateMedkit(player: Player): Boolean {
         val maximum = requireNotNull(player.getAttribute(Attribute.MAX_HEALTH)).value
         if (player.health >= maximum) {
-            player.sendMessage(locale.render("shop.medkit-full", player))
+            player.sendEventMessage(locale.render("shop.medkit-full", player))
             return false
         }
         consumeMainHand(player)
@@ -1879,7 +1879,7 @@ class ArcEventsService(
             ?.filter { it.status != ParticipantStatus.RESTORED }
             ?.mapNotNull { plugin.server.getPlayer(it.playerId) }
             ?.forEach { player ->
-            player.sendMessage(locale.render(path, player, values))
+            player.sendEventMessage(locale.render(path, player, values))
         }
     }
 
