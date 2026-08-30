@@ -34,7 +34,7 @@ class TttHud(
 
     fun open(match: TttMatch) {
         close()
-        match.participants.values.mapNotNull { plugin.server.getPlayer(it.playerId) }.forEach(::open)
+        match.participants.values.mapNotNull { plugin.server.getPlayer(it.playerId) }.forEach { player -> open(player, match) }
     }
 
     fun update(match: TttMatch, secondsRemaining: Int, totalSeconds: Int) {
@@ -43,7 +43,7 @@ class TttHud(
         }
         match.participants.values.forEach { participant ->
             val player = plugin.server.getPlayer(participant.playerId) ?: return@forEach
-            val session = sessions[player.uniqueId] ?: open(player)
+            val session = sessions[player.uniqueId] ?: open(player, match)
             val roleVisible = match.phase != MatchPhase.PREPARING
             updateScoreboard(session, player, match, participant, roleVisible, alive, secondsRemaining)
             updateBossBar(session, player, match, participant, roleVisible, alive, secondsRemaining, totalSeconds)
@@ -65,8 +65,8 @@ class TttHud(
         sessions.clear()
     }
 
-    private fun open(player: Player): Session {
-        val scoreboard = if (settings().ui.scoreboard) createScoreboard(player) else null
+    private fun open(player: Player, match: TttMatch): Session {
+        val scoreboard = createScoreboard(player, match, settings().ui.scoreboard)
         val bossBar = if (settings().ui.bossBar) {
             BossBar.bossBar(Component.empty(), 1f, BossBar.Color.YELLOW, BossBar.Overlay.PROGRESS).also(player::showBossBar)
         } else {
@@ -74,17 +74,22 @@ class TttHud(
         }
         val session = Session(
             previousScoreboard = player.scoreboard,
-            scoreboard = scoreboard?.first,
-            lines = scoreboard?.second.orEmpty(),
+            scoreboard = scoreboard.first,
+            lines = scoreboard.second,
             bossBar = bossBar,
         )
-        scoreboard?.first?.let { player.scoreboard = it }
+        player.scoreboard = scoreboard.first
         sessions[player.uniqueId] = session
         return session
     }
 
-    private fun createScoreboard(player: Player): Pair<Scoreboard, List<Team>> {
+    private fun createScoreboard(player: Player, match: TttMatch, showSidebar: Boolean): Pair<Scoreboard, List<Team>> {
         val scoreboard = plugin.server.scoreboardManager.newScoreboard
+        scoreboard.registerNewTeam(HIDDEN_NAMES_TEAM).also { hiddenNames ->
+            hiddenNames.setOption(Team.Option.NAME_TAG_VISIBILITY, Team.OptionStatus.NEVER)
+            match.participants.values.forEach { participant -> hiddenNames.addEntry(participant.playerName) }
+        }
+        if (!showSidebar) return scoreboard to emptyList()
         val objective = scoreboard.registerNewObjective(
             OBJECTIVE_NAME,
             Criteria.DUMMY,
@@ -224,6 +229,7 @@ class TttHud(
     }
 
     companion object {
+        private const val HIDDEN_NAMES_TEAM = "ae_hidden_names"
         private const val OBJECTIVE_NAME = "arcevents_ttt"
         private const val PREPARING_TIP_SECONDS = 4
         private val SCOREBOARD_ENTRIES = listOf("§0", "§1", "§2", "§3", "§4", "§5", "§6")

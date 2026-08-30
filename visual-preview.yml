@@ -1,0 +1,251 @@
+schema: 1
+plugin: ArcEvents
+minecraft-version: '1.21.11'
+minecraft-client-sha1: ba2df812c2d12e0219c489c4cd9a5e1f0760f5bd
+gallery-accent: '#d75a5a'
+
+resource-pack:
+  url: https://storage.yandexcloud.net/ruscraftinresources/RusCraftingResource.zip
+  sha256-url: https://storage.yandexcloud.net/ruscraftinresources/RusCraftingResource.zip.sha256
+
+custom-items:
+  arc:background:
+    material: GRAY_STAINED_GLASS_PANE
+    model: assets/arc/models/gui/background.json
+
+sources:
+  events:
+    path: src/main/resources/lang/ru.yml
+    prefix-key: prefix
+    exclude: [prefix]
+    include:
+      - menu.main.*
+      - menu.event.*
+      - menu.stats.*
+      - menu.help.*
+      - menu.admin.*
+      - menu.common.back-name
+      - menu.common.back-lore
+      - menu.common.close-name
+      - menu.common.close-lore
+      - queue.*
+      - match.evacuated
+      - match.spawn-return-*
+      - weapon.pickup-ammo-actionbar
+
+placeholders:
+  queue: '14'
+  minimum: '16'
+  arena_state: '<#7bd88f>готова'
+  queue_state: '<#7bd88f>в очереди'
+  matches: '128'
+  wins: '67'
+  kills: '391'
+  deaths: '104'
+  karma: '975'
+  phase: '<#7bd88f>раунд идёт'
+  match: 7e643f0c
+  recovery: '2'
+  server: parkour
+  node_mode: '<#7bd88f>хост'
+  host: parkour
+  network_state: '<#7bd88f>готова'
+  arenas: '3'
+  active: Мираж
+  rounds: '48'
+  seconds: '10'
+
+surfaces:
+  hud:
+    - id: weapon-pickup-reserve
+      actionbar: events:weapon.pickup-ammo-actionbar
+    - id: map-spawn-return-countdown
+      actionbar: events:match.spawn-return-actionbar
+    - id: map-spawn-return-cancelled
+      actionbar: events:match.spawn-return-cancelled
+
+  inventories:
+    - id: event-catalog-player
+      title: events:menu.main.title
+      rows: 3
+      filler: GRAY_STAINED_GLASS_PANE
+      background-item: arc:background
+      items:
+        - {slot: 8, material: BARRIER, name: events:menu.common.close-name, lore: events:menu.common.close-lore}
+        - {slot: 13, material: SPYGLASS, name: events:menu.main.ttt-name, lore: events:menu.main.ttt-lore}
+        - {slot: 18, material: WRITABLE_BOOK, name: events:menu.main.stats-name, lore: events:menu.main.stats-lore}
+        - {slot: 22, material: KNOWLEDGE_BOOK, name: events:menu.main.help-name, lore: events:menu.main.help-lore}
+
+    - id: event-catalog-admin
+      title: events:menu.main.title
+      rows: 3
+      filler: GRAY_STAINED_GLASS_PANE
+      background-item: arc:background
+      items:
+        - {slot: 8, material: BARRIER, name: events:menu.common.close-name, lore: events:menu.common.close-lore}
+        - {slot: 13, material: SPYGLASS, name: events:menu.main.ttt-name, lore: events:menu.main.ttt-lore}
+        - {slot: 18, material: WRITABLE_BOOK, name: events:menu.main.stats-name, lore: events:menu.main.stats-lore}
+        - {slot: 22, material: KNOWLEDGE_BOOK, name: events:menu.main.help-name, lore: events:menu.main.help-lore}
+        - {slot: 26, material: COMMAND_BLOCK, name: events:menu.main.admin-name, lore: events:menu.main.admin-lore}
+
+    - &event_idle
+      id: hidden-roles-idle
+      title: events:menu.event.title
+      rows: 5
+      filler: GRAY_STAINED_GLASS_PANE
+      background-item: arc:background
+      items:
+        - &event_overview {slot: 13, material: SPYGLASS, name: events:menu.event.overview-name, lore: events:menu.event.overview-lore}
+        - {slot: 22, material: LIME_DYE, name: events:menu.event.join-name, lore: events:menu.event.join-lore}
+        - &event_help {slot: 31, material: KNOWLEDGE_BOOK, name: events:menu.event.help-name, lore: events:menu.event.help-lore}
+        - &event_back {slot: 36, material: ARROW, name: events:menu.common.back-name, lore: events:menu.common.back-lore}
+        - &event_close {slot: 44, material: BARRIER, name: events:menu.common.close-name, lore: events:menu.common.close-lore}
+
+    - id: hidden-roles-unavailable
+      title: events:menu.event.title
+      rows: 5
+      filler: GRAY_STAINED_GLASS_PANE
+      background-item: arc:background
+      items:
+        - *event_overview
+        - {slot: 22, material: GRAY_DYE, name: events:menu.event.join-unavailable-name, lore: events:menu.event.join-unavailable-lore}
+        - *event_help
+        - *event_back
+        - *event_close
+
+    - id: hidden-roles-queued
+      title: events:menu.event.title
+      rows: 5
+      filler: GRAY_STAINED_GLASS_PANE
+      background-item: arc:background
+      items:
+        - *event_overview
+        - &queue_status {slot: 20, material: CLOCK, name: events:menu.event.queue-name, lore: events:menu.event.queue-lore}
+        - {slot: 22, material: RED_DYE, name: events:menu.event.leave-name, lore: events:menu.event.leave-lore}
+        - *event_help
+        - *event_back
+        - *event_close
+
+    - id: hidden-roles-queued-starter
+      title: events:menu.event.title
+      rows: 5
+      filler: GRAY_STAINED_GLASS_PANE
+      background-item: arc:background
+      items:
+        - *event_overview
+        - *queue_status
+        - {slot: 22, material: RED_DYE, name: events:menu.event.leave-name, lore: events:menu.event.leave-lore}
+        - {slot: 24, material: GRAY_CONCRETE, name: events:menu.event.start-name, lore: events:menu.event.start-lore}
+        - *event_help
+        - *event_back
+        - *event_close
+
+    - id: hidden-roles-preparing
+      title: events:menu.event.title
+      rows: 5
+      filler: GRAY_STAINED_GLASS_PANE
+      background-item: arc:background
+      placeholders: {queue_state: '<#5fb3ff>подготовка к матчу'}
+      items:
+        - *event_overview
+        - *queue_status
+        - *event_help
+        - *event_back
+        - &event_evacuate {slot: 40, material: ENDER_PEARL, name: events:menu.event.evacuate-name, lore: events:menu.event.evacuate-lore}
+        - *event_close
+
+    - id: hidden-roles-active
+      title: events:menu.event.title
+      rows: 5
+      filler: GRAY_STAINED_GLASS_PANE
+      background-item: arc:background
+      items:
+        - *event_overview
+        - &event_roster {slot: 20, material: PLAYER_HEAD, name: events:menu.event.roster-name, lore: events:menu.event.roster-lore}
+        - {slot: 22, material: NETHER_STAR, name: events:menu.event.shop-name, lore: events:menu.event.shop-lore}
+        - *event_help
+        - *event_back
+        - *event_evacuate
+        - *event_close
+
+    - id: hidden-roles-eliminated
+      title: events:menu.event.title
+      rows: 5
+      filler: GRAY_STAINED_GLASS_PANE
+      background-item: arc:background
+      items:
+        - *event_overview
+        - *event_roster
+        - *event_help
+        - *event_back
+        - *event_evacuate
+        - *event_close
+
+    - id: hidden-roles-results
+      title: events:menu.event.title
+      rows: 5
+      filler: GRAY_STAINED_GLASS_PANE
+      background-item: arc:background
+      items:
+        - *event_overview
+        - *event_roster
+        - {slot: 24, material: WRITTEN_BOOK, name: events:menu.event.report-name, lore: events:menu.event.report-lore}
+        - *event_help
+        - *event_back
+        - *event_evacuate
+        - *event_close
+
+    - id: event-statistics
+      title: events:menu.stats.title
+      rows: 3
+      filler: GRAY_STAINED_GLASS_PANE
+      background-item: arc:background
+      items:
+        - {slot: 13, material: WRITABLE_BOOK, name: events:menu.stats.summary-name, lore: events:menu.stats.summary-lore}
+        - {slot: 18, material: ARROW, name: events:menu.common.back-name, lore: events:menu.common.back-lore}
+        - {slot: 26, material: BARRIER, name: events:menu.common.close-name, lore: events:menu.common.close-lore}
+
+    - id: hidden-roles-help
+      title: events:menu.help.title
+      rows: 5
+      filler: GRAY_STAINED_GLASS_PANE
+      background-item: arc:background
+      items:
+        - {slot: 11, material: EMERALD, name: events:menu.help.innocent-name, lore: events:menu.help.innocent-lore}
+        - {slot: 13, material: REDSTONE, name: events:menu.help.traitor-name, lore: events:menu.help.traitor-lore}
+        - {slot: 15, material: LAPIS_LAZULI, name: events:menu.help.detective-name, lore: events:menu.help.detective-lore}
+        - {slot: 22, material: CLOCK, name: events:menu.help.flow-name, lore: events:menu.help.flow-lore}
+        - {slot: 29, material: PLAYER_HEAD, name: events:menu.help.evidence-name, lore: events:menu.help.evidence-lore}
+        - {slot: 31, material: CROSSBOW, name: events:menu.help.weapons-name, lore: events:menu.help.weapons-lore}
+        - {slot: 33, material: COMMAND_BLOCK, name: events:menu.help.controls-name, lore: events:menu.help.controls-lore}
+        - *event_back
+        - *event_close
+
+    - id: event-administration
+      title: events:menu.admin.title
+      rows: 6
+      filler: GRAY_STAINED_GLASS_PANE
+      background-item: arc:background
+      items:
+        - {slot: 13, material: OBSERVER, name: events:menu.admin.status-name, lore: events:menu.admin.status-lore}
+        - {slot: 20, material: FILLED_MAP, name: events:menu.admin.arenas-name, lore: events:menu.admin.arenas-lore}
+        - {slot: 29, material: LIME_CONCRETE, name: events:menu.admin.start-name, lore: events:menu.admin.start-lore}
+        - {slot: 31, material: RED_CONCRETE, name: events:menu.admin.stop-name, lore: events:menu.admin.stop-lore}
+        - {slot: 33, material: CLOCK, name: events:menu.admin.reload-name, lore: events:menu.admin.reload-lore}
+        - {slot: 40, material: TOTEM_OF_UNDYING, name: events:menu.admin.recover-name, lore: events:menu.admin.recover-lore}
+        - {slot: 45, material: ARROW, name: events:menu.common.back-name, lore: events:menu.common.back-lore}
+        - {slot: 53, material: BARRIER, name: events:menu.common.close-name, lore: events:menu.common.close-lore}
+
+  fragments:
+    - source: events
+      include: [menu.event.state.*]
+
+  chat:
+    - source: events
+      include:
+        - queue.*
+        - match.evacuated
+        - match.spawn-return-requested
+        - match.spawn-return-complete
+        - match.spawn-return-unavailable
+        - match.spawn-return-already

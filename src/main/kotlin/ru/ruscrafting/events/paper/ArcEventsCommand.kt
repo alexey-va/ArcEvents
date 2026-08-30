@@ -34,7 +34,8 @@ class ArcEventsCommand(
                     sendStartResult(player, StartMessageAudience.PLAYER)
                 } else deny(player)
             }
-            "leave" -> player(sender)?.let(service::leaveQueue)
+            "leave" -> player(sender)?.let(service::leave)
+            "spawn" -> player(sender)?.let(service::requestMapSpawnReturn)
             "status" -> player(sender)?.let(service::status)
             "shop" -> player(sender)?.let { menu.open(it, EventsView.Shop) }
             "roster" -> player(sender)?.let { menu.open(it, EventsView.Roster) }
@@ -52,7 +53,7 @@ class ArcEventsCommand(
     override fun onTabComplete(sender: CommandSender, command: Command, alias: String, args: Array<out String>): List<String> {
         val options = when (args.size) {
             1 -> buildList {
-                addAll(listOf("menu", "join", "leave", "status", "shop", "roster", "report", "team", "help"))
+                addAll(listOf("menu", "join", "leave", "spawn", "status", "shop", "roster", "report", "team", "help"))
                 if (sender.hasPermission("arcevents.start")) add("start")
                 if (sender.hasPermission("arcevents.admin")) add("admin")
                 if (sender.hasPermission("arcevents.qa")) add("qa")
@@ -295,6 +296,8 @@ class ArcEventsCommand(
 
     private fun parseView(raw: String?): EventsView? = when (raw?.lowercase()) {
         "main" -> EventsView.Main
+        "event" -> EventsView.Ttt
+        "stats" -> EventsView.Statistics
         "help" -> EventsView.Help
         "admin" -> EventsView.Admin
         "arenas" -> EventsView.Arenas
@@ -359,7 +362,7 @@ class ArcEventsCommand(
             "traitor_blade", "traitor_radar", "traitor_smoke",
             "detective_scanner", "detective_medkit", "detective_armor",
         )
-        internal val DEBUG_VIEWS = listOf("main", "help", "admin", "arenas", "shop", "roster", "report")
+        internal val DEBUG_VIEWS = listOf("main", "event", "stats", "help", "admin", "arenas", "shop", "roster", "report")
         internal fun validOptionalInteger(raw: String?): Boolean = raw == null || raw.toIntOrNull() != null
     }
 }

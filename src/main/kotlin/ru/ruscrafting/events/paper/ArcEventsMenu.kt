@@ -20,11 +20,15 @@ import ru.ruscrafting.events.domain.ParticipantStatus
 import ru.ruscrafting.events.domain.TttMatch
 import ru.ruscrafting.events.domain.TttParticipant
 import ru.ruscrafting.events.domain.TttRole
+import ru.ruscrafting.events.network.QueueState
 import java.util.UUID
 
 sealed interface EventsView {
     data object Main : EventsView
     data object Help : EventsView
+    data object EventHelp : EventsView
+    data object Ttt : EventsView
+    data object Statistics : EventsView
     data object Admin : EventsView
     data object Arenas : EventsView
     data object Shop : EventsView
@@ -50,10 +54,16 @@ class ArcEventsMenu(
     private val dialogs = ArcEventsDialogMenu(service, locale, settings, ::dispatchClick)
 
     fun open(player: Player, view: EventsView = EventsView.Main) {
+        if (view == EventsView.Ttt) {
+            openTtt(player)
+            return
+        }
         if (dialogs.open(player, view)) return
         when (view) {
             EventsView.Main -> openMain(player)
-            EventsView.Help -> openHelp(player)
+            EventsView.Help, EventsView.EventHelp -> openHelp(player, view)
+            EventsView.Statistics -> openStatistics(player)
+            EventsView.Ttt -> error("TTT is opened asynchronously")
             EventsView.Admin -> openAdmin(player)
             EventsView.Arenas -> openArenas(player)
             EventsView.Shop -> openShop(player)
@@ -91,6 +101,9 @@ class ArcEventsMenu(
         when (view) {
             EventsView.Main -> clickMain(player, slot)
             EventsView.Help -> if (slot == 36) open(player, EventsView.Main) else if (slot == 44) player.closeInventory()
+            EventsView.EventHelp -> if (slot == 36) open(player, EventsView.Ttt) else if (slot == 44) player.closeInventory()
+            EventsView.Ttt -> clickTtt(player, slot)
+            EventsView.Statistics -> if (slot == 18) open(player, EventsView.Main) else if (slot == 26) player.closeInventory()
             EventsView.Admin -> clickAdmin(player, slot)
             EventsView.Arenas -> clickArenas(player, slot)
             EventsView.Shop -> clickShop(player, slot)
@@ -103,82 +116,154 @@ class ArcEventsMenu(
 
     private fun openMain(player: Player) {
         val state = service.snapshot()
-        val inventory = inventory(player, EventsView.Main, 54, "menu.main.title")
-        inventory.setItem(4, item(Material.SPYGLASS, player, "menu.main.ttt-name", "menu.main.ttt-lore", mapOf(
+        val inventory = inventory(player, EventsView.Main, 27, "menu.main.title")
+        inventory.setItem(13, item(Material.SPYGLASS, player, "menu.main.ttt-name", "menu.main.ttt-lore", mapOf(
             "queue" to locale.text(state.queueSize),
             "minimum" to locale.text(settings().ttt.minimumPlayers),
             "arena_state" to locale.render(if (state.arenaReady) "state.arena-ready" else "state.arena-unavailable", player),
         )))
-        inventory.setItem(20, if (state.hostAvailable) {
-            item(Material.LIME_DYE, player, "menu.main.join-name", "menu.main.join-lore")
-        } else {
-            item(Material.GRAY_DYE, player, "menu.main.join-unavailable-name", "menu.main.join-unavailable-lore")
-        })
-        inventory.setItem(24, item(Material.RED_DYE, player, "menu.main.leave-name", "menu.main.leave-lore"))
-        inventory.setItem(22, item(Material.RECOVERY_COMPASS, player, "menu.main.status-name", "menu.main.status-lore", mapOf(
-            "server" to locale.text(state.serverId),
-            "node_mode" to locale.render("state.mode-${state.nodeMode.name.lowercase()}", player),
-            "host" to locale.text(state.hostServer),
-            "state" to locale.render(if (state.hostAvailable) "state.network-ready" else "state.network-degraded", player),
-        )))
-        val stats = service.stats(player.uniqueId)
-        if (service.roster(player.uniqueId) != null) {
-            inventory.setItem(29, item(Material.PLAYER_HEAD, player, "menu.main.roster-name", "menu.main.roster-lore"))
-        }
-        inventory.setItem(31, item(Material.WRITABLE_BOOK, player, "menu.main.stats-name", "menu.main.stats-lore", mapOf(
-            "matches" to locale.text(stats.matches),
-            "wins" to locale.text(stats.wins),
-            "kills" to locale.text(stats.kills),
-            "deaths" to locale.text(stats.deaths),
-            "karma" to locale.text(stats.karma),
-        )))
-        inventory.setItem(33, item(Material.KNOWLEDGE_BOOK, player, "menu.main.help-name", "menu.main.help-lore"))
-        if (player.hasPermission("arcevents.start")) {
-            inventory.setItem(38, item(
-                if (state.hostAvailable && state.queueSize >= settings().ttt.minimumPlayers) Material.LIME_CONCRETE else Material.GRAY_CONCRETE,
-                player,
-                "menu.main.start-name",
-                "menu.main.start-lore",
-                mapOf(
-                    "queue" to locale.text(state.queueSize),
-                    "minimum" to locale.text(settings().ttt.minimumPlayers),
-                ),
-            ))
-        }
-        inventory.setItem(40, item(Material.NETHER_STAR, player, "menu.main.shop-name", "menu.main.shop-lore"))
-        if (service.report() != null && service.participant(player.uniqueId) != null) {
-            inventory.setItem(41, item(Material.WRITTEN_BOOK, player, "menu.main.report-name", "menu.main.report-lore"))
-        }
+        inventory.setItem(18, item(Material.WRITABLE_BOOK, player, "menu.main.stats-name", "menu.main.stats-lore"))
+        inventory.setItem(22, item(Material.KNOWLEDGE_BOOK, player, "menu.main.help-name", "menu.main.help-lore"))
+        inventory.setItem(8, item(Material.BARRIER, player, "menu.common.close-name", "menu.common.close-lore"))
         if (player.hasPermission("arcevents.admin")) {
-            inventory.setItem(49, item(Material.COMMAND_BLOCK, player, "menu.main.admin-name", "menu.main.admin-lore"))
+            inventory.setItem(26, item(Material.COMMAND_BLOCK, player, "menu.main.admin-name", "menu.main.admin-lore"))
         }
         player.openInventory(inventory)
     }
 
     private fun clickMain(player: Player, slot: Int) {
         when (slot) {
-            20 -> { player.closeInventory(); service.joinQueue(player) }
-            24 -> { player.closeInventory(); service.leaveQueue(player) }
-            29 -> open(player, EventsView.Roster)
-            33 -> open(player, EventsView.Help)
-            38 -> if (player.hasPermission("arcevents.start")) {
-                player.closeInventory()
-                service.startFromQueue(player).thenAccept { result ->
+            8 -> player.closeInventory()
+            13 -> open(player, EventsView.Ttt)
+            18 -> open(player, EventsView.Statistics)
+            22 -> open(player, EventsView.Help)
+            26 -> if (player.hasPermission("arcevents.admin")) open(player, EventsView.Admin)
+        }
+    }
+
+    private fun openTtt(player: Player) {
+        service.queueState(player.uniqueId).whenComplete { queueState, failure ->
+            Tasks.scheduler.runSync {
+                if (!player.isOnline) return@runSync
+                val state = service.snapshot()
+                val plan = eventMenuPlan(
+                    queueState = queueState,
+                    queueStateAvailable = failure == null,
+                    hostAvailable = state.hostAvailable,
+                    rosterAvailable = service.roster(player.uniqueId) != null,
+                    shopAvailable = shopAccessible(service.currentMatch(), service.participant(player.uniqueId)),
+                    reportAvailable = service.report() != null && service.participant(player.uniqueId) != null,
+                    evacuationAvailable = evacuationAccessible(service.currentMatch(), service.participant(player.uniqueId)),
+                    canStart = player.hasPermission("arcevents.start"),
+                )
+                if (dialogs.openTtt(player, queueState, plan)) return@runSync
+                val inventory = inventory(player, EventsView.Ttt, 45, "menu.event.title")
+                val values = mapOf(
+                    "queue" to locale.text(state.queueSize),
+                    "minimum" to locale.text(settings().ttt.minimumPlayers),
+                    "arena_state" to locale.render(if (state.arenaReady) "state.arena-ready" else "state.arena-unavailable", player),
+                )
+                inventory.setItem(13, item(Material.SPYGLASS, player, "menu.event.overview-name", "menu.event.overview-lore", values))
+                if (plan.showQueueStatus) {
+                    inventory.setItem(20, item(Material.CLOCK, player, "menu.event.queue-name", "menu.event.queue-lore", values + mapOf(
+                        "queue_state" to locale.render(queueStateLocaleKey(requireNotNull(queueState)), player),
+                    )))
+                }
+                when {
+                    plan.showJoin -> inventory.setItem(22, item(Material.LIME_DYE, player, "menu.event.join-name", "menu.event.join-lore"))
+                    plan.showJoinUnavailable -> inventory.setItem(22, item(Material.GRAY_DYE, player, "menu.event.join-unavailable-name", "menu.event.join-unavailable-lore"))
+                    plan.showLeave -> inventory.setItem(22, item(Material.RED_DYE, player, "menu.event.leave-name", "menu.event.leave-lore"))
+                }
+                if (plan.showStart) {
+                    inventory.setItem(24, item(
+                        if (state.queueSize >= settings().ttt.minimumPlayers) Material.LIME_CONCRETE else Material.GRAY_CONCRETE,
+                        player,
+                        "menu.event.start-name",
+                        "menu.event.start-lore",
+                        values,
+                    ))
+                }
+                if (plan.showRoster) inventory.setItem(20, item(Material.PLAYER_HEAD, player, "menu.event.roster-name", "menu.event.roster-lore"))
+                if (plan.showShop) inventory.setItem(22, item(Material.NETHER_STAR, player, "menu.event.shop-name", "menu.event.shop-lore"))
+                if (plan.showReport) inventory.setItem(24, item(Material.WRITTEN_BOOK, player, "menu.event.report-name", "menu.event.report-lore"))
+                inventory.setItem(31, item(Material.KNOWLEDGE_BOOK, player, "menu.event.help-name", "menu.event.help-lore"))
+                inventory.setItem(36, item(Material.ARROW, player, "menu.common.back-name", "menu.common.back-lore"))
+                if (plan.showEvacuate) inventory.setItem(40, item(Material.ENDER_PEARL, player, "menu.event.evacuate-name", "menu.event.evacuate-lore"))
+                inventory.setItem(44, item(Material.BARRIER, player, "menu.common.close-name", "menu.common.close-lore"))
+                player.openInventory(inventory)
+            }
+        }
+    }
+
+    private fun clickTtt(player: Player, slot: Int) {
+        when (slot) {
+            20 -> if (service.roster(player.uniqueId) != null) open(player, EventsView.Roster)
+            22 -> when {
+                shopAccessible(service.currentMatch(), service.participant(player.uniqueId)) -> open(player, EventsView.Shop)
+                else -> service.queueState(player.uniqueId).whenComplete { queueState, _ ->
                     Tasks.scheduler.runSync {
-                        if (player.isOnline) {
-                            player.sendMessage(locale.render(reservationStartMessage(result, StartMessageAudience.PLAYER), player))
+                        if (!player.isOnline) return@runSync
+                        when {
+                            queueState == QueueState.QUEUED -> {
+                                player.closeInventory()
+                                service.leaveQueue(player)
+                            }
+                            queueState == null && service.snapshot().hostAvailable -> {
+                                player.closeInventory()
+                                service.joinQueue(player)
+                            }
+                            else -> open(player, EventsView.Ttt)
                         }
                     }
                 }
             }
-            40 -> open(player, EventsView.Shop)
-            41 -> open(player, EventsView.Report)
-            49 -> if (player.hasPermission("arcevents.admin")) open(player, EventsView.Admin)
+            24 -> when {
+                service.report() != null && service.participant(player.uniqueId) != null -> open(player, EventsView.Report)
+                player.hasPermission("arcevents.start") -> service.queueState(player.uniqueId).whenComplete { queueState, _ ->
+                    Tasks.scheduler.runSync {
+                        if (!player.isOnline) return@runSync
+                        if (queueState == QueueState.QUEUED) startFromEventMenu(player) else open(player, EventsView.Ttt)
+                    }
+                }
+            }
+            31 -> open(player, EventsView.EventHelp)
+            36 -> open(player, EventsView.Main)
+            40 -> if (evacuationAccessible(service.currentMatch(), service.participant(player.uniqueId))) {
+                player.closeInventory()
+                service.leave(player)
+            }
+            44 -> player.closeInventory()
         }
     }
 
-    private fun openHelp(player: Player) {
-        val inventory = inventory(player, EventsView.Help, 45, "menu.help.title")
+    private fun startFromEventMenu(player: Player) {
+        player.closeInventory()
+        service.startFromQueue(player).thenAccept { result ->
+            Tasks.scheduler.runSync {
+                if (player.isOnline) {
+                    player.sendMessage(locale.render(reservationStartMessage(result, StartMessageAudience.PLAYER), player))
+                }
+            }
+        }
+    }
+
+    private fun openStatistics(player: Player) {
+        val stats = service.stats(player.uniqueId)
+        val inventory = inventory(player, EventsView.Statistics, 27, "menu.stats.title")
+        inventory.setItem(13, item(Material.WRITABLE_BOOK, player, "menu.stats.summary-name", "menu.stats.summary-lore", mapOf(
+            "matches" to locale.text(stats.matches),
+            "wins" to locale.text(stats.wins),
+            "kills" to locale.text(stats.kills),
+            "deaths" to locale.text(stats.deaths),
+            "karma" to locale.text(stats.karma),
+        )))
+        inventory.setItem(18, item(Material.ARROW, player, "menu.common.back-name", "menu.common.back-lore"))
+        inventory.setItem(26, item(Material.BARRIER, player, "menu.common.close-name", "menu.common.close-lore"))
+        player.openInventory(inventory)
+    }
+
+    private fun openHelp(player: Player, view: EventsView) {
+        val inventory = inventory(player, view, 45, "menu.help.title")
         inventory.setItem(11, item(Material.EMERALD, player, "menu.help.innocent-name", "menu.help.innocent-lore"))
         inventory.setItem(13, item(Material.REDSTONE, player, "menu.help.traitor-name", "menu.help.traitor-lore"))
         inventory.setItem(15, item(Material.LAPIS_LAZULI, player, "menu.help.detective-name", "menu.help.detective-lore"))
@@ -200,6 +285,10 @@ class ArcEventsMenu(
             "match" to locale.text(state.matchId?.toString()?.take(8) ?: "—"),
             "queue" to locale.text(state.queueSize),
             "recovery" to locale.text(state.recoveryPending),
+            "server" to locale.text(state.serverId),
+            "node_mode" to locale.render("state.mode-${state.nodeMode.name.lowercase()}", player),
+            "host" to locale.text(state.hostServer),
+            "network_state" to locale.render(if (state.hostAvailable) "state.network-ready" else "state.network-degraded", player),
         )))
         inventory.setItem(20, item(Material.FILLED_MAP, player, "menu.admin.arenas-name", "menu.admin.arenas-lore", mapOf(
             "arenas" to locale.text(service.arenaEntries().count(ArenaPoolEntry::ready)),
@@ -330,7 +419,7 @@ class ArcEventsMenu(
         }
         when (slot) {
             20, 22, 24 -> offers.getOrNull(listOf(20, 22, 24).indexOf(slot))?.let { service.buy(player, it); open(player, EventsView.Shop) }
-            36 -> open(player, EventsView.Main)
+            36 -> open(player, EventsView.Ttt)
             44 -> player.closeInventory()
         }
     }
@@ -357,7 +446,7 @@ class ArcEventsMenu(
 
     private fun clickRoster(player: Player, slot: Int) {
         when (slot) {
-            45 -> open(player, EventsView.Main)
+            45 -> open(player, EventsView.Ttt)
             53 -> player.closeInventory()
         }
     }
@@ -448,7 +537,7 @@ class ArcEventsMenu(
     private fun clickReport(player: Player, slot: Int) {
         when (slot) {
             40 -> open(player, EventsView.CombatLog(0))
-            45 -> open(player, EventsView.Main)
+            45 -> open(player, EventsView.Ttt)
             53 -> player.closeInventory()
         }
     }
@@ -582,3 +671,51 @@ class ArcEventsMenu(
 
 internal fun shopAccessible(current: TttMatch?, participant: TttParticipant?): Boolean =
     current?.phase == MatchPhase.ACTIVE && participant?.status == ParticipantStatus.ALIVE
+
+internal fun evacuationAccessible(current: TttMatch?, participant: TttParticipant?): Boolean =
+    current?.phase in setOf(
+        MatchPhase.PREPARING,
+        MatchPhase.COUNTDOWN,
+        MatchPhase.ACTIVE,
+        MatchPhase.RESOLVING,
+        MatchPhase.CANCELLED,
+        MatchPhase.RESTORING,
+    ) && participant?.status != null && participant.status != ParticipantStatus.RESTORED
+
+internal data class EventMenuPlan(
+    val showJoin: Boolean,
+    val showJoinUnavailable: Boolean,
+    val showLeave: Boolean,
+    val showQueueStatus: Boolean,
+    val showStart: Boolean,
+    val showRoster: Boolean,
+    val showShop: Boolean,
+    val showReport: Boolean,
+    val showEvacuate: Boolean,
+)
+
+internal fun eventMenuPlan(
+    queueState: QueueState?,
+    queueStateAvailable: Boolean,
+    hostAvailable: Boolean,
+    rosterAvailable: Boolean,
+    shopAvailable: Boolean,
+    reportAvailable: Boolean,
+    evacuationAvailable: Boolean,
+    canStart: Boolean,
+): EventMenuPlan {
+    val participating = queueState != null || rosterAvailable || shopAvailable || reportAvailable || evacuationAvailable
+    return EventMenuPlan(
+        showJoin = !participating && queueStateAvailable && hostAvailable,
+        showJoinUnavailable = !participating && (!queueStateAvailable || !hostAvailable),
+        showLeave = queueState == QueueState.QUEUED,
+        showQueueStatus = queueState != null,
+        showStart = queueState == QueueState.QUEUED && canStart,
+        showRoster = rosterAvailable,
+        showShop = shopAvailable,
+        showReport = reportAvailable,
+        showEvacuate = evacuationAvailable,
+    )
+}
+
+internal fun queueStateLocaleKey(state: QueueState): String = "menu.event.state.${state.name.lowercase()}"

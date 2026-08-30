@@ -67,7 +67,8 @@ interface ArcEventsGameplayBoundary {
     fun canDropLoot(player: Player, item: org.bukkit.inventory.ItemStack?): Boolean
     fun registerDroppedLoot(item: org.bukkit.entity.Item)
     fun canPickupLoot(player: Player, item: org.bukkit.entity.Item): Boolean
-    fun handleLootPickup(item: org.bukkit.entity.Item)
+    fun handleLootPickup(player: Player, item: org.bukkit.entity.Item)
+    fun cancelMapSpawnReturn(playerId: UUID, notify: Boolean = true)
     fun readBodyId(stand: ArmorStand): UUID?
     fun inspectBody(player: Player, bodyId: UUID)
     fun isInternalTeleport(playerId: UUID, destination: Location?): Boolean
@@ -86,6 +87,11 @@ class ArcEventsListener(
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onDamage(event: EntityDamageEvent) {
         val victim = event.entity as? Player ?: return
+        service.cancelMapSpawnReturn(victim.uniqueId)
+        val damager = (event as? EntityDamageByEntityEvent)?.damager
+        val projectile = damager as? Projectile
+        val attacker = damager?.let(::attacker)
+        if (victim.bypassesEventProtection() || attacker?.bypassesEventProtection() == true) return
         if (service.withinArena(victim.location) && !service.isParticipant(victim.uniqueId)) {
             event.isCancelled = true
             return
@@ -94,9 +100,6 @@ class ArcEventsListener(
             event.isCancelled = true
             return
         }
-        val damager = (event as? EntityDamageByEntityEvent)?.damager
-        val projectile = damager as? Projectile
-        val attacker = damager?.let(::attacker)
         if (service.shouldCancelDamage(
                 victim.uniqueId,
                 attacker?.uniqueId,
@@ -130,6 +133,7 @@ class ArcEventsListener(
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onProjectileLaunch(event: ProjectileLaunchEvent) {
         val shooter = event.entity.shooter as? Player ?: return
+        if (shooter.bypassesEventProtection()) return
         if (service.isParticipant(shooter.uniqueId) && !service.registerProjectile(event.entity)) event.isCancelled = true
     }
 
@@ -204,6 +208,7 @@ class ArcEventsListener(
     @EventHandler fun onMenuClick(event: InventoryClickEvent) {
         if (menu.isMenu(event.view.topInventory)) return menu.onClick(event)
         val player = event.whoClicked as? Player ?: return
+        if (player.bypassesEventProtection()) return
         if (event.view.topInventory.location?.let(service::withinArena) == true ||
             service.isParticipant(player.uniqueId) && service.phase() in CONTROLLED_PHASES
         ) event.isCancelled = true
@@ -212,12 +217,14 @@ class ArcEventsListener(
     @EventHandler fun onMenuDrag(event: InventoryDragEvent) {
         if (menu.isMenu(event.view.topInventory)) return menu.onDrag(event)
         val player = event.whoClicked as? Player ?: return
+        if (player.bypassesEventProtection()) return
         if (event.view.topInventory.location?.let(service::withinArena) == true ||
             service.isParticipant(player.uniqueId) && service.phase() in CONTROLLED_PHASES
         ) event.isCancelled = true
     }
 
     @EventHandler(ignoreCancelled = true) fun onDrop(event: PlayerDropItemEvent) {
+        if (event.player.bypassesEventProtection()) return
         if (service.canDropLoot(event.player, event.itemDrop.itemStack)) {
             service.registerDroppedLoot(event.itemDrop)
             return
@@ -228,6 +235,7 @@ class ArcEventsListener(
     }
     @EventHandler(ignoreCancelled = true) fun onPickup(event: EntityPickupItemEvent) {
         val player = event.entity as? Player ?: return
+        if (player.bypassesEventProtection()) return
         if (service.canPickupLoot(player, event.item)) return
         if (service.withinArena(player.location) || service.isParticipant(player.uniqueId) && service.phase() in CONTROLLED_PHASES) {
             event.isCancelled = true
@@ -235,34 +243,42 @@ class ArcEventsListener(
     }
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true) fun onPickupCommitted(event: EntityPickupItemEvent) {
         val player = event.entity as? Player ?: return
-        if (service.canPickupLoot(player, event.item)) service.handleLootPickup(event.item)
+        if (player.bypassesEventProtection() || service.canPickupLoot(player, event.item)) {
+            service.handleLootPickup(player, event.item)
+        }
     }
     @EventHandler(ignoreCancelled = true) fun onSwap(event: PlayerSwapHandItemsEvent) {
+        if (event.player.bypassesEventProtection()) return
         if (service.isParticipant(event.player.uniqueId) && service.phase() in CONTROLLED_PHASES) {
             event.isCancelled = true
             if (service.phase() == MatchPhase.ACTIVE) service.reloadFirearm(event.player)
         }
     }
     @EventHandler(ignoreCancelled = true) fun onBreak(event: BlockBreakEvent) {
+        if (event.player.bypassesEventProtection()) return
         if (service.withinArena(event.block.location) || service.isParticipant(event.player.uniqueId) && service.phase() in CONTROLLED_PHASES) {
             event.isCancelled = true
         }
     }
     @EventHandler(ignoreCancelled = true) fun onPlace(event: BlockPlaceEvent) {
+        if (event.player.bypassesEventProtection()) return
         if (service.withinArena(event.block.location) || service.isParticipant(event.player.uniqueId) && service.phase() in CONTROLLED_PHASES) {
             event.isCancelled = true
         }
     }
     @EventHandler(ignoreCancelled = true) fun onBucketEmpty(event: PlayerBucketEmptyEvent) {
+        if (event.player.bypassesEventProtection()) return
         if (service.withinArena(event.block.location)) event.isCancelled = true
     }
     @EventHandler(ignoreCancelled = true) fun onBucketFill(event: PlayerBucketFillEvent) {
+        if (event.player.bypassesEventProtection()) return
         if (service.withinArena(event.block.location)) event.isCancelled = true
     }
     @EventHandler(ignoreCancelled = true) fun onBlockBurn(event: BlockBurnEvent) {
         if (service.withinArena(event.block.location)) event.isCancelled = true
     }
     @EventHandler(ignoreCancelled = true) fun onBlockIgnite(event: BlockIgniteEvent) {
+        if ((event.ignitingEntity as? Player)?.bypassesEventProtection() == true) return
         if (service.withinArena(event.block.location)) event.isCancelled = true
     }
     @EventHandler(ignoreCancelled = true) fun onBlockFlow(event: BlockFromToEvent) {
@@ -276,6 +292,7 @@ class ArcEventsListener(
     }
     @EventHandler(ignoreCancelled = true) fun onFood(event: FoodLevelChangeEvent) {
         val player = event.entity as? Player ?: return
+        if (player.bypassesEventProtection()) return
         if (service.isParticipant(player.uniqueId) && service.phase() in CONTROLLED_PHASES) {
             event.isCancelled = true
             player.foodLevel = 20
@@ -285,14 +302,19 @@ class ArcEventsListener(
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onMove(event: PlayerMoveEvent) {
         if (event is PlayerTeleportEvent) return
+        if (event.from.x != event.to.x || event.from.y != event.to.y || event.from.z != event.to.z) {
+            service.cancelMapSpawnReturn(event.player.uniqueId)
+        }
+        if (event.player.bypassesEventProtection()) return
         if (!service.isParticipant(event.player.uniqueId) || service.phase() !in CONTROLLED_PHASES) return
         if (!service.withinArena(event.to)) event.isCancelled = true
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onTeleport(event: PlayerTeleportEvent) {
+        if (event.player.bypassesEventProtection()) return
         val participant = service.isParticipant(event.player.uniqueId)
-        if (!participant && service.withinArena(event.to) && !event.player.hasPermission("arcevents.admin")) {
+        if (!participant && service.withinArena(event.to)) {
             event.isCancelled = true
             return
         }
@@ -304,6 +326,7 @@ class ArcEventsListener(
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onCommand(event: PlayerCommandPreprocessEvent) {
+        if (event.player.bypassesEventProtection()) return
         if (!service.isParticipant(event.player.uniqueId) || service.phase() !in CONTROLLED_PHASES) return
         val root = event.message.removePrefix("/").substringBefore(' ').lowercase()
         if (root !in setOf("arcevents", "events", "ae")) event.isCancelled = true
@@ -315,7 +338,10 @@ class ArcEventsListener(
         else -> null
     }
 
+    private fun Player.bypassesEventProtection(): Boolean = hasPermission(ADMIN_BYPASS_PERMISSION)
+
     companion object {
+        internal const val ADMIN_BYPASS_PERMISSION = "arcevents.admin"
         private val CONTROLLED_PHASES = setOf(
             MatchPhase.PREPARING,
             MatchPhase.COUNTDOWN,

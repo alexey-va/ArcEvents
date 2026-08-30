@@ -48,6 +48,7 @@ import ru.ruscrafting.events.domain.TttRole
 import ru.ruscrafting.events.domain.TttTeam
 import ru.ruscrafting.events.domain.team
 import ru.ruscrafting.events.network.QueueEntry
+import ru.ruscrafting.events.network.QueueState
 import ru.ruscrafting.events.network.ReservationBatch
 import java.time.Duration
 import java.util.UUID
@@ -115,6 +116,13 @@ class ArcEventsService(
     private val arenaPool: ArenaPool,
     private val clock: () -> Long = System::currentTimeMillis,
 ) : ArcEventsGameplayBoundary, AutoCloseable {
+    private data class MapSpawnReturn(
+        val matchId: UUID,
+        val origin: Location,
+        var secondsRemaining: Int,
+        var task: ScheduledTask? = null,
+    )
+
     private val runtime = TttMatchRuntime(engine = ::engine, clock = clock)
     private val match: TttMatch?
         get() = runtime.current
@@ -128,6 +136,7 @@ class ArcEventsService(
     private val bodyRegistry = TttBodyRegistry(plugin, locale, clock)
     private val shotCooldownUntil = mutableMapOf<UUID, Long>()
     private val reloadTasks = mutableMapOf<UUID, ScheduledTask>()
+    private val mapSpawnReturns = mutableMapOf<UUID, MapSpawnReturn>()
     private var pendingHit: PendingHitContext? = null
     private var roundReport: RoundReportView? = null
     private val projectileMatchKey = NamespacedKey(plugin, "projectile_match")
@@ -174,6 +183,7 @@ class ArcEventsService(
     fun currentMatch(): TttMatch? = match
     fun participant(playerId: UUID): TttParticipant? = match?.participant(playerId)
     fun stats(playerId: UUID): PlayerEventStats = network.stats(playerId)
+    fun queueState(playerId: UUID): CompletableFuture<QueueState?> = network.queueState(playerId)
     fun report(): RoundReportView? = roundReport
     fun bodyId(entityId: UUID): UUID? = bodyRegistry.bodyId(entityId)
     override fun isParticipant(playerId: UUID): Boolean =
@@ -264,6 +274,112 @@ class ArcEventsService(
 
     fun leaveQueue(player: Player) = network.leave(player)
 
+    fun leave(player: Player) {
+        cancelMapSpawnReturn(player.uniqueId, notify = false)
+        val current = match
+        val participant = current?.participant(player.uniqueId)
+        if (current == null || participant == null || participant.status == ParticipantStatus.RESTORED ||
+            current.phase !in EVACUATION_PHASES
+        ) {
+            leaveQueue(player)
+            return
+        }
+
+        var changed = current
+        var outcome: MatchOutcome = MatchOutcome.Continue
+        if (current.phase in LIVE_PHASES && participant.status in setOf(ParticipantStatus.RESERVED, ParticipantStatus.ALIVE)) {
+            val disconnected = runtime.disconnect(player.uniqueId)
+            changed = disconnected.first
+            outcome = disconnected.second
+            debug.event("participant_evacuated", "match" to current.matchId, "player" to player.uniqueId, "phase" to current.phase)
+        }
+
+        if (outcome is MatchOutcome.Finished) resolve(changed)
+        hud.remove(player.uniqueId)
+        val recovery = runCatching { recoverPlayer(player) }.getOrElse { failure ->
+            plugin.logger.log(Level.SEVERE, "ArcEvents could not evacuate ${player.uniqueId}", failure)
+            player.sendMessage(locale.render("match.restore-pending", player))
+            return
+        }
+        if (recovery == null) {
+            player.sendMessage(locale.render("match.restore-pending", player))
+            return
+        }
+        completeRecovery(player, recovery, "match.evacuated")
+
+        if (changed.phase != MatchPhase.ACTIVE && changed.phase in LIVE_PHASES && !preRoundRosterViable(changed)) {
+            cancel(MatchEndReason.INSUFFICIENT_PLAYERS)
+        }
+    }
+
+    fun requestMapSpawnReturn(player: Player) {
+        val current = match
+        val participant = current?.participant(player.uniqueId)
+        val arena = arenaPool.active()
+        if (current == null || current.phase !in LIVE_PHASES || participant == null ||
+            participant.status in setOf(ParticipantStatus.DISCONNECTED, ParticipantStatus.RESTORED) || arena == null
+        ) {
+            player.sendMessage(locale.render("match.spawn-return-unavailable", player))
+            return
+        }
+        if (mapSpawnReturns.containsKey(player.uniqueId)) {
+            player.sendMessage(locale.render("match.spawn-return-already", player))
+            return
+        }
+
+        val request = MapSpawnReturn(current.matchId, player.location.clone(), MAP_SPAWN_RETURN_SECONDS)
+        mapSpawnReturns[player.uniqueId] = request
+        player.sendMessage(locale.render(
+            "match.spawn-return-requested",
+            player,
+            mapOf("seconds" to locale.text(MAP_SPAWN_RETURN_SECONDS)),
+        ))
+        request.task = Tasks.scheduler.runTimer(20L, 20L) {
+            val active = match
+            val latest = mapSpawnReturns[player.uniqueId]
+            if (!player.isOnline || latest !== request || active?.matchId != request.matchId ||
+                active.phase !in LIVE_PHASES || arenaPool.active()?.id != arena.id
+            ) {
+                cancelMapSpawnReturn(player.uniqueId, notify = false)
+                return@runTimer
+            }
+            if (request.origin.world !== player.location.world ||
+                request.origin.distanceSquared(player.location) > MAP_SPAWN_MOVEMENT_TOLERANCE_SQUARED
+            ) {
+                cancelMapSpawnReturn(player.uniqueId)
+                return@runTimer
+            }
+            request.secondsRemaining -= 1
+            if (request.secondsRemaining > 0) {
+                player.sendActionBar(locale.render(
+                    "match.spawn-return-actionbar",
+                    player,
+                    mapOf("seconds" to locale.text(request.secondsRemaining)),
+                ))
+                return@runTimer
+            }
+
+            mapSpawnReturns.remove(player.uniqueId)
+            request.task?.cancel()
+            runCatching { teleport(player, arena.playerSpawn) }
+                .onSuccess { player.sendMessage(locale.render("match.spawn-return-complete", player)) }
+                .onFailure { failure ->
+                    plugin.logger.log(Level.WARNING, "ArcEvents could not return ${player.uniqueId} to the map spawn", failure)
+                    player.sendMessage(locale.render("match.spawn-return-unavailable", player))
+                }
+        }
+    }
+
+    override fun cancelMapSpawnReturn(playerId: UUID, notify: Boolean) {
+        val request = mapSpawnReturns.remove(playerId) ?: return
+        request.task?.let { task -> runCatching(task::cancel) }
+        if (notify) {
+            plugin.server.getPlayer(playerId)?.let { player ->
+                player.sendActionBar(locale.render("match.spawn-return-cancelled", player))
+            }
+        }
+    }
+
     override fun handleJoin(player: Player) {
         Tasks.scheduler.runLater(1L) {
             if (!started || !player.isOnline) return@runLater
@@ -284,6 +400,7 @@ class ArcEventsService(
     }
 
     override fun handleQuit(player: Player) {
+        cancelMapSpawnReturn(player.uniqueId, notify = false)
         hud.remove(player.uniqueId)
         val current = match ?: return
         if (current.participant(player.uniqueId) == null || current.phase !in LIVE_PHASES) return
@@ -722,7 +839,29 @@ class ArcEventsService(
             firearms.isLoot(item.itemStack, current.matchId.toString())
     }
 
-    override fun handleLootPickup(item: Item) = lootScene.consume(item.uniqueId)
+    override fun handleLootPickup(player: Player, item: Item) {
+        val firearm = firearms.state(item.itemStack)
+        lootScene.consume(item.uniqueId)
+        val current = match ?: return
+        if (firearm?.matchId != current.matchId.toString()) return
+        val rounds = pickupReserveRounds(firearms.spec(firearm.id).magazineSize)
+        Tasks.scheduler.runLater(1L) {
+            val active = match
+            if (!player.isOnline || active?.matchId != current.matchId ||
+                !lootAccessible(active.phase, active.participant(player.uniqueId)?.status)
+            ) return@runLater
+            val ammunition = firearms.ammunition(player, firearm.matchId, rounds)
+            player.inventory.addItem(ammunition).values.forEach { remainder ->
+                val dropped = player.world.dropItem(player.location, remainder)
+                lootScene.register(dropped, pickupDelay = 20)
+            }
+            player.sendActionBar(locale.render(
+                "weapon.pickup-ammo-actionbar",
+                player,
+                mapOf("rounds" to locale.text(rounds)),
+            ))
+        }
+    }
 
     fun teamChat(player: Player, rawMessage: String) {
         val current = match
@@ -1057,8 +1196,7 @@ class ArcEventsService(
         player.foodLevel = 20
         items.givePreparationLoadout(player, current.matchId.toString())
         items.revealRoleLoadout(player, participant.role, current.matchId.toString())
-        val index = current.participants.keys.indexOf(player.uniqueId).coerceAtLeast(0)
-        teleport(player, requireNotNull(arenaPool.active()).spawns[index])
+        teleport(player, requireNotNull(arenaPool.active()).playerSpawn)
         return DebugMutationResult.APPLIED
     }
 
@@ -1216,7 +1354,7 @@ class ArcEventsService(
 
     private fun applyEventState(players: List<Player>, current: TttMatch) {
         val arena = requireNotNull(arenaPool.active()) { "Match ${current.matchId} has no arena lease" }
-        players.forEachIndexed { index, player ->
+        players.forEach { player ->
             player.closeInventory()
             player.activePotionEffects.forEach { player.removePotionEffect(it.type) }
             player.gameMode = GameMode.ADVENTURE
@@ -1232,7 +1370,7 @@ class ArcEventsService(
             player.level = 0
             player.exp = 0f
             items.givePreparationLoadout(player, current.matchId.toString())
-            teleport(player, arena.spawns[index])
+            teleport(player, arena.playerSpawn)
             player.showTitle(Title.title(
                 locale.render("match.preparing-title", player),
                 locale.render("match.preparing-subtitle", player),
@@ -1501,11 +1639,11 @@ class ArcEventsService(
         runtime.markRecoveryApplied(playerId)
     }
 
-    private fun completeRecovery(player: Player, recovery: PlayerRecovery) {
+    private fun completeRecovery(player: Player, recovery: PlayerRecovery, messageKey: String = "match.restored") {
         runCatching { markRecovered(player.uniqueId, recovery) }.onFailure { failure ->
             plugin.logger.log(Level.SEVERE, "ArcEvents could not record recovery for ${player.uniqueId}", failure)
         }
-        runCatching { player.sendMessage(locale.render("match.restored", player)) }
+        runCatching { player.sendMessage(locale.render(messageKey, player)) }
         runCatching { network.returnRecoveredPlayer(player, recovery) }.onFailure { failure ->
             plugin.logger.log(Level.SEVERE, "ArcEvents could not prepare return for ${player.uniqueId}", failure)
             runCatching { network.handleJoin(player) }
@@ -1585,10 +1723,10 @@ class ArcEventsService(
     private fun importedLoot(points: List<EventLocation>, seed: Long): List<Pair<Triple<Double, Double, Double>, Pair<FirearmId?, Int>>> {
         val random = Random(seed)
         val shuffled = points.shuffled(random)
-        val weaponCount = shuffled.indices.count { it % 3 != 2 }
+        val weaponCount = shuffled.indices.count { it % 4 != 3 }
         val firearms = TttFirearmCatalog.lootSelection(weaponCount, seed xor LOOT_SEED_SALT).iterator()
         return shuffled.mapIndexed { index, point ->
-            val reward = if (index % 3 == 2) null to listOf(12, 16, 20, 24).random(random) else firearms.next() to 0
+            val reward = if (index % 4 == 3) null to listOf(12, 16, 20, 24).random(random) else firearms.next() to 0
             Triple(point.x, point.y, point.z) to reward
         }
     }
@@ -1791,6 +1929,7 @@ class ArcEventsService(
     }
 
     private fun cancelMatchTasks(keepMainTick: Boolean) {
+        mapSpawnReturns.keys.toList().forEach { playerId -> cancelMapSpawnReturn(playerId, notify = false) }
         sessionTasks.forEach { task -> runCatching(task::cancel) }
         sessionTasks.clear()
         if (!keepMainTick) {
@@ -1831,7 +1970,14 @@ class ArcEventsService(
 
     companion object {
         private const val LOOT_SEED_SALT = 0x5A17C0DEL
+        private const val MAP_SPAWN_RETURN_SECONDS = 10
+        private const val MAP_SPAWN_MOVEMENT_TOLERANCE_SQUARED = 0.0025
         private val LIVE_PHASES = setOf(MatchPhase.PREPARING, MatchPhase.COUNTDOWN, MatchPhase.ACTIVE)
+        private val EVACUATION_PHASES = LIVE_PHASES + setOf(
+            MatchPhase.RESOLVING,
+            MatchPhase.CANCELLED,
+            MatchPhase.RESTORING,
+        )
         private val DEBUG_SPECIAL_ITEMS = setOf(
             EventItemKind.TRAITOR_BLADE,
             EventItemKind.TRAITOR_RADAR,
@@ -1850,6 +1996,8 @@ class ArcEventsService(
         )
     }
 }
+
+internal fun pickupReserveRounds(magazineSize: Int): Int = (magazineSize * 3).coerceIn(12, 48)
 
 internal fun lootAccessible(phase: MatchPhase?, status: ParticipantStatus?): Boolean =
     phase in setOf(MatchPhase.PREPARING, MatchPhase.COUNTDOWN, MatchPhase.ACTIVE) &&

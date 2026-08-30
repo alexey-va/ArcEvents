@@ -34,13 +34,14 @@ class ArcEventsConfigTest : StringSpec({
         }
     }
 
-    "enabled host arena requires complete bounded spawn data" {
+    "enabled host arena requires one common bounded player spawn" {
         val root = Files.createTempDirectory("arcevents-arena-")
         try {
-            Files.writeString(root.resolve("config.yml"), validHostConfig(spawnCount = 15))
+            Files.writeString(root.resolve("config.yml"), validHostConfig(spawnCount = 0))
             shouldThrow<IllegalArgumentException> { ArcEventsConfig.inspect(root) }
-            Files.writeString(root.resolve("config.yml"), validHostConfig(spawnCount = 16))
+            Files.writeString(root.resolve("config.yml"), validHostConfig(spawnCount = 1))
             ArcEventsConfig.inspect(root).arena.operational(16) shouldBe true
+            ArcEventsConfig.inspect(root).arena.playerSpawn shouldBe ArcEventsConfig.inspect(root).arena.spawns.single()
         } finally {
             root.toFile().deleteRecursively()
         }

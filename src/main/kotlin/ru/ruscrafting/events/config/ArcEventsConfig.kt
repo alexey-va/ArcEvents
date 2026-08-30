@@ -63,13 +63,14 @@ data class ArenaSettings(
     val spawns: List<EventLocation>,
     val lootSpawns: List<EventLocation>,
 ) {
-    fun operational(maximumPlayers: Int): Boolean = runCatching {
+    val playerSpawn: EventLocation get() = spawns.first()
+
+    fun operational(@Suppress("UNUSED_PARAMETER") maximumPlayers: Int): Boolean = runCatching {
         require(enabled)
         requireNotNull(lobby).validated()
         requireNotNull(spectator).validated()
         requireNotNull(bounds).validated()
-        require(spawns.size >= maximumPlayers)
-        require(spawns.distinctBy { Triple(it.x, it.y, it.z) }.size == spawns.size)
+        require(spawns.isNotEmpty())
         require(bounds.contains(lobby) && bounds.contains(spectator))
         require(spawns.all { bounds.contains(it.validated()) })
         require(lootSpawns.distinctBy { Triple(it.x, it.y, it.z) }.size == lootSpawns.size)

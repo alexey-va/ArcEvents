@@ -5,10 +5,10 @@ import io.kotest.matchers.shouldBe
 import ru.ruscrafting.events.domain.FirearmId
 
 class TttCitadelLootTest : StringSpec({
-    "citadel loot points have safe footing and a full sixteen-player weapon pool" {
+    "citadel loot points have safe footing and a generous weapon pool" {
         TttCitadelLoot.validate()
         val layout = TttCitadelLoot.layout(42)
-        layout.count { it.firearm != null } shouldBe 20
+        layout.count { it.firearm != null } shouldBe 28
         layout.count { it.ammunition > 0 } shouldBe 12
         FirearmId.entries.forEach { firearm -> (layout.count { it.firearm == firearm } >= 1) shouldBe true }
     }

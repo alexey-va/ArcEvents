@@ -9,6 +9,7 @@ import ru.ruscrafting.events.domain.ParticipantStatus
 import ru.ruscrafting.events.domain.TttMatch
 import ru.ruscrafting.events.domain.TttParticipant
 import ru.ruscrafting.events.domain.TttRole
+import ru.ruscrafting.events.network.QueueState
 import java.io.DataInputStream
 import java.io.ByteArrayInputStream
 import java.util.UUID
@@ -47,6 +48,41 @@ class OperatorContractTest : StringSpec({
         shopAccessible(match(MatchPhase.ACTIVE, dead), dead) shouldBe false
     }
 
+    "event menu exposes only actions valid for the player's current state" {
+        val available = eventMenuPlan(null, true, true, false, false, false, false, true)
+        available.showJoin shouldBe true
+        available.showLeave shouldBe false
+        available.showStart shouldBe false
+
+        val queued = eventMenuPlan(QueueState.QUEUED, true, true, false, false, false, false, true)
+        queued.showJoin shouldBe false
+        queued.showQueueStatus shouldBe true
+        queued.showLeave shouldBe true
+        queued.showStart shouldBe true
+
+        val reserved = eventMenuPlan(QueueState.RESERVED, true, true, false, false, false, false, true)
+        reserved.showQueueStatus shouldBe true
+        reserved.showLeave shouldBe false
+        reserved.showStart shouldBe false
+
+        val active = eventMenuPlan(QueueState.MATCHED, true, true, true, true, false, true, true)
+        active.showJoin shouldBe false
+        active.showRoster shouldBe true
+        active.showShop shouldBe true
+        active.showEvacuate shouldBe true
+
+        val unavailable = eventMenuPlan(null, false, false, false, false, false, false, true)
+        unavailable.showJoin shouldBe false
+        unavailable.showJoinUnavailable shouldBe true
+    }
+
+    "weapon pickups include a useful but bounded reserve" {
+        pickupReserveRounds(1) shouldBe 12
+        pickupReserveRounds(6) shouldBe 18
+        pickupReserveRounds(20) shouldBe 48
+        pickupReserveRounds(48) shouldBe 48
+    }
+
     "preparation allows neutral loot collection without enabling dead players" {
         lootAccessible(MatchPhase.PREPARING, ParticipantStatus.RESERVED) shouldBe true
         lootAccessible(MatchPhase.COUNTDOWN, ParticipantStatus.ALIVE) shouldBe true
@@ -71,6 +107,8 @@ class OperatorContractTest : StringSpec({
         dialogFrontendSupported(false, MIN_DIALOG_PROTOCOL, EventsView.Main) shouldBe false
         dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL - 1, EventsView.Main) shouldBe false
         dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL, EventsView.Main) shouldBe true
+        dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL, EventsView.Ttt) shouldBe true
+        dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL, EventsView.Statistics) shouldBe true
         dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL, EventsView.Help) shouldBe true
         dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL, EventsView.Admin) shouldBe true
         dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL, EventsView.Shop) shouldBe false
@@ -90,7 +128,7 @@ class OperatorContractTest : StringSpec({
             "item", "kill", "revive", "discover", "dna", "call", "loot", "menu", "cleanup",
         )) shouldBe true
         ArcEventsCommand.DEBUG_ITEMS.size shouldBe 6
-        ArcEventsCommand.DEBUG_VIEWS shouldBe listOf("main", "help", "admin", "arenas", "shop", "roster", "report")
+        ArcEventsCommand.DEBUG_VIEWS shouldBe listOf("main", "event", "stats", "help", "admin", "arenas", "shop", "roster", "report")
         ArcEventsCommand.validOptionalInteger(null) shouldBe true
         ArcEventsCommand.validOptionalInteger("0") shouldBe true
         ArcEventsCommand.validOptionalInteger("full") shouldBe false

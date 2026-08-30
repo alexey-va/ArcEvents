@@ -22,17 +22,14 @@ class ArenaRuntimeInspector(private val plugin: Plugin) {
     }
 
     @Suppress("DEPRECATION")
-    fun ready(arena: ArenaSettings, maximumPlayers: Int): Boolean {
-        if (!arena.enabled || arena.spawns.size < maximumPlayers) return false
+    fun ready(arena: ArenaSettings, @Suppress("UNUSED_PARAMETER") maximumPlayers: Int): Boolean {
+        if (!arena.enabled || arena.spawns.isEmpty()) return false
         val lobby = arena.lobby ?: return false
         val spectator = arena.spectator ?: return false
         val world = plugin.server.getWorld(arena.world) ?: return false
         if (world.getGameRuleValue(GameRules.PVP) != true) return false
         if (!ready(lobby) || !ready(spectator)) return false
-        for (index in 0 until maximumPlayers) {
-            if (!ready(arena.spawns[index])) return false
-        }
-        return true
+        return ready(arena.playerSpawn)
     }
 
     private fun ready(point: EventLocation): Boolean {

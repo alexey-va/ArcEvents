@@ -18,6 +18,10 @@ object TttCitadelLoot {
         CitadelPoint(-20.0, 7.25, -20.0), CitadelPoint(20.0, 7.25, 20.0),
         CitadelPoint(-20.0, 7.25, 20.0), CitadelPoint(20.0, 7.25, -20.0),
         CitadelPoint(0.0, 16.25, -30.0), CitadelPoint(0.0, 16.25, 30.0),
+        CitadelPoint(2.0, 16.25, -48.0), CitadelPoint(48.0, 16.25, 2.0),
+        CitadelPoint(2.0, 16.25, 48.0), CitadelPoint(-48.0, 16.25, 2.0),
+        CitadelPoint(30.0, 16.25, -30.0), CitadelPoint(30.0, 16.25, 30.0),
+        CitadelPoint(-30.0, 16.25, 30.0), CitadelPoint(-30.0, 16.25, -30.0),
     )
     private val ammunitionPoints = listOf(
         CitadelPoint(4.0, 16.25, -48.0), CitadelPoint(48.0, 16.25, 4.0),

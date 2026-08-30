@@ -83,8 +83,8 @@ class TttItems(
                 Material.NETHER_STAR,
                 EventItemKind.SHOP,
                 matchId,
-                locale.render("menu.main.shop-name", player),
-                locale.lore("menu.main.shop-lore", player),
+                locale.render("menu.event.shop-name", player),
+                locale.lore("menu.event.shop-lore", player),
             ))
         }
         if (role == TttRole.DETECTIVE) {

@@ -111,7 +111,7 @@ class TttLootScene(
         item.pickupDelay = pickupDelay.coerceAtLeast(0)
         item.setUnlimitedLifetime(true)
         item.setCanMobPickup(false)
-        item.setGravity(false)
+        item.setGravity(true)
         item.velocity = Vector()
         item.isPersistent = false
     }
@@ -201,6 +201,12 @@ class TttLootScene(
             } else {
                 tracked
             }
+            runCatching {
+                display.teleport(pickup.location.clone().add(0.0, DISPLAY_HEIGHT, 0.0))
+                effectDisplay?.takeIf(ItemDisplay::isValid)?.teleport(
+                    pickup.location.clone().add(0.0, settings().weapons.lootEffect.height, 0.0),
+                )
+            }.onFailure { logPresentationFailure(effect = false, it) }
             if (rotate) {
                 runCatching {
                     display.interpolationDelay = 0
@@ -269,7 +275,7 @@ class TttLootScene(
     }
 
     companion object {
-        private const val DISPLAY_HEIGHT = 0.45
+        private const val DISPLAY_HEIGHT = 0.18
         private const val DISPLAY_SCALE = 0.78f
         private const val ANIMATION_STEP_TICKS = 5
         private const val PARTICLE_TICKS = 10

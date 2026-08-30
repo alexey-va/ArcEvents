@@ -315,6 +315,11 @@ class EventNetworkCoordinator(
 
     fun stats(playerId: UUID): PlayerEventStats = statistics[playerId] ?: PlayerEventStats()
 
+    fun queueState(playerId: UUID): CompletableFuture<QueueState?> =
+        repository.loadQueueEntry(playerId).thenApply { entry ->
+            entry?.takeIf { it.expiresAtMs >= clock() }?.state
+        }
+
     fun loadStats(playerId: UUID) {
         repository.loadStats(playerId).whenComplete { value, failure ->
             if (failure == null && value != null) statistics[playerId] = value
