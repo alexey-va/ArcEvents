@@ -19,6 +19,7 @@ import ru.arc.redis.RedisManager
 import ru.arc.redis.ServerIdentity
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
+import ru.ruscrafting.events.config.ArcEventsReloadPolicy
 import ru.ruscrafting.events.config.ArcEventsRedisBootstrap
 import ru.ruscrafting.events.domain.MatchPhase
 import ru.ruscrafting.events.network.RedisEventNetworkRepository
@@ -35,6 +36,7 @@ class ArcEventsPlugin : JavaPlugin() {
     private var transfer: BungeeBackendTransfer? = null
     private var pluginRuntime: PaperPluginRuntime? = null
     private var weaponPointStore: ArenaWeaponPointStore? = null
+    private var nameplates: TttNameplateRuntime? = null
 
     override fun onEnable() {
         saveDefaultConfig()
@@ -104,30 +106,15 @@ class ArcEventsPlugin : JavaPlugin() {
             )
             network = coordinator
             lifecycle.own(coordinator)
-            val nameplateOptions = PaperNameplateOptions(
-                maxDistance = 32.0,
-                lineWidth = 180,
-                scale = 0.8F,
-                verticalOffset = 0.55F,
-                requireLineOfSight = true,
-            )
-            val nativeNameplateVisibility = NativePaperNameplateVisibilityPolicy(nameplateOptions)
-            val nameplateRenderer = lifecycle.own(PaperPlayerNameplates.open(
-                plugin = this,
-                options = nameplateOptions,
-                visibility = PaperNameplateVisibilityPolicy { viewer, target ->
-                    nativeNameplateVisibility.canView(viewer, target) &&
-                        service?.canViewNameplate(viewer.uniqueId, target.uniqueId) == true
-                },
-            ))
-            val nameplates = TttNameplates(
-                registry = nameplateRenderer.registry,
+            val nameplateRuntime = lifecycle.own(TttNameplateRuntime(
                 locale = locale,
                 statistics = coordinator::stats,
                 onlinePlayer = server::getPlayer,
-                refresh = nameplateRenderer::refreshNow,
-            )
-            val hud = TttHud(this, { settings }, locale, nameplates)
+                currentMatch = { service?.currentMatch() },
+                rendererFactory = { options -> openNameplateRenderer(options) },
+            )).also { nameplates = it }
+            nameplateRuntime.reconfigure(settings.ui.nameplates)
+            val hud = TttHud(this, { settings }, locale, nameplateRuntime)
             activeService = ArcEventsService(
                 plugin = this,
                 settings = { settings },
@@ -209,6 +196,7 @@ class ArcEventsPlugin : JavaPlugin() {
         runCatching { pluginRuntime?.close() }.onFailure { logger.log(Level.SEVERE, "Could not close ArcEvents runtime", it) }
         pluginRuntime = null
         weaponPointStore = null
+        nameplates = null
         Tasks.reset()
     }
 
@@ -216,18 +204,11 @@ class ArcEventsPlugin : JavaPlugin() {
         val dataRoot = dataFolder.toPath()
         val candidate = ArcEventsConfig.inspect(dataRoot)
         val current = settings
-        require(candidate.serverId == current.serverId) { "server-id requires a restart" }
-        require(candidate.nodeMode == current.nodeMode) { "node-mode requires a restart" }
-        require(candidate.hostServer == current.hostServer) { "host-server requires a restart" }
-        require(candidate.network.enabled == current.network.enabled) { "network.enabled requires a restart" }
-        require(candidate.packetChatIsolationEnabled == current.packetChatIsolationEnabled) {
-            "chat.packet-isolation.enabled requires a restart"
-        }
-        require(candidate.arenas.map { Triple(it.id, it.world, it.template) } == current.arenas.map { Triple(it.id, it.world, it.template) }) {
-            "arena ids, worlds and templates require a restart"
-        }
-        require(candidate.arenas.map { it.enabled } == current.arenas.map { it.enabled }) { "arena enablement requires a restart" }
-        require(service?.matchState()?.first == null) { "configuration cannot reload during a reservation or match" }
+        ArcEventsReloadPolicy.validate(
+            current = current,
+            candidate = candidate,
+            matchOrReservationActive = service?.matchState()?.first != null,
+        )
         weaponPointStore?.let { store ->
             candidate.arenas.forEach { arena ->
                 require(store.points(arena).size <= arena.weaponCount) {
@@ -238,7 +219,21 @@ class ArcEventsPlugin : JavaPlugin() {
         ArcEventsLocale.validateFiles(dataRoot)
         ConfigManager.reloadAll()
         settings = ArcEventsConfig.load(dataRoot)
+        nameplates?.reconfigure(settings.ui.nameplates)
+        Unit
     }.onFailure { logger.log(Level.WARNING, "ArcEvents reload was rejected", it) }
+
+    private fun openNameplateRenderer(options: PaperNameplateOptions): PaperPlayerNameplates {
+        val nativeVisibility = NativePaperNameplateVisibilityPolicy(options)
+        return PaperPlayerNameplates.open(
+            plugin = this,
+            options = options,
+            visibility = PaperNameplateVisibilityPolicy { viewer, target ->
+                nativeVisibility.canView(viewer, target) &&
+                    service?.canViewNameplate(viewer.uniqueId, target.uniqueId) == true
+            },
+        )
+    }
 
     private fun saveResourceIfMissing(path: String) {
         if (!Files.isRegularFile(dataFolder.toPath().resolve(path))) saveResource(path, false)

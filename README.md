@@ -90,6 +90,10 @@ rules and Bukkit presentation.
 - `/events admin` — operator GUI. `status|player|network|arenas|recovery` are
   readable diagnostics; `arena <id|auto>`, `start [id]`, `stop`, `reload`, and
   `recover` operate the map pool, queue, round, config, and escrow recovery.
+- `/events reload` — direct `arcevents.admin` shortcut. Locale text and every
+  `ui.nameplates` option are applied immediately, including during a live
+  round; gameplay and weapon changes wait for an idle event, while network,
+  arena identity, node identity and packet-isolation changes require restart.
 - `/events admin weapons add|remove|show` — while standing inside an idle map,
   persist an exact mandatory weapon point, remove the nearest point within
   three blocks, or preview all mandatory points with client-only particles.
@@ -112,6 +116,12 @@ also require the exact current `server-id` in `debug.allowed-server-ids`; the
 bundled and production configs allow only `lab`, while production keeps debug
 disabled. Tab completion covers actions, players, roles, teams, equipment,
 amounts, and views.
+
+The participant TextDisplay is configured under `ui.nameplates`: enablement,
+refresh period, distance, width, view range, scale, vertical offset, shadow,
+ARGB background, visibility protections and both row priorities. Row text and
+colors remain locale-owned under `nameplate.lines`, so one `/events reload`
+updates geometry and wording together without restarting Paper.
 
 ## Firearms and loot
 

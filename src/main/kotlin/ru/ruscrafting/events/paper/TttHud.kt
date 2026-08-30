@@ -22,7 +22,7 @@ class TttHud(
     private val plugin: Plugin,
     private val settings: () -> ArcEventsConfig,
     private val locale: ArcEventsLocale,
-    private val nameplates: TttNameplates,
+    private val nameplates: TttNameplateRuntime,
 ) : AutoCloseable {
     private data class Session(
         val previousScoreboard: Scoreboard,
@@ -70,7 +70,7 @@ class TttHud(
     override fun close() {
         sessions.keys.toList().forEach(::closeSession)
         sessions.clear()
-        nameplates.close()
+        nameplates.clear()
     }
 
     private fun open(player: Player, match: TttMatch): Session {

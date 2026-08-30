@@ -1,6 +1,7 @@
 package ru.ruscrafting.events.config
 
 import io.kotest.assertions.throwables.shouldThrow
+import io.kotest.assertions.throwables.shouldNotThrowAny
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import org.opentest4j.TestAbortedException
@@ -27,11 +28,74 @@ class ArcEventsConfigTest : StringSpec({
             config.ttt.preparationSeconds shouldBe 30
             config.ui.dialogsEnabled shouldBe false
             config.ui.lootDisplays shouldBe true
+            config.ui.nameplates shouldBe NameplateSettings(
+                enabled = true,
+                reconcilePeriodTicks = 4L,
+                maxDistance = 32.0,
+                lineWidth = 180,
+                viewRange = 0.5,
+                scale = 0.8,
+                verticalOffset = 0.55,
+                shadowed = true,
+                background = NameplateBackgroundSettings(0, 0, 0, 0),
+                hideInvisibleTargets = true,
+                hideSpectatorTargets = true,
+                requireLineOfSight = true,
+                healthPriority = 200,
+                summaryPriority = 100,
+            )
             config.packetChatIsolationEnabled shouldBe false
             config.ui.back shouldBe UiItemSettings("BLUE_STAINED_GLASS_PANE", 11013)
             config.debug.enabled shouldBe false
             config.debug.allowedServerIds shouldBe setOf("lab")
             config.debugMutationsAllowed shouldBe false
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    "live reload accepts nameplate tuning during a match but protects gameplay and topology" {
+        val root = Files.createTempDirectory("arcevents-reload-")
+        try {
+            val current = ArcEventsConfig.load(root)
+            val original = Files.readString(root.resolve("config.yml"))
+
+            Files.writeString(root.resolve("config.yml"), original.replace("scale: 0.8", "scale: 0.7"))
+            val nameplateCandidate = ArcEventsConfig.inspect(root)
+            shouldNotThrowAny {
+                ArcEventsReloadPolicy.validate(current, nameplateCandidate, matchOrReservationActive = true)
+            }
+
+            Files.writeString(root.resolve("config.yml"), original.replace("round-seconds: 600", "round-seconds: 480"))
+            val gameplayCandidate = ArcEventsConfig.inspect(root)
+            shouldThrow<IllegalArgumentException> {
+                ArcEventsReloadPolicy.validate(current, gameplayCandidate, matchOrReservationActive = true)
+            }.message shouldBe "ttt settings can reload only while idle"
+
+            Files.writeString(root.resolve("config.yml"), original.replace("bossbar: true", "bossbar: false"))
+            val uiCandidate = ArcEventsConfig.inspect(root)
+            shouldThrow<IllegalArgumentException> {
+                ArcEventsReloadPolicy.validate(current, uiCandidate, matchOrReservationActive = true)
+            }.message shouldBe "non-nameplate ui settings can reload only while idle"
+
+            Files.writeString(root.resolve("config.yml"), original.replace("heartbeat-seconds: 5", "heartbeat-seconds: 6"))
+            val networkCandidate = ArcEventsConfig.inspect(root)
+            shouldThrow<IllegalArgumentException> {
+                ArcEventsReloadPolicy.validate(current, networkCandidate, matchOrReservationActive = false)
+            }.message shouldBe "network settings require a restart"
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    "nameplate config rejects unsafe renderer values" {
+        val root = Files.createTempDirectory("arcevents-nameplate-")
+        try {
+            ArcEventsConfig.load(root)
+            val original = Files.readString(root.resolve("config.yml"))
+            Files.writeString(root.resolve("config.yml"), original.replace("vertical-offset: 0.55", "vertical-offset: 8.0"))
+            shouldThrow<IllegalArgumentException> { ArcEventsConfig.inspect(root) }
+                .message shouldBe "ui.nameplates.vertical-offset must be between -2 and 4"
         } finally {
             root.toFile().deleteRecursively()
         }

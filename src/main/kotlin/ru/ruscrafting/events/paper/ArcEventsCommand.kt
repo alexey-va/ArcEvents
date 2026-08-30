@@ -42,6 +42,7 @@ class ArcEventsCommand(
             "roster" -> player(sender)?.let { menu.open(it, EventsView.Roster) }
             "report" -> player(sender)?.let { menu.open(it, EventsView.Report) }
             "team" -> team(sender, args.drop(1))
+            "reload" -> sendReload(sender)
             "admin" -> admin(sender, args.drop(1))
             "qa" -> qa(sender, args.drop(1))
             "debug" -> debug(sender, args.drop(1))
@@ -56,7 +57,7 @@ class ArcEventsCommand(
             1 -> buildList {
                 addAll(listOf("menu", "join", "leave", "spawn", "status", "shop", "roster", "report", "team", "help"))
                 if (sender.hasPermission("arcevents.start")) add("start")
-                if (sender.hasPermission("arcevents.admin")) add("admin")
+                if (sender.hasPermission("arcevents.admin")) addAll(listOf("admin", "reload"))
                 if (sender.hasPermission("arcevents.qa")) add("qa")
                 if (sender.hasPermission("arcevents.debug")) add("debug")
             }
@@ -145,15 +146,18 @@ class ArcEventsCommand(
                 } else sendStartResult(sender, StartMessageAudience.ADMIN)
             }
             "stop" -> sender.sendEventMessage(locale.render(stopMessage(service.stopByAdmin()), sender))
-            "reload" -> {
-                val result = reload()
-                sender.sendEventMessage(locale.render(if (result.isSuccess) "command.reload-ok" else "command.reload-failed", sender, mapOf(
-                    "reason" to locale.text(result.exceptionOrNull()?.message ?: "unknown"),
-                )))
-            }
+            "reload" -> sendReload(sender)
             "recover" -> sender.sendEventMessage(locale.render("admin.recovery-started", sender, mapOf("players" to locale.text(service.retryRecovery()))))
             else -> sender.sendEventMessage(locale.render("command.help", sender))
         }
+    }
+
+    private fun sendReload(sender: CommandSender) {
+        if (!sender.hasPermission("arcevents.admin")) return deny(sender)
+        val result = reload()
+        sender.sendEventMessage(locale.render(if (result.isSuccess) "command.reload-ok" else "command.reload-failed", sender, mapOf(
+            "reason" to locale.text(result.exceptionOrNull()?.message ?: "unknown"),
+        )))
     }
 
     private fun qa(sender: CommandSender, args: List<String>) {

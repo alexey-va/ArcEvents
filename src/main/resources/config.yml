@@ -35,6 +35,24 @@ ui:
   # Paper Dialog API (1.21.6+ clients) for overview/help/admin screens.
   # Item-dense screens and older clients always use the chest GUI.
   dialogs-enabled: false
+  # Runtime-editable TextDisplay rows above participants. The text itself is
+  # read from lang/<locale>.yml -> nameplate.lines.
+  nameplates:
+    enabled: true
+    reconcile-period-ticks: 4
+    max-distance: 32.0
+    line-width: 180
+    view-range: 0.5
+    scale: 0.8
+    vertical-offset: 0.55
+    shadowed: true
+    background: {alpha: 0, red: 0, green: 0, blue: 0}
+    hide-invisible-targets: true
+    hide-spectator-targets: true
+    require-line-of-sight: true
+    layers:
+      health-priority: 200
+      summary-priority: 100
   filler: {material: GRAY_STAINED_GLASS_PANE, custom-model-data: 0}
   # Shared 32x32 arc:left_gray navigation control.
   back: {material: BLUE_STAINED_GLASS_PANE, custom-model-data: 11013}

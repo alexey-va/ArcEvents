@@ -108,6 +108,30 @@ data class TttSettings(
 
 data class UiItemSettings(val material: String, val customModelData: Int)
 
+data class NameplateBackgroundSettings(
+    val alpha: Int,
+    val red: Int,
+    val green: Int,
+    val blue: Int,
+)
+
+data class NameplateSettings(
+    val enabled: Boolean,
+    val reconcilePeriodTicks: Long,
+    val maxDistance: Double,
+    val lineWidth: Int,
+    val viewRange: Double,
+    val scale: Double,
+    val verticalOffset: Double,
+    val shadowed: Boolean,
+    val background: NameplateBackgroundSettings,
+    val hideInvisibleTargets: Boolean,
+    val hideSpectatorTargets: Boolean,
+    val requireLineOfSight: Boolean,
+    val healthPriority: Int,
+    val summaryPriority: Int,
+)
+
 data class FirearmVisualSettings(val material: String, val customModelData: Int)
 
 data class LootEffectSettings(
@@ -137,6 +161,7 @@ data class UiSettings(
     val scoreboard: Boolean,
     val lootDisplays: Boolean,
     val dialogsEnabled: Boolean,
+    val nameplates: NameplateSettings,
     val filler: UiItemSettings,
     val back: UiItemSettings,
 )
@@ -203,6 +228,27 @@ class ArcEventsConfig(private val config: Config) {
             scoreboard = config.bool("ui.scoreboard", true),
             lootDisplays = config.bool("ui.loot-displays", true),
             dialogsEnabled = config.bool("ui.dialogs-enabled", false),
+            nameplates = NameplateSettings(
+                enabled = config.bool("ui.nameplates.enabled", true),
+                reconcilePeriodTicks = config.long("ui.nameplates.reconcile-period-ticks", 4L),
+                maxDistance = config.double("ui.nameplates.max-distance", 32.0),
+                lineWidth = config.int("ui.nameplates.line-width", 180),
+                viewRange = config.double("ui.nameplates.view-range", 0.5),
+                scale = config.double("ui.nameplates.scale", 0.8),
+                verticalOffset = config.double("ui.nameplates.vertical-offset", 0.55),
+                shadowed = config.bool("ui.nameplates.shadowed", true),
+                background = NameplateBackgroundSettings(
+                    alpha = config.int("ui.nameplates.background.alpha", 0),
+                    red = config.int("ui.nameplates.background.red", 0),
+                    green = config.int("ui.nameplates.background.green", 0),
+                    blue = config.int("ui.nameplates.background.blue", 0),
+                ),
+                hideInvisibleTargets = config.bool("ui.nameplates.hide-invisible-targets", true),
+                hideSpectatorTargets = config.bool("ui.nameplates.hide-spectator-targets", true),
+                requireLineOfSight = config.bool("ui.nameplates.require-line-of-sight", true),
+                healthPriority = config.int("ui.nameplates.layers.health-priority", 200),
+                summaryPriority = config.int("ui.nameplates.layers.summary-priority", 100),
+            ),
             filler = UiItemSettings(
                 material = config.string("ui.filler.material", "GRAY_STAINED_GLASS_PANE").uppercase(),
                 customModelData = config.int("ui.filler.custom-model-data", 0),
@@ -273,6 +319,35 @@ class ArcEventsConfig(private val config: Config) {
         require(ui.filler.customModelData >= 0)
         require(ui.back.material.matches(Regex("[A-Z0-9_]{1,64}")))
         require(ui.back.customModelData >= 0)
+        val nameplates = ui.nameplates
+        require(nameplates.reconcilePeriodTicks in 1L..20L) {
+            "ui.nameplates.reconcile-period-ticks must be between 1 and 20"
+        }
+        require(nameplates.maxDistance.isFinite() && nameplates.maxDistance in 1.0..128.0) {
+            "ui.nameplates.max-distance must be between 1 and 128"
+        }
+        require(nameplates.lineWidth in 1..1_024) { "ui.nameplates.line-width must be between 1 and 1024" }
+        require(nameplates.viewRange.isFinite() && nameplates.viewRange in 0.1..4.0) {
+            "ui.nameplates.view-range must be between 0.1 and 4"
+        }
+        require(nameplates.scale.isFinite() && nameplates.scale in 0.25..2.0) {
+            "ui.nameplates.scale must be between 0.25 and 2"
+        }
+        require(nameplates.verticalOffset.isFinite() && nameplates.verticalOffset in -2.0..4.0) {
+            "ui.nameplates.vertical-offset must be between -2 and 4"
+        }
+        require(listOf(
+            nameplates.background.alpha,
+            nameplates.background.red,
+            nameplates.background.green,
+            nameplates.background.blue,
+        ).all { it in 0..255 }) { "ui.nameplates.background channels must be between 0 and 255" }
+        require(nameplates.healthPriority in -10_000..10_000 && nameplates.summaryPriority in -10_000..10_000) {
+            "ui.nameplates layer priorities must be between -10000 and 10000"
+        }
+        require(nameplates.healthPriority != nameplates.summaryPriority) {
+            "ui.nameplates layer priorities must be distinct"
+        }
         require(weapons.dnaSeconds in 15..300)
         weapons.visuals.values.forEach { visual ->
             require(visual.material.matches(Regex("[A-Z0-9_]{1,64}"))) { "Weapon material is invalid" }
@@ -322,7 +397,10 @@ class ArcEventsConfig(private val config: Config) {
         private val SUPPORTED_TEMPLATES = setOf("", "citadel-v1", "cs2-inferno-v1", "cs2-nuke-v1", "cs2-mirage-v1")
         private val PROTECTED_WORLDS = setOf("world", "world_nether", "world_the_end", "pvp", "parkour1")
 
-        fun load(dataRoot: Path): ArcEventsConfig = ArcEventsConfig(ConfigManager.of(dataRoot, "config.yml")).validated()
+        fun load(dataRoot: Path): ArcEventsConfig {
+            val source = ConfigManager.of(dataRoot, "config.yml")
+            return ArcEventsConfig(source).validated().also { source.saveStrict() }
+        }
 
         fun inspect(dataRoot: Path): ArcEventsConfig = ArcEventsConfig(Config(dataRoot, "config.yml")).validated()
 
@@ -376,6 +454,32 @@ class ArcEventsConfig(private val config: Config) {
             lootSpawns = lootSpawns,
             weaponCount = config.int("$path.weapon-count", lootSpawns.indices.count { it % 4 != 3 }),
         )
+    }
+}
+
+/** Defines which configuration families can be applied without rebuilding network or arena state. */
+object ArcEventsReloadPolicy {
+    fun validate(
+        current: ArcEventsConfig,
+        candidate: ArcEventsConfig,
+        matchOrReservationActive: Boolean,
+    ) {
+        require(candidate.enabled == current.enabled) { "enabled requires a restart" }
+        require(candidate.serverId == current.serverId) { "server-id requires a restart" }
+        require(candidate.nodeMode == current.nodeMode) { "node-mode requires a restart" }
+        require(candidate.hostServer == current.hostServer) { "host-server requires a restart" }
+        require(candidate.network == current.network) { "network settings require a restart" }
+        require(candidate.packetChatIsolationEnabled == current.packetChatIsolationEnabled) {
+            "chat.packet-isolation.enabled requires a restart"
+        }
+        require(candidate.arenas == current.arenas) { "arena settings require a restart" }
+        if (matchOrReservationActive) {
+            require(candidate.ttt == current.ttt) { "ttt settings can reload only while idle" }
+            require(candidate.weapons == current.weapons) { "weapon settings can reload only while idle" }
+            require(candidate.ui.copy(nameplates = current.ui.nameplates) == current.ui) {
+                "non-nameplate ui settings can reload only while idle"
+            }
+        }
     }
 }
 

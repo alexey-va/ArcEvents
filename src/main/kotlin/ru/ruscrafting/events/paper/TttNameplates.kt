@@ -22,7 +22,13 @@ class TttNameplates(
     private val statistics: (UUID) -> PlayerEventStats,
     private val onlinePlayer: (UUID) -> Player?,
     private val refresh: () -> Unit,
+    healthPriority: Int = 200,
+    summaryPriority: Int = 100,
 ) : AutoCloseable {
+    private val layers = listOf(
+        NameplateLayer(NameplateLayerKey(OWNER, "health"), healthPriority, Component.empty()),
+        NameplateLayer(NameplateLayerKey(OWNER, "summary"), summaryPriority, Component.empty()),
+    )
     private val visibleTargets = linkedSetOf<UUID>()
 
     fun update(match: TttMatch) {
@@ -65,10 +71,10 @@ class TttNameplates(
             "matches" to locale.text(stats.matches),
         )
         val lines = locale.lore(NAMEPLATE_LINES, values = values)
-        check(lines.size == LAYERS.size) {
-            "ArcEvents nameplate must render exactly ${LAYERS.size} rows, found ${lines.size}"
+        check(lines.size == layers.size) {
+            "ArcEvents nameplate must render exactly ${layers.size} rows, found ${lines.size}"
         }
-        LAYERS.zip(lines).forEach { (layer, content) ->
+        layers.zip(lines).forEach { (layer, content) ->
             val result = registry.upsert(player.uniqueId, layer.copy(content = content))
             if (result is NameplateUpsertResult.Rejected) {
                 error("ArcEvents nameplate row ${layer.key.value} was rejected: ${result.reason}")
@@ -77,7 +83,7 @@ class TttNameplates(
     }
 
     private fun removeRows(playerId: UUID) {
-        LAYERS.forEach { layer -> registry.remove(playerId, layer.key) }
+        layers.forEach { layer -> registry.remove(playerId, layer.key) }
     }
 
     private companion object {
@@ -85,9 +91,5 @@ class TttNameplates(
         const val NAMEPLATE_LINES = "nameplate.lines"
         val VISIBLE_PHASES = setOf(MatchPhase.PREPARING, MatchPhase.COUNTDOWN, MatchPhase.ACTIVE)
         val VISIBLE_STATUSES = setOf(ParticipantStatus.RESERVED, ParticipantStatus.ALIVE)
-        val LAYERS = listOf(
-            NameplateLayer(NameplateLayerKey(OWNER, "health"), 200, Component.empty()),
-            NameplateLayer(NameplateLayerKey(OWNER, "summary"), 100, Component.empty()),
-        )
     }
 }

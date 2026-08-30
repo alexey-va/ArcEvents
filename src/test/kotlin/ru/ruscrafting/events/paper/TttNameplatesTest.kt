@@ -51,6 +51,8 @@ class TttNameplatesTest : StringSpec({
             statistics = { PlayerEventStats(matches = 12, wins = 9, karma = 875) },
             onlinePlayer = { player },
             refresh = { refreshes++ },
+            healthPriority = 100,
+            summaryPriority = 200,
         )
         val match = TttMatch(
             matchId = UUID.randomUUID(),
@@ -67,9 +69,9 @@ class TttNameplatesTest : StringSpec({
         nameplates.update(match)
 
         val snapshot = requireNotNull(registry.snapshot(playerId))
-        snapshot.layers.map { it.key.value } shouldBe listOf("health", "summary")
+        snapshot.layers.map { it.key.value } shouldBe listOf("summary", "health")
         PlainTextComponentSerializer.plainText().serialize(snapshot.content) shouldBe
-            "18/20\n875   9/12"
+            "875   9/12\n18/20"
         refreshes shouldBe 1
 
         nameplates.remove(playerId)
