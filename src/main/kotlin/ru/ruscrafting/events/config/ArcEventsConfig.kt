@@ -399,7 +399,10 @@ class ArcEventsConfig(private val config: Config) {
 
         fun load(dataRoot: Path): ArcEventsConfig {
             val source = ConfigManager.of(dataRoot, "config.yml")
-            return ArcEventsConfig(source).validated().also { source.saveStrict() }
+            if (Files.notExists(dataRoot.resolve("config.yml"))) {
+                source.mergeMissingFromBundled("config.yml")
+            }
+            return ArcEventsConfig(source).validated()
         }
 
         fun inspect(dataRoot: Path): ArcEventsConfig = ArcEventsConfig(Config(dataRoot, "config.yml")).validated()

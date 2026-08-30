@@ -162,6 +162,21 @@ class ArcEventsConfigTest : StringSpec({
         config.weapons.lootEffect.customModelData.values.toSet() shouldBe setOf(2, 3, 4, 5, 6)
     }
 
+    "loading a complete reviewed profile is byte stable" {
+        val root = Files.createTempDirectory("arcevents-byte-stable-")
+        try {
+            val target = root.resolve("config.yml")
+            Files.copy(opsRoot().resolve("parkour/plugins/ArcEvents/config.yml"), target)
+            val before = Files.readAllBytes(target)
+
+            ArcEventsConfig.load(root)
+
+            Files.readAllBytes(target).toList() shouldBe before.toList()
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
     "built-in templates require a host and a dedicated safe world" {
         val root = Files.createTempDirectory("arcevents-template-")
         try {
