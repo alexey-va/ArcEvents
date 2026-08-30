@@ -1,4 +1,4 @@
-prefix: '<#ff5b6e><bold>События</bold> <#8fa6b8>·'
+prefix: '<#ff5b6e>События <#8fa6b8>·'
 command:
   player-only: '<prefix> <#c42323>Эта команда доступна только игроку.'
   no-permission: '<prefix> <#c42323>У вас нет доступа к этому действию.'
@@ -616,6 +616,19 @@ admin:
   reservation-cancelled: '<prefix> <#2bba43>Резерв отменён. Игроки возвращаются.'
   no-match: '<prefix> <#ff9f0f>Активного матча нет.'
   recovery-started: '<prefix> <#e6fff3>Восстановление повторено<#8c8c8c>: <#e3b341><players> игроков<#e6fff3>.'
+  weapon-points:
+    usage: '<prefix> <#e6fff3>Оружие: <#92bed8>/events admin weapons \<add|remove|show>'
+    added: '<prefix> <#2bba43>Точка добавлена <#8c8c8c>— <#e3b341><count><#8c8c8c>/<#e3b341><target> <#e6fff3>на <arena><#e6fff3>.'
+    removed: '<prefix> <#2bba43>Точка удалена <#8c8c8c>— <#e3b341><count><#8c8c8c>/<#e3b341><target> <#e6fff3>на <arena><#e6fff3>.'
+    shown: '<prefix> <#e6fff3>Точки <arena> <#e6fff3>показаны<#8c8c8c>: <#e3b341><count><#8c8c8c>/<#e3b341><target><#e6fff3>.'
+    wrong-node: '<prefix> <#c42323>Точки настраиваются только на сервере карты.'
+    outside-arena: '<prefix> <#ff9f0f>Встаньте внутри нужной карты.'
+    busy: '<prefix> <#ff9f0f>Эта карта сейчас занята раундом.'
+    unsafe: '<prefix> <#c42323>Здесь нет ровной твёрдой опоры для оружия.'
+    duplicate: '<prefix> <#ff9f0f>В этом блоке уже есть обязательная точка.'
+    limit-reached: '<prefix> <#ff9f0f>Все <target> обязательных точек уже расставлены.'
+    not-found: '<prefix> <#ff9f0f>В радиусе трёх блоков нет обязательной точки.'
+    storage-unavailable: '<prefix> <#c42323>Точки недоступны: проверьте журнал.'
 
 debug:
   disabled: '<prefix> <#c42323>Debug выключен в config.yml.'

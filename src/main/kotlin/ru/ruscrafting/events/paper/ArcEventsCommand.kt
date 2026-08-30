@@ -17,6 +17,7 @@ class ArcEventsCommand(
     private val plugin: Plugin,
     private val service: ArcEventsService,
     private val menu: ArcEventsMenu,
+    private val weaponPoints: ArenaWeaponPointEditor,
     private val locale: ArcEventsLocale,
     private val settings: () -> ArcEventsConfig,
     private val reload: () -> Result<Unit>,
@@ -60,7 +61,7 @@ class ArcEventsCommand(
                 if (sender.hasPermission("arcevents.debug")) add("debug")
             }
             2 -> when (args[0].lowercase()) {
-                "admin" -> listOf("menu", "status", "player", "network", "arenas", "arena", "recovery", "start", "stop", "reload", "recover")
+                "admin" -> listOf("menu", "status", "player", "network", "arenas", "arena", "weapons", "recovery", "start", "stop", "reload", "recover")
                 "qa" -> listOf("status", "player", "network", "arenas", "recovery")
                 "debug" -> DEBUG_ACTIONS
                 else -> emptyList()
@@ -75,6 +76,7 @@ class ArcEventsCommand(
         val action = args.getOrNull(1)?.lowercase()
         if (args.size == 3 && root in setOf("qa", "admin") && action == "player") return servicePlayerNames()
         if (args.size == 3 && root == "admin" && action in setOf("arena", "start")) return arenaIds(includeAuto = true)
+        if (args.size == 3 && root == "admin" && action == "weapons") return ADMIN_WEAPON_ACTIONS
         if (root != "debug") return emptyList()
         return when (args.size) {
             3 -> when (action) {
@@ -134,6 +136,7 @@ class ArcEventsCommand(
                     "arena" to locale.text(arena ?: "auto"),
                 )))
             }
+            "weapons" -> editWeaponPoints(sender, args.drop(1))
             "recovery" -> sender.sendMessage(Component.text(service.qaRecovery()))
             "start" -> {
                 val arena = args.getOrNull(1)?.lowercase()
@@ -317,6 +320,28 @@ class ArcEventsCommand(
             .forEach { sender.sendMessage(Component.text(it)) }
     }
 
+    private fun editWeaponPoints(sender: CommandSender, args: List<String>) {
+        val player = player(sender) ?: return
+        val feedback = when (args.firstOrNull()?.lowercase()) {
+            "add" -> weaponPoints.add(player)
+            "remove" -> weaponPoints.remove(player)
+            "show" -> weaponPoints.show(player)
+            else -> {
+                sender.sendMessage(locale.render("admin.weapon-points.usage", sender))
+                return
+            }
+        }
+        sender.sendMessage(locale.render(
+            weaponPointMessage(feedback.result),
+            sender,
+            mapOf(
+                "arena" to locale.text(feedback.arenaId ?: "-"),
+                "count" to locale.text(feedback.count),
+                "target" to locale.text(feedback.target),
+            ),
+        ))
+    }
+
     private fun sendStartResult(sender: CommandSender, audience: StartMessageAudience) {
         service.startFromQueue(sender as? Player).thenAccept { result ->
             Tasks.scheduler.runSync {
@@ -358,6 +383,7 @@ class ArcEventsCommand(
             "weapon", "ammo", "item", "kill", "revive", "discover", "dna", "call",
             "loot", "menu", "close", "cleanup",
         )
+        internal val ADMIN_WEAPON_ACTIONS = listOf("add", "remove", "show")
         internal val DEBUG_ITEMS = listOf(
             "traitor_blade", "traitor_radar", "traitor_smoke",
             "detective_scanner", "detective_medkit", "detective_armor",
@@ -365,4 +391,18 @@ class ArcEventsCommand(
         internal val DEBUG_VIEWS = listOf("main", "event", "stats", "help", "admin", "arenas", "shop", "roster", "report")
         internal fun validOptionalInteger(raw: String?): Boolean = raw == null || raw.toIntOrNull() != null
     }
+}
+
+internal fun weaponPointMessage(result: ArenaWeaponPointAdminResult): String = when (result) {
+    ArenaWeaponPointAdminResult.ADDED -> "admin.weapon-points.added"
+    ArenaWeaponPointAdminResult.REMOVED -> "admin.weapon-points.removed"
+    ArenaWeaponPointAdminResult.SHOWN -> "admin.weapon-points.shown"
+    ArenaWeaponPointAdminResult.WRONG_NODE -> "admin.weapon-points.wrong-node"
+    ArenaWeaponPointAdminResult.OUTSIDE_ARENA -> "admin.weapon-points.outside-arena"
+    ArenaWeaponPointAdminResult.BUSY -> "admin.weapon-points.busy"
+    ArenaWeaponPointAdminResult.UNSAFE -> "admin.weapon-points.unsafe"
+    ArenaWeaponPointAdminResult.DUPLICATE -> "admin.weapon-points.duplicate"
+    ArenaWeaponPointAdminResult.LIMIT_REACHED -> "admin.weapon-points.limit-reached"
+    ArenaWeaponPointAdminResult.NOT_FOUND -> "admin.weapon-points.not-found"
+    ArenaWeaponPointAdminResult.STORAGE_UNAVAILABLE -> "admin.weapon-points.storage-unavailable"
 }

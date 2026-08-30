@@ -45,6 +45,9 @@ class ArenaPool(
     fun active(): ArenaSettings? = activeArenaId?.let(::configured)
 
     @Synchronized
+    fun inUse(arenaId: String): Boolean = activeMatchId != null && activeArenaId == arenaId.lowercase()
+
+    @Synchronized
     fun entries(): List<ArenaPoolEntry> {
         val maximumPlayers = settings().ttt.maximumPlayers
         return settings().arenas.map { arena ->

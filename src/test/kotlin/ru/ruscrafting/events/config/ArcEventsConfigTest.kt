@@ -49,6 +49,24 @@ class ArcEventsConfigTest : StringSpec({
         }
     }
 
+    "loot catalog rejects two coordinates inside the same block" {
+        val bounds = EventBounds(EventLocation("arena", 0.0, 60.0, 0.0), EventLocation("arena", 10.0, 80.0, 10.0))
+        val arena = ArenaSettings(
+            id = "test",
+            enabled = true,
+            world = "arena",
+            template = "",
+            lobby = EventLocation("arena", 1.5, 65.0, 1.5),
+            spectator = EventLocation("arena", 2.5, 65.0, 2.5),
+            bounds = bounds,
+            spawns = listOf(EventLocation("arena", 3.5, 65.0, 3.5)),
+            lootSpawns = listOf(EventLocation("arena", 4.1, 65.1, 4.1), EventLocation("arena", 4.9, 65.9, 4.9)),
+            weaponCount = 1,
+        )
+
+        arena.operational(16) shouldBe false
+    }
+
     "reviewed parkour profile exposes the three complete CS2 arenas" {
         val repository = opsRoot()
         val config = ArcEventsConfig.inspect(repository.resolve("parkour/plugins/ArcEvents"))
@@ -58,9 +76,7 @@ class ArcEventsConfigTest : StringSpec({
         val importedArenas = config.arenas.filter { it.template.startsWith("cs2-") }
         importedArenas.all { it.spawns.size == 1 } shouldBe true
         importedArenas.all { it.lootSpawns.size == 32 } shouldBe true
-        importedArenas.all { arena ->
-            arena.lootSpawns.indices.count { index -> index % 4 != 3 } in 20..30
-        } shouldBe true
+        importedArenas.all { it.weaponCount == 30 } shouldBe true
         config.weapons.visuals.mapValues { (_, visual) -> visual.customModelData } shouldBe mapOf(
             FirearmId.FLINTLOCK to 2100101,
             FirearmId.REVOLVER to 2100102,

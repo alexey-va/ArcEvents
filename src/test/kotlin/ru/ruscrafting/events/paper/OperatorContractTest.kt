@@ -133,4 +133,11 @@ class OperatorContractTest : StringSpec({
         ArcEventsCommand.validOptionalInteger("0") shouldBe true
         ArcEventsCommand.validOptionalInteger("full") shouldBe false
     }
+
+    "admin weapon point commands and feedback remain typed and complete" {
+        ArcEventsCommand.ADMIN_WEAPON_ACTIONS shouldBe listOf("add", "remove", "show")
+        ArenaWeaponPointAdminResult.entries.forEach { result ->
+            weaponPointMessage(result).startsWith("admin.weapon-points.") shouldBe true
+        }
+    }
 })

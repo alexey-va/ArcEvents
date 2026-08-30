@@ -42,7 +42,16 @@ class TttLootScene(
     val size: Int get() = entities.size
 
     fun spawn(location: Location, stack: ItemStack): Item? {
-        val spawn = safeSpawnLocation(location) ?: return null
+        val spawn = TttLootPlacement.nearby(location) ?: return null
+        return drop(spawn, stack)
+    }
+
+    fun spawnExact(location: Location, stack: ItemStack): Item? {
+        val spawn = TttLootPlacement.exact(location) ?: return null
+        return drop(spawn, stack)
+    }
+
+    private fun drop(spawn: Location, stack: ItemStack): Item {
         val item = spawn.world.dropItem(spawn, stack) { configurePickup(it, pickupDelay = 0) }
         try {
             register(item, pickupDelay = 0)
@@ -107,25 +116,6 @@ class TttLootScene(
     }
 
     override fun close() = clear()
-
-    private fun safeSpawnLocation(origin: Location): Location? {
-        val world = origin.world
-        val baseX = origin.blockX
-        val baseY = origin.blockY
-        val baseZ = origin.blockZ
-        val yOffsets = intArrayOf(0, -1, 1, -2, 2, -3, 3)
-        for (radius in 0..MAX_PLACEMENT_RADIUS) {
-            for (yOffset in yOffsets) for (xOffset in -radius..radius) for (zOffset in -radius..radius) {
-                if (kotlin.math.abs(xOffset) + kotlin.math.abs(zOffset) != radius) continue
-                val feet = world.getBlockAt(baseX + xOffset, baseY + yOffset, baseZ + zOffset)
-                val head = feet.getRelative(0, 1, 0)
-                val floor = feet.getRelative(0, -1, 0)
-                if (!feet.isPassable || !head.isPassable || !floor.type.isSolid || floor.type == Material.BARRIER) continue
-                return Location(world, feet.x + 0.5, feet.y + 0.1, feet.z + 0.5, origin.yaw, origin.pitch)
-            }
-        }
-        return null
-    }
 
     private fun configurePickup(item: Item, pickupDelay: Int) {
         item.pickupDelay = pickupDelay.coerceAtLeast(0)
@@ -301,8 +291,45 @@ class TttLootScene(
         private const val PARTICLE_TICKS = 10
         private const val ROTATION_TICKS = 40
         private const val ROTATION_EPSILON = 0.01f
-        private const val MAX_PLACEMENT_RADIUS = 4
     }
+}
+
+/** Shared placement contract for the editor and the actual loot spawn path. */
+object TttLootPlacement {
+    fun exact(origin: Location): Location? {
+        val world = origin.world
+        val feet = world.getBlockAt(origin.blockX, origin.blockY, origin.blockZ)
+        val head = feet.getRelative(0, 1, 0)
+        val floor = feet.getRelative(0, -1, 0)
+        if (!feet.isPassable || !head.isPassable || !floor.type.isSolid || floor.type == Material.BARRIER) return null
+        return Location(world, feet.x + 0.5, feet.y + 0.1, feet.z + 0.5, origin.yaw, origin.pitch)
+    }
+
+    fun nearby(origin: Location): Location? {
+        val world = origin.world
+        val baseX = origin.blockX
+        val baseY = origin.blockY
+        val baseZ = origin.blockZ
+        val yOffsets = intArrayOf(0, -1, 1, -2, 2, -3, 3)
+        for (radius in 0..MAX_PLACEMENT_RADIUS) {
+            for (yOffset in yOffsets) for (xOffset in -radius..radius) for (zOffset in -radius..radius) {
+                if (kotlin.math.abs(xOffset) + kotlin.math.abs(zOffset) != radius) continue
+                exact(
+                    Location(
+                        world,
+                        baseX + xOffset + 0.5,
+                        baseY + yOffset + 0.1,
+                        baseZ + zOffset + 0.5,
+                        origin.yaw,
+                        origin.pitch,
+                    ),
+                )?.let { return it }
+            }
+        }
+        return null
+    }
+
+    private const val MAX_PLACEMENT_RADIUS = 4
 }
 
 internal data class LootChunkKey(val worldId: UUID, val x: Int, val z: Int)

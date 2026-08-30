@@ -87,6 +87,10 @@ arena:
   minimum: ''
   maximum: ''
   spawns: []
+  # Total firearm pickups for this map. Admin-placed mandatory points count
+  # toward this target; the random layout fills only the remainder.
+  weapon-count: 0
+  loot-spawns: []
 
 debug:
   enabled: false

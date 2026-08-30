@@ -33,4 +33,14 @@ class TttLootSceneTest : FunSpec({
         scene.spawn(Location(world, 0.5, 64.0, 0.5), ItemStack.of(Material.IRON_NUGGET)).shouldBeNull()
         scene.size shouldBe 0
     }
+
+    test("exact points never move while random points may find nearby solid flooring") {
+        val world = paper.addSimpleWorld("placement-world")
+        world.getBlockAt(0, 63, 0).type = Material.BARRIER
+        world.getBlockAt(1, 63, 0).type = Material.STONE
+        val origin = Location(world, 0.5, 64.1, 0.5)
+
+        TttLootPlacement.exact(origin).shouldBeNull()
+        TttLootPlacement.nearby(origin)?.blockX shouldBe 1
+    }
 })

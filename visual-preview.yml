@@ -35,6 +35,7 @@ sources:
       - match.preparing-guide
       - match.evacuated
       - match.spawn-return-*
+      - admin.weapon-points.*
       - hud.bossbar-preparing
       - hud.countdown-actionbar
       - hud.preparing-tips
@@ -62,6 +63,9 @@ placeholders:
   network_state: '<#7bd88f>готова'
   arenas: '3'
   active: Мираж
+  arena: Мираж
+  count: '7'
+  target: '30'
   rounds: '48'
   seconds: '10'
   player: StarlightFox
@@ -263,3 +267,4 @@ surfaces:
         - match.spawn-return-complete
         - match.spawn-return-unavailable
         - match.spawn-return-already
+        - admin.weapon-points.*

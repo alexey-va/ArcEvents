@@ -10,6 +10,7 @@ import ru.ruscrafting.events.domain.FirearmId
 import ru.ruscrafting.events.domain.FirearmRarity
 import java.nio.file.Files
 import java.nio.file.Path
+import kotlin.math.floor
 
 enum class NodeMode { RELAY, HOST }
 
@@ -62,6 +63,7 @@ data class ArenaSettings(
     val bounds: EventBounds?,
     val spawns: List<EventLocation>,
     val lootSpawns: List<EventLocation>,
+    val weaponCount: Int = 0,
 ) {
     val playerSpawn: EventLocation get() = spawns.single()
 
@@ -73,8 +75,9 @@ data class ArenaSettings(
         require(spawns.size == 1)
         require(bounds.contains(lobby) && bounds.contains(spectator))
         require(spawns.all { bounds.contains(it.validated()) })
-        require(lootSpawns.distinctBy { Triple(it.x, it.y, it.z) }.size == lootSpawns.size)
+        require(lootSpawns.distinctBy { Triple(floor(it.x), floor(it.y), floor(it.z)) }.size == lootSpawns.size)
         require(lootSpawns.all { bounds.contains(it.validated()) })
+        require(weaponCount in 0..lootSpawns.size)
     }.isSuccess
 }
 
@@ -304,6 +307,9 @@ class ArcEventsConfig(private val config: Config) {
                 require(arena.lootSpawns.size >= ttt.maximumPlayers) {
                     "Imported arena ${arena.id} requires at least ${ttt.maximumPlayers} loot spawns"
                 }
+                require(arena.weaponCount in FirearmId.entries.size..arena.lootSpawns.size) {
+                    "Imported arena ${arena.id} weapon-count must be between ${FirearmId.entries.size} and ${arena.lootSpawns.size}"
+                }
             }
         }
         if (nodeMode == NodeMode.HOST) require(arenas.any(ArenaSettings::enabled)) { "HOST node requires an enabled arena" }
@@ -356,6 +362,7 @@ class ArcEventsConfig(private val config: Config) {
         val spectator = parseLocation(world, config.string("$path.spectator", ""))
         val minimum = parseBound(world, config.string("$path.minimum", ""))
         val maximum = parseBound(world, config.string("$path.maximum", ""))
+        val lootSpawns = config.stringList("$path.loot-spawns", emptyList()).mapNotNull { parseLocation(world, it) }
         return ArenaSettings(
             id = id.trim().lowercase(),
             enabled = config.bool("$path.enabled", false),
@@ -365,7 +372,8 @@ class ArcEventsConfig(private val config: Config) {
             spectator = spectator,
             bounds = if (minimum != null && maximum != null) EventBounds(minimum, maximum) else null,
             spawns = config.stringList("$path.spawns", emptyList()).mapNotNull { parseLocation(world, it) },
-            lootSpawns = config.stringList("$path.loot-spawns", emptyList()).mapNotNull { parseLocation(world, it) },
+            lootSpawns = lootSpawns,
+            weaponCount = config.int("$path.weapon-count", lootSpawns.indices.count { it % 4 != 3 }),
         )
     }
 }

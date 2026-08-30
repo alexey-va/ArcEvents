@@ -34,6 +34,7 @@ class ArcEventsPlugin : JavaPlugin() {
     private var service: ArcEventsService? = null
     private var transfer: BungeeBackendTransfer? = null
     private var pluginRuntime: PaperPluginRuntime? = null
+    private var weaponPointStore: ArenaWeaponPointStore? = null
 
     override fun onEnable() {
         saveDefaultConfig()
@@ -67,8 +68,15 @@ class ArcEventsPlugin : JavaPlugin() {
             val items = TttItems(this, locale)
             val firearms = TttFirearms(this, locale) { settings }
             val lootScene = TttLootScene(this, firearms) { settings }
+            val storedWeaponPoints = lifecycle.own(ArenaWeaponPointStore(dataRoot) { failure ->
+                logger.log(Level.WARNING, "ArcEvents mandatory weapon points are unavailable; using random map points", failure)
+            }).also { weaponPointStore = it }
             val arenaInspector = ArenaRuntimeInspector(this)
-            val arenaPool = ArenaPool(settings = { settings }, ready = arenaInspector::ready)
+            val arenaPool = ArenaPool(settings = { settings }) { arena, maximumPlayers ->
+                arenaInspector.ready(arena, maximumPlayers) && mandatoryWeaponPointsReady(server, storedWeaponPoints, arena)
+            }
+            val weaponPointEditor = ArenaWeaponPointEditor({ settings }, arenaPool, storedWeaponPoints)
+            val lootSpawner = TttLootSpawner(this, lootScene, firearms, weaponPointEditor, debug)
             lateinit var activeService: ArcEventsService
             val smokeGrenades = TttSmokeGrenades(
                 plugin = this,
@@ -132,6 +140,8 @@ class ArcEventsPlugin : JavaPlugin() {
                 debug = debug,
                 redisConnected = manager::isConnected,
                 arenaPool = arenaPool,
+                weaponPoints = weaponPointEditor,
+                lootSpawner = lootSpawner,
             )
             service = activeService
             lifecycle.own(activeService)
@@ -146,7 +156,7 @@ class ArcEventsPlugin : JavaPlugin() {
                 )
             }
             val menu = ArcEventsMenu(activeService, items, locale, { settings }, ::reloadPlugin)
-            val command = ArcEventsCommand(this, activeService, menu, locale, { settings }, ::reloadPlugin)
+            val command = ArcEventsCommand(this, activeService, menu, weaponPointEditor, locale, { settings }, ::reloadPlugin)
             requireNotNull(getCommand("arcevents")).apply {
                 setExecutor(command)
                 tabCompleter = command
@@ -175,6 +185,7 @@ class ArcEventsPlugin : JavaPlugin() {
     override fun onDisable() {
         runCatching { pluginRuntime?.close() }.onFailure { logger.log(Level.SEVERE, "Could not close ArcEvents runtime", it) }
         pluginRuntime = null
+        weaponPointStore = null
         Tasks.reset()
     }
 
@@ -191,6 +202,13 @@ class ArcEventsPlugin : JavaPlugin() {
         }
         require(candidate.arenas.map { it.enabled } == current.arenas.map { it.enabled }) { "arena enablement requires a restart" }
         require(service?.matchState()?.first == null) { "configuration cannot reload during a reservation or match" }
+        weaponPointStore?.let { store ->
+            candidate.arenas.forEach { arena ->
+                require(store.points(arena).size <= arena.weaponCount) {
+                    "arena ${arena.id} has more mandatory weapon points than weapon-count"
+                }
+            }
+        }
         ArcEventsLocale.validateFiles(dataRoot)
         ConfigManager.reloadAll()
         settings = ArcEventsConfig.load(dataRoot)

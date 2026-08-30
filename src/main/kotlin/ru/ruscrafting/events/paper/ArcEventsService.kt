@@ -34,7 +34,6 @@ import ru.ruscrafting.events.domain.PlayerEventStats
 import ru.ruscrafting.events.domain.CombatRecord
 import ru.ruscrafting.events.domain.FirearmSpread
 import ru.ruscrafting.events.domain.FirearmId
-import ru.ruscrafting.events.domain.TttFirearmCatalog
 import ru.ruscrafting.events.domain.RosterEntry
 import ru.ruscrafting.events.domain.RosterStatus
 import ru.ruscrafting.events.domain.ShotDirection
@@ -114,6 +113,8 @@ class ArcEventsService(
     private val debug: ArcEventsDebug,
     private val redisConnected: () -> Boolean,
     private val arenaPool: ArenaPool,
+    private val weaponPoints: ArenaWeaponPointEditor,
+    private val lootSpawner: TttLootSpawner,
     private val clock: () -> Long = System::currentTimeMillis,
 ) : ArcEventsGameplayBoundary, AutoCloseable {
     private data class MapSpawnReturn(
@@ -973,6 +974,7 @@ class ArcEventsService(
     }
 
     fun qaArenas(): List<String> = arenaPool.entries().map { arena ->
+        val arenaSettings = settings().arenas.first { it.id == arena.id }
         ArcEventsDebug.qa(
             "server" to settings().serverId,
             "arena" to arena.id,
@@ -981,6 +983,8 @@ class ArcEventsService(
             "ready" to arena.ready,
             "active" to arena.active,
             "next" to arena.next,
+            "weapons" to arenaSettings.weaponCount,
+            "guaranteed" to weaponPoints.points(arenaSettings).size,
         )
     }
 
@@ -1711,39 +1715,7 @@ class ArcEventsService(
         if (!settings().weapons.enabled) return
         val arena = arenaPool.active() ?: return
         cleanupLoot()
-        val world = requireNotNull(plugin.server.getWorld(arena.world))
-        val seed = current.matchId.mostSignificantBits xor current.matchId.leastSignificantBits
-        val layout = if (arena.template == TttCitadelBlueprint.TEMPLATE) {
-            TttCitadelLoot.layout(seed).map { spawn ->
-                Triple(spawn.point.x, spawn.point.y, spawn.point.z) to (spawn.firearm to spawn.ammunition)
-            }
-        } else {
-            importedLoot(arena.lootSpawns, seed)
-        }
-        var skipped = 0
-        layout.forEach { (coordinates, reward) ->
-            val (firearm, ammunition) = reward
-            val stack = firearm?.let { firearms.firearmItem(it, null, current.matchId.toString()) }
-                ?: firearms.ammunition(null, current.matchId.toString(), ammunition)
-            val location = Location(world, coordinates.first, coordinates.second, coordinates.third)
-            if (lootScene.spawn(location, stack) == null) skipped += 1
-        }
-        check(lootScene.size > 0) { "Arena ${arena.id} has no safe loot spawn points" }
-        if (skipped > 0) {
-            plugin.logger.warning("ArcEvents skipped $skipped unsafe loot points in arena ${arena.id}; match preparation continues")
-        }
-        debug.event("loot_spawned", "match" to current.matchId, "arena" to arena.id, "entities" to lootScene.size)
-    }
-
-    private fun importedLoot(points: List<EventLocation>, seed: Long): List<Pair<Triple<Double, Double, Double>, Pair<FirearmId?, Int>>> {
-        val random = Random(seed)
-        val shuffled = points.shuffled(random)
-        val weaponCount = shuffled.indices.count { it % 4 != 3 }
-        val firearms = TttFirearmCatalog.lootSelection(weaponCount, seed xor LOOT_SEED_SALT).iterator()
-        return shuffled.mapIndexed { index, point ->
-            val reward = if (index % 4 == 3) null to listOf(12, 16, 20, 24).random(random) else firearms.next() to 0
-            Triple(point.x, point.y, point.z) to reward
-        }
+        lootSpawner.spawn(current, arena)
     }
 
     private fun cleanupLoot() {
@@ -1984,7 +1956,6 @@ class ArcEventsService(
     private fun Location.eventLocation(): EventLocation = EventLocation(world.name, x, y, z, yaw, pitch)
 
     companion object {
-        private const val LOOT_SEED_SALT = 0x5A17C0DEL
         private const val MAP_SPAWN_RETURN_SECONDS = 10
         private const val MAP_SPAWN_MOVEMENT_TOLERANCE_SQUARED = 0.0025
         private val LIVE_PHASES = setOf(MatchPhase.PREPARING, MatchPhase.COUNTDOWN, MatchPhase.ACTIVE)

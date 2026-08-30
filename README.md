@@ -82,6 +82,9 @@ rules and Bukkit presentation.
 - `/events admin` — operator GUI. `status|player|network|arenas|recovery` are
   readable diagnostics; `arena <id|auto>`, `start [id]`, `stop`, `reload`, and
   `recover` operate the map pool, queue, round, config, and escrow recovery.
+- `/events admin weapons add|remove|show` — while standing inside an idle map,
+  persist an exact mandatory weapon point, remove the nearest point within
+  three blocks, or preview all mandatory points with client-only particles.
 - `/events qa status|player|network|arenas|recovery` — stable read-only output with the
   `ARCEVENTS_QA` prefix.
 - `/events debug help|status|player|network|arenas|recovery|bodies` — lab snapshots.
@@ -119,6 +122,15 @@ under the rotating weapon display, while a hidden signed item owns pickup
 collision. Every display and pickup is removed together on pickup, cleanup,
 round end, or plugin shutdown. Cosmetic spawn failures degrade to a visible
 pickup and never cancel the gameplay round.
+
+Each imported arena declares `weapon-count`. Mandatory points placed by an
+administrator are filled first and count toward that target; deterministic
+random points supply only `weapon-count - mandatory points`. The complete
+pickup budget stays equal to the reviewed `loot-spawns` catalog, so adding an
+exact point does not increase the number of rendered loot entities. Mandatory
+points live in the atomic runtime file `data/arena-weapon-points.json`, survive
+restarts and configuration deploys, and make an arena unavailable if their
+floor later becomes unsafe.
 
 ## Interface frontends
 
