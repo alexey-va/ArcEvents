@@ -389,9 +389,15 @@ queue:
 
 match:
   unavailable: '<prefix> <#ff9f0f>Вы сейчас не участвуете в матче.'
-  preparing-title: '<#ffcc33><bold>Исследуйте карту'
-  preparing-subtitle: '<#ffffff>Роли скрыты  <#ff5b6e>урон выключен'
-  preparing-guide: '<#ffcc33><bold>Подготовка к раунду<newline><#32d6ff>◆ <#ffffff>Осмотритесь и соберите оружие.<newline><#ff5b6e>◆ <#ffffff>Роли скрыты, а урон пока выключен.<newline><#b983ff>◆ <#ffffff>После раскрытия роли начнётся отсчёт.<newline><#55ff88>◆ <#ffffff>ПКМ — огонь  <#ffffff>F — перезарядка'
+  preparing-title: '<#e3b341>Исследуйте карту'
+  preparing-subtitle: '<#f2f0e6>Роли скрыты <#8fa6b8>— <#d87a82>урон выключен'
+  preparing-guide: |-
+
+    <#e3b341>Подготовка к раунду
+    <#8fa6b8>   <#f2f0e6>Осмотритесь и соберите оружие.
+    <#8fa6b8>   <#f2f0e6>Роли скрыты, урон пока выключен.
+    <#8fa6b8>   <#f2f0e6>После раскрытия роли начнётся отсчёт.
+    <#8fa6b8>   <#92bed8>ПКМ <#f2f0e6>— огонь   <#92bed8>F <#f2f0e6>— перезарядка
   countdown-title: '<#ffcc33><bold><seconds>'
   countdown-subtitle: '<#ffffff>Приготовьтесь к началу раунда'
   started: '<#55ff88><bold>Раунд начался  <#ffffff>ищите тела и улики.'
@@ -449,14 +455,14 @@ hud:
   objective-innocent: '<#7bd88f>найдите предателей'
   objective-traitor: '<#d84a4a>устраните мирных'
   objective-detective: '<#5fb3ff>исследуйте тела'
-  bossbar-preparing: '<#ffcc33><bold>Подготовка  <#ffffff>роли через <#ffcc33><time>'
+  bossbar-preparing: '<#e3b341>Подготовка  <#f2f0e6>роли через <#e3b341><time>'
   bossbar-countdown: '<role>  <#ffffff>старт через <#ffcc33><time>'
   bossbar-active: '<#32d6ff><bold>Раунд  <#ffcc33><time>  <#ffffff>живых <#55ff88><alive>'
-  countdown-actionbar: '<role>  <#ffffff>Огонь через <#ffcc33><bold><time>'
+  countdown-actionbar: '<role>  <#f2f0e6>Огонь через <#e3b341><time>'
   preparing-tips:
-    - '<#ffcc33><bold>Подготовка  <#ffffff>исследуйте карту и собирайте оружие'
-    - '<#ff5b6e><bold>Роли скрыты  <#ffffff>урон пока выключен'
-    - '<#32d6ff><bold>ПКМ<#ffffff> — огонь или бросок  <#55ff88><bold>F<#ffffff> — перезарядка'
+    - '<#e3b341>Подготовка  <#f2f0e6>исследуйте карту и собирайте оружие'
+    - '<#d87a82>Роли скрыты  <#f2f0e6>урон пока выключен'
+    - '<#92bed8>ПКМ <#f2f0e6>— огонь или бросок   <#92bed8>F <#f2f0e6>— перезарядка'
 
 nameplate:
   lines:

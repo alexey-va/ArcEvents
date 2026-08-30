@@ -41,8 +41,8 @@ class TttLootScene(
 
     val size: Int get() = entities.size
 
-    fun spawn(location: Location, stack: ItemStack): Item {
-        val spawn = safeSpawnLocation(location)
+    fun spawn(location: Location, stack: ItemStack): Item? {
+        val spawn = safeSpawnLocation(location) ?: return null
         val item = spawn.world.dropItem(spawn, stack) { configurePickup(it, pickupDelay = 0) }
         try {
             register(item, pickupDelay = 0)
@@ -108,7 +108,7 @@ class TttLootScene(
 
     override fun close() = clear()
 
-    private fun safeSpawnLocation(origin: Location): Location {
+    private fun safeSpawnLocation(origin: Location): Location? {
         val world = origin.world
         val baseX = origin.blockX
         val baseY = origin.blockY
@@ -124,7 +124,7 @@ class TttLootScene(
                 return Location(world, feet.x + 0.5, feet.y + 0.1, feet.z + 0.5, origin.yaw, origin.pitch)
             }
         }
-        error("Loot point ${origin.blockX},${origin.blockY},${origin.blockZ} has no nearby non-barrier floor")
+        return null
     }
 
     private fun configurePickup(item: Item, pickupDelay: Int) {

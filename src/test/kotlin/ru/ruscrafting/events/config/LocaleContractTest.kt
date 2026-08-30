@@ -44,6 +44,25 @@ class LocaleContractTest : StringSpec({
             root.toFile().deleteRecursively()
         }
     }
+
+    "preparation guidance has one quiet leading break and no decorative bullets or bold text" {
+        val root = Files.createTempDirectory("arcevents-preparation-style-")
+        try {
+            listOf("ru", "en").forEach { language ->
+                val config = Config(root, "lang/$language.yml")
+                val guide = config.string("match.preparing-guide")
+                guide.startsWith('\n') shouldBe true
+                guide.endsWith('\n') shouldBe false
+                guide.contains("<bold>") shouldBe false
+                guide.contains('◆') shouldBe false
+                config.stringList("hud.preparing-tips").none { "<bold>" in it } shouldBe true
+                config.string("hud.bossbar-preparing").contains("<bold>") shouldBe false
+                config.string("hud.countdown-actionbar").contains("<bold>") shouldBe false
+            }
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
 }) {
     companion object {
         private val roots = listOf(

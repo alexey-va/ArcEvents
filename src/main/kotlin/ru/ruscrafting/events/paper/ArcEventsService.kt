@@ -1720,12 +1720,17 @@ class ArcEventsService(
         } else {
             importedLoot(arena.lootSpawns, seed)
         }
+        var skipped = 0
         layout.forEach { (coordinates, reward) ->
             val (firearm, ammunition) = reward
             val stack = firearm?.let { firearms.firearmItem(it, null, current.matchId.toString()) }
                 ?: firearms.ammunition(null, current.matchId.toString(), ammunition)
             val location = Location(world, coordinates.first, coordinates.second, coordinates.third)
-            lootScene.spawn(location, stack)
+            if (lootScene.spawn(location, stack) == null) skipped += 1
+        }
+        check(lootScene.size > 0) { "Arena ${arena.id} has no safe loot spawn points" }
+        if (skipped > 0) {
+            plugin.logger.warning("ArcEvents skipped $skipped unsafe loot points in arena ${arena.id}; match preparation continues")
         }
         debug.event("loot_spawned", "match" to current.matchId, "arena" to arena.id, "entities" to lootScene.size)
     }

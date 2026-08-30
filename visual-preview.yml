@@ -30,8 +30,14 @@ sources:
       - menu.common.back-name
       - menu.common.back-lore
       - queue.*
+      - match.preparing-title
+      - match.preparing-subtitle
+      - match.preparing-guide
       - match.evacuated
       - match.spawn-return-*
+      - hud.bossbar-preparing
+      - hud.countdown-actionbar
+      - hud.preparing-tips
       - weapon.pickup-ammo-actionbar
       - nameplate.*
 
@@ -46,6 +52,8 @@ placeholders:
   deaths: '104'
   karma: '975'
   phase: '<#7bd88f>раунд идёт'
+  role: '<#7bd88f>Мирный'
+  time: '00:45'
   match: 7e643f0c
   recovery: '2'
   server: parkour
@@ -62,6 +70,15 @@ placeholders:
 
 surfaces:
   hud:
+    - id: round-preparation
+      title: events:match.preparing-title
+      subtitle: events:match.preparing-subtitle
+      actionbar: events:hud.preparing-tips
+      bossbar: events:hud.bossbar-preparing
+      bossbar-color: yellow
+      bossbar-progress: 0.72
+    - id: combat-countdown
+      actionbar: events:hud.countdown-actionbar
     - id: weapon-pickup-reserve
       actionbar: events:weapon.pickup-ammo-actionbar
     - id: map-spawn-return-countdown
@@ -240,6 +257,7 @@ surfaces:
     - source: events
       include:
         - queue.*
+        - match.preparing-guide
         - match.evacuated
         - match.spawn-return-requested
         - match.spawn-return-complete

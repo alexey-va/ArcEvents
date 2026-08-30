@@ -389,9 +389,15 @@ queue:
 
 match:
   unavailable: '<prefix> <#ff9f0f>You are not participating in a match.'
-  preparing-title: '<#ffcc33><bold>Explore the map'
-  preparing-subtitle: '<#ffffff>Roles hidden  <#ff5b6e>damage disabled'
-  preparing-guide: '<#ffcc33><bold>Round preparation<newline><#32d6ff>◆ <#ffffff>Explore and collect weapons.<newline><#ff5b6e>◆ <#ffffff>Roles are hidden and damage is disabled.<newline><#b983ff>◆ <#ffffff>The countdown starts after role reveal.<newline><#55ff88>◆ <#ffffff>Right-click — fire  <#ffffff>F — reload'
+  preparing-title: '<#e3b341>Explore the map'
+  preparing-subtitle: '<#f2f0e6>Roles hidden <#8fa6b8>— <#d87a82>damage disabled'
+  preparing-guide: |-
+
+    <#e3b341>Round preparation
+    <#8fa6b8>   <#f2f0e6>Explore the map and collect weapons.
+    <#8fa6b8>   <#f2f0e6>Roles are hidden and damage is disabled.
+    <#8fa6b8>   <#f2f0e6>The countdown starts after role reveal.
+    <#8fa6b8>   <#92bed8>Right-click <#f2f0e6>— fire   <#92bed8>F <#f2f0e6>— reload
   countdown-title: '<#ffcc33><bold><seconds>'
   countdown-subtitle: '<#ffffff>Get ready for the round'
   started: '<#55ff88><bold>Round started  <#ffffff>find bodies and evidence.'
@@ -449,14 +455,14 @@ hud:
   objective-innocent: '<#7bd88f>find the traitors'
   objective-traitor: '<#d84a4a>eliminate innocents'
   objective-detective: '<#5fb3ff>inspect bodies'
-  bossbar-preparing: '<#ffcc33><bold>Preparation  <#ffffff>roles in <#ffcc33><time>'
+  bossbar-preparing: '<#e3b341>Preparation  <#f2f0e6>roles in <#e3b341><time>'
   bossbar-countdown: '<role>  <#ffffff>start in <#ffcc33><time>'
   bossbar-active: '<#32d6ff><bold>Round  <#ffcc33><time>  <#ffffff>alive <#55ff88><alive>'
-  countdown-actionbar: '<role>  <#ffffff>Combat in <#ffcc33><bold><time>'
+  countdown-actionbar: '<role>  <#f2f0e6>Combat in <#e3b341><time>'
   preparing-tips:
-    - '<#ffcc33><bold>Preparation  <#ffffff>explore the map and collect weapons'
-    - '<#ff5b6e><bold>Roles hidden  <#ffffff>damage is disabled'
-    - '<#32d6ff><bold>Right-click<#ffffff> — fire or throw  <#55ff88><bold>F<#ffffff> — reload'
+    - '<#e3b341>Preparation  <#f2f0e6>explore the map and collect weapons'
+    - '<#d87a82>Roles hidden  <#f2f0e6>damage is disabled'
+    - '<#92bed8>Right-click <#f2f0e6>— fire or throw   <#92bed8>F <#f2f0e6>— reload'
 
 nameplate:
   lines:
