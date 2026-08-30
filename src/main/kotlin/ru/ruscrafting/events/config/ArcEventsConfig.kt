@@ -63,14 +63,14 @@ data class ArenaSettings(
     val spawns: List<EventLocation>,
     val lootSpawns: List<EventLocation>,
 ) {
-    val playerSpawn: EventLocation get() = spawns.first()
+    val playerSpawn: EventLocation get() = spawns.single()
 
     fun operational(@Suppress("UNUSED_PARAMETER") maximumPlayers: Int): Boolean = runCatching {
         require(enabled)
         requireNotNull(lobby).validated()
         requireNotNull(spectator).validated()
         requireNotNull(bounds).validated()
-        require(spawns.isNotEmpty())
+        require(spawns.size == 1)
         require(bounds.contains(lobby) && bounds.contains(spectator))
         require(spawns.all { bounds.contains(it.validated()) })
         require(lootSpawns.distinctBy { Triple(it.x, it.y, it.z) }.size == lootSpawns.size)
@@ -135,6 +135,7 @@ data class UiSettings(
     val lootDisplays: Boolean,
     val dialogsEnabled: Boolean,
     val filler: UiItemSettings,
+    val back: UiItemSettings,
 )
 
 data class DebugSettings(
@@ -196,11 +197,15 @@ class ArcEventsConfig(private val config: Config) {
             particles = config.bool("ui.particles", true),
             bossBar = config.bool("ui.bossbar", true),
             scoreboard = config.bool("ui.scoreboard", true),
-            lootDisplays = config.bool("ui.loot-displays", true),
+            lootDisplays = config.bool("ui.loot-displays", false),
             dialogsEnabled = config.bool("ui.dialogs-enabled", false),
             filler = UiItemSettings(
                 material = config.string("ui.filler.material", "GRAY_STAINED_GLASS_PANE").uppercase(),
                 customModelData = config.int("ui.filler.custom-model-data", 0),
+            ),
+            back = UiItemSettings(
+                material = config.string("ui.back.material", "BLUE_STAINED_GLASS_PANE").uppercase(),
+                customModelData = config.int("ui.back.custom-model-data", 11013),
             ),
         )
 
@@ -260,7 +265,10 @@ class ArcEventsConfig(private val config: Config) {
         require(ttt.detectiveMinimumPlayers in 4..ttt.maximumPlayers)
         require(ttt.traitorCredits in 0..16 && ttt.detectiveCredits in 0..16)
         require(ttt.bodyDespawnSeconds in ttt.roundSeconds..3600)
+        require(ui.filler.material.matches(Regex("[A-Z0-9_]{1,64}")))
         require(ui.filler.customModelData >= 0)
+        require(ui.back.material.matches(Regex("[A-Z0-9_]{1,64}")))
+        require(ui.back.customModelData >= 0)
         require(weapons.dnaSeconds in 15..300)
         weapons.visuals.values.forEach { visual ->
             require(visual.material.matches(Regex("[A-Z0-9_]{1,64}"))) { "Weapon material is invalid" }
@@ -290,7 +298,7 @@ class ArcEventsConfig(private val config: Config) {
             if (arena.enabled) require(arena.operational(ttt.maximumPlayers)) {
                 "Enabled arena ${arena.id} is incomplete or contains an unsafe location"
             }
-            require(arena.spawns.size <= 64) { "Arena ${arena.id} has too many player spawns" }
+            require(arena.spawns.size <= 1) { "Arena ${arena.id} must use one common player spawn" }
             require(arena.lootSpawns.size <= 128) { "Arena ${arena.id} has too many loot spawns" }
             if (arena.enabled && weapons.enabled && arena.template !in setOf("", "citadel-v1")) {
                 require(arena.lootSpawns.size >= ttt.maximumPlayers) {

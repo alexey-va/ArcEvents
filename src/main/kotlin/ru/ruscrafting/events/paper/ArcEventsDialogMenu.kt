@@ -63,7 +63,7 @@ internal class ArcEventsDialogMenu(
                 "menu.main.ttt-name",
                 "menu.main.ttt-lore",
                 EventsView.Main,
-                13,
+                4,
                 mapOf(
                     "queue" to locale.text(state.queueSize),
                     "minimum" to locale.text(settings().ttt.minimumPlayers),
@@ -217,7 +217,7 @@ internal class ArcEventsDialogMenu(
                     .body(bodies)
                     .build(),
             )
-            .type(DialogType.multiAction(actions, closeButton(player), columns))
+            .type(DialogType.multiAction(actions).columns(columns).build())
     }
 
     private fun body(
@@ -267,12 +267,4 @@ internal class ArcEventsDialogMenu(
         ))
         .build()
 
-    private fun closeButton(player: Player): ActionButton = ActionButton
-        .builder(TttItems.nonItalic(locale.render("menu.common.close-name", player)))
-        .tooltip(Component.join(
-            JoinConfiguration.newlines(),
-            locale.lore("menu.common.close-lore", player).map(TttItems::nonItalic),
-        ))
-        .width(150)
-        .build()
 }

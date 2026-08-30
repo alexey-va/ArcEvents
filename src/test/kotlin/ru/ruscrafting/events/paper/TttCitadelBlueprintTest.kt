@@ -13,8 +13,8 @@ import java.nio.file.Path
 class TttCitadelBlueprintTest : StringSpec({
     "all player-facing anchors have two blocks of air and a solid floor" {
         val anchors = listOf(TttCitadelBlueprint.lobby, TttCitadelBlueprint.spectator) + TttCitadelBlueprint.spawns
-        anchors.size shouldBe 18
-        TttCitadelBlueprint.spawns.distinctBy { Triple(it.x, it.y, it.z) }.size shouldBe 16
+        anchors.size shouldBe 3
+        TttCitadelBlueprint.spawns.distinctBy { Triple(it.x, it.y, it.z) }.size shouldBe 1
 
         anchors.forEach { point ->
             val x = point.x.toInt()

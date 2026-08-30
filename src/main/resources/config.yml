@@ -22,13 +22,15 @@ ui:
   particles: true
   bossbar: true
   scoreboard: true
-  # Float map weapons as animated ItemDisplay entities while keeping a hidden,
-  # server-authoritative pickup entity underneath.
-  loot-displays: true
+  # Optional animated ItemDisplay layer. Keep disabled on gameplay nodes so
+  # map loot uses the lighter visible server-authoritative dropped item.
+  loot-displays: false
   # Paper Dialog API (1.21.6+ clients) for overview/help/admin screens.
   # Item-dense screens and older clients always use the chest GUI.
   dialogs-enabled: false
   filler: {material: GRAY_STAINED_GLASS_PANE, custom-model-data: 0}
+  # Shared 32x32 arc:left_gray navigation control.
+  back: {material: BLUE_STAINED_GLASS_PANE, custom-model-data: 11013}
 
 ttt:
   minimum-players: 4

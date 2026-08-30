@@ -8,6 +8,10 @@ import ru.arc.config.ConfigManager
 import ru.arc.core.PaperArcRuntime
 import ru.arc.core.Tasks
 import ru.arc.paper.network.BungeeBackendTransfer
+import ru.arc.paper.nameplate.NativePaperNameplateVisibilityPolicy
+import ru.arc.paper.nameplate.PaperNameplateOptions
+import ru.arc.paper.nameplate.PaperNameplateVisibilityPolicy
+import ru.arc.paper.nameplate.PaperPlayerNameplates
 import ru.arc.paper.runtime.PaperPluginRuntime
 import ru.arc.observability.RuntimeHealthContribution
 import ru.arc.observability.RuntimeHealthState
@@ -62,7 +66,6 @@ class ArcEventsPlugin : JavaPlugin() {
             val escrow = PlayerStateEscrow(RecoveryBatchStore(dataRoot, Gson()))
             val items = TttItems(this, locale)
             val firearms = TttFirearms(this, locale) { settings }
-            val hud = TttHud(this, { settings }, locale)
             val lootScene = TttLootScene(this, firearms) { settings }
             val arenaInspector = ArenaRuntimeInspector(this)
             val arenaPool = ArenaPool(settings = { settings }, ready = arenaInspector::ready)
@@ -93,6 +96,28 @@ class ArcEventsPlugin : JavaPlugin() {
             )
             network = coordinator
             lifecycle.own(coordinator)
+            val nameplateOptions = PaperNameplateOptions(
+                maxDistance = 32.0,
+                lineWidth = 180,
+                requireLineOfSight = true,
+            )
+            val nativeNameplateVisibility = NativePaperNameplateVisibilityPolicy(nameplateOptions)
+            val nameplateRenderer = lifecycle.own(PaperPlayerNameplates.open(
+                plugin = this,
+                options = nameplateOptions,
+                visibility = PaperNameplateVisibilityPolicy { viewer, target ->
+                    nativeNameplateVisibility.canView(viewer, target) &&
+                        service?.canViewNameplate(viewer.uniqueId, target.uniqueId) == true
+                },
+            ))
+            val nameplates = TttNameplates(
+                registry = nameplateRenderer.registry,
+                locale = locale,
+                statistics = coordinator::stats,
+                onlinePlayer = server::getPlayer,
+                refresh = nameplateRenderer::refreshNow,
+            )
+            val hud = TttHud(this, { settings }, locale, nameplates)
             activeService = ArcEventsService(
                 plugin = this,
                 settings = { settings },

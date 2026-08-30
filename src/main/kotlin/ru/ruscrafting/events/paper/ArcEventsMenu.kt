@@ -100,10 +100,10 @@ class ArcEventsMenu(
     private fun dispatchClick(player: Player, view: EventsView, slot: Int) {
         when (view) {
             EventsView.Main -> clickMain(player, slot)
-            EventsView.Help -> if (slot == 36) open(player, EventsView.Main) else if (slot == 44) player.closeInventory()
-            EventsView.EventHelp -> if (slot == 36) open(player, EventsView.Ttt) else if (slot == 44) player.closeInventory()
+            EventsView.Help -> if (slot == 36) open(player, EventsView.Main)
+            EventsView.EventHelp -> if (slot == 36) open(player, EventsView.Ttt)
             EventsView.Ttt -> clickTtt(player, slot)
-            EventsView.Statistics -> if (slot == 18) open(player, EventsView.Main) else if (slot == 26) player.closeInventory()
+            EventsView.Statistics -> if (slot == 18) open(player, EventsView.Main)
             EventsView.Admin -> clickAdmin(player, slot)
             EventsView.Arenas -> clickArenas(player, slot)
             EventsView.Shop -> clickShop(player, slot)
@@ -117,14 +117,13 @@ class ArcEventsMenu(
     private fun openMain(player: Player) {
         val state = service.snapshot()
         val inventory = inventory(player, EventsView.Main, 27, "menu.main.title")
-        inventory.setItem(13, item(Material.SPYGLASS, player, "menu.main.ttt-name", "menu.main.ttt-lore", mapOf(
+        inventory.setItem(4, item(Material.SPYGLASS, player, "menu.main.ttt-name", "menu.main.ttt-lore", mapOf(
             "queue" to locale.text(state.queueSize),
             "minimum" to locale.text(settings().ttt.minimumPlayers),
             "arena_state" to locale.render(if (state.arenaReady) "state.arena-ready" else "state.arena-unavailable", player),
         )))
         inventory.setItem(18, item(Material.WRITABLE_BOOK, player, "menu.main.stats-name", "menu.main.stats-lore"))
         inventory.setItem(22, item(Material.KNOWLEDGE_BOOK, player, "menu.main.help-name", "menu.main.help-lore"))
-        inventory.setItem(8, item(Material.BARRIER, player, "menu.common.close-name", "menu.common.close-lore"))
         if (player.hasPermission("arcevents.admin")) {
             inventory.setItem(26, item(Material.COMMAND_BLOCK, player, "menu.main.admin-name", "menu.main.admin-lore"))
         }
@@ -133,8 +132,7 @@ class ArcEventsMenu(
 
     private fun clickMain(player: Player, slot: Int) {
         when (slot) {
-            8 -> player.closeInventory()
-            13 -> open(player, EventsView.Ttt)
+            4 -> open(player, EventsView.Ttt)
             18 -> open(player, EventsView.Statistics)
             22 -> open(player, EventsView.Help)
             26 -> if (player.hasPermission("arcevents.admin")) open(player, EventsView.Admin)
@@ -187,9 +185,8 @@ class ArcEventsMenu(
                 if (plan.showShop) inventory.setItem(22, item(Material.NETHER_STAR, player, "menu.event.shop-name", "menu.event.shop-lore"))
                 if (plan.showReport) inventory.setItem(24, item(Material.WRITTEN_BOOK, player, "menu.event.report-name", "menu.event.report-lore"))
                 inventory.setItem(31, item(Material.KNOWLEDGE_BOOK, player, "menu.event.help-name", "menu.event.help-lore"))
-                inventory.setItem(36, item(Material.ARROW, player, "menu.common.back-name", "menu.common.back-lore"))
+                inventory.setItem(36, backItem(player))
                 if (plan.showEvacuate) inventory.setItem(40, item(Material.ENDER_PEARL, player, "menu.event.evacuate-name", "menu.event.evacuate-lore"))
-                inventory.setItem(44, item(Material.BARRIER, player, "menu.common.close-name", "menu.common.close-lore"))
                 player.openInventory(inventory)
             }
         }
@@ -232,7 +229,6 @@ class ArcEventsMenu(
                 player.closeInventory()
                 service.leave(player)
             }
-            44 -> player.closeInventory()
         }
     }
 
@@ -257,8 +253,7 @@ class ArcEventsMenu(
             "deaths" to locale.text(stats.deaths),
             "karma" to locale.text(stats.karma),
         )))
-        inventory.setItem(18, item(Material.ARROW, player, "menu.common.back-name", "menu.common.back-lore"))
-        inventory.setItem(26, item(Material.BARRIER, player, "menu.common.close-name", "menu.common.close-lore"))
+        inventory.setItem(18, backItem(player))
         player.openInventory(inventory)
     }
 
@@ -271,8 +266,7 @@ class ArcEventsMenu(
         inventory.setItem(29, item(Material.PLAYER_HEAD, player, "menu.help.evidence-name", "menu.help.evidence-lore"))
         inventory.setItem(31, item(Material.CROSSBOW, player, "menu.help.weapons-name", "menu.help.weapons-lore"))
         inventory.setItem(33, item(Material.COMMAND_BLOCK, player, "menu.help.controls-name", "menu.help.controls-lore"))
-        inventory.setItem(36, item(Material.ARROW, player, "menu.common.back-name", "menu.common.back-lore"))
-        inventory.setItem(44, item(Material.BARRIER, player, "menu.common.close-name", "menu.common.close-lore"))
+        inventory.setItem(36, backItem(player))
         player.openInventory(inventory)
     }
 
@@ -298,8 +292,7 @@ class ArcEventsMenu(
         inventory.setItem(31, item(Material.RED_CONCRETE, player, "menu.admin.stop-name", "menu.admin.stop-lore"))
         inventory.setItem(33, item(Material.CLOCK, player, "menu.admin.reload-name", "menu.admin.reload-lore"))
         inventory.setItem(40, item(Material.TOTEM_OF_UNDYING, player, "menu.admin.recover-name", "menu.admin.recover-lore"))
-        inventory.setItem(45, item(Material.ARROW, player, "menu.common.back-name", "menu.common.back-lore"))
-        inventory.setItem(53, item(Material.BARRIER, player, "menu.common.close-name", "menu.common.close-lore"))
+        inventory.setItem(45, backItem(player))
         player.openInventory(inventory)
     }
 
@@ -333,7 +326,6 @@ class ArcEventsMenu(
                 open(player, EventsView.Admin)
             }
             45 -> open(player, EventsView.Main)
-            53 -> player.closeInventory()
         }
     }
 
@@ -360,8 +352,7 @@ class ArcEventsMenu(
             )))
         }
         inventory.setItem(40, item(Material.COMPASS, player, "menu.arenas.auto-name", "menu.arenas.auto-lore"))
-        inventory.setItem(45, item(Material.ARROW, player, "menu.common.back-name", "menu.common.back-lore"))
-        inventory.setItem(53, item(Material.BARRIER, player, "menu.common.close-name", "menu.common.close-lore"))
+        inventory.setItem(45, backItem(player))
         player.openInventory(inventory)
     }
 
@@ -376,7 +367,6 @@ class ArcEventsMenu(
                 open(player, EventsView.Arenas)
             }
             slot == 45 -> open(player, EventsView.Admin)
-            slot == 53 -> player.closeInventory()
         }
     }
 
@@ -405,8 +395,7 @@ class ArcEventsMenu(
                 inventory.setItem(slot, items.offerItem(offer, player, activeMatch.matchId.toString()))
             }
         }
-        inventory.setItem(36, item(Material.ARROW, player, "menu.common.back-name", "menu.common.back-lore"))
-        inventory.setItem(44, item(Material.BARRIER, player, "menu.common.close-name", "menu.common.close-lore"))
+        inventory.setItem(36, backItem(player))
         player.openInventory(inventory)
     }
 
@@ -420,7 +409,6 @@ class ArcEventsMenu(
         when (slot) {
             20, 22, 24 -> offers.getOrNull(listOf(20, 22, 24).indexOf(slot))?.let { service.buy(player, it); open(player, EventsView.Shop) }
             36 -> open(player, EventsView.Ttt)
-            44 -> player.closeInventory()
         }
     }
 
@@ -439,15 +427,13 @@ class ArcEventsMenu(
                 "role" to (entry.publicRole?.let { roleName(it, player) } ?: locale.render("roster.role-hidden", player)),
             )))
         }
-        inventory.setItem(45, item(Material.ARROW, player, "menu.common.back-name", "menu.common.back-lore"))
-        inventory.setItem(53, item(Material.BARRIER, player, "menu.common.close-name", "menu.common.close-lore"))
+        inventory.setItem(45, backItem(player))
         player.openInventory(inventory)
     }
 
     private fun clickRoster(player: Player, slot: Int) {
         when (slot) {
             45 -> open(player, EventsView.Ttt)
-            53 -> player.closeInventory()
         }
     }
 
@@ -483,8 +469,7 @@ class ArcEventsMenu(
             if (evidence.detectiveCalled) "menu.body.called-lore" else "menu.body.call-lore",
         ))
         inventory.setItem(33, item(Material.PLAYER_HEAD, player, "menu.body.roster-name", "menu.body.roster-lore"))
-        inventory.setItem(36, item(Material.ARROW, player, "menu.common.back-name", "menu.common.back-lore"))
-        inventory.setItem(44, item(Material.BARRIER, player, "menu.common.close-name", "menu.common.close-lore"))
+        inventory.setItem(36, backItem(player))
         player.openInventory(inventory)
     }
 
@@ -493,7 +478,6 @@ class ArcEventsMenu(
             24 -> { service.scanBody(player, bodyId); openBody(player, bodyId) }
             31 -> { service.callDetective(player, bodyId); openBody(player, bodyId) }
             33, 36 -> open(player, EventsView.Roster)
-            44 -> player.closeInventory()
         }
     }
 
@@ -529,8 +513,7 @@ class ArcEventsMenu(
         inventory.setItem(40, item(Material.WRITABLE_BOOK, player, "menu.report.combat-name", "menu.report.combat-lore", mapOf(
             "events" to locale.text(report.combat.size),
         )))
-        inventory.setItem(45, item(Material.ARROW, player, "menu.common.back-name", "menu.common.back-lore"))
-        inventory.setItem(53, item(Material.BARRIER, player, "menu.common.close-name", "menu.common.close-lore"))
+        inventory.setItem(45, backItem(player))
         player.openInventory(inventory)
     }
 
@@ -538,7 +521,6 @@ class ArcEventsMenu(
         when (slot) {
             40 -> open(player, EventsView.CombatLog(0))
             45 -> open(player, EventsView.Ttt)
-            53 -> player.closeInventory()
         }
     }
 
@@ -573,17 +555,32 @@ class ArcEventsMenu(
                 ),
             ))
         }
-        if (safePage > 0) inventory.setItem(45, item(Material.ARROW, player, "menu.common.previous-name", "menu.common.previous-lore"))
-        inventory.setItem(49, item(Material.WRITTEN_BOOK, player, "menu.combat.back-name", "menu.combat.back-lore"))
-        if (safePage < maxPage) inventory.setItem(53, item(Material.ARROW, player, "menu.common.next-name", "menu.common.next-lore"))
+        inventory.setItem(45, backItem(player))
+        if (safePage > 0) inventory.setItem(48, item(Material.ARROW, player, "menu.common.previous-name", "menu.common.previous-lore"))
+        if (safePage < maxPage) inventory.setItem(50, item(Material.ARROW, player, "menu.common.next-name", "menu.common.next-lore"))
         player.openInventory(inventory)
     }
 
     private fun clickCombatLog(player: Player, page: Int, slot: Int) {
         when (slot) {
-            45 -> open(player, EventsView.CombatLog(page - 1))
-            49 -> open(player, EventsView.Report)
-            53 -> open(player, EventsView.CombatLog(page + 1))
+            45 -> open(player, EventsView.Report)
+            48 -> open(player, EventsView.CombatLog(page - 1))
+            50 -> open(player, EventsView.CombatLog(page + 1))
+        }
+    }
+
+    private fun backItem(player: Player): ItemStack {
+        val appearance = settings().ui.back
+        val material = Material.matchMaterial(appearance.material)?.takeIf(Material::isItem)
+            ?: Material.BLUE_STAINED_GLASS_PANE
+        return item(material, player, "menu.common.back-name", "menu.common.back-lore").also { stack ->
+            if (appearance.customModelData > 0) {
+                stack.editMeta { meta ->
+                    val model = meta.customModelDataComponent
+                    model.floats = listOf(appearance.customModelData.toFloat())
+                    meta.setCustomModelDataComponent(model)
+                }
+            }
         }
     }
 

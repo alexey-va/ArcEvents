@@ -38,10 +38,12 @@ Production rotates between three reviewed imported worlds:
 only after player restoration finishes. An administrator may choose the next
 ready arena once or return to deterministic automatic rotation. Imported
 worlds require exact ownership/source markers, no datapacks or symlinks, and a
-startup scan that rejects command-block tile entities. Command blocks are also
-disabled by world gamerule. Runtime readiness requires solid footing, two
-passable blocks, and WorldGuard/Paper PvP permission at every player-facing
-point.
+startup scan that rejects command-block tile entities and removes imported
+non-player entities before a round can use the world. Command blocks are also
+disabled by world gamerule. Every participant uses the same configured map
+spawn. Dedicated arena worlds cap view distance at six chunks and simulation
+distance at four. Runtime readiness requires solid footing, two passable
+blocks, and WorldGuard/Paper PvP permission at every player-facing point.
 
 The recovery, exact-destination teleport authorization, generic GUI background,
 and post-match return contracts intentionally follow the proven ArcDuels
@@ -102,7 +104,7 @@ amounts, and views.
 
 ## Firearms and loot
 
-TTT currently has twelve ballistic contracts: flintlock pistol, revolver, hand
+TTT's firearm catalog includes the flintlock pistol, revolver, hand
 cannon, double-barrel shotgun, FN Five-seveN, G36, AEK-971, RPL-20, Vepr-12,
 M1 Garand, VSS Vintorez, and McMillan. The server remains authoritative for
 ammo, cooldowns, ray hits, headshots, damage, and match ownership. The parkour
@@ -139,10 +141,11 @@ active round.
 
 Each participant gets a locale-aware sidebar, per-player boss bar, contextual
 action bar, phase titles, and restrained transition particles. The previous
-scoreboard is restored when the event ends. Map pickups use a hidden
-server-authoritative item for collision plus a temporary rotating `ItemDisplay`
-and an animated rarity beam for presentation; `ui.loot-displays` can disable
-only that visual layer. Smoke grenades are throwable snowball projectiles and create an
+scoreboard is restored when the event ends. The performance profile uses the
+visible server-authoritative dropped item directly and relocates unsafe loot
+points to nearby non-barrier flooring. `ui.loot-displays` may opt into a
+temporary rotating `ItemDisplay` and rarity beam when a smaller map can afford
+that visual layer. Smoke grenades are throwable snowball projectiles and create an
 eight-second cloud that repeatedly applies blindness and darkness to every
 living participant inside it, including the thrower.
 

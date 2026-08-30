@@ -12,6 +12,9 @@ custom-items:
   arc:background:
     material: GRAY_STAINED_GLASS_PANE
     model: assets/arc/models/gui/background.json
+  arc:left_gray:
+    material: BLUE_STAINED_GLASS_PANE
+    model: assets/arc/models/gui/left_gray.json
 
 sources:
   events:
@@ -26,12 +29,11 @@ sources:
       - menu.admin.*
       - menu.common.back-name
       - menu.common.back-lore
-      - menu.common.close-name
-      - menu.common.close-lore
       - queue.*
       - match.evacuated
       - match.spawn-return-*
       - weapon.pickup-ammo-actionbar
+      - nameplate.*
 
 placeholders:
   queue: '14'
@@ -54,6 +56,9 @@ placeholders:
   active: Мираж
   rounds: '48'
   seconds: '10'
+  player: StarlightFox
+  health: '17'
+  max_health: '20'
 
 surfaces:
   hud:
@@ -71,8 +76,7 @@ surfaces:
       filler: GRAY_STAINED_GLASS_PANE
       background-item: arc:background
       items:
-        - {slot: 8, material: BARRIER, name: events:menu.common.close-name, lore: events:menu.common.close-lore}
-        - {slot: 13, material: SPYGLASS, name: events:menu.main.ttt-name, lore: events:menu.main.ttt-lore}
+        - {slot: 4, material: SPYGLASS, name: events:menu.main.ttt-name, lore: events:menu.main.ttt-lore}
         - {slot: 18, material: WRITABLE_BOOK, name: events:menu.main.stats-name, lore: events:menu.main.stats-lore}
         - {slot: 22, material: KNOWLEDGE_BOOK, name: events:menu.main.help-name, lore: events:menu.main.help-lore}
 
@@ -82,8 +86,7 @@ surfaces:
       filler: GRAY_STAINED_GLASS_PANE
       background-item: arc:background
       items:
-        - {slot: 8, material: BARRIER, name: events:menu.common.close-name, lore: events:menu.common.close-lore}
-        - {slot: 13, material: SPYGLASS, name: events:menu.main.ttt-name, lore: events:menu.main.ttt-lore}
+        - {slot: 4, material: SPYGLASS, name: events:menu.main.ttt-name, lore: events:menu.main.ttt-lore}
         - {slot: 18, material: WRITABLE_BOOK, name: events:menu.main.stats-name, lore: events:menu.main.stats-lore}
         - {slot: 22, material: KNOWLEDGE_BOOK, name: events:menu.main.help-name, lore: events:menu.main.help-lore}
         - {slot: 26, material: COMMAND_BLOCK, name: events:menu.main.admin-name, lore: events:menu.main.admin-lore}
@@ -98,8 +101,7 @@ surfaces:
         - &event_overview {slot: 13, material: SPYGLASS, name: events:menu.event.overview-name, lore: events:menu.event.overview-lore}
         - {slot: 22, material: LIME_DYE, name: events:menu.event.join-name, lore: events:menu.event.join-lore}
         - &event_help {slot: 31, material: KNOWLEDGE_BOOK, name: events:menu.event.help-name, lore: events:menu.event.help-lore}
-        - &event_back {slot: 36, material: ARROW, name: events:menu.common.back-name, lore: events:menu.common.back-lore}
-        - &event_close {slot: 44, material: BARRIER, name: events:menu.common.close-name, lore: events:menu.common.close-lore}
+        - &event_back {slot: 36, material: BLUE_STAINED_GLASS_PANE, itemsadder: 'arc:left_gray', name: events:menu.common.back-name, lore: events:menu.common.back-lore}
 
     - id: hidden-roles-unavailable
       title: events:menu.event.title
@@ -111,7 +113,6 @@ surfaces:
         - {slot: 22, material: GRAY_DYE, name: events:menu.event.join-unavailable-name, lore: events:menu.event.join-unavailable-lore}
         - *event_help
         - *event_back
-        - *event_close
 
     - id: hidden-roles-queued
       title: events:menu.event.title
@@ -124,7 +125,6 @@ surfaces:
         - {slot: 22, material: RED_DYE, name: events:menu.event.leave-name, lore: events:menu.event.leave-lore}
         - *event_help
         - *event_back
-        - *event_close
 
     - id: hidden-roles-queued-starter
       title: events:menu.event.title
@@ -138,7 +138,6 @@ surfaces:
         - {slot: 24, material: GRAY_CONCRETE, name: events:menu.event.start-name, lore: events:menu.event.start-lore}
         - *event_help
         - *event_back
-        - *event_close
 
     - id: hidden-roles-preparing
       title: events:menu.event.title
@@ -152,7 +151,6 @@ surfaces:
         - *event_help
         - *event_back
         - &event_evacuate {slot: 40, material: ENDER_PEARL, name: events:menu.event.evacuate-name, lore: events:menu.event.evacuate-lore}
-        - *event_close
 
     - id: hidden-roles-active
       title: events:menu.event.title
@@ -166,7 +164,6 @@ surfaces:
         - *event_help
         - *event_back
         - *event_evacuate
-        - *event_close
 
     - id: hidden-roles-eliminated
       title: events:menu.event.title
@@ -179,7 +176,6 @@ surfaces:
         - *event_help
         - *event_back
         - *event_evacuate
-        - *event_close
 
     - id: hidden-roles-results
       title: events:menu.event.title
@@ -193,7 +189,6 @@ surfaces:
         - *event_help
         - *event_back
         - *event_evacuate
-        - *event_close
 
     - id: event-statistics
       title: events:menu.stats.title
@@ -202,8 +197,7 @@ surfaces:
       background-item: arc:background
       items:
         - {slot: 13, material: WRITABLE_BOOK, name: events:menu.stats.summary-name, lore: events:menu.stats.summary-lore}
-        - {slot: 18, material: ARROW, name: events:menu.common.back-name, lore: events:menu.common.back-lore}
-        - {slot: 26, material: BARRIER, name: events:menu.common.close-name, lore: events:menu.common.close-lore}
+        - {slot: 18, material: BLUE_STAINED_GLASS_PANE, itemsadder: 'arc:left_gray', name: events:menu.common.back-name, lore: events:menu.common.back-lore}
 
     - id: hidden-roles-help
       title: events:menu.help.title
@@ -219,7 +213,6 @@ surfaces:
         - {slot: 31, material: CROSSBOW, name: events:menu.help.weapons-name, lore: events:menu.help.weapons-lore}
         - {slot: 33, material: COMMAND_BLOCK, name: events:menu.help.controls-name, lore: events:menu.help.controls-lore}
         - *event_back
-        - *event_close
 
     - id: event-administration
       title: events:menu.admin.title
@@ -233,12 +226,15 @@ surfaces:
         - {slot: 31, material: RED_CONCRETE, name: events:menu.admin.stop-name, lore: events:menu.admin.stop-lore}
         - {slot: 33, material: CLOCK, name: events:menu.admin.reload-name, lore: events:menu.admin.reload-lore}
         - {slot: 40, material: TOTEM_OF_UNDYING, name: events:menu.admin.recover-name, lore: events:menu.admin.recover-lore}
-        - {slot: 45, material: ARROW, name: events:menu.common.back-name, lore: events:menu.common.back-lore}
-        - {slot: 53, material: BARRIER, name: events:menu.common.close-name, lore: events:menu.common.close-lore}
+        - {slot: 45, material: BLUE_STAINED_GLASS_PANE, itemsadder: 'arc:left_gray', name: events:menu.common.back-name, lore: events:menu.common.back-lore}
 
   fragments:
     - source: events
       include: [menu.event.state.*]
+
+  world:
+    - id: event-player-nameplate
+      text: events:nameplate.lines
 
   chat:
     - source: events

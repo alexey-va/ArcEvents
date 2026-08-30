@@ -6,6 +6,7 @@ import org.bukkit.GameRules
 import org.bukkit.Material
 import org.bukkit.World
 import org.bukkit.WorldCreator
+import org.bukkit.entity.Player
 import org.bukkit.plugin.Plugin
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArenaSettings
@@ -42,6 +43,7 @@ class ArenaWorldProvisioner(private val plugin: Plugin) {
             requireMarker(arena, marker)
             if (!builtIn) requireImportedWorld(worldFolder, arena)
             requireArenaChunks(existing, arena, generate = false)
+            if (!builtIn) sanitizeImportedEntities(existing, arena)
             configure(existing, arena)
             rejectCommandBlocks(existing, arena)
             return existing
@@ -62,6 +64,7 @@ class ArenaWorldProvisioner(private val plugin: Plugin) {
         if (builtIn && !folderExists) {
             Files.writeString(marker, arena.template + "\n", StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
         }
+        if (!builtIn) sanitizeImportedEntities(world, arena)
         configure(world, arena)
         rejectCommandBlocks(world, arena)
         val action = if (folderExists) "Loaded" else "Provisioned"
@@ -139,9 +142,35 @@ class ArenaWorldProvisioner(private val plugin: Plugin) {
         }
     }
 
+    private fun sanitizeImportedEntities(world: World, arena: ArenaSettings) {
+        val bounds = requireNotNull(arena.bounds)
+        val minChunkX = floor(bounds.minimum.x).toInt().floorDiv(16)
+        val maxChunkX = ceil(bounds.maximum.x).toInt().floorDiv(16)
+        val minChunkZ = floor(bounds.minimum.z).toInt().floorDiv(16)
+        val maxChunkZ = ceil(bounds.maximum.z).toInt().floorDiv(16)
+        val removed = linkedMapOf<String, Int>()
+        for (chunkX in minChunkX..maxChunkX) for (chunkZ in minChunkZ..maxChunkZ) {
+            world.getChunkAt(chunkX, chunkZ).entities
+                .filterNot { it is Player }
+                .forEach { entity ->
+                    val type = entity.type.key.asString()
+                    entity.remove()
+                    removed[type] = removed.getOrDefault(type, 0) + 1
+                }
+        }
+        if (removed.isNotEmpty()) {
+            val summary = removed.entries.sortedByDescending(Map.Entry<String, Int>::value)
+                .joinToString { (type, count) -> "$type=$count" }
+            plugin.logger.info("Removed imported arena entities id=${arena.id} world=${world.name} entities={$summary}")
+        }
+    }
+
     private fun configure(world: World, arena: ArenaSettings) {
         val bounds = requireNotNull(arena.bounds)
         val lobby = requireNotNull(arena.lobby)
+        world.viewDistance = ARENA_VIEW_DISTANCE
+        world.sendViewDistance = ARENA_VIEW_DISTANCE
+        world.simulationDistance = ARENA_SIMULATION_DISTANCE
         world.difficulty = Difficulty.PEACEFUL
         world.setSpawnFlags(false, false)
         world.setGameRule(GameRules.PVP, true)
@@ -174,6 +203,8 @@ class ArenaWorldProvisioner(private val plugin: Plugin) {
         private const val MAX_MANIFEST_BYTES = 16_384L
         private const val MAX_WORLD_FILES = 20_000
         private const val MAX_WORLD_BYTES = 2_147_483_648L
+        private const val ARENA_VIEW_DISTANCE = 6
+        private const val ARENA_SIMULATION_DISTANCE = 4
         private val SHA256 = Regex("[a-f0-9]{64}")
         private val COMMAND_BLOCKS = setOf(Material.COMMAND_BLOCK, Material.CHAIN_COMMAND_BLOCK, Material.REPEATING_COMMAND_BLOCK)
     }

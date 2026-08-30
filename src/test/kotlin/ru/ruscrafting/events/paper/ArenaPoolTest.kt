@@ -99,7 +99,7 @@ class ArenaPoolTest : StringSpec({
 }) {
     companion object {
         private fun hostConfig(): String {
-            val spawns = (1..16).joinToString("\n") { "      - '${it + 2},65,${it + 2},0,0'" }
+            val spawns = "      - '3,65,3,0,0'"
             fun arena(world: String) = """
                 |    enabled: true
                 |    world: $world

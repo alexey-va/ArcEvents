@@ -22,6 +22,7 @@ class TttHud(
     private val plugin: Plugin,
     private val settings: () -> ArcEventsConfig,
     private val locale: ArcEventsLocale,
+    private val nameplates: TttNameplates,
 ) : AutoCloseable {
     private data class Session(
         val previousScoreboard: Scoreboard,
@@ -38,6 +39,7 @@ class TttHud(
     }
 
     fun update(match: TttMatch, secondsRemaining: Int, totalSeconds: Int) {
+        nameplates.update(match)
         val alive = match.participants.values.count {
             it.status in setOf(ParticipantStatus.RESERVED, ParticipantStatus.ALIVE)
         }
@@ -52,6 +54,11 @@ class TttHud(
     }
 
     fun remove(playerId: UUID) {
+        nameplates.remove(playerId)
+        closeSession(playerId)
+    }
+
+    private fun closeSession(playerId: UUID) {
         val session = sessions.remove(playerId) ?: return
         val player = plugin.server.getPlayer(playerId) ?: return
         session.bossBar?.let(player::hideBossBar)
@@ -61,8 +68,9 @@ class TttHud(
     }
 
     override fun close() {
-        sessions.keys.toList().forEach(::remove)
+        sessions.keys.toList().forEach(::closeSession)
         sessions.clear()
+        nameplates.close()
     }
 
     private fun open(player: Player, match: TttMatch): Session {

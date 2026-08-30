@@ -91,8 +91,9 @@ class ArcEventsListener(
         val damager = (event as? EntityDamageByEntityEvent)?.damager
         val projectile = damager as? Projectile
         val attacker = damager?.let(::attacker)
-        if (victim.bypassesEventProtection() || attacker?.bypassesEventProtection() == true) return
-        if (service.withinArena(victim.location) && !service.isParticipant(victim.uniqueId)) {
+        val victimParticipates = service.isParticipant(victim.uniqueId)
+        if (!victimParticipates && (victim.bypassesEventProtection() || attacker?.bypassesEventProtection() == true)) return
+        if (service.withinArena(victim.location) && !victimParticipates) {
             event.isCancelled = true
             return
         }
@@ -133,8 +134,9 @@ class ArcEventsListener(
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onProjectileLaunch(event: ProjectileLaunchEvent) {
         val shooter = event.entity.shooter as? Player ?: return
-        if (shooter.bypassesEventProtection()) return
-        if (service.isParticipant(shooter.uniqueId) && !service.registerProjectile(event.entity)) event.isCancelled = true
+        val participates = service.isParticipant(shooter.uniqueId)
+        if (!participates && shooter.bypassesEventProtection()) return
+        if (participates && !service.registerProjectile(event.entity)) event.isCancelled = true
     }
 
     @EventHandler(ignoreCancelled = true)
@@ -248,10 +250,10 @@ class ArcEventsListener(
         }
     }
     @EventHandler(ignoreCancelled = true) fun onSwap(event: PlayerSwapHandItemsEvent) {
-        if (event.player.bypassesEventProtection()) return
         if (service.isParticipant(event.player.uniqueId) && service.phase() in CONTROLLED_PHASES) {
             event.isCancelled = true
             if (service.phase() == MatchPhase.ACTIVE) service.reloadFirearm(event.player)
+            return
         }
     }
     @EventHandler(ignoreCancelled = true) fun onBreak(event: BlockBreakEvent) {

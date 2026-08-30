@@ -26,6 +26,8 @@ class ArcEventsConfigTest : StringSpec({
             config.weapons.lootEffect.enabled shouldBe false
             config.ttt.preparationSeconds shouldBe 30
             config.ui.dialogsEnabled shouldBe false
+            config.ui.lootDisplays shouldBe false
+            config.ui.back shouldBe UiItemSettings("BLUE_STAINED_GLASS_PANE", 11013)
             config.debug.enabled shouldBe false
             config.debug.allowedServerIds shouldBe setOf("lab")
             config.debugMutationsAllowed shouldBe false
@@ -53,7 +55,12 @@ class ArcEventsConfigTest : StringSpec({
 
         config.arenas.map(ArenaSettings::id) shouldBe listOf("inferno", "mirage", "nuke")
         config.arenas.all { it.operational(config.ttt.maximumPlayers) } shouldBe true
-        config.arenas.filter { it.template.startsWith("cs2-") }.all { it.lootSpawns.size == 32 } shouldBe true
+        val importedArenas = config.arenas.filter { it.template.startsWith("cs2-") }
+        importedArenas.all { it.spawns.size == 1 } shouldBe true
+        importedArenas.all { it.lootSpawns.size == 32 } shouldBe true
+        importedArenas.all { arena ->
+            arena.lootSpawns.indices.count { index -> index % 4 != 3 } in 20..30
+        } shouldBe true
         config.weapons.visuals.mapValues { (_, visual) -> visual.customModelData } shouldBe mapOf(
             FirearmId.FLINTLOCK to 2100101,
             FirearmId.REVOLVER to 2100102,
@@ -68,14 +75,15 @@ class ArcEventsConfigTest : StringSpec({
             FirearmId.VSS_VINTOREZ to 2100008,
             FirearmId.MCMILLAN to 2100005,
         )
-        config.weapons.lootEffect.enabled shouldBe true
+        config.ui.lootDisplays shouldBe false
+        config.weapons.lootEffect.enabled shouldBe false
         config.weapons.lootEffect.customModelData.values.toSet() shouldBe setOf(2, 3, 4, 5, 6)
     }
 
     "built-in templates require a host and a dedicated safe world" {
         val root = Files.createTempDirectory("arcevents-template-")
         try {
-            val valid = validHostConfig(spawnCount = 16)
+            val valid = validHostConfig(spawnCount = 1)
                 .replace("world: pvp", "world: arcevents_ttt")
                 .replace("  lobby:", "  template: citadel-v1\n  lobby:")
             ArcEventsConfig.inspect(root.also { Files.writeString(it.resolve("config.yml"), valid) }).arena.template shouldBe "citadel-v1"
@@ -93,7 +101,7 @@ class ArcEventsConfigTest : StringSpec({
     "debug mutations require both the feature flag and an exact allowed server id" {
         val root = Files.createTempDirectory("arcevents-debug-")
         try {
-            val base = validHostConfig(spawnCount = 16)
+            val base = validHostConfig(spawnCount = 1)
             Files.writeString(root.resolve("config.yml"), base.replace(
                 "debug: {enabled: false}",
                 "debug: {enabled: true, allowed-server-ids: [lab]}",

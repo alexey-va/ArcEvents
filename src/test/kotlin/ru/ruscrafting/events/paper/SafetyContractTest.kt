@@ -14,9 +14,12 @@ import org.bukkit.event.Event
 import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.block.Action
+import org.bukkit.event.entity.ProjectileLaunchEvent
 import org.bukkit.event.player.PlayerInteractEvent
+import org.bukkit.event.player.PlayerSwapHandItemsEvent
 import org.bukkit.inventory.EquipmentSlot
 import org.bukkit.inventory.ItemStack
+import ru.ruscrafting.events.domain.MatchPhase
 import java.util.UUID
 
 class SafetyContractTest : StringSpec({
@@ -69,5 +72,61 @@ class SafetyContractTest : StringSpec({
 
         handler.ignoreCancelled shouldBe false
         handler.priority shouldBe EventPriority.HIGHEST
+    }
+
+    "admin participants reload instead of swapping hands" {
+        val service = mockk<ArcEventsGameplayBoundary>()
+        val player = mockk<Player>()
+        val playerId = UUID.randomUUID()
+        every { player.uniqueId } returns playerId
+        every { player.location } returns mockk()
+        every { player.hasPermission(ArcEventsListener.ADMIN_BYPASS_PERMISSION) } returns true
+        every { service.isParticipant(playerId) } returns true
+        every { service.phase() } returns MatchPhase.ACTIVE
+        every { service.reloadFirearm(player) } returns true
+        val event = mockk<PlayerSwapHandItemsEvent>(relaxed = true)
+        every { event.player } returns player
+
+        ArcEventsListener(service, mockk(), mockk()).onSwap(event)
+
+        verify(exactly = 1) { event.isCancelled = true }
+        verify(exactly = 1) { service.reloadFirearm(player) }
+    }
+
+    "admin participants still use match damage rules" {
+        val service = mockk<ArcEventsGameplayBoundary>(relaxed = true)
+        val player = mockk<Player>()
+        val playerId = UUID.randomUUID()
+        every { player.uniqueId } returns playerId
+        every { player.location } returns mockk()
+        every { player.hasPermission(ArcEventsListener.ADMIN_BYPASS_PERMISSION) } returns true
+        every { service.isParticipant(playerId) } returns true
+        every { service.shouldCancelDamage(playerId, null, false, null) } returns true
+        val event = mockk<org.bukkit.event.entity.EntityDamageEvent>(relaxed = true)
+        every { event.entity } returns player
+
+        ArcEventsListener(service, mockk(), mockk()).onDamage(event)
+
+        verify(exactly = 1) { service.shouldCancelDamage(playerId, null, false, null) }
+        verify(exactly = 1) { event.isCancelled = true }
+    }
+
+    "admin participants still register match projectiles" {
+        val service = mockk<ArcEventsGameplayBoundary>()
+        val player = mockk<Player>()
+        val playerId = UUID.randomUUID()
+        val projectile = mockk<org.bukkit.entity.Projectile>()
+        every { player.uniqueId } returns playerId
+        every { player.hasPermission(ArcEventsListener.ADMIN_BYPASS_PERMISSION) } returns true
+        every { projectile.shooter } returns player
+        every { service.isParticipant(playerId) } returns true
+        every { service.registerProjectile(projectile) } returns true
+        val event = mockk<ProjectileLaunchEvent>(relaxed = true)
+        every { event.entity } returns projectile
+
+        ArcEventsListener(service, mockk(), mockk()).onProjectileLaunch(event)
+
+        verify(exactly = 1) { service.registerProjectile(projectile) }
+        verify(exactly = 0) { event.isCancelled = true }
     }
 })

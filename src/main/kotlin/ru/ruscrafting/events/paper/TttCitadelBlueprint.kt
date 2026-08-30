@@ -35,21 +35,6 @@ object TttCitadelBlueprint {
     val spectator = CitadelPoint(0.5, 38.0, 0.5)
     val spawns = listOf(
         CitadelPoint(-12.5, 16.0, -12.5, 45f),
-        CitadelPoint(12.5, 16.0, -12.5, -45f),
-        CitadelPoint(-12.5, 16.0, 12.5, 135f),
-        CitadelPoint(12.5, 16.0, 12.5, -135f),
-        CitadelPoint(-8.5, 16.0, -39.5, 0f),
-        CitadelPoint(8.5, 16.0, -47.5, 180f),
-        CitadelPoint(38.5, 16.0, -8.5, 90f),
-        CitadelPoint(47.5, 16.0, 8.5, -90f),
-        CitadelPoint(-8.5, 16.0, 38.5, 0f),
-        CitadelPoint(8.5, 16.0, 47.5, 180f),
-        CitadelPoint(-38.5, 16.0, -8.5, 90f),
-        CitadelPoint(-47.5, 16.0, 8.5, -90f),
-        CitadelPoint(-12.5, 26.0, -7.5, 90f),
-        CitadelPoint(12.5, 26.0, 7.5, -90f),
-        CitadelPoint(-42.5, 7.0, 0.5, 90f),
-        CitadelPoint(42.5, 7.0, 0.5, -90f),
     )
     private val pillarLines = setOf(-48, -32, 32, 48)
 

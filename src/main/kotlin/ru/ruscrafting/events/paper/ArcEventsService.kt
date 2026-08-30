@@ -189,6 +189,16 @@ class ArcEventsService(
     override fun isParticipant(playerId: UUID): Boolean =
         match?.participant(playerId)?.status?.let { it != ParticipantStatus.RESTORED } == true
     override fun isAlive(playerId: UUID): Boolean = participant(playerId)?.status == ParticipantStatus.ALIVE
+    fun canViewNameplate(viewerId: UUID, targetId: UUID): Boolean {
+        val current = match ?: return false
+        if (current.phase !in LIVE_PHASES) return false
+        val viewer = current.participant(viewerId) ?: return false
+        val target = current.participant(targetId) ?: return false
+        return viewer.status != ParticipantStatus.RESTORED && target.status in setOf(
+            ParticipantStatus.RESERVED,
+            ParticipantStatus.ALIVE,
+        )
+    }
     override fun phase(): MatchPhase? = match?.phase
     fun activeMatchId(): String? = match?.matchId?.toString()
     fun arenaReady(): Boolean = arenaPool.anyReady()

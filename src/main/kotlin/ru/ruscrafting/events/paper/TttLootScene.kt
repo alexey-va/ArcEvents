@@ -17,7 +17,7 @@ import ru.ruscrafting.events.config.ArcEventsConfig
 import java.util.UUID
 import java.util.logging.Level
 
-/** Owns the invisible pickup entities and their animated ItemDisplay presentation. */
+/** Owns server-authoritative pickups and their optional animated ItemDisplay presentation. */
 class TttLootScene(
     private val plugin: Plugin,
     private val firearms: TttFirearms,
@@ -42,7 +42,8 @@ class TttLootScene(
     val size: Int get() = entities.size
 
     fun spawn(location: Location, stack: ItemStack): Item {
-        val item = location.world.dropItem(location, stack) { configurePickup(it, pickupDelay = 0) }
+        val spawn = safeSpawnLocation(location)
+        val item = spawn.world.dropItem(spawn, stack) { configurePickup(it, pickupDelay = 0) }
         try {
             register(item, pickupDelay = 0)
         } catch (failure: Throwable) {
@@ -75,7 +76,7 @@ class TttLootScene(
             }
             item.setVisibleByDefault(itemDisplay == null)
             entities[item.uniqueId] = LootEntity(item.uniqueId, itemDisplay?.uniqueId, effectDisplay?.uniqueId, chunkKey)
-            ensureAnimation()
+            if (itemDisplay != null) ensureAnimation()
         } catch (failure: Throwable) {
             entities.remove(item.uniqueId)
             removeEntity(itemDisplay?.uniqueId)
@@ -106,6 +107,25 @@ class TttLootScene(
     }
 
     override fun close() = clear()
+
+    private fun safeSpawnLocation(origin: Location): Location {
+        val world = origin.world
+        val baseX = origin.blockX
+        val baseY = origin.blockY
+        val baseZ = origin.blockZ
+        val yOffsets = intArrayOf(0, -1, 1, -2, 2, -3, 3)
+        for (radius in 0..MAX_PLACEMENT_RADIUS) {
+            for (yOffset in yOffsets) for (xOffset in -radius..radius) for (zOffset in -radius..radius) {
+                if (kotlin.math.abs(xOffset) + kotlin.math.abs(zOffset) != radius) continue
+                val feet = world.getBlockAt(baseX + xOffset, baseY + yOffset, baseZ + zOffset)
+                val head = feet.getRelative(0, 1, 0)
+                val floor = feet.getRelative(0, -1, 0)
+                if (!feet.isPassable || !head.isPassable || !floor.type.isSolid || floor.type == Material.BARRIER) continue
+                return Location(world, feet.x + 0.5, feet.y + 0.1, feet.z + 0.5, origin.yaw, origin.pitch)
+            }
+        }
+        error("Loot point ${origin.blockX},${origin.blockY},${origin.blockZ} has no nearby non-barrier floor")
+    }
 
     private fun configurePickup(item: Item, pickupDelay: Int) {
         item.pickupDelay = pickupDelay.coerceAtLeast(0)
@@ -281,6 +301,7 @@ class TttLootScene(
         private const val PARTICLE_TICKS = 10
         private const val ROTATION_TICKS = 40
         private const val ROTATION_EPSILON = 0.01f
+        private const val MAX_PLACEMENT_RADIUS = 4
     }
 }
 

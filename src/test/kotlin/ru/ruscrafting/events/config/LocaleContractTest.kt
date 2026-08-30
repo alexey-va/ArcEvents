@@ -30,7 +30,15 @@ class LocaleContractTest : StringSpec({
             listOf("ru", "en").forEach { language ->
                 val raw = Files.readString(root.resolve("lang/$language.yml"))
                 raw.contains("<italic>") shouldBe false
+                raw.contains("&lt;") shouldBe false
+                raw.contains("&gt;") shouldBe false
+                raw.contains('•') shouldBe false
+                raw.count { it == '·' } shouldBe 1
                 Regex("[А-ЯA-Z]{8,}").containsMatchIn(raw) shouldBe false
+                Regex("(?m)^    title: '<#20252b>").findAll(raw).count() shouldBe 11
+                Regex("(?m)^  [a-z-]*actionbar: '.*<prefix>").containsMatchIn(raw) shouldBe false
+                Regex("(?m)^  reserved: '.*parkour").containsMatchIn(raw) shouldBe false
+                Regex("(?i)(we will move|transfer has begun|вас перенесут|перенос на арену)").containsMatchIn(raw) shouldBe false
             }
         } finally {
             root.toFile().deleteRecursively()
@@ -41,6 +49,7 @@ class LocaleContractTest : StringSpec({
         private val roots = listOf(
             "prefix", "command", "reason", "menu", "arena", "state", "phase", "queue", "match", "role",
             "loadout", "body", "weapon", "roster", "report", "shop", "team", "chat", "admin", "debug", "hud", "guide",
+            "nameplate",
         )
 
         private fun leaves(config: Config): Set<String> = roots.flatMap { root -> collect(config, root) }.toSet()
