@@ -51,7 +51,7 @@ class LocaleContractTest : StringSpec({
             listOf("ru", "en").forEach { language ->
                 val config = Config(root, "lang/$language.yml")
                 val guide = config.string("match.preparing-guide")
-                guide.startsWith('\n') shouldBe true
+                guide.startsWith("\n<prefix> ") shouldBe true
                 guide.endsWith('\n') shouldBe false
                 guide.contains("<bold>") shouldBe false
                 guide.contains('◆') shouldBe false

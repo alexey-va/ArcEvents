@@ -393,7 +393,7 @@ match:
   preparing-subtitle: '<#f2f0e6>Roles hidden <#8fa6b8>— <#d87a82>damage disabled'
   preparing-guide: |-
 
-    <#e3b341>Round preparation
+    <prefix> <#e3b341>Round preparation
     <#8fa6b8>   <#f2f0e6>Explore the map and collect weapons.
     <#8fa6b8>   <#f2f0e6>Roles are hidden and damage is disabled.
     <#8fa6b8>   <#f2f0e6>The countdown starts after role reveal.
