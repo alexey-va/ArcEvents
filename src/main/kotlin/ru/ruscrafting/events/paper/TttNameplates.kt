@@ -71,10 +71,8 @@ class TttNameplates(
             "matches" to locale.text(stats.matches),
         )
         val lines = locale.lore(NAMEPLATE_LINES, values = values)
-        check(lines.size == layers.size) {
-            "ArcEvents nameplate must render exactly ${layers.size} rows, found ${lines.size}"
-        }
-        layers.zip(lines).forEach { (layer, content) ->
+        layers.forEach { layer -> registry.remove(player.uniqueId, layer.key) }
+        layers.zip(lines.take(layers.size)).forEach { (layer, content) ->
             val result = registry.upsert(player.uniqueId, layer.copy(content = content))
             if (result is NameplateUpsertResult.Rejected) {
                 error("ArcEvents nameplate row ${layer.key.value} was rejected: ${result.reason}")

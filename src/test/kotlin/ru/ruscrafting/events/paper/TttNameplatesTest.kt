@@ -31,6 +31,7 @@ class TttNameplatesTest : StringSpec({
         every { maximumHealth.value } returns 20.0
 
         val locale = mockk<ArcEventsLocale>()
+        var renderedLines = 2
         every { locale.text(any()) } answers { Component.text(firstArg<Any?>().toString()) }
         every { locale.lore("nameplate.lines", null, any()) } answers {
             val values = thirdArg<Map<String, Component>>()
@@ -41,7 +42,7 @@ class TttNameplatesTest : StringSpec({
                     .append(values.getValue("wins"))
                     .append(Component.text("/"))
                     .append(values.getValue("matches")),
-            )
+            ).take(renderedLines)
         }
         val registry = PlayerNameplateRegistry()
         var refreshes = 0
@@ -74,8 +75,14 @@ class TttNameplatesTest : StringSpec({
             "875   9/12\n18/20"
         refreshes shouldBe 1
 
+        renderedLines = 1
+        nameplates.update(match)
+        registry.snapshot(playerId)?.layers?.map { it.key.value } shouldBe listOf("health")
+        PlainTextComponentSerializer.plainText().serialize(requireNotNull(registry.snapshot(playerId)).content) shouldBe "18/20"
+        refreshes shouldBe 2
+
         nameplates.remove(playerId)
         registry.snapshot(playerId) shouldBe null
-        refreshes shouldBe 2
+        refreshes shouldBe 3
     }
 })

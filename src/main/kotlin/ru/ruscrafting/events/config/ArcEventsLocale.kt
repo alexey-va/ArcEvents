@@ -103,7 +103,6 @@ class ArcEventsLocale(
             "menu.common.back-lore", "menu.admin.status-lore", "menu.admin.arenas-lore",
             "menu.arenas.entry-lore", "menu.arenas.auto-lore", "menu.shop.credits-lore",
             "weapon.firearm-lore", "weapon.ammunition-lore", "report.item-lore", "hud.preparing-tips", "guide.item-lore",
-            "nameplate.lines",
         )
 
         fun validateFiles(dataRoot: Path) {
@@ -114,9 +113,6 @@ class ArcEventsLocale(
                 }
                 REQUIRED_LISTS.forEach { path ->
                     require(config.stringListOrNull(path)?.isNotEmpty() == true) { "Locale $language is missing $path" }
-                }
-                require(config.stringListOrNull("nameplate.lines")?.size == 2) {
-                    "Locale $language must define exactly two nameplate.lines rows"
                 }
             }
         }
