@@ -35,10 +35,12 @@ class TttNameplatesTest : StringSpec({
         every { locale.lore("nameplate.lines", null, any()) } answers {
             val values = thirdArg<Map<String, Component>>()
             listOf(
-                values.getValue("player"),
                 values.getValue("health").append(Component.text("/")).append(values.getValue("max_health")),
-                values.getValue("karma"),
-                values.getValue("wins").append(Component.text("/")).append(values.getValue("matches")),
+                values.getValue("karma")
+                    .append(Component.text("   "))
+                    .append(values.getValue("wins"))
+                    .append(Component.text("/"))
+                    .append(values.getValue("matches")),
             )
         }
         val registry = PlayerNameplateRegistry()
@@ -65,9 +67,9 @@ class TttNameplatesTest : StringSpec({
         nameplates.update(match)
 
         val snapshot = requireNotNull(registry.snapshot(playerId))
-        snapshot.layers.map { it.key.value } shouldBe listOf("player", "health", "karma", "record")
+        snapshot.layers.map { it.key.value } shouldBe listOf("health", "summary")
         PlainTextComponentSerializer.plainText().serialize(snapshot.content) shouldBe
-            "StarlightFox\n18/20\n875\n9/12"
+            "18/20\n875   9/12"
         refreshes shouldBe 1
 
         nameplates.remove(playerId)

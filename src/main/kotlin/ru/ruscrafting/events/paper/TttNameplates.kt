@@ -58,7 +58,6 @@ class TttNameplates(
         val stats = statistics(player.uniqueId)
         val maximumHealth = player.getAttribute(Attribute.MAX_HEALTH)?.value ?: player.health.coerceAtLeast(20.0)
         val values = mapOf(
-            "player" to Component.text(player.name),
             "health" to locale.text(ceil(player.health.coerceAtLeast(0.0)).toInt()),
             "max_health" to locale.text(ceil(maximumHealth.coerceAtLeast(1.0)).toInt()),
             "karma" to locale.text(stats.karma),
@@ -87,10 +86,8 @@ class TttNameplates(
         val VISIBLE_PHASES = setOf(MatchPhase.PREPARING, MatchPhase.COUNTDOWN, MatchPhase.ACTIVE)
         val VISIBLE_STATUSES = setOf(ParticipantStatus.RESERVED, ParticipantStatus.ALIVE)
         val LAYERS = listOf(
-            NameplateLayer(NameplateLayerKey(OWNER, "player"), 400, Component.empty()),
-            NameplateLayer(NameplateLayerKey(OWNER, "health"), 300, Component.empty()),
-            NameplateLayer(NameplateLayerKey(OWNER, "karma"), 200, Component.empty()),
-            NameplateLayer(NameplateLayerKey(OWNER, "record"), 100, Component.empty()),
+            NameplateLayer(NameplateLayerKey(OWNER, "health"), 200, Component.empty()),
+            NameplateLayer(NameplateLayerKey(OWNER, "summary"), 100, Component.empty()),
         )
     }
 }

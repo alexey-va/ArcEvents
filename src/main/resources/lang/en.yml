@@ -466,10 +466,8 @@ hud:
 
 nameplate:
   lines:
-    - '<#ffffff><bold><player>'
-    - '<#ff5b6e>Health <#ffffff><health><#8fa6b8>/<#ffffff><max_health>'
-    - '<#32d6ff>Karma <#ffffff><karma>'
-    - '<#ffcc33>Wins <#ffffff><wins><#8fa6b8>/<#ffffff><matches>'
+    - '<reset><#ff5b6e>❤ <#f2f0e6><health><#8fa6b8>/<#f2f0e6><max_health>'
+    - '<reset><#92bed8>Karma <#f2f0e6><karma>   <#e3b341>Wins <#f2f0e6><wins><#8fa6b8>/<#f2f0e6><matches>'
 
 guide:
   item-name: '<#e3b341><bold>Round briefing'

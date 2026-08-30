@@ -466,10 +466,8 @@ hud:
 
 nameplate:
   lines:
-    - '<#ffffff><bold><player>'
-    - '<#ff5b6e>Здоровье <#ffffff><health><#8fa6b8>/<#ffffff><max_health>'
-    - '<#32d6ff>Карма <#ffffff><karma>'
-    - '<#ffcc33>Победы <#ffffff><wins><#8fa6b8>/<#ffffff><matches>'
+    - '<reset><#ff5b6e>❤ <#f2f0e6><health><#8fa6b8>/<#f2f0e6><max_health>'
+    - '<reset><#92bed8>Карма <#f2f0e6><karma>   <#e3b341>Победы <#f2f0e6><wins><#8fa6b8>/<#f2f0e6><matches>'
 
 guide:
   item-name: '<#e3b341><bold>Брифинг раунда'

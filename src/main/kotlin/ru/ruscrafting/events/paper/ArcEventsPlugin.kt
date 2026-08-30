@@ -107,6 +107,8 @@ class ArcEventsPlugin : JavaPlugin() {
             val nameplateOptions = PaperNameplateOptions(
                 maxDistance = 32.0,
                 lineWidth = 180,
+                scale = 0.8F,
+                verticalOffset = 0.55F,
                 requireLineOfSight = true,
             )
             val nativeNameplateVisibility = NativePaperNameplateVisibilityPolicy(nameplateOptions)

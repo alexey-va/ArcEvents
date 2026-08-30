@@ -115,8 +115,8 @@ class ArcEventsLocale(
                 REQUIRED_LISTS.forEach { path ->
                     require(config.stringListOrNull(path)?.isNotEmpty() == true) { "Locale $language is missing $path" }
                 }
-                require(config.stringListOrNull("nameplate.lines")?.size == 4) {
-                    "Locale $language must define exactly four nameplate.lines rows"
+                require(config.stringListOrNull("nameplate.lines")?.size == 2) {
+                    "Locale $language must define exactly two nameplate.lines rows"
                 }
             }
         }
