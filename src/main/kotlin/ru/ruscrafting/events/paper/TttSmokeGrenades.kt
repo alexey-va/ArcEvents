@@ -36,7 +36,7 @@ class TttSmokeGrenades(
     fun launch(player: Player, matchId: UUID): Snowball? = runCatching {
         player.launchProjectile(Snowball::class.java).also { projectile ->
             projectile.item = ItemStack.of(Material.FIREWORK_STAR)
-            projectile.velocity = player.eyeLocation.direction.normalize().multiply(THROW_VELOCITY)
+            projectile.velocity = player.eyeLocation.direction.normalize().multiply(settings().smoke.throwVelocity)
             projectile.isPersistent = false
             projectile.persistentDataContainer.set(smokeMatchKey, PersistentDataType.STRING, matchId.toString())
             projectileIds += projectile.uniqueId
@@ -50,7 +50,7 @@ class TttSmokeGrenades(
         projectileIds.remove(projectile.uniqueId)
         if (currentMatchId() != matchId) return true
         val center = projectile.location.clone().add(0.0, 0.35, 0.0)
-        clouds += SmokeCloud(matchId, center, clock() + CLOUD_DURATION_MS)
+        clouds += SmokeCloud(matchId, center, clock() + settings().smoke.durationSeconds * 1_000L)
         if (settings().ui.sounds) {
             center.world.playSound(center, Sound.ENTITY_GENERIC_EXPLODE, 0.6f, 0.65f)
         }
@@ -68,9 +68,16 @@ class TttSmokeGrenades(
 
     override fun close() = clear()
 
+    /** Re-times the cloud loop; existing cloud expiry stays immutable. */
+    fun reconfigure() {
+        cloudTask?.cancel()
+        cloudTask = null
+        if (clouds.isNotEmpty()) ensureCloudTask()
+    }
+
     private fun ensureCloudTask() {
         if (cloudTask != null) return
-        cloudTask = Tasks.scheduler.runTimer(1L, CLOUD_TICK_INTERVAL.toLong()) { tickClouds() }
+        cloudTask = Tasks.scheduler.runTimer(1L, settings().smoke.tickIntervalTicks.toLong()) { tickClouds() }
     }
 
     private fun tickClouds() {
@@ -82,34 +89,35 @@ class TttSmokeGrenades(
             cloudTask = null
             return
         }
+        val smoke = settings().smoke
         clouds.forEach { cloud ->
             if (settings().ui.particles) {
                 cloud.center.world.spawnParticle(
                     Particle.LARGE_SMOKE,
                     cloud.center,
-                    34,
-                    CLOUD_RADIUS * 0.72,
+                    smoke.smokeParticles,
+                    smoke.radius * 0.72,
                     1.8,
-                    CLOUD_RADIUS * 0.72,
+                    smoke.radius * 0.72,
                     0.025,
                 )
                 cloud.center.world.spawnParticle(
                     Particle.ASH,
                     cloud.center,
-                    18,
-                    CLOUD_RADIUS * 0.62,
+                    smoke.ashParticles,
+                    smoke.radius * 0.62,
                     1.5,
-                    CLOUD_RADIUS * 0.62,
+                    smoke.radius * 0.62,
                     0.01,
                 )
             }
             targets().filter { player ->
                 player.isOnline && player.world == cloud.center.world &&
-                    player.location.distanceSquared(cloud.center) <= CLOUD_RADIUS * CLOUD_RADIUS
+                    player.location.distanceSquared(cloud.center) <= smoke.radius * smoke.radius
             }.forEach { player ->
                 player.addPotionEffect(PotionEffect(
                     PotionEffectType.BLINDNESS,
-                    BLINDNESS_REFRESH_TICKS,
+                    smoke.blindnessRefreshTicks,
                     0,
                     false,
                     false,
@@ -117,7 +125,7 @@ class TttSmokeGrenades(
                 ))
                 player.addPotionEffect(PotionEffect(
                     PotionEffectType.DARKNESS,
-                    DARKNESS_REFRESH_TICKS,
+                    smoke.darknessRefreshTicks,
                     0,
                     false,
                     false,
@@ -127,12 +135,4 @@ class TttSmokeGrenades(
         }
     }
 
-    companion object {
-        private const val THROW_VELOCITY = 1.15
-        private const val CLOUD_RADIUS = 5.5
-        private const val CLOUD_DURATION_MS = 8_000L
-        private const val CLOUD_TICK_INTERVAL = 5
-        private const val BLINDNESS_REFRESH_TICKS = 35
-        private const val DARKNESS_REFRESH_TICKS = 28
-    }
 }

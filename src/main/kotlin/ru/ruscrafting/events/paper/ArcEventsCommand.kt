@@ -22,6 +22,8 @@ class ArcEventsCommand(
     private val settings: () -> ArcEventsConfig,
     private val reload: () -> Result<Unit>,
 ) : TabExecutor {
+    private val selectedAdminArenas = mutableMapOf<String, String>()
+
     override fun onCommand(sender: CommandSender, command: Command, label: String, args: Array<out String>): Boolean {
         if (args.isEmpty()) {
             if (sender is Player) menu.open(sender) else sender.sendEventMessage(locale.render("command.help", sender))
@@ -31,7 +33,9 @@ class ArcEventsCommand(
             "menu" -> player(sender)?.let(menu::open)
             "join" -> player(sender)?.let(service::joinQueue)
             "start" -> player(sender)?.let { player ->
-                if (player.hasPermission("arcevents.start")) {
+                if (settings().eventControls.creatorControlsEnabled || player.hasPermission("arcevents.start") ||
+                    player.hasPermission("arcevents.admin")
+                ) {
                     sendStartResult(player, StartMessageAudience.PLAYER)
                 } else deny(player)
             }
@@ -56,7 +60,7 @@ class ArcEventsCommand(
         val options = when (args.size) {
             1 -> buildList {
                 addAll(listOf("menu", "join", "leave", "spawn", "status", "shop", "roster", "report", "team", "help"))
-                if (sender.hasPermission("arcevents.start")) add("start")
+                if (settings().eventControls.creatorControlsEnabled || sender.hasPermission("arcevents.start")) add("start")
                 if (sender.hasPermission("arcevents.admin")) addAll(listOf("admin", "reload"))
                 if (sender.hasPermission("arcevents.qa")) add("qa")
                 if (sender.hasPermission("arcevents.debug")) add("debug")
@@ -132,18 +136,21 @@ class ArcEventsCommand(
             "network" -> sendNetwork(sender)
             "arenas" -> sendArenas(sender)
             "arena" -> {
-                val arena = args.getOrNull(1)?.lowercase()
-                sender.sendEventMessage(locale.render(if (service.selectNextArena(arena)) "admin.arena-selected" else "admin.arena-selection-failed", sender, mapOf(
-                    "arena" to locale.text(arena ?: "auto"),
+                val arena = args.getOrNull(1)?.lowercase() ?: "auto"
+                val accepted = arena == "auto" || arena in service.selectableArenaIds()
+                if (accepted) selectedAdminArenas[senderSelectionKey(sender)] = arena
+                sender.sendEventMessage(locale.render(if (accepted) "admin.arena-selected" else "admin.arena-selection-failed", sender, mapOf(
+                    "arena" to locale.text(arena),
                 )))
             }
             "weapons" -> editWeaponPoints(sender, args.drop(1))
             "recovery" -> sender.sendEventMessage(Component.text(service.qaRecovery()))
             "start" -> {
-                val arena = args.getOrNull(1)?.lowercase()
-                if (arena != null && !service.selectNextArena(arena)) {
+                val explicitArena = args.getOrNull(1)?.lowercase()
+                val arena = explicitArena ?: selectedAdminArenas[senderSelectionKey(sender)]
+                if (arena != null && arena != "auto" && arena !in service.selectableArenaIds()) {
                     sender.sendEventMessage(locale.render("admin.arena-selection-failed", sender, mapOf("arena" to locale.text(arena))))
-                } else sendStartResult(sender, StartMessageAudience.ADMIN)
+                } else sendStartResult(sender, StartMessageAudience.ADMIN, arena)
             }
             "stop" -> sender.sendEventMessage(locale.render(stopMessage(service.stopByAdmin()), sender))
             "reload" -> sendReload(sender)
@@ -346,10 +353,17 @@ class ArcEventsCommand(
         ))
     }
 
-    private fun sendStartResult(sender: CommandSender, audience: StartMessageAudience) {
-        service.startFromQueue(sender as? Player).thenAccept { result ->
+    private fun sendStartResult(
+        sender: CommandSender,
+        audience: StartMessageAudience,
+        preferredArenaId: String? = null,
+    ) {
+        service.startFromQueue(sender as? Player, preferredArenaId).thenAccept { result ->
             Tasks.scheduler.runSync {
                 if (sender is Player && !sender.isOnline) return@runSync
+                if (result == ReservationStartResult.STARTED && audience == StartMessageAudience.ADMIN) {
+                    selectedAdminArenas.remove(senderSelectionKey(sender))
+                }
                 sender.sendEventMessage(locale.render(
                     reservationStartMessage(result, audience),
                     sender,
@@ -376,8 +390,10 @@ class ArcEventsCommand(
     private fun servicePlayerNames(): List<String> = plugin.server.onlinePlayers.map(Player::getName)
     private fun arenaIds(includeAuto: Boolean = false): List<String> = buildList {
         if (includeAuto) add("auto")
-        addAll(service.arenaEntries().map(ArenaPoolEntry::id))
+        addAll(service.selectableArenaIds())
     }.distinct()
+    private fun senderSelectionKey(sender: CommandSender): String = (sender as? Player)?.uniqueId?.toString()
+        ?: "console:${sender.name.lowercase()}"
     private fun servicePlayer(name: String): Player? = plugin.server.getPlayerExact(name)
 
     companion object {

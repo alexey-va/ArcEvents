@@ -4,6 +4,7 @@ import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import com.google.gson.Gson
 import ru.arc.redis.InMemoryRedis
+import ru.arc.redis.RedisOperations
 import ru.arc.redis.ServerIdentity
 import ru.ruscrafting.events.domain.PlayerEventStats
 import ru.ruscrafting.events.domain.TttRole
@@ -11,8 +12,16 @@ import ru.ruscrafting.events.domain.TttParticipant
 import ru.ruscrafting.events.domain.TttTeam
 import ru.ruscrafting.events.domain.ParticipantStatus
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
 
 class RedisEventNetworkRepositoryTest : StringSpec({
+    "owner-aware network state is isolated while compatible statistics retain history" {
+        RedisEventNetworkRepository.QUEUE_KEY shouldBe "arc:events:v2:queue"
+        RedisEventNetworkRepository.NODES_KEY shouldBe "arc:events:v2:nodes"
+        RedisEventNetworkRepository.EVENT_CHANNEL shouldBe "arc:events:v2:events"
+        RedisEventNetworkRepository.STATS_KEY shouldBe "arc:events:v1:stats"
+    }
+
     "queue join is idempotent and leave removes only a queued entry" {
         val redis = InMemoryRedis(ServerIdentity { "spawn" })
         val repository = RedisEventNetworkRepository(redis)
@@ -48,6 +57,58 @@ class RedisEventNetworkRepositoryTest : StringSpec({
         refreshed.entry.joinedAtMs shouldBe joined.entry.joinedAtMs
         refreshed.entry.expiresAtMs shouldBe joined.entry.expiresAtMs
         repository.loadQueue(2_000).join().single() shouldBe refreshed.entry
+    }
+
+    "earliest queued player owns the roster and ownership transfers on leave" {
+        val repository = RedisEventNetworkRepository(InMemoryRedis(ServerIdentity { "spawn" }))
+        repository.joinQueue(uuid(1), "Player1", "spawn", 1_000, 60_000).join()
+        repository.joinQueue(uuid(2), "Player2", "survival", 2_000, 60_000).join()
+
+        repository.loadQueue(3_000).join().first().playerId shouldBe uuid(1).toString()
+        repository.leaveQueue(uuid(1), 3_000).join() shouldBe QueueLeaveResult.Left
+        repository.loadQueue(3_001).join().first().playerId shouldBe uuid(2).toString()
+    }
+
+    "concurrent first joins elect one deterministic owner" {
+        val repository = RedisEventNetworkRepository(InMemoryRedis(ServerIdentity { "spawn" }))
+        val joins = listOf(3, 1, 2).map { index ->
+            repository.joinQueue(uuid(index), "Player$index", "spawn", 1_000, 60_000)
+        }
+        CompletableFuture.allOf(*joins.toTypedArray()).join()
+
+        val queue = repository.loadQueue(2_000).join()
+        queue.size shouldBe 3
+        queue.first().playerId shouldBe uuid(1).toString()
+    }
+
+    "owner reservation is bound to the backend that owns the queue entry" {
+        val repository = RedisEventNetworkRepository(InMemoryRedis(ServerIdentity { "parkour" }))
+        (1..4).forEach { index ->
+            repository.joinQueue(uuid(index), "Player$index", "spawn", index.toLong(), 60_000).join()
+        }
+
+        repository.reserve(
+            uuid(88),
+            "parkour",
+            minimum = 4,
+            maximum = 4,
+            nowMs = 5_000,
+            reservationMs = 30_000,
+            requiredOwnerId = uuid(1),
+            requiredOwnerOrigin = "survival",
+        ).join() shouldBe null
+        repository.loadQueue(5_001).join().all { it.state == QueueState.QUEUED } shouldBe true
+
+        repository.reserve(
+            uuid(89),
+            "parkour",
+            minimum = 4,
+            maximum = 4,
+            nowMs = 5_002,
+            reservationMs = 30_000,
+            requiredOwnerId = uuid(1),
+            requiredOwnerOrigin = "spawn",
+        ).join()?.entries?.size shouldBe 4
     }
 
     "reserved player keeps the committed origin when another backend repeats join" {
@@ -125,6 +186,26 @@ class RedisEventNetworkRepositoryTest : StringSpec({
         repository.loadQueue(5_000).join().all { it.state == QueueState.QUEUED } shouldBe true
     }
 
+    "partial reservation rollback preserves FIFO owner timestamps and expiry" {
+        val redis = SelectiveCasRedis()
+        val repository = RedisEventNetworkRepository(redis)
+        (1..4).forEach { repository.joinQueue(uuid(it), "Player$it", "spawn", it * 1_000L, 120_000).join() }
+        val before = repository.loadQueue(5_000).join()
+        redis.rejectedField = uuid(2).toString()
+
+        repository.reserve(
+            uuid(201),
+            "parkour",
+            minimum = 4,
+            maximum = 4,
+            nowMs = 5_000,
+            reservationMs = 30_000,
+            requiredOwnerId = uuid(1),
+        ).join() shouldBe null
+
+        repository.loadQueue(5_001).join() shouldBe before
+    }
+
     "host heartbeat repository returns validated advertisements and statistics update by CAS" {
         val repository = RedisEventNetworkRepository(InMemoryRedis())
         val presence = repository.openNodes(
@@ -193,6 +274,23 @@ class RedisEventNetworkRepositoryTest : StringSpec({
     }
 }) {
     companion object {
+        private class SelectiveCasRedis(
+            private val delegate: InMemoryRedis = InMemoryRedis(),
+        ) : RedisOperations by delegate {
+            var rejectedField: String? = null
+
+            override fun compareAndSetMapEntry(
+                key: String,
+                mapKey: String,
+                expectedValue: String?,
+                replacementValue: String?,
+            ): CompletableFuture<Boolean> = if (mapKey == rejectedField) {
+                CompletableFuture.completedFuture(false)
+            } else {
+                delegate.compareAndSetMapEntry(key, mapKey, expectedValue, replacementValue)
+            }
+        }
+
         private fun uuid(value: Int): UUID = UUID(0, value.toLong())
 
         private infix fun List<QueueEntry>.shouldHavePlayerIds(expected: List<UUID>) {

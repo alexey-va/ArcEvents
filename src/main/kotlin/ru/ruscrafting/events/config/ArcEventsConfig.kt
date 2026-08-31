@@ -8,6 +8,8 @@ import ru.arc.redis.RedisConfigBootstrap
 import ru.arc.redis.RedisModuleConfig
 import ru.ruscrafting.events.domain.FirearmId
 import ru.ruscrafting.events.domain.FirearmRarity
+import ru.ruscrafting.events.domain.FirearmSpec
+import ru.ruscrafting.events.domain.TttFirearmCatalog
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.math.floor
@@ -92,6 +94,50 @@ data class NetworkSettings(
     val returnToOrigin: Boolean,
 )
 
+data class EventControlSettings(
+    val creatorControlsEnabled: Boolean,
+    val creatorArenaSelectionEnabled: Boolean,
+    val adminOverrideEnabled: Boolean,
+)
+
+data class GameplaySettings(
+    val spawnReturnSeconds: Int,
+    val spawnReturnMovementTolerance: Double,
+    val radarDurationSeconds: Int,
+    val preparationRations: Int,
+    val medkitHealing: Double,
+    val traitorBladeCost: Int,
+    val traitorRadarCost: Int,
+    val traitorSmokeCost: Int,
+    val detectiveScannerCost: Int,
+    val detectiveMedkitCost: Int,
+    val detectiveArmorCost: Int,
+    val pickupAmmoMagazines: Int,
+    val pickupAmmoMinimum: Int,
+    val pickupAmmoMaximum: Int,
+    val pickupDelayTicks: Int,
+    val headshotMultiplier: Double,
+    val preparingTipSeconds: Int,
+)
+
+data class SmokeSettings(
+    val throwVelocity: Double,
+    val radius: Double,
+    val durationSeconds: Int,
+    val tickIntervalTicks: Int,
+    val blindnessRefreshTicks: Int,
+    val darknessRefreshTicks: Int,
+    val smokeParticles: Int,
+    val ashParticles: Int,
+)
+
+data class ArenaRuntimeSettings(
+    val viewDistance: Int,
+    val simulationDistance: Int,
+    val preserveImportedDisplays: Boolean,
+    val maxImportedDisplays: Int,
+)
+
 data class TttSettings(
     val minimumPlayers: Int,
     val maximumPlayers: Int,
@@ -146,12 +192,24 @@ data class LootEffectSettings(
         FirearmVisualSettings(material, customModelData.getValue(rarity))
 }
 
+data class LootDisplaySettings(
+    val enabled: Boolean,
+    val height: Double,
+    val scale: Double,
+    val viewRange: Double,
+    val animationStepTicks: Long,
+    val rotationTicks: Int,
+    val particleIntervalTicks: Int,
+)
+
 data class WeaponSettings(
     val enabled: Boolean,
     val dnaSeconds: Int,
+    val specs: Map<FirearmId, FirearmSpec>,
     val visuals: Map<FirearmId, FirearmVisualSettings>,
     val lootEffect: LootEffectSettings,
 ) {
+    fun spec(id: FirearmId): FirearmSpec = specs.getValue(id)
     fun visual(id: FirearmId): FirearmVisualSettings = visuals.getValue(id)
 }
 
@@ -160,12 +218,14 @@ data class UiSettings(
     val particles: Boolean,
     val bossBar: Boolean,
     val scoreboard: Boolean,
-    val lootDisplays: Boolean,
+    val lootDisplay: LootDisplaySettings,
     val dialogsEnabled: Boolean,
     val nameplates: NameplateSettings,
     val filler: UiItemSettings,
     val back: UiItemSettings,
-)
+) {
+    val lootDisplays: Boolean get() = lootDisplay.enabled
+}
 
 data class DebugSettings(
     val enabled: Boolean,
@@ -206,6 +266,54 @@ class ArcEventsConfig(private val config: Config) {
             returnToOrigin = config.bool("network.return-to-origin", true),
         )
 
+    val eventControls: EventControlSettings
+        get() = EventControlSettings(
+            creatorControlsEnabled = config.bool("event-controls.creator-controls-enabled", true),
+            creatorArenaSelectionEnabled = config.bool("event-controls.creator-arena-selection-enabled", true),
+            adminOverrideEnabled = config.bool("event-controls.admin-override-enabled", true),
+        )
+
+    val gameplay: GameplaySettings
+        get() = GameplaySettings(
+            spawnReturnSeconds = config.int("gameplay.spawn-return-seconds", 10),
+            spawnReturnMovementTolerance = config.double("gameplay.spawn-return-movement-tolerance", 0.05),
+            radarDurationSeconds = config.int("gameplay.radar-duration-seconds", 30),
+            preparationRations = config.int("gameplay.preparation-rations", 4),
+            medkitHealing = config.double("gameplay.medkit-healing", 8.0),
+            traitorBladeCost = config.int("gameplay.role-shop.traitor-blade-cost", 2),
+            traitorRadarCost = config.int("gameplay.role-shop.traitor-radar-cost", 1),
+            traitorSmokeCost = config.int("gameplay.role-shop.traitor-smoke-cost", 1),
+            detectiveScannerCost = config.int("gameplay.role-shop.detective-scanner-cost", 1),
+            detectiveMedkitCost = config.int("gameplay.role-shop.detective-medkit-cost", 1),
+            detectiveArmorCost = config.int("gameplay.role-shop.detective-armor-cost", 1),
+            pickupAmmoMagazines = config.int("gameplay.pickup-ammo-magazines", 3),
+            pickupAmmoMinimum = config.int("gameplay.pickup-ammo-minimum", 12),
+            pickupAmmoMaximum = config.int("gameplay.pickup-ammo-maximum", 48),
+            pickupDelayTicks = config.int("gameplay.pickup-delay-ticks", 20),
+            headshotMultiplier = config.double("gameplay.headshot-multiplier", 1.5),
+            preparingTipSeconds = config.int("gameplay.preparing-tip-seconds", 4),
+        )
+
+    val smoke: SmokeSettings
+        get() = SmokeSettings(
+            throwVelocity = config.double("smoke.throw-velocity", 1.15),
+            radius = config.double("smoke.radius", 5.5),
+            durationSeconds = config.int("smoke.duration-seconds", 8),
+            tickIntervalTicks = config.int("smoke.tick-interval-ticks", 5),
+            blindnessRefreshTicks = config.int("smoke.blindness-refresh-ticks", 35),
+            darknessRefreshTicks = config.int("smoke.darkness-refresh-ticks", 28),
+            smokeParticles = config.int("smoke.smoke-particles", 34),
+            ashParticles = config.int("smoke.ash-particles", 18),
+        )
+
+    val arenaRuntime: ArenaRuntimeSettings
+        get() = ArenaRuntimeSettings(
+            viewDistance = config.int("arena-runtime.view-distance", 6),
+            simulationDistance = config.int("arena-runtime.simulation-distance", 4),
+            preserveImportedDisplays = config.bool("arena-runtime.imported-decorations.preserve-displays", true),
+            maxImportedDisplays = config.int("arena-runtime.imported-decorations.max-displays", 256),
+        )
+
     val ttt: TttSettings
         get() = TttSettings(
             minimumPlayers = config.int("ttt.minimum-players", 4),
@@ -227,7 +335,15 @@ class ArcEventsConfig(private val config: Config) {
             particles = config.bool("ui.particles", true),
             bossBar = config.bool("ui.bossbar", true),
             scoreboard = config.bool("ui.scoreboard", true),
-            lootDisplays = config.bool("ui.loot-displays", true),
+            lootDisplay = LootDisplaySettings(
+                enabled = config.bool("ui.loot-displays", true),
+                height = config.double("ui.loot-display.height", 0.18),
+                scale = config.double("ui.loot-display.scale", 0.78),
+                viewRange = config.double("ui.loot-display.view-range", 0.75),
+                animationStepTicks = config.long("ui.loot-display.animation-step-ticks", 5L),
+                rotationTicks = config.int("ui.loot-display.rotation-ticks", 40),
+                particleIntervalTicks = config.int("ui.loot-display.particle-interval-ticks", 10),
+            ),
             dialogsEnabled = config.bool("ui.dialogs-enabled", false),
             nameplates = NameplateSettings(
                 enabled = config.bool("ui.nameplates.enabled", true),
@@ -265,6 +381,9 @@ class ArcEventsConfig(private val config: Config) {
         get() = WeaponSettings(
             enabled = config.bool("weapons.enabled", true),
             dnaSeconds = config.int("weapons.dna-seconds", 90),
+            specs = FirearmId.entries.associateWith { id ->
+                firearmSpec("weapons.catalog.${id.name.lowercase()}", TttFirearmCatalog.specs.getValue(id))
+            },
             visuals = FirearmId.entries.associateWith { id ->
                 firearmVisual("weapons.visuals.${id.name.lowercase()}", firearmFallback(id))
             },
@@ -306,6 +425,39 @@ class ArcEventsConfig(private val config: Config) {
         require(network.reservationSeconds in 10..300)
         require(network.heartbeatSeconds in 2..60)
         require(network.heartbeatStaleSeconds >= network.heartbeatSeconds * 2)
+        val gameplay = gameplay
+        require(gameplay.spawnReturnSeconds in 1..60)
+        require(gameplay.spawnReturnMovementTolerance.isFinite() && gameplay.spawnReturnMovementTolerance in 0.0..2.0)
+        require(gameplay.radarDurationSeconds in 1..300)
+        require(gameplay.preparationRations in 0..64)
+        require(gameplay.medkitHealing.isFinite() && gameplay.medkitHealing in 0.5..40.0)
+        require(listOf(
+            gameplay.traitorBladeCost,
+            gameplay.traitorRadarCost,
+            gameplay.traitorSmokeCost,
+            gameplay.detectiveScannerCost,
+            gameplay.detectiveMedkitCost,
+            gameplay.detectiveArmorCost,
+        ).all { it in 0..16 }) { "role shop costs must be between 0 and 16" }
+        require(gameplay.pickupAmmoMagazines in 1..16)
+        require(gameplay.pickupAmmoMinimum in 1..64)
+        require(gameplay.pickupAmmoMaximum in gameplay.pickupAmmoMinimum..64)
+        require(gameplay.pickupDelayTicks in 0..200)
+        require(gameplay.headshotMultiplier.isFinite() && gameplay.headshotMultiplier in 1.0..5.0)
+        require(gameplay.preparingTipSeconds in 1..60)
+        val smoke = smoke
+        require(smoke.throwVelocity.isFinite() && smoke.throwVelocity in 0.1..4.0)
+        require(smoke.radius.isFinite() && smoke.radius in 0.5..16.0)
+        require(smoke.durationSeconds in 1..60)
+        require(smoke.tickIntervalTicks in 1..40)
+        require(smoke.blindnessRefreshTicks in smoke.tickIntervalTicks..200)
+        require(smoke.darknessRefreshTicks in smoke.tickIntervalTicks..200)
+        require(smoke.smokeParticles in 0..500 && smoke.ashParticles in 0..500)
+        require(arenaRuntime.viewDistance in 2..16)
+        require(arenaRuntime.simulationDistance in 2..arenaRuntime.viewDistance)
+        require(arenaRuntime.maxImportedDisplays in 0..1_024) {
+            "arena-runtime.imported-decorations.max-displays must be between 0 and 1024"
+        }
         val ttt = ttt
         require(ttt.minimumPlayers in 4..ttt.maximumPlayers)
         require(ttt.maximumPlayers in 4..32)
@@ -321,6 +473,25 @@ class ArcEventsConfig(private val config: Config) {
         require(ui.filler.customModelData >= 0)
         require(ui.back.material.matches(Regex("[A-Z0-9_]{1,64}")))
         require(ui.back.customModelData >= 0)
+        val lootDisplay = ui.lootDisplay
+        require(lootDisplay.height.isFinite() && lootDisplay.height in -1.0..2.0) {
+            "ui.loot-display.height must be between -1 and 2"
+        }
+        require(lootDisplay.scale.isFinite() && lootDisplay.scale in 0.1..4.0) {
+            "ui.loot-display.scale must be between 0.1 and 4"
+        }
+        require(lootDisplay.viewRange.isFinite() && lootDisplay.viewRange in 0.1..4.0) {
+            "ui.loot-display.view-range must be between 0.1 and 4"
+        }
+        require(lootDisplay.animationStepTicks in 1L..40L) {
+            "ui.loot-display.animation-step-ticks must be between 1 and 40"
+        }
+        require(lootDisplay.rotationTicks in 5..200) {
+            "ui.loot-display.rotation-ticks must be between 5 and 200"
+        }
+        require(lootDisplay.particleIntervalTicks in 1..200) {
+            "ui.loot-display.particle-interval-ticks must be between 1 and 200"
+        }
         val nameplates = ui.nameplates
         require(nameplates.reconcilePeriodTicks in 1L..20L) {
             "ui.nameplates.reconcile-period-ticks must be between 1 and 20"
@@ -354,6 +525,11 @@ class ArcEventsConfig(private val config: Config) {
             "ui.nameplates layer priorities must be distinct"
         }
         require(weapons.dnaSeconds in 15..300)
+        require(weapons.specs.keys == FirearmId.entries.toSet()) { "Every firearm requires a gameplay spec" }
+        weapons.specs.forEach { (id, spec) ->
+            require(spec.id == id) { "Firearm spec identity mismatch for $id" }
+            spec.validated()
+        }
         weapons.visuals.values.forEach { visual ->
             require(visual.material.matches(Regex("[A-Z0-9_]{1,64}"))) { "Weapon material is invalid" }
             require(visual.customModelData >= 0) { "Weapon custom-model-data cannot be negative" }
@@ -399,16 +575,24 @@ class ArcEventsConfig(private val config: Config) {
 
     companion object {
         private val ARENA_ID = Regex("[a-z0-9_-]{1,32}")
-        private val SUPPORTED_TEMPLATES = setOf("", "citadel-v1", "cs2-inferno-v1", "cs2-nuke-v1", "cs2-mirage-v1")
+        private val SUPPORTED_TEMPLATES = setOf(
+            "",
+            "citadel-v1",
+            "japanese-lobby-v1",
+            "edged-mansion-v1",
+            "practice-yard-v1",
+        )
         private val PROTECTED_WORLDS = setOf("world", "world_nether", "world_the_end", "pvp", "parkour1")
 
         fun load(dataRoot: Path): ArcEventsConfig {
-            val source = ConfigManager.of(dataRoot, "config.yml")
-            if (Files.notExists(dataRoot.resolve("config.yml"))) {
-                source.mergeMissingFromBundled("config.yml")
-            }
-            return ArcEventsConfig(source).validated()
+            mergeMissing(dataRoot)
+            return inspect(dataRoot)
         }
+
+        fun mergeMissing(dataRoot: Path): Boolean = Config(dataRoot, "config.yml").mergeMissingFromBundled(
+            "config.yml",
+            setOf("arena", "arenas", "weapons"),
+        )
 
         fun inspect(dataRoot: Path): ArcEventsConfig = ArcEventsConfig(Config(dataRoot, "config.yml")).validated()
 
@@ -432,6 +616,20 @@ class ArcEventsConfig(private val config: Config) {
     private fun firearmVisual(path: String, fallback: String): FirearmVisualSettings = FirearmVisualSettings(
         material = config.string("$path.material", fallback).trim().uppercase(),
         customModelData = config.int("$path.custom-model-data", 0),
+    )
+
+    private fun firearmSpec(path: String, fallback: FirearmSpec): FirearmSpec = FirearmSpec(
+        id = fallback.id,
+        magazineSize = config.int("$path.magazine-size", fallback.magazineSize),
+        roundsPerShot = config.int("$path.rounds-per-shot", fallback.roundsPerShot),
+        pellets = config.int("$path.pellets", fallback.pellets),
+        damagePerPellet = config.double("$path.damage-per-pellet", fallback.damagePerPellet),
+        range = config.double("$path.range", fallback.range),
+        spreadDegrees = config.double("$path.spread-degrees", fallback.spreadDegrees),
+        cooldownTicks = config.int("$path.cooldown-ticks", fallback.cooldownTicks),
+        reloadTicks = config.int("$path.reload-ticks", fallback.reloadTicks),
+        rarity = FirearmRarity.valueOf(config.string("$path.rarity", fallback.rarity.name).trim().uppercase()),
+        lootWeight = config.int("$path.loot-weight", fallback.lootWeight),
     )
 
     private fun firearmFallback(id: FirearmId): String = when (id) {
@@ -465,30 +663,67 @@ class ArcEventsConfig(private val config: Config) {
     }
 }
 
-/** Defines which configuration families can be applied without rebuilding network or arena state. */
+/** Defines the immediate, next-operation, and restart-only parts of the live configuration contract. */
 object ArcEventsReloadPolicy {
     fun validate(
         current: ArcEventsConfig,
         candidate: ArcEventsConfig,
         matchOrReservationActive: Boolean,
+        activeArenaId: String? = null,
     ) {
         require(candidate.enabled == current.enabled) { "enabled requires a restart" }
         require(candidate.serverId == current.serverId) { "server-id requires a restart" }
         require(candidate.nodeMode == current.nodeMode) { "node-mode requires a restart" }
         require(candidate.hostServer == current.hostServer) { "host-server requires a restart" }
-        require(candidate.network == current.network) { "network settings require a restart" }
+        require(candidate.network.enabled == current.network.enabled) { "network.enabled requires a restart" }
         require(candidate.packetChatIsolationEnabled == current.packetChatIsolationEnabled) {
             "chat.packet-isolation.enabled requires a restart"
         }
-        require(candidate.arenas == current.arenas) { "arena settings require a restart" }
+        require(
+            candidate.arenaRuntime.preserveImportedDisplays == current.arenaRuntime.preserveImportedDisplays &&
+                candidate.arenaRuntime.maxImportedDisplays == current.arenaRuntime.maxImportedDisplays
+        ) { "imported decoration sanitation requires a restart" }
+        require(candidate.arenas.map(::reloadIdentity) == current.arenas.map(::reloadIdentity)) {
+            "arena ids, worlds, templates, enablement, and bounds require a plugin restart"
+        }
+        // These values interpret durable entries written by every node. A local
+        // empty-queue observation cannot make a distributed live swap atomic, so
+        // coordinated restart is the only safe boundary.
+        require(candidate.network.allowedOrigins == current.network.allowedOrigins) {
+            "network.allowed-origins requires a restart"
+        }
+        require(candidate.network.reservationSeconds == current.network.reservationSeconds) {
+            "network.reservation-seconds requires a restart"
+        }
+        require(candidate.network.transferOnReservation == current.network.transferOnReservation) {
+            "network.transfer-on-reservation requires a restart"
+        }
+        require(candidate.network.returnToOrigin == current.network.returnToOrigin) {
+            "network.return-to-origin requires a restart"
+        }
         if (matchOrReservationActive) {
-            require(candidate.ttt == current.ttt) { "ttt settings can reload only while idle" }
-            require(candidate.weapons == current.weapons) { "weapon settings can reload only while idle" }
-            require(candidate.ui.copy(nameplates = current.ui.nameplates) == current.ui) {
-                "non-nameplate ui settings can reload only while idle"
+            require(candidate.weapons.enabled == current.weapons.enabled) {
+                "weapons.enabled can reload only while idle"
+            }
+            require(candidate.weapons.specs == current.weapons.specs) {
+                "weapons.catalog can reload only while idle"
+            }
+            val arenaId = requireNotNull(activeArenaId) { "active arena identity is unavailable" }
+            val activeCurrent = current.arenas.firstOrNull { it.id == arenaId }
+            val activeCandidate = candidate.arenas.firstOrNull { it.id == arenaId }
+            require(activeCurrent != null && activeCandidate == activeCurrent) {
+                "active arena settings can reload only after the current match"
             }
         }
     }
+
+    private fun reloadIdentity(arena: ArenaSettings): List<Any?> = listOf(
+        arena.id,
+        arena.world,
+        arena.template,
+        arena.enabled,
+        arena.bounds,
+    )
 }
 
 object ArcEventsRedisBootstrap {

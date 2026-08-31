@@ -4,7 +4,6 @@ import net.kyori.adventure.text.Component
 import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
 import ru.arc.config.Config
-import ru.arc.config.ConfigManager
 import ru.arc.text.ConfigLocaleCatalog
 import ru.arc.text.LocalizedMiniMessage
 import ru.ruscrafting.events.domain.FirearmId
@@ -12,15 +11,13 @@ import ru.ruscrafting.events.domain.FirearmRarity
 import java.nio.file.Path
 
 class ArcEventsLocale(
-    dataRoot: Path,
+    private val dataRoot: Path,
     private val settings: () -> ArcEventsConfig,
 ) {
-    private val russian = ConfigManager.of(dataRoot, "lang/ru.yml")
-    private val english = ConfigManager.of(dataRoot, "lang/en.yml")
-    private val renderer = LocalizedMiniMessage(
-        catalogs = mapOf("ru" to ConfigLocaleCatalog(russian), "en" to ConfigLocaleCatalog(english)),
-        defaultLocale = { settings().defaultLocale },
-    )
+    class Prepared internal constructor(internal val renderer: LocalizedMiniMessage)
+
+    @Volatile
+    private var renderer = prepare().renderer
 
     fun render(
         path: String,
@@ -36,6 +33,20 @@ class ArcEventsLocale(
 
     fun text(value: Any?): Component = renderer.literal(value)
 
+    fun prepare(): Prepared = Prepared(LocalizedMiniMessage(
+        catalogs = mapOf(
+            "ru" to ConfigLocaleCatalog(Config(dataRoot, "lang/ru.yml")),
+            "en" to ConfigLocaleCatalog(Config(dataRoot, "lang/en.yml")),
+        ),
+        defaultLocale = { settings().defaultLocale },
+    ))
+
+    fun apply(prepared: Prepared): Prepared {
+        val previous = Prepared(renderer)
+        renderer = prepared.renderer
+        return previous
+    }
+
     private fun localeTag(audience: CommandSender?): String =
         if (settings().useClientLocale && audience is Player) audience.locale().toLanguageTag()
         else settings().defaultLocale
@@ -50,14 +61,16 @@ class ArcEventsLocale(
             "menu.main.title", "menu.main.ttt-name", "menu.main.stats-name", "menu.main.help-name", "menu.main.admin-name",
             "menu.event.title", "menu.event.overview-name", "menu.event.queue-name", "menu.event.join-name",
             "menu.event.join-unavailable-name", "menu.event.leave-name", "menu.event.start-name", "menu.event.roster-name",
-            "menu.event.shop-name", "menu.event.report-name", "menu.event.help-name", "menu.event.evacuate-name", "menu.event.state.queued",
+            "menu.event.arena-name", "menu.event.shop-name", "menu.event.report-name", "menu.event.help-name", "menu.event.evacuate-name",
+            "menu.event-arenas.title", "menu.event-arenas.entry-name", "menu.event-arenas.auto-name", "menu.event.state.queued",
             "menu.event.state.reserved", "menu.event.state.arrived", "menu.event.state.matched", "menu.event.state.return_pending",
             "menu.stats.title", "menu.stats.summary-name", "menu.help.title", "menu.admin.title", "menu.arenas.title", "menu.shop.title",
             "menu.admin.arenas-name", "menu.arenas.entry-name", "menu.arenas.auto-name",
             "menu.roster.title", "menu.body.title", "menu.report.title", "menu.combat.title",
             "queue.joined", "queue.left", "queue.leave-reserved", "queue.unavailable", "queue.reserved", "queue.returned",
             "queue.start-requested", "queue.start-insufficient", "queue.start-arena-unavailable",
-            "queue.start-busy", "queue.start-recovery-pending", "queue.start-network-failed",
+            "queue.start-busy", "queue.start-recovery-pending", "queue.start-network-failed", "queue.start-not-owner",
+            "queue.arena-selected",
             "match.preparing-title", "match.preparing-subtitle", "match.preparing-guide", "match.started",
             "match.started-title", "match.started-subtitle", "match.eliminated-title",
             "match.eliminated-subtitle", "match.detectives-announced", "match.restored", "match.evacuated",
@@ -77,7 +90,8 @@ class ArcEventsLocale(
             "report.item-name", "report.ready", "report.unavailable", "report.winner-innocents",
             "shop.bought", "shop.insufficient", "shop.unavailable", "team.message",
             "chat.match-message", "chat.spectator-message",
-            "arena.auto.name", "arena.citadel.name", "arena.inferno.name", "arena.mirage.name", "arena.nuke.name",
+            "arena.auto.name", "arena.citadel.name", "arena.japanese-lobby.name", "arena.edged-mansion.name",
+            "arena.practice-yard.name",
             "arena.state.ready", "arena.state.active", "arena.state.next", "arena.state.unavailable",
             "admin.arena-unavailable", "admin.arena-selected", "admin.arena-selection-failed",
             "admin.start-recovery-pending", "debug.disabled", "debug.usage",
@@ -94,16 +108,23 @@ class ArcEventsLocale(
         val REQUIRED_LISTS = setOf(
             "menu.main.ttt-lore", "menu.main.stats-lore", "menu.main.help-lore", "menu.main.admin-lore",
             "menu.event.overview-lore", "menu.event.queue-lore", "menu.event.join-lore", "menu.event.join-unavailable-lore",
-            "menu.event.leave-lore", "menu.event.start-lore", "menu.event.roster-lore", "menu.event.shop-lore",
+            "menu.event.leave-lore", "menu.event.start-lore", "menu.event.arena-lore", "menu.event.roster-lore", "menu.event.shop-lore",
             "menu.event.report-lore", "menu.event.help-lore", "menu.event.evacuate-lore", "menu.stats.summary-lore", "menu.help.weapons-lore",
             "menu.help.flow-lore",
             "menu.roster.player-lore", "menu.body.victim-lore", "menu.body.cause-lore",
             "menu.report.summary-lore", "menu.report.player-lore", "menu.combat.entry-lore",
             "menu.help.innocent-lore", "menu.help.traitor-lore", "menu.help.detective-lore",
             "menu.common.back-lore", "menu.admin.status-lore", "menu.admin.arenas-lore",
-            "menu.arenas.entry-lore", "menu.arenas.auto-lore", "menu.shop.credits-lore",
+            "menu.arenas.entry-lore", "menu.arenas.auto-lore", "menu.event-arenas.entry-lore",
+            "menu.event-arenas.auto-lore", "menu.shop.credits-lore",
             "weapon.firearm-lore", "weapon.ammunition-lore", "report.item-lore", "hud.preparing-tips", "guide.item-lore",
         )
+
+        fun mergeMissingFiles(dataRoot: Path) {
+            listOf("ru", "en").forEach { language ->
+                Config(dataRoot, "lang/$language.yml").mergeMissingFromBundled("lang/$language.yml")
+            }
+        }
 
         fun validateFiles(dataRoot: Path) {
             listOf("ru", "en").forEach { language ->

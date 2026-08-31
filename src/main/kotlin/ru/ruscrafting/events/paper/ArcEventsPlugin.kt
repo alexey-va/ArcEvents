@@ -3,8 +3,8 @@ package ru.ruscrafting.events.paper
 import com.google.gson.Gson
 import kotlinx.coroutines.runBlocking
 import org.bukkit.plugin.java.JavaPlugin
+import org.bukkit.generator.ChunkGenerator
 import org.slf4j.LoggerFactory
-import ru.arc.config.ConfigManager
 import ru.arc.core.PaperArcRuntime
 import ru.arc.core.Tasks
 import ru.arc.paper.network.BungeeBackendTransfer
@@ -38,6 +38,15 @@ class ArcEventsPlugin : JavaPlugin() {
     private var pluginRuntime: PaperPluginRuntime? = null
     private var weaponPointStore: ArenaWeaponPointStore? = null
     private var nameplates: TttNameplateRuntime? = null
+    private var chatIsolation: AutoCloseable? = null
+
+    /**
+     * My_Worlds persists the owning plugin name for custom generators. Keep
+     * arena border generation deterministic even when it asks Bukkit to load
+     * an ArcEvents world during a later server start.
+     */
+    override fun getDefaultWorldGenerator(worldName: String, id: String?): ChunkGenerator? =
+        ArenaWorldGeneratorRegistry.generatorFor(server.worldContainer.toPath(), worldName)
 
     override fun onEnable() {
         saveDefaultConfig()
@@ -52,6 +61,7 @@ class ArcEventsPlugin : JavaPlugin() {
         try {
             val dataRoot = dataFolder.toPath()
             settings = ArcEventsConfig.load(dataRoot)
+            ArcEventsLocale.mergeMissingFiles(dataRoot)
             ArcEventsLocale.validateFiles(dataRoot)
             locale = ArcEventsLocale(dataRoot) { settings }
             if (settings.arenas.any { it.template == TttCitadelBlueprint.TEMPLATE }) TttCitadelLoot.validate()
@@ -68,7 +78,7 @@ class ArcEventsPlugin : JavaPlugin() {
             val repository = RedisEventNetworkRepository(manager, Gson())
             val debug = ArcEventsDebug({ settings.debugEnabled }, logger::info)
             val escrow = PlayerStateEscrow(RecoveryBatchStore(dataRoot, Gson()))
-            val items = TttItems(this, locale)
+            val items = TttItems(this, locale) { settings }
             val firearms = TttFirearms(this, locale) { settings }
             val lootScene = TttLootScene(this, firearms) { settings }
             val storedWeaponPoints = lifecycle.own(ArenaWeaponPointStore(dataRoot) { failure ->
@@ -102,6 +112,7 @@ class ArcEventsPlugin : JavaPlugin() {
                 debug = debug,
                 matchState = { activeService.matchState() },
                 arenaReady = { activeService.arenaReady() },
+                readyArenaIds = arenaPool::readyIds,
                 onReservation = { activeService.onReservation(it) },
                 onArrival = { activeService.onArrival(it) },
             )
@@ -135,27 +146,7 @@ class ArcEventsPlugin : JavaPlugin() {
             )
             service = activeService
             lifecycle.own(activeService)
-            if (settings.packetChatIsolationEnabled) {
-                val protocolLib = server.pluginManager.getPlugin("ProtocolLib")
-                if (protocolLib?.isEnabled == true) {
-                    runCatching { openProtocolLibChatIsolation(this, activeService) }
-                        .onSuccess { isolation ->
-                            lifecycle.own(isolation)
-                            logger.info("ArcEvents packet chat isolation enabled through ProtocolLib ${protocolLib.pluginMeta.version}")
-                        }
-                        .onFailure { failure ->
-                            logger.log(
-                                Level.SEVERE,
-                                "ArcEvents could not enable packet chat isolation; using Paper isolation only",
-                                failure,
-                            )
-                        }
-                } else {
-                    logger.warning(
-                        "ArcEvents packet chat isolation was requested but ProtocolLib is not enabled; using Paper isolation only",
-                    )
-                }
-            }
+            chatIsolation = openConfiguredChatIsolation(settings, activeService)
             lifecycle.registerHealth("runtime") {
                 val redisReady = manager.isConnected()
                 RuntimeHealthContribution(
@@ -194,6 +185,8 @@ class ArcEventsPlugin : JavaPlugin() {
     }
 
     override fun onDisable() {
+        runCatching { chatIsolation?.close() }.onFailure { logger.log(Level.WARNING, "Could not close ArcEvents chat isolation", it) }
+        chatIsolation = null
         runCatching { pluginRuntime?.close() }.onFailure { logger.log(Level.SEVERE, "Could not close ArcEvents runtime", it) }
         pluginRuntime = null
         weaponPointStore = null
@@ -203,26 +196,78 @@ class ArcEventsPlugin : JavaPlugin() {
 
     private fun reloadPlugin(): Result<Unit> = runCatching {
         val dataRoot = dataFolder.toPath()
+        ArcEventsConfig.mergeMissing(dataRoot)
+        ArcEventsLocale.mergeMissingFiles(dataRoot)
         val candidate = ArcEventsConfig.inspect(dataRoot)
         val current = settings
+        val activeService = requireNotNull(service) { "ArcEvents service is unavailable" }
+        val liveSnapshot = activeService.snapshot()
+        val activeMatchId = liveSnapshot.matchId
         ArcEventsReloadPolicy.validate(
             current = current,
             candidate = candidate,
-            matchOrReservationActive = service?.matchState()?.first != null,
+            matchOrReservationActive = activeMatchId != null,
+            activeArenaId = activeService.activeArenaId(),
         )
-        weaponPointStore?.let { store ->
+        val store = weaponPointStore
+        store?.let {
             candidate.arenas.forEach { arena ->
-                require(store.points(arena).size <= arena.weaponCount) {
+                require(it.points(arena).size <= arena.weaponCount) {
                     "arena ${arena.id} has more mandatory weapon points than weapon-count"
                 }
             }
         }
+        val arenaInspector = ArenaRuntimeInspector(this)
+        candidate.arenas.filter { it.enabled }.forEach { arena ->
+            require(server.getWorld(arena.world) != null) {
+                "arena ${arena.id} world is not loaded; world/template changes require a plugin restart"
+            }
+            require(arenaInspector.ready(arena, candidate.ttt.maximumPlayers)) {
+                "arena ${arena.id} is not runtime-ready with the candidate spawn settings"
+            }
+            if (store != null) require(mandatoryWeaponPointsReady(server, store, arena)) {
+                "arena ${arena.id} mandatory weapon points are not runtime-ready"
+            }
+        }
         ArcEventsLocale.validateFiles(dataRoot)
-        ConfigManager.reloadAll()
-        settings = ArcEventsConfig.load(dataRoot)
-        nameplates?.reconfigure(settings.ui.nameplates)
+        val candidateLocale = locale.prepare()
+        settings = candidate
+        val previousLocale = locale.apply(candidateLocale)
+        val worldRuntime = ArenaWorldProvisioner(this)
+        try {
+            worldRuntime.applyRuntimeTuning(candidate)
+            nameplates?.reconfigure(candidate.ui.nameplates)
+            activeService.reconfigureRuntime()
+        } catch (failure: Throwable) {
+            settings = current
+            locale.apply(previousLocale)
+            runCatching { worldRuntime.applyRuntimeTuning(current) }.onFailure(failure::addSuppressed)
+            runCatching { nameplates?.reconfigure(current.ui.nameplates) }.onFailure(failure::addSuppressed)
+            runCatching(activeService::reconfigureRuntime).onFailure(failure::addSuppressed)
+            throw failure
+        }
         Unit
     }.onFailure { logger.log(Level.WARNING, "ArcEvents reload was rejected", it) }
+
+    private fun openConfiguredChatIsolation(
+        candidate: ArcEventsConfig,
+        activeService: ArcEventsGameplayBoundary,
+    ): AutoCloseable? {
+        if (!candidate.packetChatIsolationEnabled) return null
+        val protocolLib = server.pluginManager.getPlugin("ProtocolLib")
+        if (protocolLib?.isEnabled != true) {
+            logger.warning("ArcEvents packet chat isolation was requested but ProtocolLib is not enabled; using Paper isolation only")
+            return null
+        }
+        return runCatching { openProtocolLibChatIsolation(this, activeService) }
+            .onSuccess {
+                logger.info("ArcEvents packet chat isolation enabled through ProtocolLib ${protocolLib.pluginMeta.version}")
+            }
+            .onFailure { failure ->
+                logger.log(Level.SEVERE, "ArcEvents could not enable packet chat isolation; using Paper isolation only", failure)
+            }
+            .getOrNull()
+    }
 
     private fun openNameplateRenderer(
         options: PaperNameplateOptions,

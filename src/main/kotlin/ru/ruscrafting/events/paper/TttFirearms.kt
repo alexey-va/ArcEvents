@@ -14,7 +14,6 @@ import ru.ruscrafting.events.config.FirearmVisualSettings
 import ru.ruscrafting.events.domain.FirearmId
 import ru.ruscrafting.events.domain.FirearmRarity
 import ru.ruscrafting.events.domain.FirearmSpec
-import ru.ruscrafting.events.domain.TttFirearmCatalog
 
 data class FirearmState(val id: FirearmId, val loaded: Int, val matchId: String)
 
@@ -28,7 +27,9 @@ class TttFirearms(
     private val firearmKey = NamespacedKey(plugin, "firearm")
     private val loadedKey = NamespacedKey(plugin, "loaded_rounds")
 
-    fun spec(id: FirearmId): FirearmSpec = requireNotNull(TttFirearmCatalog.specs[id])
+    fun spec(id: FirearmId): FirearmSpec = settings().weapons.spec(id)
+
+    fun catalog(): Map<FirearmId, FirearmSpec> = settings().weapons.specs
 
     fun firearmItem(id: FirearmId, player: Player?, matchId: String, loaded: Int = spec(id).magazineSize): ItemStack {
         val spec = spec(id)
@@ -78,6 +79,20 @@ class TttFirearms(
         val replacement = firearmItem(current.id, player, current.matchId, loaded)
         replacement.amount = item.amount
         return replacement
+    }
+
+    /** Re-renders operator-configured material/model/lore without changing authoritative weapon state. */
+    fun refreshItem(item: ItemStack, player: Player?): ItemStack {
+        if (item.isEmpty) return item
+        state(item)?.let { current ->
+            return firearmItem(current.id, player, current.matchId, current.loaded).also { it.amount = item.amount }
+        }
+        val pdc = item.itemMeta.persistentDataContainer
+        if (pdc.get(itemKindKey, PersistentDataType.STRING) == EventItemKind.AMMUNITION.name) {
+            val matchId = pdc.get(matchIdKey, PersistentDataType.STRING) ?: return item
+            return ammunition(player, matchId, item.amount)
+        }
+        return item
     }
 
     fun reserveAmmo(player: Player, matchId: String): Int = player.inventory.storageContents.sumOf { stack ->

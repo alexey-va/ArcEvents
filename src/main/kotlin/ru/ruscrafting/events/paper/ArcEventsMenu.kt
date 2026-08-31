@@ -31,6 +31,7 @@ sealed interface EventsView {
     data object Statistics : EventsView
     data object Admin : EventsView
     data object Arenas : EventsView
+    data object EventArenas : EventsView
     data object Shop : EventsView
     data object Roster : EventsView
     data class Body(val bodyId: UUID) : EventsView
@@ -45,12 +46,13 @@ class ArcEventsMenu(
     private val settings: () -> ArcEventsConfig,
     private val reload: () -> Result<Unit>,
 ) {
-    private class Holder(val view: EventsView) : InventoryHolder {
+    private class Holder(val view: EventsView, val arenaIds: List<String> = emptyList()) : InventoryHolder {
         lateinit var backing: Inventory
         override fun getInventory(): Inventory = backing
     }
 
     private val pendingClicks = mutableSetOf<UUID>()
+    private val selectedArenas = mutableMapOf<UUID, String>()
     private val dialogs = ArcEventsDialogMenu(service, locale, settings, ::dispatchClick)
 
     fun open(player: Player, view: EventsView = EventsView.Main) {
@@ -66,6 +68,7 @@ class ArcEventsMenu(
             EventsView.Ttt -> error("TTT is opened asynchronously")
             EventsView.Admin -> openAdmin(player)
             EventsView.Arenas -> openArenas(player)
+            EventsView.EventArenas -> openEventArenas(player)
             EventsView.Shop -> openShop(player)
             EventsView.Roster -> openRoster(player)
             is EventsView.Body -> openBody(player, view.bodyId)
@@ -86,7 +89,13 @@ class ArcEventsMenu(
         Tasks.scheduler.runLater(1L) {
             try {
                 if (!player.isOnline || player.openInventory.topInventory.holder !== holder) return@runLater
-                dispatchClick(player, holder.view, slot)
+                if (holder.view == EventsView.EventArenas) {
+                    clickEventArenas(player, slot, holder.arenaIds)
+                } else if (holder.view == EventsView.Arenas) {
+                    clickArenas(player, slot, holder.arenaIds)
+                } else {
+                    dispatchClick(player, holder.view, slot)
+                }
             } finally {
                 pendingClicks.remove(player.uniqueId)
             }
@@ -105,7 +114,8 @@ class ArcEventsMenu(
             EventsView.Ttt -> clickTtt(player, slot)
             EventsView.Statistics -> if (slot == 18) open(player, EventsView.Main)
             EventsView.Admin -> clickAdmin(player, slot)
-            EventsView.Arenas -> clickArenas(player, slot)
+            EventsView.Arenas -> clickArenas(player, slot, emptyList())
+            EventsView.EventArenas -> clickEventArenas(player, slot, emptyList())
             EventsView.Shop -> clickShop(player, slot)
             EventsView.Roster -> clickRoster(player, slot)
             is EventsView.Body -> clickBody(player, view.bodyId, slot)
@@ -140,10 +150,18 @@ class ArcEventsMenu(
     }
 
     private fun openTtt(player: Player) {
-        service.queueState(player.uniqueId).whenComplete { queueState, failure ->
+        service.queueControl(player.uniqueId).whenComplete { queueControl, failure ->
             Tasks.scheduler.runSync {
                 if (!player.isOnline) return@runSync
                 val state = service.snapshot()
+                val queueState = queueControl?.state
+                val controls = settings().eventControls
+                val adminOverride = controls.adminOverrideEnabled && player.hasPermission("arcevents.admin")
+                val creatorControl = controls.creatorControlsEnabled && queueControl?.ownedBy(player.uniqueId) == true
+                val canControl = adminOverride || creatorControl ||
+                    (!controls.creatorControlsEnabled && player.hasPermission("arcevents.start"))
+                selectedArenas.keys.retainAll(Bukkit.getOnlinePlayers().map(Player::getUniqueId).toSet())
+                if (queueState != QueueState.QUEUED || !canControl) selectedArenas.remove(player.uniqueId)
                 val plan = eventMenuPlan(
                     queueState = queueState,
                     queueStateAvailable = failure == null,
@@ -152,14 +170,17 @@ class ArcEventsMenu(
                     shopAvailable = shopAccessible(service.currentMatch(), service.participant(player.uniqueId)),
                     reportAvailable = service.report() != null && service.participant(player.uniqueId) != null,
                     evacuationAvailable = evacuationAccessible(service.currentMatch(), service.participant(player.uniqueId)),
-                    canStart = player.hasPermission("arcevents.start"),
+                    canStart = canControl,
+                    canSelectArena = canControl && (controls.creatorArenaSelectionEnabled || adminOverride),
                 )
-                if (dialogs.openTtt(player, queueState, plan)) return@runSync
+                val selectedArena = arenaName(selectedArenas[player.uniqueId] ?: "auto", player)
+                if (dialogs.openTtt(player, queueState, plan, selectedArena)) return@runSync
                 val inventory = inventory(player, EventsView.Ttt, 45, "menu.event.title")
                 val values = mapOf(
                     "queue" to locale.text(state.queueSize),
                     "minimum" to locale.text(settings().ttt.minimumPlayers),
                     "arena_state" to locale.render(if (state.arenaReady) "state.arena-ready" else "state.arena-unavailable", player),
+                    "selected_arena" to selectedArena,
                 )
                 inventory.setItem(13, item(Material.SPYGLASS, player, "menu.event.overview-name", "menu.event.overview-lore", values))
                 if (plan.showQueueStatus) {
@@ -180,6 +201,9 @@ class ArcEventsMenu(
                         "menu.event.start-lore",
                         values,
                     ))
+                }
+                if (plan.showArenaSelection) {
+                    inventory.setItem(29, item(Material.FILLED_MAP, player, "menu.event.arena-name", "menu.event.arena-lore", values))
                 }
                 if (plan.showRoster) inventory.setItem(20, item(Material.PLAYER_HEAD, player, "menu.event.roster-name", "menu.event.roster-lore"))
                 if (plan.showShop) inventory.setItem(22, item(Material.NETHER_STAR, player, "menu.event.shop-name", "menu.event.shop-lore"))
@@ -202,6 +226,7 @@ class ArcEventsMenu(
                         if (!player.isOnline) return@runSync
                         when {
                             queueState == QueueState.QUEUED -> {
+                                selectedArenas.remove(player.uniqueId)
                                 player.closeInventory()
                                 service.leaveQueue(player)
                             }
@@ -216,13 +241,15 @@ class ArcEventsMenu(
             }
             24 -> when {
                 service.report() != null && service.participant(player.uniqueId) != null -> open(player, EventsView.Report)
-                player.hasPermission("arcevents.start") -> service.queueState(player.uniqueId).whenComplete { queueState, _ ->
+                else -> service.queueControl(player.uniqueId).whenComplete { control, _ ->
                     Tasks.scheduler.runSync {
                         if (!player.isOnline) return@runSync
-                        if (queueState == QueueState.QUEUED) startFromEventMenu(player) else open(player, EventsView.Ttt)
+                        if (control != null && canStartQueue(player, control)) startFromEventMenu(player)
+                        else open(player, EventsView.Ttt)
                     }
                 }
             }
+            29 -> open(player, EventsView.EventArenas)
             31 -> open(player, EventsView.EventHelp)
             36 -> open(player, EventsView.Main)
             40 -> if (evacuationAccessible(service.currentMatch(), service.participant(player.uniqueId))) {
@@ -234,9 +261,10 @@ class ArcEventsMenu(
 
     private fun startFromEventMenu(player: Player) {
         player.closeInventory()
-        service.startFromQueue(player).thenAccept { result ->
+        service.startFromQueue(player, selectedArenas[player.uniqueId]).thenAccept { result ->
             Tasks.scheduler.runSync {
                 if (player.isOnline) {
+                    if (result == ReservationStartResult.STARTED) selectedArenas.remove(player.uniqueId)
                     player.sendEventMessage(locale.render(reservationStartMessage(result, StartMessageAudience.PLAYER), player))
                 }
             }
@@ -285,7 +313,7 @@ class ArcEventsMenu(
             "network_state" to locale.render(if (state.hostAvailable) "state.network-ready" else "state.network-degraded", player),
         )))
         inventory.setItem(20, item(Material.FILLED_MAP, player, "menu.admin.arenas-name", "menu.admin.arenas-lore", mapOf(
-            "arenas" to locale.text(service.arenaEntries().count(ArenaPoolEntry::ready)),
+            "arenas" to locale.text(service.selectableArenaIds().size),
             "active" to (state.arenaId?.let { arenaName(it, player) } ?: locale.render("arena.auto.name", player)),
         )))
         inventory.setItem(29, item(Material.LIME_CONCRETE, player, "menu.admin.start-name", "menu.admin.start-lore"))
@@ -301,9 +329,10 @@ class ArcEventsMenu(
         when (slot) {
             20 -> open(player, EventsView.Arenas)
             29 -> {
-                service.startFromQueue(player).thenAccept { result ->
+                service.startFromQueue(player, selectedArenas[player.uniqueId]).thenAccept { result ->
                     Tasks.scheduler.runSync {
                         if (!player.isOnline) return@runSync
+                        if (result == ReservationStartResult.STARTED) selectedArenas.remove(player.uniqueId)
                         player.sendEventMessage(locale.render(reservationStartMessage(result, StartMessageAudience.ADMIN), player))
                         open(player, EventsView.Admin)
                     }
@@ -331,43 +360,126 @@ class ArcEventsMenu(
 
     private fun openArenas(player: Player) {
         if (!player.hasPermission("arcevents.admin")) return
-        val inventory = inventory(player, EventsView.Arenas, 54, "menu.arenas.title")
-        service.arenaEntries().take(ARENA_SLOTS.size).zip(ARENA_SLOTS).forEach { (arena, slot) ->
-            val material = when {
-                arena.active -> Material.NETHER_STAR
-                arena.next -> Material.CLOCK
-                arena.ready -> Material.LIME_CONCRETE
-                else -> Material.RED_CONCRETE
-            }
+        val available = service.selectableArenaIds().take(ARENA_SLOTS.size)
+        val selected = selectedArenas[player.uniqueId] ?: "auto"
+        val inventory = inventory(player, EventsView.Arenas, 54, "menu.arenas.title", arenaIds = available)
+        available.zip(ARENA_SLOTS).forEach { (arenaId, slot) ->
+            val material = if (selected == arenaId) Material.LIME_CONCRETE else Material.FILLED_MAP
             inventory.setItem(slot, item(material, player, "menu.arenas.entry-name", "menu.arenas.entry-lore", mapOf(
-                "arena" to arenaName(arena.id, player),
-                "world" to locale.text(arena.world),
-                "template" to locale.text(arena.template.ifEmpty { "—" }),
-                "state" to locale.render(when {
-                    arena.active -> "arena.state.active"
-                    arena.next -> "arena.state.next"
-                    arena.ready -> "arena.state.ready"
-                    else -> "arena.state.unavailable"
-                }, player),
+                "arena" to arenaName(arenaId, player),
+                "world" to locale.text("—"),
+                "template" to locale.text(arenaId),
+                "state" to locale.render(if (selected == arenaId) "arena.state.next" else "arena.state.ready", player),
             )))
         }
-        inventory.setItem(40, item(Material.COMPASS, player, "menu.arenas.auto-name", "menu.arenas.auto-lore"))
+        inventory.setItem(40, item(
+            if (selected == "auto") Material.LIME_CONCRETE else Material.COMPASS,
+            player,
+            "menu.arenas.auto-name",
+            "menu.arenas.auto-lore",
+        ))
         inventory.setItem(45, backItem(player))
         player.openInventory(inventory)
     }
 
-    private fun clickArenas(player: Player, slot: Int) {
+    private fun clickArenas(player: Player, slot: Int, renderedArenaIds: List<String>) {
         if (!player.hasPermission("arcevents.admin")) return
-        val selected = if (slot == 40) "auto" else service.arenaEntries().getOrNull(ARENA_SLOTS.indexOf(slot))?.id
+        val selected = if (slot == 40) "auto" else renderedArenaIds.getOrNull(ARENA_SLOTS.indexOf(slot))
         when {
             selected != null -> {
-                player.sendEventMessage(locale.render(if (service.selectNextArena(selected)) "admin.arena-selected" else "admin.arena-selection-failed", player, mapOf(
+                selectedArenas[player.uniqueId] = selected
+                player.sendEventMessage(locale.render("admin.arena-selected", player, mapOf(
                     "arena" to arenaName(selected, player),
                 )))
                 open(player, EventsView.Arenas)
             }
             slot == 45 -> open(player, EventsView.Admin)
         }
+    }
+
+    private fun openEventArenas(player: Player) {
+        service.queueControl(player.uniqueId).whenComplete { control, failure ->
+            Tasks.scheduler.runSync {
+                if (!player.isOnline) return@runSync
+                if (failure != null || control == null || !canControlQueue(player, control)) {
+                    open(player, EventsView.Ttt)
+                    return@runSync
+                }
+                val available = service.selectableArenaIds().take(ARENA_SLOTS.size)
+                val selected = selectedArenas[player.uniqueId] ?: "auto"
+                val inventory = inventory(
+                    player,
+                    EventsView.EventArenas,
+                    54,
+                    "menu.event-arenas.title",
+                    arenaIds = available,
+                )
+                available.zip(ARENA_SLOTS).forEach { (arenaId, slot) ->
+                    inventory.setItem(slot, item(
+                        if (selected == arenaId) Material.LIME_CONCRETE else Material.FILLED_MAP,
+                        player,
+                        "menu.event-arenas.entry-name",
+                        "menu.event-arenas.entry-lore",
+                        mapOf(
+                            "arena" to arenaName(arenaId, player),
+                            "selection" to locale.render(
+                                if (selected == arenaId) "arena.state.next" else "arena.state.ready",
+                                player,
+                            ),
+                        ),
+                    ))
+                }
+                inventory.setItem(40, item(
+                    if (selected == "auto") Material.LIME_CONCRETE else Material.COMPASS,
+                    player,
+                    "menu.event-arenas.auto-name",
+                    "menu.event-arenas.auto-lore",
+                ))
+                inventory.setItem(45, backItem(player))
+                player.openInventory(inventory)
+            }
+        }
+    }
+
+    private fun clickEventArenas(player: Player, slot: Int, renderedArenaIds: List<String>) {
+        if (slot == 45) {
+            open(player, EventsView.Ttt)
+            return
+        }
+        val selected = if (slot == 40) "auto" else {
+            renderedArenaIds.getOrNull(ARENA_SLOTS.indexOf(slot))
+        } ?: return
+        service.queueControl(player.uniqueId).whenComplete { control, failure ->
+            Tasks.scheduler.runSync {
+                if (!player.isOnline) return@runSync
+                if (failure != null || control == null || !canControlQueue(player, control)) {
+                    open(player, EventsView.Ttt)
+                    return@runSync
+                }
+                selectedArenas[player.uniqueId] = selected
+                player.sendEventMessage(locale.render(
+                    "queue.arena-selected",
+                    player,
+                    mapOf("arena" to arenaName(selected, player)),
+                ))
+                open(player, EventsView.EventArenas)
+            }
+        }
+    }
+
+    private fun canControlQueue(player: Player, control: QueueControlSnapshot): Boolean {
+        val controls = settings().eventControls
+        val adminOverride = controls.adminOverrideEnabled && player.hasPermission("arcevents.admin")
+        if (!controls.creatorArenaSelectionEnabled && !adminOverride) return false
+        return canStartQueue(player, control)
+    }
+
+    private fun canStartQueue(player: Player, control: QueueControlSnapshot): Boolean {
+        if (control.state != QueueState.QUEUED) return false
+        val controls = settings().eventControls
+        val adminOverride = controls.adminOverrideEnabled && player.hasPermission("arcevents.admin")
+        return adminOverride || (controls.creatorControlsEnabled && control.ownedBy(player.uniqueId)) ||
+            (!controls.creatorControlsEnabled && player.hasPermission("arcevents.start"))
     }
 
     private fun openShop(player: Player) {
@@ -590,8 +702,9 @@ class ArcEventsMenu(
         size: Int,
         titleKey: String,
         values: Map<String, Component> = emptyMap(),
+        arenaIds: List<String> = emptyList(),
     ): Inventory {
-        val holder = Holder(view)
+        val holder = Holder(view, arenaIds.toList())
         val inventory = Bukkit.createInventory(holder, size, locale.render(titleKey, player, values))
         holder.backing = inventory
         val fillerSettings = settings().ui.filler
@@ -685,6 +798,7 @@ internal data class EventMenuPlan(
     val showLeave: Boolean,
     val showQueueStatus: Boolean,
     val showStart: Boolean,
+    val showArenaSelection: Boolean,
     val showRoster: Boolean,
     val showShop: Boolean,
     val showReport: Boolean,
@@ -700,6 +814,7 @@ internal fun eventMenuPlan(
     reportAvailable: Boolean,
     evacuationAvailable: Boolean,
     canStart: Boolean,
+    canSelectArena: Boolean,
 ): EventMenuPlan {
     val participating = queueState != null || rosterAvailable || shopAvailable || reportAvailable || evacuationAvailable
     return EventMenuPlan(
@@ -708,6 +823,7 @@ internal fun eventMenuPlan(
         showLeave = queueState == QueueState.QUEUED,
         showQueueStatus = queueState != null,
         showStart = queueState == QueueState.QUEUED && canStart,
+        showArenaSelection = queueState == QueueState.QUEUED && canSelectArena,
         showRoster = rosterAvailable,
         showShop = shopAvailable,
         showReport = reportAvailable,

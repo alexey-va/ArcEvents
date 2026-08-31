@@ -13,6 +13,55 @@ network:
   transfer-on-reservation: true
   return-to-origin: true
 
+# Queue ownership is deterministic: the earliest queued player is the event
+# creator. These controls are read live and can be changed with /events reload.
+event-controls:
+  creator-controls-enabled: true
+  creator-arena-selection-enabled: true
+  admin-override-enabled: true
+
+# Safe live gameplay tuning. In-progress timers keep their captured deadline;
+# new actions and the next match use the latest values.
+gameplay:
+  spawn-return-seconds: 10
+  spawn-return-movement-tolerance: 0.05
+  radar-duration-seconds: 30
+  preparation-rations: 4
+  medkit-healing: 8.0
+  role-shop:
+    traitor-blade-cost: 2
+    traitor-radar-cost: 1
+    traitor-smoke-cost: 1
+    detective-scanner-cost: 1
+    detective-medkit-cost: 1
+    detective-armor-cost: 1
+  pickup-ammo-magazines: 3
+  pickup-ammo-minimum: 12
+  pickup-ammo-maximum: 48
+  pickup-delay-ticks: 20
+  headshot-multiplier: 1.5
+  preparing-tip-seconds: 4
+
+smoke:
+  throw-velocity: 1.15
+  radius: 5.5
+  duration-seconds: 8
+  tick-interval-ticks: 5
+  blindness-refresh-ticks: 35
+  darkness-refresh-ticks: 28
+  smoke-particles: 34
+  ash-particles: 18
+
+arena-runtime:
+  view-distance: 6
+  simulation-distance: 4
+  # Imported armor stands, frames and banners are stripped on startup. Native
+  # display entities are inert and may be retained for authored map details.
+  # The cap is a startup sanitation boundary and therefore restart-only.
+  imported-decorations:
+    preserve-displays: true
+    max-displays: 256
+
 locale:
   default: ru
   use-client-locale: true
@@ -32,6 +81,13 @@ ui:
   # Animated ItemDisplay presentation over the server-authoritative pickup.
   # Imported map entities are removed separately and never survive arena load.
   loot-displays: true
+  loot-display:
+    height: 0.18
+    scale: 0.78
+    view-range: 0.75
+    animation-step-ticks: 5
+    rotation-ticks: 40
+    particle-interval-ticks: 10
   # Paper Dialog API (1.21.6+ clients) for overview/help/admin screens.
   # Item-dense screens and older clients always use the chest GUI.
   dialogs-enabled: false
@@ -76,6 +132,141 @@ ttt:
 weapons:
   enabled: true
   dna-seconds: 90
+  # Complete balance catalog. It can be reloaded while idle; an active roster
+  # keeps its current weapon contract so loaded magazines never become invalid.
+  catalog:
+    flintlock:
+      magazine-size: 1
+      rounds-per-shot: 1
+      pellets: 1
+      damage-per-pellet: 13.0
+      range: 48.0
+      spread-degrees: 1.8
+      cooldown-ticks: 24
+      reload-ticks: 42
+      rarity: COMMON
+      loot-weight: 5
+    revolver:
+      magazine-size: 6
+      rounds-per-shot: 1
+      pellets: 1
+      damage-per-pellet: 8.0
+      range: 58.0
+      spread-degrees: 1.0
+      cooldown-ticks: 10
+      reload-ticks: 36
+      rarity: UNCOMMON
+      loot-weight: 4
+    hand_cannon:
+      magazine-size: 1
+      rounds-per-shot: 1
+      pellets: 1
+      damage-per-pellet: 16.0
+      range: 40.0
+      spread-degrees: 2.4
+      cooldown-ticks: 30
+      reload-ticks: 56
+      rarity: EPIC
+      loot-weight: 1
+    double_barrel:
+      magazine-size: 2
+      rounds-per-shot: 1
+      pellets: 10
+      damage-per-pellet: 2.7
+      range: 28.0
+      spread-degrees: 7.5
+      cooldown-ticks: 20
+      reload-ticks: 46
+      rarity: UNCOMMON
+      loot-weight: 4
+    five_seven:
+      magazine-size: 20
+      rounds-per-shot: 1
+      pellets: 1
+      damage-per-pellet: 5.0
+      range: 55.0
+      spread-degrees: 1.3
+      cooldown-ticks: 6
+      reload-ticks: 28
+      rarity: COMMON
+      loot-weight: 5
+    g36:
+      magazine-size: 30
+      rounds-per-shot: 3
+      pellets: 3
+      damage-per-pellet: 3.0
+      range: 58.0
+      spread-degrees: 3.0
+      cooldown-ticks: 6
+      reload-ticks: 42
+      rarity: UNCOMMON
+      loot-weight: 4
+    aek_971:
+      magazine-size: 30
+      rounds-per-shot: 3
+      pellets: 3
+      damage-per-pellet: 3.3
+      range: 64.0
+      spread-degrees: 2.5
+      cooldown-ticks: 5
+      reload-ticks: 44
+      rarity: RARE
+      loot-weight: 3
+    rpl_20:
+      magazine-size: 48
+      rounds-per-shot: 4
+      pellets: 4
+      damage-per-pellet: 2.5
+      range: 56.0
+      spread-degrees: 4.0
+      cooldown-ticks: 6
+      reload-ticks: 64
+      rarity: EPIC
+      loot-weight: 1
+    vepr_12:
+      magazine-size: 8
+      rounds-per-shot: 1
+      pellets: 8
+      damage-per-pellet: 2.35
+      range: 25.0
+      spread-degrees: 8.0
+      cooldown-ticks: 12
+      reload-ticks: 52
+      rarity: RARE
+      loot-weight: 3
+    m1_garand:
+      magazine-size: 8
+      rounds-per-shot: 1
+      pellets: 1
+      damage-per-pellet: 10.0
+      range: 88.0
+      spread-degrees: 0.65
+      cooldown-ticks: 14
+      reload-ticks: 46
+      rarity: RARE
+      loot-weight: 3
+    vss_vintorez:
+      magazine-size: 10
+      rounds-per-shot: 1
+      pellets: 1
+      damage-per-pellet: 8.5
+      range: 76.0
+      spread-degrees: 0.8
+      cooldown-ticks: 9
+      reload-ticks: 42
+      rarity: EPIC
+      loot-weight: 2
+    mcmillan:
+      magazine-size: 5
+      rounds-per-shot: 1
+      pellets: 1
+      damage-per-pellet: 16.0
+      range: 120.0
+      spread-degrees: 0.25
+      cooldown-ticks: 32
+      reload-ticks: 58
+      rarity: LEGENDARY
+      loot-weight: 1
   visuals:
     flintlock: {material: IRON_HORSE_ARMOR, custom-model-data: 0}
     revolver: {material: IRON_HORSE_ARMOR, custom-model-data: 0}

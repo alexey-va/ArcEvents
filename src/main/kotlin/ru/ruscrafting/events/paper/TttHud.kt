@@ -53,6 +53,30 @@ class TttHud(
         }
     }
 
+    /** Rebuilds scoreboard and boss-bar sessions so live UI toggles/locales take effect immediately. */
+    fun reconfigure(match: TttMatch?, secondsRemaining: Int, totalSeconds: Int) {
+        if (match == null) {
+            sessions.keys.toList().forEach(::closeSession)
+            sessions.clear()
+            nameplates.clear()
+            return
+        }
+        val staged = match.participants.values.mapNotNull { participant ->
+            val player = plugin.server.getPlayer(participant.playerId) ?: return@mapNotNull null
+            val previous = sessions[player.uniqueId]?.previousScoreboard ?: player.scoreboard
+            player.uniqueId to createSession(player, match, previous)
+        }.toMap(linkedMapOf())
+        sessions.keys.toList().forEach(::closeSession)
+        sessions.clear()
+        staged.forEach { (playerId, session) ->
+            val player = plugin.server.getPlayer(playerId) ?: return@forEach
+            session.bossBar?.let(player::showBossBar)
+            session.scoreboard?.let { player.scoreboard = it }
+            sessions[playerId] = session
+        }
+        update(match, secondsRemaining, totalSeconds)
+    }
+
     fun remove(playerId: UUID) {
         nameplates.remove(playerId)
         closeSession(playerId)
@@ -74,21 +98,26 @@ class TttHud(
     }
 
     private fun open(player: Player, match: TttMatch): Session {
+        val session = createSession(player, match, player.scoreboard)
+        session.bossBar?.let(player::showBossBar)
+        session.scoreboard?.let { player.scoreboard = it }
+        sessions[player.uniqueId] = session
+        return session
+    }
+
+    private fun createSession(player: Player, match: TttMatch, previousScoreboard: Scoreboard): Session {
         val scoreboard = createScoreboard(player, match, settings().ui.scoreboard)
         val bossBar = if (settings().ui.bossBar) {
-            BossBar.bossBar(Component.empty(), 1f, BossBar.Color.YELLOW, BossBar.Overlay.PROGRESS).also(player::showBossBar)
+            BossBar.bossBar(Component.empty(), 1f, BossBar.Color.YELLOW, BossBar.Overlay.PROGRESS)
         } else {
             null
         }
-        val session = Session(
-            previousScoreboard = player.scoreboard,
+        return Session(
+            previousScoreboard = previousScoreboard,
             scoreboard = scoreboard.first,
             lines = scoreboard.second,
             bossBar = bossBar,
         )
-        player.scoreboard = scoreboard.first
-        sessions[player.uniqueId] = session
-        return session
     }
 
     private fun createScoreboard(player: Player, match: TttMatch, showSidebar: Boolean): Pair<Scoreboard, List<Team>> {
@@ -198,7 +227,7 @@ class TttHud(
                 val tips = locale.lore("hud.preparing-tips", player)
                 if (tips.isNotEmpty()) {
                     val elapsed = (totalSeconds - secondsRemaining).coerceAtLeast(0)
-                    player.sendEventActionBar(tips[(elapsed / PREPARING_TIP_SECONDS) % tips.size])
+                    player.sendEventActionBar(tips[(elapsed / settings().gameplay.preparingTipSeconds) % tips.size])
                 }
             }
             match.phase == MatchPhase.COUNTDOWN -> player.sendEventActionBar(locale.render(
@@ -239,7 +268,6 @@ class TttHud(
     companion object {
         private const val HIDDEN_NAMES_TEAM = "ae_hidden_names"
         private const val OBJECTIVE_NAME = "arcevents_ttt"
-        private const val PREPARING_TIP_SECONDS = 4
         private val SCOREBOARD_ENTRIES = listOf("§0", "§1", "§2", "§3", "§4", "§5", "§6")
     }
 }

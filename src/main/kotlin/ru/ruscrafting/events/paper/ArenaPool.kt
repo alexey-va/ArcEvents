@@ -63,6 +63,9 @@ class ArenaPool(
     }
 
     @Synchronized
+    fun readyIds(): List<String> = readyArenas().map(ArenaSettings::id)
+
+    @Synchronized
     fun selectNext(id: String?): Boolean {
         if (activeMatchId != null) return false
         if (id == null || id == "auto") {
@@ -76,13 +79,25 @@ class ArenaPool(
     }
 
     @Synchronized
+    fun reconfigure() {
+        availabilitySettings = null
+        availabilityCheckedAt = null
+        availabilityReady = false
+        val selected = nextArenaId?.let(::configured)
+        if (selected == null || !ready(selected, settings().ttt.maximumPlayers)) nextArenaId = null
+    }
+
+    @Synchronized
     fun reserve(matchId: UUID, preferredId: String? = null): ArenaSettings? {
         if (activeMatchId != null) return null
         val ready = readyArenas()
         if (ready.isEmpty()) return null
         val requested = preferredId?.takeUnless { it == "auto" } ?: nextArenaId
-        val chosen = requested?.let { id -> ready.firstOrNull { it.id == id } }
-            ?: ready[Math.floorMod(matchId.mostSignificantBits xor matchId.leastSignificantBits, ready.size.toLong()).toInt()]
+        val chosen = if (requested != null) {
+            ready.firstOrNull { it.id == requested } ?: return null
+        } else {
+            ready[Math.floorMod(matchId.mostSignificantBits xor matchId.leastSignificantBits, ready.size.toLong()).toInt()]
+        }
         activeMatchId = matchId
         activeArenaId = chosen.id
         nextArenaId = null

@@ -40,4 +40,47 @@ class EventNetworkProtocolTest : StringSpec({
             )
         }
     }
+
+    "start request preserves requester, arena choice, and admin bypass" {
+        val requester = UUID.randomUUID()
+        val request = EventNetworkMessage.create(
+            EventNetworkSignal.START_REQUEST,
+            nowMs = 1_000,
+            destinationServer = "parkour",
+            requesterId = requester,
+            preferredArenaId = "japanese-lobby",
+            adminBypass = true,
+        )
+        request.requesterId shouldBe requester.toString()
+        request.preferredArenaId shouldBe "japanese-lobby"
+        request.adminBypass shouldBe true
+    }
+
+    "start results cannot carry creator-only request fields" {
+        shouldThrow<IllegalArgumentException> {
+            EventNetworkMessage(
+                eventId = UUID.randomUUID().toString(),
+                signal = EventNetworkSignal.START_RESULT,
+                occurredAtMs = 1_001,
+                destinationServer = "spawn",
+                replyTo = UUID.randomUUID().toString(),
+                startResult = "STARTED",
+                requesterId = UUID.randomUUID().toString(),
+            ).validated()
+        }
+    }
+
+    "reservation remains valid at the maximum queue and reservation boundary" {
+        val joinedAtMs = 1_000L
+        QueueEntry(
+            playerId = UUID.randomUUID().toString(),
+            playerName = "BoundaryPlayer",
+            originServer = "spawn",
+            state = QueueState.RESERVED,
+            joinedAtMs = joinedAtMs,
+            expiresAtMs = joinedAtMs + 3_600_000L + 300_000L,
+            matchId = UUID.randomUUID().toString(),
+            destinationServer = "parkour",
+        ).validated().state shouldBe QueueState.RESERVED
+    }
 })

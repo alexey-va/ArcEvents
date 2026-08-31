@@ -34,7 +34,7 @@ data class QueueEntry(
                 require(matchId == null && destinationServer == null)
             }
             QueueState.RESERVED -> {
-                require(expiresAtMs - joinedAtMs <= MAX_QUEUE_MS)
+                require(expiresAtMs - joinedAtMs <= MAX_RESERVED_LIFETIME_MS)
                 require(UUID.fromString(requireNotNull(matchId)).toString() == matchId)
                 BackendServerId.of(requireNotNull(destinationServer))
             }
@@ -50,6 +50,8 @@ data class QueueEntry(
 
     companion object {
         private const val MAX_QUEUE_MS = 60 * 60 * 1000L
+        private const val MAX_RESERVATION_MS = 5 * 60 * 1000L
+        private const val MAX_RESERVED_LIFETIME_MS = MAX_QUEUE_MS + MAX_RESERVATION_MS
     }
 }
 
@@ -63,12 +65,15 @@ data class HostNode(
     val queueSize: Int,
     val capacity: Int,
     val heartbeatAtMs: Long,
+    val arenaIds: List<String> = emptyList(),
 ) {
     fun validated(): HostNode = apply {
         BackendServerId.of(serverId)
         require(mode in setOf("RELAY", "HOST"))
         require(queueSize in 0..10_000 && capacity in 0..32)
         require(heartbeatAtMs > 0)
+        require(arenaIds.size <= 16 && arenaIds.distinct().size == arenaIds.size)
+        require(arenaIds.all { it.matches(Regex("[a-z0-9_-]{1,32}")) })
         matchId?.let { require(UUID.fromString(it).toString() == it) }
         if (available) require(mode == "HOST" && arenaReady && phase == null)
     }
@@ -98,6 +103,12 @@ data class EventNetworkMessage(
     val endReason: MatchEndReason? = null,
     val replyTo: String? = null,
     val startResult: String? = null,
+    /** Player requesting a start; absent for legacy/admin requests. */
+    val requesterId: String? = null,
+    /** Host-local arena choice requested by the queue owner. */
+    val preferredArenaId: String? = null,
+    /** Set only by a trusted backend after checking arcevents.admin. */
+    val adminBypass: Boolean = false,
 ) {
     fun validated(): EventNetworkMessage = apply {
         require(UUID.fromString(eventId).toString() == eventId)
@@ -107,6 +118,8 @@ data class EventNetworkMessage(
         destinationServer?.let(BackendServerId::of)
         queueSize?.let { require(it in 0..10_000) }
         replyTo?.let { require(UUID.fromString(it).toString() == it) }
+        requesterId?.let { require(UUID.fromString(it).toString() == it) }
+        preferredArenaId?.let { require(it.matches(Regex("[a-z0-9_-]{1,32}|auto"))) }
         when (signal) {
             EventNetworkSignal.QUEUE_CHANGED -> require(queueSize != null)
             EventNetworkSignal.ROUTE_PLAYER -> require(matchId != null && playerId != null && destinationServer != null)
@@ -121,6 +134,7 @@ data class EventNetworkMessage(
                 require(destinationServer != null && replyTo != null)
                 require(startResult in START_RESULTS)
                 require(matchId == null && playerId == null && queueSize == null && winner == null && endReason == null)
+                require(requesterId == null && preferredArenaId == null && !adminBypass)
             }
             EventNetworkSignal.NODE_PROBE -> require(replyTo == null)
             EventNetworkSignal.NODE_ACK -> require(replyTo != null)
@@ -139,6 +153,9 @@ data class EventNetworkMessage(
             endReason: MatchEndReason? = null,
             replyTo: String? = null,
             startResult: String? = null,
+            requesterId: UUID? = null,
+            preferredArenaId: String? = null,
+            adminBypass: Boolean = false,
         ): EventNetworkMessage = EventNetworkMessage(
             eventId = UUID.randomUUID().toString(),
             signal = signal,
@@ -151,6 +168,9 @@ data class EventNetworkMessage(
             endReason = endReason,
             replyTo = replyTo,
             startResult = startResult,
+            requesterId = requesterId?.toString(),
+            preferredArenaId = preferredArenaId,
+            adminBypass = adminBypass,
         ).validated()
 
         private val START_RESULTS = setOf(
@@ -160,6 +180,7 @@ data class EventNetworkMessage(
             "INSUFFICIENT_PLAYERS",
             "RECOVERY_PENDING",
             "NETWORK_FAILURE",
+            "NOT_OWNER",
         )
     }
 }
@@ -180,6 +201,8 @@ sealed interface QueueLeaveResult {
 data class ReservationBatch(
     val matchId: UUID,
     val entries: List<QueueEntry>,
+    val requesterId: UUID? = null,
+    val preferredArenaId: String? = null,
 )
 
 data class StatsUpdate(val before: PlayerEventStats, val after: PlayerEventStats)

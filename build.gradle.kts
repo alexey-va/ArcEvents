@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "ru.ruscrafting"
-version = "0.1.10"
+version = "0.2.0"
 description = "Cross-server custom events for RusCrafting"
 
 val integrationTestSourceSet = sourceSets.create("integrationTest") {
@@ -26,6 +26,7 @@ java { toolchain { languageVersion.set(JavaLanguageVersion.of(25)) } }
 kotlin { jvmToolchain(25) }
 
 val arcCoreVersion = "2.2.4"
+val worldEditVersion = "7.3.18"
 
 dependencies {
     implementation(kotlin("stdlib"))
@@ -36,12 +37,14 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
 
     compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
+    compileOnly("com.sk89q.worldedit:worldedit-bukkit:$worldEditVersion")
     compileOnly("com.sk89q.worldguard:worldguard-bukkit:7.0.16")
     compileOnly("net.dmulloy2:ProtocolLib:5.4.0")
 
     testImplementation("io.kotest:kotest-runner-junit5:6.0.7")
     testImplementation("io.kotest:kotest-assertions-core:6.0.7")
     testImplementation("io.mockk:mockk:1.14.7")
+    testImplementation("com.sk89q.worldedit:worldedit-core:$worldEditVersion")
     testImplementation("ru.ruscrafting.arc:arc-core-paper-testing:$arcCoreVersion")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     "integrationTestImplementation"(sourceSets.test.get().output)

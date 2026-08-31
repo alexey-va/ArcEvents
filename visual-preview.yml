@@ -15,6 +15,9 @@ custom-items:
   arc:left_gray:
     material: BLUE_STAINED_GLASS_PANE
     model: assets/arc/models/gui/left_gray.json
+  arc:player_profile_preview:
+    material: PLAYER_HEAD
+    model: assets/arc/models/item/ia_auto/clan_profile.json
 
 sources:
   events:
@@ -24,6 +27,7 @@ sources:
     include:
       - menu.main.*
       - menu.event.*
+      - menu.event-arenas.*
       - menu.stats.*
       - menu.help.*
       - menu.admin.*
@@ -62,8 +66,10 @@ placeholders:
   host: parkour
   network_state: '<#7bd88f>готова'
   arenas: '3'
-  active: Мираж
-  arena: Мираж
+  active: Японский двор
+  arena: Японский двор
+  selected_arena: Японский двор
+  selection: '<#e3b341>назначена следующей'
   count: '7'
   target: '30'
   rounds: '48'
@@ -157,8 +163,21 @@ surfaces:
         - *queue_status
         - {slot: 22, material: RED_DYE, name: events:menu.event.leave-name, lore: events:menu.event.leave-lore}
         - {slot: 24, material: GRAY_CONCRETE, name: events:menu.event.start-name, lore: events:menu.event.start-lore}
+        - {slot: 29, material: FILLED_MAP, name: events:menu.event.arena-name, lore: events:menu.event.arena-lore}
         - *event_help
         - *event_back
+
+    - id: hidden-roles-map-selection
+      title: events:menu.event-arenas.title
+      rows: 6
+      filler: GRAY_STAINED_GLASS_PANE
+      background-item: arc:background
+      items:
+        - {slot: 10, material: FILLED_MAP, name: events:menu.event-arenas.entry-name, lore: events:menu.event-arenas.entry-lore}
+        - {slot: 12, material: LIME_CONCRETE, name: events:menu.event-arenas.entry-name, lore: events:menu.event-arenas.entry-lore}
+        - {slot: 14, material: OAK_SAPLING, name: events:menu.event-arenas.entry-name, lore: events:menu.event-arenas.entry-lore}
+        - {slot: 40, material: COMPASS, name: events:menu.event-arenas.auto-name, lore: events:menu.event-arenas.auto-lore}
+        - {slot: 45, material: BLUE_STAINED_GLASS_PANE, itemsadder: 'arc:left_gray', name: events:menu.common.back-name, lore: events:menu.common.back-lore}
 
     - id: hidden-roles-preparing
       title: events:menu.event.title
@@ -180,7 +199,7 @@ surfaces:
       background-item: arc:background
       items:
         - *event_overview
-        - &event_roster {slot: 20, material: PLAYER_HEAD, name: events:menu.event.roster-name, lore: events:menu.event.roster-lore}
+        - &event_roster {slot: 20, material: PLAYER_HEAD, itemsadder: 'arc:player_profile_preview', name: events:menu.event.roster-name, lore: events:menu.event.roster-lore}
         - {slot: 22, material: NETHER_STAR, name: events:menu.event.shop-name, lore: events:menu.event.shop-lore}
         - *event_help
         - *event_back
@@ -230,7 +249,7 @@ surfaces:
         - {slot: 13, material: REDSTONE, name: events:menu.help.traitor-name, lore: events:menu.help.traitor-lore}
         - {slot: 15, material: LAPIS_LAZULI, name: events:menu.help.detective-name, lore: events:menu.help.detective-lore}
         - {slot: 22, material: CLOCK, name: events:menu.help.flow-name, lore: events:menu.help.flow-lore}
-        - {slot: 29, material: PLAYER_HEAD, name: events:menu.help.evidence-name, lore: events:menu.help.evidence-lore}
+        - {slot: 29, material: PLAYER_HEAD, itemsadder: 'arc:player_profile_preview', name: events:menu.help.evidence-name, lore: events:menu.help.evidence-lore}
         - {slot: 31, material: CROSSBOW, name: events:menu.help.weapons-name, lore: events:menu.help.weapons-lore}
         - {slot: 33, material: COMMAND_BLOCK, name: events:menu.help.controls-name, lore: events:menu.help.controls-lore}
         - *event_back

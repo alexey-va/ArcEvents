@@ -31,4 +31,8 @@ internal fun reservationStartMessage(
         StartMessageAudience.PLAYER -> "queue.start-network-failed"
         else -> "admin.network-failed"
     }
+    ReservationStartResult.NOT_OWNER -> when (audience) {
+        StartMessageAudience.PLAYER -> "queue.start-not-owner"
+        else -> "admin.start-failed"
+    }
 }

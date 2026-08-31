@@ -2,9 +2,16 @@ prefix: '<#ff5b6e>События <#8fa6b8>·'
 command:
   player-only: '<prefix> <#c42323>Эта команда доступна только игроку.'
   no-permission: '<prefix> <#c42323>У вас нет доступа к этому действию.'
-  help: '<prefix> <#e6fff3>Меню и правила: <#92bed8>/events<#e6fff3>.<newline><#8fa6b8>   <#e6fff3>Очередь: <#92bed8>/events join  <#e6fff3>выйти: <#92bed8>/events leave<newline><#8fa6b8>   <#e6fff3>Запуск готового состава: <#92bed8>/events start<newline><#8fa6b8>   <#e6fff3>Матч: <#92bed8>/events status  <#e6fff3>состав: <#92bed8>/events roster<newline><#8fa6b8>   <#e6fff3>Магазин: <#92bed8>/events shop  <#e6fff3>итоги: <#92bed8>/events report'
+  help: |-
+    <prefix> <#e6fff3>Меню и правила: <#92bed8>/events
+    <#8c8c8c>   Очередь: <#92bed8>/events join  <#8c8c8c>выйти: <#92bed8>/events leave
+    <#8c8c8c>   Запуск состава: <#92bed8>/events start
+    <#8c8c8c>   Матч: <#92bed8>/events status  <#8c8c8c>состав: <#92bed8>/events roster
+    <#8c8c8c>   Магазин: <#92bed8>/events shop  <#8c8c8c>итоги: <#92bed8>/events report
   unknown: '<prefix> <#c42323>Неизвестно<#8c8c8c>: <#e6fff3><input>'
-  failed: '<prefix> <#c42323>Действие не выполнено.<newline><#8fa6b8>   <#e6fff3>Причина: <reason>'
+  failed: |-
+    <prefix> <#c42323>Действие не выполнено.
+    <#8c8c8c>   Причина: <#e6fff3><reason>
   reload-ok: '<prefix> <#2bba43>Конфигурация и локали обновлены.'
   reload-failed: '<prefix> <#c42323>Обновление отклонено. См. журнал.'
 
@@ -80,6 +87,12 @@ menu:
       - '<#8c8c8c>Игроков<#8c8c8c>: <#e3b341><queue><#8c8c8c>/<#e3b341><minimum>'
       - ''
       - '<#8c8c8c>[<#7bd88f>▶<#8c8c8c>] <#7bd88f>Нажмите<#f2f0e6> — запустить'
+    arena-name: '<#92bed8>Выбрать карту'
+    arena-lore:
+      - '<#f2f0e6>Карта следующего раунда: <selected_arena><#f2f0e6>.'
+      - '<#8c8c8c>Выбор доступен создателю состава.'
+      - ''
+      - '<#8c8c8c>[<#92bed8>▶<#8c8c8c>] <#92bed8>Нажмите<#f2f0e6> — открыть карты'
     roster-name: '<#92bed8><bold>Состав раунда'
     roster-lore:
       - '<#f2f0e6>Живые, пропавшие и найденные игроки.'
@@ -159,7 +172,7 @@ menu:
     controls-name: '<#92bed8><bold>Команды'
     controls-lore:
       - '<#8c8c8c>/events shop <#f2f0e6>— магазин роли'
-      - '<#8c8c8c>/events team \<текст> <#f2f0e6>— командный чат'
+      - '<#8c8c8c>/events team [текст] <#f2f0e6>— командный чат'
       - '<#8c8c8c>/events status <#f2f0e6>— состояние матча'
       - '<#8c8c8c>/events leave <#f2f0e6>— срочно покинуть событие'
       - '<#8c8c8c>/events spawn <#f2f0e6>— вернуться на спавн карты'
@@ -211,6 +224,18 @@ menu:
     auto-lore:
       - '<#f2f0e6>Выбирать готовую карту из набора для каждого матча.'
       - '<#8c8c8c>Выбор воспроизводим по идентификатору матча.'
+  event-arenas:
+    title: '<#20252b>Карта следующего раунда'
+    entry-name: '<arena>'
+    entry-lore:
+      - '<#8c8c8c>Выбор: <selection>'
+      - ''
+      - '<#8c8c8c>[<#92bed8>▶<#8c8c8c>] <#92bed8>Нажмите<#f2f0e6> — выбрать'
+    auto-name: '<#e3b341>Автоматическая ротация'
+    auto-lore:
+      - '<#f2f0e6>Сервер выберет готовую карту автоматически.'
+      - ''
+      - '<#8c8c8c>[<#e3b341>▶<#8c8c8c>] <#e3b341>Нажмите<#f2f0e6> — выбрать'
   shop:
     title: '<#20252b>Магазин роли — <credits> кр.'
     credits-name: '<#e3b341><bold>Кредиты роли'
@@ -339,12 +364,12 @@ arena:
     name: '<#e3b341>автоматическая ротация'
   citadel:
     name: '<#d6a8ff><bold>Цитадель'
-  inferno:
-    name: '<#e3b341><bold>Inferno'
-  mirage:
-    name: '<#e3b341><bold>Mirage'
-  nuke:
-    name: '<#e3b341><bold>Nuke'
+  japanese-lobby:
+    name: '<#e3b341>Японский двор'
+  edged-mansion:
+    name: '<#d6a8ff>Особняк на краю'
+  practice-yard:
+    name: '<#7bd88f>Тренировочный двор'
   state:
     ready: '<#7bd88f>готова'
     active: '<#d6a8ff>идёт текущий матч'
@@ -372,21 +397,53 @@ phase:
   cancelled: '<#d84a4a>отменён'
 
 queue:
-  joined: '<prefix> <#55ff88>Место в очереди подтверждено.<newline><#8fa6b8>   <#ffffff>Состав: <#ffcc33><queue>/<#ffcc33><minimum>'
-  already: '<prefix> <#ff9f0f>Вы уже участвуете в сборе состава.<newline><#8fa6b8>   <#8c8c8c>Текущий статус доступен в <#92bed8>/events<#8c8c8c>.'
-  left: '<prefix> <#7bd88f>Вы покинули очередь.<newline><#8fa6b8>   <#8c8c8c>Ваше место освобождено.'
-  not-queued: '<prefix> <#ff9f0f>Вы ещё не вставали в очередь.<newline><#8fa6b8>   <#8c8c8c>Выберите событие в <#92bed8>/events<#8c8c8c>.'
-  leave-reserved: '<prefix> <#ff9f0f>Состав уже закреплён.<newline><#8fa6b8>   <#ffffff>Срочная эвакуация: <#32d6ff>/events leave'
-  unavailable: '<prefix> <#d84a4a>Событие сейчас недоступно.<newline><#8fa6b8>   <#8c8c8c>Попробуйте открыть <#92bed8>/events<#8c8c8c> немного позже.'
-  full: '<prefix> <#d84a4a>Очередь уже заполнена.<newline><#8fa6b8>   <#8c8c8c>Попробуйте снова после старта текущего состава.'
+  joined: |-
+    <prefix> <#55ff88>Место в очереди подтверждено.
+    <#8c8c8c>   Состав: <#ffcc33><queue>/<minimum>
+  already: |-
+    <prefix> <#ff9f0f>Вы уже участвуете в сборе состава.
+    <#8c8c8c>   Текущий статус: <#92bed8>/events
+  left: |-
+    <prefix> <#7bd88f>Вы покинули очередь.
+    <#8c8c8c>   Ваше место освобождено.
+  not-queued: |-
+    <prefix> <#ff9f0f>Вы ещё не вставали в очередь.
+    <#8c8c8c>   Выберите ивент: <#92bed8>/events
+  leave-reserved: |-
+    <prefix> <#ff9f0f>Состав уже закреплён.
+    <#8c8c8c>   Срочная эвакуация: <#32d6ff>/events leave
+  unavailable: |-
+    <prefix> <#d84a4a>Ивент сейчас недоступен.
+    <#8c8c8c>   Попробуйте снова немного позже.
+  full: |-
+    <prefix> <#d84a4a>Очередь уже заполнена.
+    <#8c8c8c>   Дождитесь старта текущего состава.
   reserved: '<prefix> <#55ff88>Состав собран.'
-  returned: '<prefix> <#7bd88f>Возвращение завершено.<newline><#8fa6b8>   <#8c8c8c>Вы снова на исходном сервере.'
-  start-requested: '<prefix> <#7bd88f>Запуск подтверждён.<newline><#8fa6b8>   <#f2f0e6>Состав закреплён.'
-  start-insufficient: '<prefix> <#ff9f0f>Состав ещё не готов.<newline><#8fa6b8>   <#f2f0e6>Дождитесь минимального числа игроков.'
-  start-arena-unavailable: '<prefix> <#d84a4a>Арена сейчас не готова.<newline><#8fa6b8>   <#8c8c8c>Попробуйте запустить событие позже.'
-  start-busy: '<prefix> <#ff9f0f>Другой матч уже запускается или идёт.<newline><#8fa6b8>   <#8c8c8c>Дождитесь его завершения.'
-  start-recovery-pending: '<prefix> <#ff9f0f>Сначала завершается прошлый матч.<newline><#8fa6b8>   <#8c8c8c>Идёт безопасное восстановление игроков.'
-  start-network-failed: '<prefix> <#d84a4a>Запуск не подтверждён сетью событий.<newline><#8fa6b8>   <#8c8c8c>Повторите попытку немного позже.'
+  returned: |-
+    <prefix> <#7bd88f>Возвращение завершено.
+    <#8c8c8c>   Вы снова на исходном сервере.
+  start-requested: |-
+    <prefix> <#7bd88f>Запуск подтверждён.
+    <#8c8c8c>   Состав закреплён.
+  start-insufficient: |-
+    <prefix> <#ff9f0f>Состав ещё не готов.
+    <#8c8c8c>   Дождитесь нужного числа игроков.
+  start-arena-unavailable: |-
+    <prefix> <#d84a4a>Арена сейчас не готова.
+    <#8c8c8c>   Попробуйте запустить ивент позже.
+  start-busy: |-
+    <prefix> <#ff9f0f>Другой матч уже идёт.
+    <#8c8c8c>   Дождитесь его завершения.
+  start-recovery-pending: |-
+    <prefix> <#ff9f0f>Прошлый матч ещё завершается.
+    <#8c8c8c>   Восстанавливаем игроков.
+  start-network-failed: |-
+    <prefix> <#d84a4a>Сеть не подтвердила запуск.
+    <#8c8c8c>   Повторите попытку немного позже.
+  start-not-owner: |-
+    <prefix> <#ff9f0f>Запуск доступен создателю состава.
+    <#8c8c8c>   Если он выйдет, управление перейдёт дальше.
+  arena-selected: '<prefix> <#7bd88f>Карта следующего раунда: <arena><#f2f0e6>.'
 
 match:
   unavailable: '<prefix> <#ff9f0f>Вы сейчас не участвуете в матче.'
@@ -404,7 +461,9 @@ match:
   started: '<#55ff88><bold>Раунд начался  <#ffffff>ищите тела и улики.'
   started-title: '<#55ff88><bold>Раунд начался'
   started-subtitle: '<#ffffff>Найдите предателей или сохраните прикрытие'
-  detectives-announced: '<#32d6ff><bold>Детективы раунда<newline><#32d6ff>◆ <#ffffff><players>'
+  detectives-announced: |-
+    <#32d6ff>Детективы раунда
+    <#8c8c8c>   <#f2f0e6><players>
   time-title: '<#f2f0e6>До конца: <#e3b341><time>'
   grace: '<#ffcc33><bold>Оружие включится после отсчёта.'
   eliminated: '<#ff5b6e><bold><player> <#ffffff>выбывает из раунда.'
@@ -418,15 +477,27 @@ match:
   cancelled-title: '<#ff9f0f>Матч остановлен'
   cancelled-subtitle: '<#f2f0e6>Состояние игроков восстанавливается'
   restored: '<prefix> <#2bba43>Состояние до события восстановлено.'
-  evacuated: '<prefix> <#7bd88f>Эвакуация завершена.<newline><#8fa6b8>   <#f2f0e6>Состояние до события восстановлено.'
-  spawn-return-requested: '<prefix> <#e3b341>Возврат на спавн карты начат.<newline><#8fa6b8>   <#f2f0e6>Не двигайтесь <#e3b341><seconds> секунд<#f2f0e6>.'
+  evacuated: |-
+    <prefix> <#7bd88f>Эвакуация завершена.
+    <#8c8c8c>   Состояние до ивента восстановлено.
+  spawn-return-requested: |-
+    <prefix> <#e3b341>Возврат на спавн карты начат.
+    <#8c8c8c>   Не двигайтесь <#e3b341><seconds> секунд<#8c8c8c>.
   spawn-return-actionbar: '<#e3b341>Не двигайтесь <#f2f0e6>возврат через <#e3b341><seconds> сек.'
   spawn-return-cancelled: '<#d84a4a>Возврат отменён <#f2f0e6>вы сдвинулись или получили урон'
   spawn-return-complete: '<prefix> <#7bd88f>Вы возвращены на общий спавн карты.'
-  spawn-return-unavailable: '<prefix> <#ff9f0f>Сейчас нельзя вернуться на спавн карты.<newline><#8fa6b8>   <#8c8c8c>Команда работает только во время вашего события.'
-  spawn-return-already: '<prefix> <#ff9f0f>Возврат уже готовится.<newline><#8fa6b8>   <#8c8c8c>Оставайтесь на месте до конца отсчёта.'
-  restore-pending: '<prefix> <#ff9f0f>Восстановление не подтверждено.<newline><#8fa6b8>   <#e6fff3>Не меняйте инвентарь. Позовите администратора.'
-  status: '<prefix> <#92bed8><phase>  <#e3b341><time><newline><#8fa6b8>   <#e6fff3>Живых: <#e3b341><alive>/<#e3b341><players>'
+  spawn-return-unavailable: |-
+    <prefix> <#ff9f0f>Сейчас вернуться на спавн нельзя.
+    <#8c8c8c>   Команда работает только внутри ивента.
+  spawn-return-already: |-
+    <prefix> <#ff9f0f>Возврат уже готовится.
+    <#8c8c8c>   Стойте на месте до конца отсчёта.
+  restore-pending: |-
+    <prefix> <#ff9f0f>Восстановление не подтверждено.
+    <#8c8c8c>   Не меняйте инвентарь. Позовите администратора.
+  status: |-
+    <prefix> <#92bed8><phase>  <#e3b341><time>
+    <#8c8c8c>   Живых: <#e3b341><alive>/<players>
 
 role:
   innocent-title: '<#55ff88><bold>Вы мирный'
@@ -594,7 +665,7 @@ shop:
   medkit-full: '<prefix> <#ff9f0f>Ваше здоровье уже заполнено.'
 
 team:
-  usage: '<prefix> <#e6fff3>Чат: <#92bed8>/events team \<текст>'
+  usage: '<prefix> <#e6fff3>Чат: <#92bed8>/events team [текст]'
   unavailable: '<prefix> <#ff9f0f>Сейчас командный чат недоступен.'
   message: '<#666666>[Команда] <role> <#f2f0e6><player><#8c8c8c>: <#f2f0e6><message>'
 
@@ -616,7 +687,7 @@ admin:
   no-match: '<prefix> <#ff9f0f>Активного матча нет.'
   recovery-started: '<prefix> <#e6fff3>Восстановление повторено<#8c8c8c>: <#e3b341><players> игроков<#e6fff3>.'
   weapon-points:
-    usage: '<prefix> <#e6fff3>Оружие: <#92bed8>/events admin weapons \<add|remove|show>'
+    usage: '<prefix> <#e6fff3>Оружие: <#92bed8>/events admin weapons [add|remove|show]'
     added: '<prefix> <#2bba43>Точка добавлена <#8c8c8c>— <#e3b341><count><#8c8c8c>/<#e3b341><target> <#e6fff3>на <arena><#e6fff3>.'
     removed: '<prefix> <#2bba43>Точка удалена <#8c8c8c>— <#e3b341><count><#8c8c8c>/<#e3b341><target> <#e6fff3>на <arena><#e6fff3>.'
     shown: '<prefix> <#e6fff3>Точки <arena> <#e6fff3>показаны<#8c8c8c>: <#e3b341><count><#8c8c8c>/<#e3b341><target><#e6fff3>.'
@@ -631,7 +702,13 @@ admin:
 
 debug:
   disabled: '<prefix> <#c42323>Debug выключен в config.yml.'
-  usage: '<prefix> <#e6fff3>Отладочный стенд:<newline><#8fa6b8>   <#92bed8>[status]|[player]|[network]|[arenas]|[recovery]|[bodies] <#8c8c8c>— снимки<newline><#8fa6b8>   <#92bed8>[start]|[bootstrap \<arena|auto>]|[advance]|[end]|[timer]|[cleanup] <#8c8c8c>— раунд<newline><#8fa6b8>   <#92bed8>[credit]|[role]|[health]|[kill]|[revive] <#8c8c8c>— игрок<newline><#8fa6b8>   <#92bed8>[weapon]|[ammo]|[item]|[loot] <#8c8c8c>— снаряжение<newline><#8fa6b8>   <#92bed8>[discover]|[dna]|[call]|[menu]|[close] <#8c8c8c>— улики и GUI'
+  usage: |-
+    <prefix> <#e6fff3>Отладочный стенд
+    <#8c8c8c>   <#92bed8>[status]|[player]|[network]|[arenas]|[recovery]|[bodies] <#8c8c8c>— снимки
+    <#8c8c8c>   <#92bed8>[start]|[bootstrap arena|auto]|[advance]|[end]|[timer]|[cleanup] <#8c8c8c>— раунд
+    <#8c8c8c>   <#92bed8>[credit]|[role]|[health]|[kill]|[revive] <#8c8c8c>— игрок
+    <#8c8c8c>   <#92bed8>[weapon]|[ammo]|[item]|[loot] <#8c8c8c>— снаряжение
+    <#8c8c8c>   <#92bed8>[discover]|[dna]|[call]|[menu]|[close] <#8c8c8c>— улики и GUI
   applied: '<prefix> <#2bba43>Отладочное действие выполнено: <#e3b341><action><#e6fff3>.'
   rejected: '<prefix> <#c42323>Действие <#e3b341><action> <#c42323>не выполнено<#8c8c8c>: <#f2f0e6><reason><#8c8c8c>.'
   reason:

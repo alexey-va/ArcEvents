@@ -96,6 +96,26 @@ class ArenaPoolTest : StringSpec({
             root.toFile().deleteRecursively()
         }
     }
+
+    "reload clears a selected arena that is no longer runtime ready" {
+        val root = Files.createTempDirectory("arcevents-pool-reload-")
+        try {
+            Files.writeString(root.resolve("config.yml"), hostConfig())
+            val config = ArcEventsConfig.inspect(root)
+            val ready = mutableSetOf("alpha", "beta")
+            val pool = ArenaPool({ config }) { arena, _ -> arena.id in ready }
+
+            pool.selectNext("beta") shouldBe true
+            ready.remove("beta")
+            pool.reconfigure()
+
+            pool.entries().none { it.next } shouldBe true
+            pool.reserve(UUID.randomUUID(), "beta") shouldBe null
+            pool.readyIds() shouldBe listOf("alpha")
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
 }) {
     companion object {
         private fun hostConfig(): String {

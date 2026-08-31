@@ -82,12 +82,12 @@ internal class ArcEventsDialogMenu(
         return dialog(player, "menu.main.title", emptyList(), actions, columns = 2)
     }
 
-    fun openTtt(player: Player, queueState: QueueState?, plan: EventMenuPlan): Boolean {
+    fun openTtt(player: Player, queueState: QueueState?, plan: EventMenuPlan, selectedArena: Component): Boolean {
         if (!dialogFrontendSupported(settings().ui.dialogsEnabled, protocols.resolve(player), EventsView.Ttt)) return false
-        return runCatching { player.showDialog(ttt(player, queueState, plan)) }.isSuccess
+        return runCatching { player.showDialog(ttt(player, queueState, plan, selectedArena)) }.isSuccess
     }
 
-    private fun ttt(player: Player, queueState: QueueState?, plan: EventMenuPlan): Dialog {
+    private fun ttt(player: Player, queueState: QueueState?, plan: EventMenuPlan, selectedArena: Component): Dialog {
         val state = service.snapshot()
         val values = mapOf(
             "queue" to locale.text(state.queueSize),
@@ -96,6 +96,7 @@ internal class ArcEventsDialogMenu(
                 if (state.arenaReady) "state.arena-ready" else "state.arena-unavailable",
                 player,
             ),
+            "selected_arena" to selectedArena,
         )
         val bodies = buildList {
             add(body(Material.SPYGLASS, player, "menu.event.overview-name", "menu.event.overview-lore", values))
@@ -116,6 +117,9 @@ internal class ArcEventsDialogMenu(
                 plan.showLeave -> add(button(player, "menu.event.leave-name", "menu.event.leave-lore", EventsView.Ttt, 22))
             }
             if (plan.showStart) add(button(player, "menu.event.start-name", "menu.event.start-lore", EventsView.Ttt, 24, values))
+            if (plan.showArenaSelection) {
+                add(button(player, "menu.event.arena-name", "menu.event.arena-lore", EventsView.Ttt, 29, values))
+            }
             if (plan.showRoster) add(button(player, "menu.event.roster-name", "menu.event.roster-lore", EventsView.Ttt, 20))
             if (plan.showShop) add(button(player, "menu.event.shop-name", "menu.event.shop-lore", EventsView.Ttt, 22))
             if (plan.showReport) add(button(player, "menu.event.report-name", "menu.event.report-lore", EventsView.Ttt, 24))

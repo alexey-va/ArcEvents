@@ -19,6 +19,7 @@ class TttMatchRuntime(
     private val engine: () -> TttMatchEngine,
     private val clock: () -> Long = System::currentTimeMillis,
 ) : EventGameRuntime<TttMatch> {
+    @Volatile
     override var current: TttMatch? = null
         private set
     private val phaseCountdown = PhaseCountdown()

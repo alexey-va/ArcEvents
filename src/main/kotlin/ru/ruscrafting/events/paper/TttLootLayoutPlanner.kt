@@ -2,6 +2,7 @@ package ru.ruscrafting.events.paper
 
 import ru.ruscrafting.events.config.EventLocation
 import ru.ruscrafting.events.domain.FirearmId
+import ru.ruscrafting.events.domain.FirearmSpec
 import ru.ruscrafting.events.domain.TttFirearmCatalog
 import kotlin.math.floor
 import kotlin.random.Random
@@ -29,6 +30,7 @@ object TttLootLayoutPlanner {
         guaranteedWeaponPoints: List<EventLocation>,
         weaponCount: Int,
         seed: Long,
+        catalog: Map<FirearmId, FirearmSpec> = TttFirearmCatalog.specs,
     ): List<TttLootSpawn> {
         require(points.isNotEmpty()) { "Imported loot catalog is empty" }
         require(points.map(EventLocation::blockKey).distinct().size == points.size) {
@@ -51,7 +53,7 @@ object TttLootLayoutPlanner {
         }
         val selectedRandomPoints = randomPoints.take(randomSlotCount)
         val randomWeaponCount = weaponCount - guaranteedWeaponPoints.size
-        val firearms = TttFirearmCatalog.lootSelection(weaponCount, seed xor LOOT_SEED_SALT).iterator()
+        val firearms = TttFirearmCatalog.lootSelection(catalog, weaponCount, seed xor LOOT_SEED_SALT).iterator()
 
         return buildList(points.size) {
             guaranteedWeaponPoints.forEach { point ->

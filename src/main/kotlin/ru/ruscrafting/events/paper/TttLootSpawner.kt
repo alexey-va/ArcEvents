@@ -38,7 +38,7 @@ class TttLootSpawner(
 
     private fun layout(arena: ArenaSettings, seed: Long): List<TttLootSpawn> =
         if (arena.template == TttCitadelBlueprint.TEMPLATE) {
-            TttCitadelLoot.layout(seed).map { spawn ->
+            TttCitadelLoot.layout(seed, firearms.catalog()).map { spawn ->
                 TttLootSpawn(
                     point = EventLocation(arena.world, spawn.point.x, spawn.point.y, spawn.point.z),
                     firearm = spawn.firearm,
@@ -52,6 +52,7 @@ class TttLootSpawner(
                 guaranteedWeaponPoints = weaponPoints.points(arena),
                 weaponCount = arena.weaponCount,
                 seed = seed,
+                catalog = firearms.catalog(),
             )
         }
 }

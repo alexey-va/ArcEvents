@@ -15,10 +15,11 @@ so an arrow from an old round cannot affect a later one.
   match. Production uses a pool of dedicated, ArcEvents-owned worlds.
 - Redis carries bounded queue, reservation, node-heartbeat, match-summary, and
   statistics records. Active combat remains authoritative on the host.
-- An authorized player may start the queued roster from any backend. A relay
-  first ensures that player is queued, sends a target-bound, replay-bounded
-  start request to the configured host, and receives a correlated result; the
-  host remains the only node that can reserve players or create a match.
+- The first player to create the queue becomes its durable event creator. Only
+  that player (or a global `arcevents.admin`) may choose the next arena and
+  start the roster. A relay sends a target-bound, replay-bounded request with
+  the creator identity to the configured host; the host validates ownership
+  again and remains the only node that can reserve players or create a match.
 - A relay never clears an inventory. The host writes one atomic recovery batch
   for the entire match before the first gameplay mutation, verifies every
   restored surface, saves player data, and only then acknowledges the snapshot.
@@ -40,15 +41,29 @@ disguised, system-chat, and action-bar packets through an installed ProtocolLib
 build compatible with the exact server version. This packet boundary is a
 soft-dependency and is disabled by default.
 
-Production rotates between three reviewed imported worlds:
-`cs2-inferno-v1`, `cs2-mirage-v1`, and `cs2-nuke-v1`. One arena is leased when a reservation is accepted and released
-only after player restoration finishes. An administrator may choose the next
-ready arena once or return to deterministic automatic rotation. Imported
-worlds require exact ownership/source markers, no datapacks or symlinks, and a
-startup scan that rejects command-block tile entities, removes imported
+Production rotates between three lightweight packaged arenas:
+[Japanese Lobby](https://www.planetminecraft.com/project/japanese-lobby-6691829/)
+by CedricD0812,
+[Edged Mansion](https://www.planetminecraft.com/project/edged-mansion/)
+by kostahansen, and
+[Practice Map Build](https://www.planetminecraft.com/project/pratice-map-build/)
+by Zyumie.
+Each is used under CC BY 4.0 with its author and source URL embedded in an
+immutable manifest. The exact reviewed artifact is bundled with a SHA-256
+checksum; schematic builds are cropped before an entity-free WorldEdit paste.
+For the Anvil build, ArcEvents creates a clean Paper `level.dat` and transplants
+only the reviewed region file; downloaded world metadata is never packaged or loaded.
+All three passed license, archive, command-content, datapack and performance
+gates. One arena is leased
+when a reservation is accepted and released only after player restoration
+finishes. The queue creator or a global administrator may choose the next ready
+arena once or return to deterministic automatic rotation. Imported
+worlds require exact ownership/source markers and source checksums, no
+datapacks, function files or symlinks, and a startup scan that rejects
+command-block tile entities, removes imported
 non-player entities, and clears standing and wall banners before a round can
 use the world. Command blocks are also
-disabled by world gamerule. Every participant uses the same configured map
+disabled globally in `server.properties` and again by world gamerule. Every participant uses the same configured map
 spawn. Dedicated arena worlds cap view distance at six chunks and simulation
 distance at four. Runtime readiness requires solid footing, two passable
 blocks, and WorldGuard/Paper PvP permission at every player-facing point.
@@ -90,10 +105,14 @@ rules and Bukkit presentation.
 - `/events admin` — operator GUI. `status|player|network|arenas|recovery` are
   readable diagnostics; `arena <id|auto>`, `start [id]`, `stop`, `reload`, and
   `recover` operate the map pool, queue, round, config, and escrow recovery.
-- `/events reload` — direct `arcevents.admin` shortcut. Locale text and every
-  `ui.nameplates` option are applied immediately, including during a live
-  round; gameplay and weapon changes wait for an idle event, while network,
-  arena identity, node identity and packet-isolation changes require restart.
+- `/events reload` — direct `arcevents.admin` shortcut. Locale text, menu/HUD
+  presentation, nameplates, loot displays, smoke, active item visuals and safe
+  world-distance limits update without stopping a live round. Match rules and
+  timing are snapshotted, so a running round remains internally consistent and
+  the new values apply to the next round. Weapon mechanics require an idle
+  event; imported-world sanitation, network, arena/node identity and packet
+  interception require restart. Rejected reloads keep the last known-good
+  runtime configuration.
 - `/events admin weapons add|remove|show` — while standing inside an idle map,
   persist an exact mandatory weapon point, remove the nearest point within
   three blocks, or preview all mandatory points with client-only particles.

@@ -4,12 +4,18 @@ import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.assertions.throwables.shouldThrow
 import java.util.UUID
+import java.lang.reflect.Modifier
 
 class TttMatchRuntimeTest : StringSpec({
     val players = (1..4).map { index ->
         QueuedPlayer(UUID.nameUUIDFromBytes("runtime-$index".toByteArray()), "Player$index", "spawn", index.toLong())
     }
     val allocation = RoleAllocationSettings(4, 6, 2, 1)
+
+    "current match snapshot is safely published to asynchronous chat boundaries" {
+        val currentField = TttMatchRuntime::class.java.getDeclaredField("current")
+        Modifier.isVolatile(currentField.modifiers) shouldBe true
+    }
 
     "preparation expires after exactly the configured number of ticks" {
         val runtime = TttMatchRuntime({ TttMatchEngine(4, 12, 300_000L) }, clock = { 10_000L })

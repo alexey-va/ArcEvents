@@ -23,6 +23,11 @@ class RedisEventNetworkRepository(
     private val redis: RedisOperations,
     gson: Gson = Gson(),
 ) {
+    private data class ReservedCandidate(
+        val queued: QueueEntry,
+        val reserved: QueueEntry,
+    )
+
     private val queueCodec = codec(gson, QueueEntry::class.java, QUEUE_FIELDS, QUEUE_REQUIRED_FIELDS, QueueEntry::validated)
     private val nodeCodec = codec(gson, HostNode::class.java, NODE_FIELDS, NODE_REQUIRED_FIELDS, HostNode::validated)
     private val statsCodec = codec(gson, PlayerEventStats::class.java, STATS_FIELDS, STATS_REQUIRED_FIELDS, PlayerEventStats::validated)
@@ -157,10 +162,31 @@ class RedisEventNetworkRepository(
         maximum: Int,
         nowMs: Long,
         reservationMs: Long,
+        requiredOwnerId: UUID? = null,
+        requiredOwnerOrigin: String? = null,
     ): CompletableFuture<ReservationBatch?> = loadQueue(nowMs).thenCompose { entries ->
         val candidates = entries.filter { it.state == QueueState.QUEUED }.take(maximum)
+        val owner = candidates.firstOrNull()
+        if (requiredOwnerId != null && (
+                owner == null || owner.playerId != requiredOwnerId.toString() ||
+                    requiredOwnerOrigin != null && owner.originServer != requiredOwnerOrigin
+                )
+        ) {
+            return@thenCompose CompletableFuture.completedFuture(null)
+        }
         if (candidates.size < minimum) CompletableFuture.completedFuture(null)
-        else reserveCandidates(matchId, destinationServer, candidates, minimum, nowMs, reservationMs, 0, emptyList())
+        else reserveCandidates(
+            matchId,
+            destinationServer,
+            candidates,
+            minimum,
+            nowMs,
+            reservationMs,
+            requiredOwnerId,
+            requiredOwnerOrigin,
+            0,
+            emptyList(),
+        )
     }
 
     fun claimReservation(playerId: UUID, currentServer: String, nowMs: Long): CompletableFuture<QueueEntry?> =
@@ -246,16 +272,23 @@ class RedisEventNetworkRepository(
         minimum: Int,
         nowMs: Long,
         reservationMs: Long,
+        requiredOwnerId: UUID?,
+        requiredOwnerOrigin: String?,
         index: Int,
-        reserved: List<QueueEntry>,
+        reserved: List<ReservedCandidate>,
     ): CompletableFuture<ReservationBatch?> {
         if (index >= candidates.size) {
-            if (reserved.size >= minimum) return CompletableFuture.completedFuture(ReservationBatch(matchId, reserved))
-            return rollbackReservation(matchId, reserved, nowMs).thenApply { null }
+            if (reserved.size >= minimum) {
+                return CompletableFuture.completedFuture(ReservationBatch(matchId, reserved.map(ReservedCandidate::reserved)))
+            }
+            return rollbackReservation(matchId, reserved).thenApply { null }
         }
         val candidate = candidates[index]
         return queue.update(candidate.playerId) { current ->
-            if (current == candidate && current.state == QueueState.QUEUED && current.expiresAtMs >= nowMs) {
+            val ownerMatches = index != 0 || requiredOwnerId == null || current != null &&
+                current.playerId == requiredOwnerId.toString() &&
+                (requiredOwnerOrigin == null || current.originServer == requiredOwnerOrigin)
+            if (current == candidate && ownerMatches && current.state == QueueState.QUEUED && current.expiresAtMs >= nowMs) {
                 RedisHashDecision.Write(
                     current.copy(
                         state = QueueState.RESERVED,
@@ -267,6 +300,9 @@ class RedisEventNetworkRepository(
             } else RedisHashDecision.Reject
         }.thenCompose { result ->
             val after = (result as? RedisHashUpdateResult.Changed)?.after
+            if (requiredOwnerId != null && index == 0 && after == null) {
+                return@thenCompose rollbackReservation(matchId, reserved).thenApply { null }
+            }
             reserveCandidates(
                 matchId,
                 destinationServer,
@@ -274,28 +310,35 @@ class RedisEventNetworkRepository(
                 minimum,
                 nowMs,
                 reservationMs,
+                requiredOwnerId,
+                requiredOwnerOrigin,
                 index + 1,
-                if (after == null) reserved else reserved + after,
+                if (after == null) reserved else reserved + ReservedCandidate(candidate, after),
             )
         }
     }
 
-    private fun rollbackReservation(matchId: UUID, entries: List<QueueEntry>, nowMs: Long): CompletableFuture<*> =
-        CompletableFuture.allOf(*entries.map { expected ->
-            queue.update(expected.playerId) { current ->
-                if (current == expected && current.matchId == matchId.toString()) {
-                    RedisHashDecision.Write(
-                        current.copy(
-                            state = QueueState.QUEUED,
-                            joinedAtMs = nowMs,
-                            expiresAtMs = nowMs + 60_000L,
-                            matchId = null,
-                            destinationServer = null,
-                        ).validated(),
-                    )
+    private fun rollbackReservation(matchId: UUID, entries: List<ReservedCandidate>): CompletableFuture<Unit> {
+        val updates = entries.map { mutation ->
+            queue.update(mutation.reserved.playerId) { current ->
+                if (current == mutation.reserved && current.matchId == matchId.toString()) {
+                    RedisHashDecision.Write(mutation.queued)
                 } else RedisHashDecision.Reject
             }
-        }.toTypedArray())
+        }
+        return CompletableFuture.allOf(*updates.toTypedArray()).thenApply {
+            updates.forEach { update ->
+                when (val result = update.join()) {
+                    is RedisHashUpdateResult.Changed -> Unit
+                    is RedisHashUpdateResult.Unchanged -> Unit
+                    is RedisHashUpdateResult.Rejected -> error("ArcEvents reservation rollback was rejected")
+                    is RedisHashUpdateResult.Contended -> error(
+                        "ArcEvents reservation rollback remained contended after ${result.attempts} attempts",
+                    )
+                }
+            }
+        }
+    }
 
     private fun completeArrival(matchId: UUID, playerId: UUID): CompletableFuture<Boolean> =
         queue.update(playerId.toString()) { entry ->
@@ -337,10 +380,13 @@ class RedisEventNetworkRepository(
     }
 
     companion object {
-        const val QUEUE_KEY = "arc:events:v1:queue"
-        const val NODES_KEY = "arc:events:v1:nodes"
+        /** v2 isolates owner-aware queue reservations from legacy nodes during a coordinated restart. */
+        const val QUEUE_KEY = "arc:events:v2:queue"
+        /** v2 isolates owner/arena-aware advertisements from legacy nodes during a coordinated restart. */
+        const val NODES_KEY = "arc:events:v2:nodes"
+        /** Statistics remain wire-compatible with v1 and deliberately retain player history. */
         const val STATS_KEY = "arc:events:v1:stats"
-        const val EVENT_CHANNEL = "arc:events:v1:events"
+        const val EVENT_CHANNEL = "arc:events:v2:events"
         private const val MAX_JSON_CHARS = 64_000
         private const val MAX_CAS_ATTEMPTS = 12
         private const val MAX_CLEANUP = 256
@@ -356,15 +402,16 @@ class RedisEventNetworkRepository(
         private val QUEUE_REQUIRED_FIELDS = QUEUE_FIELDS - setOf("matchId", "destinationServer")
         private val NODE_FIELDS = setOf(
             "serverId", "mode", "available", "arenaReady", "phase", "matchId", "queueSize", "capacity", "heartbeatAtMs",
+            "arenaIds",
         )
-        private val NODE_REQUIRED_FIELDS = NODE_FIELDS - setOf("phase", "matchId")
+        private val NODE_REQUIRED_FIELDS = NODE_FIELDS - setOf("phase", "matchId", "arenaIds")
         private val STATS_FIELDS = setOf(
             "revision", "lastMatchId", "matches", "wins", "traitorWins", "innocentWins", "kills", "deaths", "karma",
         )
         private val STATS_REQUIRED_FIELDS = STATS_FIELDS - "lastMatchId"
         private val MESSAGE_FIELDS = setOf(
             "eventId", "signal", "occurredAtMs", "matchId", "playerId", "destinationServer", "queueSize", "winner",
-            "endReason", "replyTo", "startResult",
+            "endReason", "replyTo", "startResult", "requesterId", "preferredArenaId", "adminBypass",
         )
         private val MESSAGE_REQUIRED_FIELDS = setOf("eventId", "signal", "occurredAtMs")
         private val ROUTED_STATES = setOf(

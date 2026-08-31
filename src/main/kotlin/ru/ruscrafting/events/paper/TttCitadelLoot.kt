@@ -1,6 +1,7 @@
 package ru.ruscrafting.events.paper
 
 import ru.ruscrafting.events.domain.FirearmId
+import ru.ruscrafting.events.domain.FirearmSpec
 import ru.ruscrafting.events.domain.TttFirearmCatalog
 import kotlin.random.Random
 
@@ -31,9 +32,12 @@ object TttCitadelLoot {
         CitadelPoint(-32.0, 7.25, 24.0), CitadelPoint(32.0, 7.25, -24.0),
         CitadelPoint(-28.0, 16.25, 0.0), CitadelPoint(28.0, 16.25, 0.0),
     )
-    fun layout(seed: Long): List<CitadelLootSpawn> {
+    fun layout(
+        seed: Long,
+        catalog: Map<FirearmId, FirearmSpec> = TttFirearmCatalog.specs,
+    ): List<CitadelLootSpawn> {
         val random = Random(seed)
-        val weapons = TttFirearmCatalog.lootSelection(weaponPoints.size, seed)
+        val weapons = TttFirearmCatalog.lootSelection(catalog, weaponPoints.size, seed)
         val weaponLoot = weaponPoints.zip(weapons) { point, firearm -> CitadelLootSpawn(point, firearm, 0) }
         val ammoLoot = ammunitionPoints.map { point -> CitadelLootSpawn(point, null, listOf(12, 16, 20, 24).random(random)) }
         return weaponLoot + ammoLoot

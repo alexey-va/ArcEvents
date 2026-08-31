@@ -25,6 +25,7 @@ import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.config.EventBounds
 import ru.ruscrafting.events.config.EventLocation
 import ru.ruscrafting.events.config.NodeMode
+import ru.ruscrafting.events.config.TttSettings
 import ru.ruscrafting.events.domain.MatchEndReason
 import ru.ruscrafting.events.domain.MatchOutcome
 import ru.ruscrafting.events.domain.MatchPhase
@@ -120,6 +121,7 @@ class ArcEventsService(
     private data class MapSpawnReturn(
         val matchId: UUID,
         val origin: Location,
+        val movementToleranceSquared: Double,
         var secondsRemaining: Int,
         var task: ScheduledTask? = null,
     )
@@ -128,6 +130,8 @@ class ArcEventsService(
     private val match: TttMatch?
         get() = runtime.current
     private var reservation: ReservationBatch? = null
+    /** Gameplay and phase clocks are immutable for one reservation and its resulting match. */
+    private var matchSettings: TttSettings? = null
     private val arrivals = linkedMapOf<UUID, QueueEntry>()
     private val sessionTasks = mutableListOf<ScheduledTask>()
     private var mainTickTask: ScheduledTask? = null
@@ -164,7 +168,7 @@ class ArcEventsService(
             hostServer = current.hostServer,
             redisConnected = redisConnected(),
             hostAvailable = network.hostAvailable(),
-            arenaReady = arenaReady(),
+            arenaReady = network.advertisedArenaReady(),
             arenaId = arenaPool.active()?.id,
             queueSize = network.queueSize,
             matchId = active?.matchId ?: pendingReservation?.matchId,
@@ -185,6 +189,8 @@ class ArcEventsService(
     fun participant(playerId: UUID): TttParticipant? = match?.participant(playerId)
     fun stats(playerId: UUID): PlayerEventStats = network.stats(playerId)
     fun queueState(playerId: UUID): CompletableFuture<QueueState?> = network.queueState(playerId)
+    fun queueControl(playerId: UUID): CompletableFuture<QueueControlSnapshot> = network.queueControl(playerId)
+    fun selectableArenaIds(): List<String> = network.selectableArenaIds()
     fun report(): RoundReportView? = roundReport
     fun bodyId(entityId: UUID): UUID? = bodyRegistry.bodyId(entityId)
     override fun isParticipant(playerId: UUID): Boolean =
@@ -254,7 +260,8 @@ class ArcEventsService(
         if (!started || match != null || reservation != null) {
             return false
         }
-        if (arenaPool.reserve(batch.matchId) == null) return false
+        if (arenaPool.reserve(batch.matchId, batch.preferredArenaId) == null) return false
+        matchSettings = settings().ttt
         reservation = batch
         arrivals.clear()
         debug.event("reservation_created", "match" to batch.matchId, "players" to batch.entries.size)
@@ -338,12 +345,18 @@ class ArcEventsService(
             return
         }
 
-        val request = MapSpawnReturn(current.matchId, player.location.clone(), MAP_SPAWN_RETURN_SECONDS)
+        val gameplay = settings().gameplay
+        val request = MapSpawnReturn(
+            current.matchId,
+            player.location.clone(),
+            gameplay.spawnReturnMovementTolerance * gameplay.spawnReturnMovementTolerance,
+            gameplay.spawnReturnSeconds,
+        )
         mapSpawnReturns[player.uniqueId] = request
         player.sendEventMessage(locale.render(
             "match.spawn-return-requested",
             player,
-            mapOf("seconds" to locale.text(MAP_SPAWN_RETURN_SECONDS)),
+            mapOf("seconds" to locale.text(gameplay.spawnReturnSeconds)),
         ))
         request.task = Tasks.scheduler.runTimer(20L, 20L) {
             val active = match
@@ -355,7 +368,7 @@ class ArcEventsService(
                 return@runTimer
             }
             if (request.origin.world !== player.location.world ||
-                request.origin.distanceSquared(player.location) > MAP_SPAWN_MOVEMENT_TOLERANCE_SQUARED
+                request.origin.distanceSquared(player.location) > request.movementToleranceSquared
             ) {
                 cancelMapSpawnReturn(player.uniqueId)
                 return@runTimer
@@ -423,16 +436,48 @@ class ArcEventsService(
         }
     }
 
-    fun startFromQueue(requester: Player? = null): CompletableFuture<ReservationStartResult> {
+    fun startFromQueue(
+        requester: Player? = null,
+        preferredArenaId: String? = null,
+    ): CompletableFuture<ReservationStartResult> {
         if (requester != null && hasPendingRecovery(requester.uniqueId)) {
             return CompletableFuture.completedFuture(ReservationStartResult.RECOVERY_PENDING)
         }
-        return network.reserveNow(requester)
+        return network.reserveNow(requester, preferredArenaId)
+    }
+
+    /** Reconciles every live consumer after the plugin atomically swaps its settings snapshot. */
+    fun reconfigureRuntime() {
+        arenaPool.reconfigure()
+        network.reconfigure()
+        val current = match
+        current?.participants?.values?.mapNotNull { plugin.server.getPlayer(it.playerId) }?.forEach { player ->
+            runCatching {
+                player.inventory.storageContents = player.inventory.storageContents.map { stack ->
+                    stack?.let { firearms.refreshItem(it, player) }
+                }.toTypedArray()
+                player.inventory.setItemInOffHand(firearms.refreshItem(player.inventory.itemInOffHand, player))
+            }.onFailure { failure ->
+                plugin.logger.log(Level.WARNING, "ArcEvents could not refresh live items for ${player.uniqueId}", failure)
+            }
+        }
+        lootScene.reconfigure()
+        smokeGrenades.reconfigure()
+        val visible = current?.takeIf { it.phase in LIVE_PHASES }
+        val matchTtt = activeTtt()
+        val totalSeconds = when (visible?.phase) {
+            MatchPhase.PREPARING -> matchTtt.preparationSeconds
+            MatchPhase.COUNTDOWN -> matchTtt.countdownSeconds
+            MatchPhase.ACTIVE -> matchTtt.roundSeconds
+            else -> 1
+        }
+        hud.reconfigure(visible, phaseRemainingSeconds(visible), totalSeconds)
     }
 
     fun stopByAdmin(): AdminStopResult {
         reservation?.let { pending ->
             reservation = null
+            matchSettings = null
             arrivals.clear()
             arenaPool.release(pending.matchId)
             network.releaseReservation(pending)
@@ -540,7 +585,7 @@ class ArcEventsService(
                 requireNotNull(current.participant(player.uniqueId)),
                 elimination.effectiveKillerId,
                 lethal,
-                settings().ttt.bodyDespawnSeconds * 20L,
+                activeTtt().bodyDespawnSeconds * 20L,
             )
         }.onFailure { failure ->
             plugin.logger.log(Level.SEVERE, "ArcEvents could not spawn body evidence for ${player.uniqueId}", failure)
@@ -875,7 +920,13 @@ class ArcEventsService(
         lootScene.consume(item.uniqueId)
         val current = match ?: return
         if (firearm?.matchId != current.matchId.toString()) return
-        val rounds = pickupReserveRounds(firearms.spec(firearm.id).magazineSize)
+        val gameplay = settings().gameplay
+        val rounds = pickupReserveRounds(
+            firearms.spec(firearm.id).magazineSize,
+            gameplay.pickupAmmoMagazines,
+            gameplay.pickupAmmoMinimum,
+            gameplay.pickupAmmoMaximum,
+        )
         Tasks.scheduler.runLater(1L) {
             val active = match
             if (!player.isOnline || active?.matchId != current.matchId ||
@@ -884,7 +935,7 @@ class ArcEventsService(
             val ammunition = firearms.ammunition(player, firearm.matchId, rounds)
             player.inventory.addItem(ammunition).values.forEach { remainder ->
                 val dropped = player.world.dropItem(player.location, remainder)
-                lootScene.register(dropped, pickupDelay = 20)
+                lootScene.register(dropped, pickupDelay = gameplay.pickupDelayTicks)
             }
             player.sendEventActionBar(locale.render(
                 "weapon.pickup-ammo-actionbar",
@@ -1027,6 +1078,8 @@ class ArcEventsService(
             return DebugMutationResult.INSUFFICIENT_PLAYERS
         }
         val matchId = UUID.randomUUID()
+        val arena = arenaPool.reserve(matchId, arenaId) ?: return DebugMutationResult.ARENA_UNAVAILABLE
+        matchSettings = currentSettings.ttt
         val created = runtime.create(
             matchId,
             online.map { player -> QueuedPlayer(player.uniqueId, player.name, currentSettings.serverId, clock()) },
@@ -1039,7 +1092,6 @@ class ArcEventsService(
             seed = matchId.mostSignificantBits xor matchId.leastSignificantBits,
             nowMs = clock(),
         )
-        val arena = arenaPool.reserve(matchId, arenaId) ?: return DebugMutationResult.ARENA_UNAVAILABLE
         var mutationAttempted = false
         return runCatching {
             runtime.clearTransientState()
@@ -1065,6 +1117,7 @@ class ArcEventsService(
                 if (mutationAttempted) cancel(MatchEndReason.SHUTDOWN) else abortUnmutatedPreparation(online)
             } else {
                 arenaPool.release(matchId)
+                matchSettings = null
             }
             DebugMutationResult.INTERNAL_ERROR
         }
@@ -1130,7 +1183,8 @@ class ArcEventsService(
             revision = current.revision + 1,
             participants = current.participants + (player.uniqueId to participant.copy(role = role)),
         )
-        val valid = runCatching { changed.validated(settings().ttt.minimumPlayers, settings().ttt.maximumPlayers) }.getOrNull()
+        val ttt = activeTtt()
+        val valid = runCatching { changed.validated(ttt.minimumPlayers, ttt.maximumPlayers) }.getOrNull()
             ?: return DebugMutationResult.ROLE_INVARIANT
         runtime.replace(valid)
         return DebugMutationResult.APPLIED
@@ -1223,7 +1277,10 @@ class ArcEventsService(
         runtime.replace(current.copy(
             revision = current.revision + 1,
             participants = current.participants + (player.uniqueId to participant.copy(status = ParticipantStatus.ALIVE, deaths = 0)),
-        ).validated(settings().ttt.minimumPlayers, settings().ttt.maximumPlayers))
+        ).let { changed ->
+            val ttt = activeTtt()
+            changed.validated(ttt.minimumPlayers, ttt.maximumPlayers)
+        })
         bodyRegistry.removeVictim(player.uniqueId)
         player.gameMode = GameMode.ADVENTURE
         player.health = player.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20.0
@@ -1311,8 +1368,10 @@ class ArcEventsService(
             .filter(Player::isOnline).distinctBy(Player::getUniqueId)
         arrivals.clear()
         val currentSettings = settings()
-        if (online.size < currentSettings.ttt.minimumPlayers) {
+        val matchTtt = activeTtt()
+        if (online.size < matchTtt.minimumPlayers) {
             arenaPool.release(batch.matchId)
+            matchSettings = null
             network.releaseReservation(batch)
             debug.event("reservation_cancelled", "match" to batch.matchId, "arrived" to online.size)
             return
@@ -1327,15 +1386,15 @@ class ArcEventsService(
                 batch.matchId,
                 entries.map(QueueEntry::queuedPlayer),
                 RoleAllocationSettings(
-                    currentSettings.ttt.traitorPlayerRatio,
-                    currentSettings.ttt.detectiveMinimumPlayers,
-                    currentSettings.ttt.traitorCredits,
-                    currentSettings.ttt.detectiveCredits,
+                    matchTtt.traitorPlayerRatio,
+                    matchTtt.detectiveMinimumPlayers,
+                    matchTtt.traitorCredits,
+                    matchTtt.detectiveCredits,
                 ),
                 seed = batch.matchId.mostSignificantBits xor batch.matchId.leastSignificantBits,
                 nowMs = clock(),
             )
-            val prepared = runtime.prepare(created, currentSettings.ttt.preparationSeconds)
+            val prepared = runtime.prepare(created, matchTtt.preparationSeconds)
             escrow.commitThenMutate(
                 batch.matchId,
                 online,
@@ -1367,6 +1426,7 @@ class ArcEventsService(
                 if (mutationAttempted) cancel(MatchEndReason.SHUTDOWN) else abortUnmutatedPreparation(online)
             } else {
                 arenaPool.release(batch.matchId)
+                matchSettings = null
             }
         }
     }
@@ -1418,7 +1478,7 @@ class ArcEventsService(
         }
         spawnLoot(current)
         hud.open(current)
-        hud.update(current, runtime.phaseSecondsRemaining(), settings().ttt.preparationSeconds)
+        hud.update(current, runtime.phaseSecondsRemaining(), activeTtt().preparationSeconds)
     }
 
     private fun beginCountdown() {
@@ -1428,9 +1488,9 @@ class ArcEventsService(
             cancel(MatchEndReason.INSUFFICIENT_PLAYERS)
             return
         }
-        val countdown = runtime.beginCountdown(settings().ttt.countdownSeconds)
+        val countdown = runtime.beginCountdown(activeTtt().countdownSeconds)
         revealRoles(countdown)
-        hud.update(countdown, runtime.phaseSecondsRemaining(), settings().ttt.countdownSeconds)
+        hud.update(countdown, runtime.phaseSecondsRemaining(), activeTtt().countdownSeconds)
         debug.event("match_countdown", "match" to current.matchId, "seconds" to runtime.phaseSecondsRemaining())
     }
 
@@ -1488,7 +1548,7 @@ class ArcEventsService(
                 player.world.spawnParticle(Particle.END_ROD, player.location.add(0.0, 1.0, 0.0), 32, 0.8, 1.0, 0.8, 0.035)
             }
         }
-        hud.update(active, settings().ttt.roundSeconds, settings().ttt.roundSeconds)
+        hud.update(active, activeTtt().roundSeconds, activeTtt().roundSeconds)
         debug.event("match_active", "match" to current.matchId, "deadline" to active.deadlineMs)
     }
 
@@ -1501,7 +1561,7 @@ class ArcEventsService(
                     beginCountdown()
                     return
                 }
-                hud.update(current, phaseTick.secondsRemaining, settings().ttt.preparationSeconds)
+                hud.update(current, phaseTick.secondsRemaining, activeTtt().preparationSeconds)
             }
             MatchPhase.COUNTDOWN -> {
                 val phaseTick = runtime.tickPhase()
@@ -1509,7 +1569,7 @@ class ArcEventsService(
                     activateRound()
                     return
                 }
-                hud.update(current, phaseTick.secondsRemaining, settings().ttt.countdownSeconds)
+                hud.update(current, phaseTick.secondsRemaining, activeTtt().countdownSeconds)
                 current.participants.values.mapNotNull { plugin.server.getPlayer(it.playerId) }.forEach { player ->
                     player.showTitle(Title.title(
                         locale.render("match.countdown-title", player, mapOf("seconds" to locale.text(phaseTick.secondsRemaining))),
@@ -1521,7 +1581,7 @@ class ArcEventsService(
             }
             MatchPhase.ACTIVE -> {
                 val (changed, outcome) = runtime.tickActive()
-                hud.update(changed, remainingSeconds(changed).toInt(), settings().ttt.roundSeconds)
+                hud.update(changed, remainingSeconds(changed).toInt(), activeTtt().roundSeconds)
                 if (outcome is MatchOutcome.Finished) resolve(changed)
             }
             else -> Unit
@@ -1575,7 +1635,7 @@ class ArcEventsService(
                 plugin.logger.log(Level.WARNING, "ArcEvents could not submit round statistics for ${participant.playerId}", failure)
             }
         }
-        runCatching { Tasks.scheduler.runLater(settings().ttt.postRoundSeconds * 20L) { beginRestoration() } }
+        runCatching { Tasks.scheduler.runLater(activeTtt().postRoundSeconds * 20L) { beginRestoration() } }
             .onSuccess(sessionTasks::add)
             .onFailure { failure ->
                 plugin.logger.log(Level.SEVERE, "ArcEvents could not schedule restoration for ${current.matchId}", failure)
@@ -1665,6 +1725,7 @@ class ArcEventsService(
         arenaPool.release(current.matchId)
         recoveryReadFailures.remove(current.matchId)
         runtime.release()
+        matchSettings = null
     }
 
     private fun markRecovered(playerId: UUID, recovery: PlayerRecovery) {
@@ -1781,7 +1842,7 @@ class ArcEventsService(
         val headshot = result.hitPosition.y >= target.eyeLocation.y - 0.38
         pendingHit = PendingHitContext(shooter.uniqueId, target.uniqueId, "firearm.$firearmId", headshot)
         try {
-            target.damage(baseDamage * if (headshot) 1.5 else 1.0, shooter)
+            target.damage(baseDamage * if (headshot) settings().gameplay.headshotMultiplier else 1.0, shooter)
         } finally {
             pendingHit = null
         }
@@ -1817,7 +1878,9 @@ class ArcEventsService(
             }
             radarTarget(player, active, participant)?.let { player.compassTarget = it.location }
         }
-        sessionTasks += Tasks.scheduler.runLater(30L * 20L) { radarTasks.remove(player.uniqueId)?.cancel() }
+        sessionTasks += Tasks.scheduler.runLater(settings().gameplay.radarDurationSeconds * 20L) {
+            radarTasks.remove(player.uniqueId)?.cancel()
+        }
         return true
     }
 
@@ -1842,7 +1905,7 @@ class ArcEventsService(
             return false
         }
         consumeMainHand(player)
-        player.health = (player.health + 8.0).coerceAtMost(maximum)
+        player.health = (player.health + settings().gameplay.medkitHealing).coerceAtMost(maximum)
         if (settings().ui.sounds) player.playSound(player.location, Sound.ENTITY_PLAYER_LEVELUP, 0.55f, 1.4f)
         return true
     }
@@ -1904,9 +1967,11 @@ class ArcEventsService(
     }
 
     private fun engine(): TttMatchEngine {
-        val ttt = settings().ttt
+        val ttt = activeTtt()
         return TttMatchEngine(ttt.minimumPlayers, ttt.maximumPlayers, ttt.roundSeconds * 1_000L)
     }
+
+    private fun activeTtt(): TttSettings = matchSettings ?: settings().ttt
 
     private fun remainingSeconds(current: TttMatch?): Long {
         if (current?.phase != MatchPhase.ACTIVE) return 0
@@ -1930,7 +1995,7 @@ class ArcEventsService(
             participant.status in setOf(ParticipantStatus.RESERVED, ParticipantStatus.ALIVE) &&
                 plugin.server.getPlayer(participant.playerId)?.isOnline == true
         }
-        return playable.size >= settings().ttt.minimumPlayers &&
+        return playable.size >= activeTtt().minimumPlayers &&
             playable.any { it.role == TttRole.TRAITOR } &&
             playable.any { it.role.team == TttTeam.INNOCENTS }
     }
@@ -1954,6 +2019,7 @@ class ArcEventsService(
         }
         arenaPool.clear()
         reservation = null
+        matchSettings = null
         arrivals.clear()
         when (match?.phase) {
             MatchPhase.PREPARING, MatchPhase.COUNTDOWN, MatchPhase.ACTIVE -> cancel(MatchEndReason.SHUTDOWN)
@@ -1976,8 +2042,6 @@ class ArcEventsService(
     private fun Location.eventLocation(): EventLocation = EventLocation(world.name, x, y, z, yaw, pitch)
 
     companion object {
-        private const val MAP_SPAWN_RETURN_SECONDS = 10
-        private const val MAP_SPAWN_MOVEMENT_TOLERANCE_SQUARED = 0.0025
         private val LIVE_PHASES = setOf(MatchPhase.PREPARING, MatchPhase.COUNTDOWN, MatchPhase.ACTIVE)
         private val EVACUATION_PHASES = LIVE_PHASES + setOf(
             MatchPhase.RESOLVING,
@@ -2003,7 +2067,12 @@ class ArcEventsService(
     }
 }
 
-internal fun pickupReserveRounds(magazineSize: Int): Int = (magazineSize * 3).coerceIn(12, 48)
+internal fun pickupReserveRounds(
+    magazineSize: Int,
+    magazines: Int = 3,
+    minimum: Int = 12,
+    maximum: Int = 48,
+): Int = (magazineSize * magazines).coerceIn(minimum, maximum)
 
 internal fun lootAccessible(phase: MatchPhase?, status: ParticipantStatus?): Boolean =
     phase in setOf(MatchPhase.PREPARING, MatchPhase.COUNTDOWN, MatchPhase.ACTIVE) &&

@@ -6,6 +6,7 @@ import com.comphenix.protocol.events.ListenerPriority
 import com.comphenix.protocol.events.PacketAdapter
 import com.comphenix.protocol.events.PacketEvent
 import org.bukkit.plugin.java.JavaPlugin
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Optional packet boundary for messages that do not pass through Paper chat or
@@ -22,6 +23,8 @@ internal class ProtocolLibChatIsolation(
     PacketType.Play.Server.DISGUISED_CHAT,
     PacketType.Play.Server.SYSTEM_CHAT,
 ), AutoCloseable {
+    private val closed = AtomicBoolean(false)
+
     override fun onPacketSending(event: PacketEvent) {
         val player = event.player
         event.isCancelled = shouldSuppressChatPacket(
@@ -31,6 +34,7 @@ internal class ProtocolLibChatIsolation(
     }
 
     override fun close() {
+        if (!closed.compareAndSet(false, true)) return
         try {
             ProtocolLibrary.getProtocolManager().removePacketListener(this)
         } finally {

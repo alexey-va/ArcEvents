@@ -2,9 +2,16 @@ prefix: '<#ff5b6e>Events <#8fa6b8>·'
 command:
   player-only: '<prefix> <#c42323>This command is only available to players.'
   no-permission: '<prefix> <#c42323>You do not have access to this action.'
-  help: '<prefix> <#e6fff3>Menu and rules: <#92bed8>/events<#e6fff3>.<newline><#8fa6b8>   <#e6fff3>Queue: <#92bed8>/events join  <#e6fff3>leave: <#92bed8>/events leave<newline><#8fa6b8>   <#e6fff3>Start a ready roster: <#92bed8>/events start<newline><#8fa6b8>   <#e6fff3>Match: <#92bed8>/events status  <#e6fff3>roster: <#92bed8>/events roster<newline><#8fa6b8>   <#e6fff3>Shop: <#92bed8>/events shop  <#e6fff3>report: <#92bed8>/events report'
+  help: |-
+    <prefix> <#e6fff3>Menu and rules: <#92bed8>/events
+    <#8c8c8c>   Queue: <#92bed8>/events join  <#8c8c8c>leave: <#92bed8>/events leave
+    <#8c8c8c>   Start roster: <#92bed8>/events start
+    <#8c8c8c>   Match: <#92bed8>/events status  <#8c8c8c>roster: <#92bed8>/events roster
+    <#8c8c8c>   Shop: <#92bed8>/events shop  <#8c8c8c>report: <#92bed8>/events report
   unknown: '<prefix> <#c42323>Unknown<#8c8c8c>: <#e6fff3><input>'
-  failed: '<prefix> <#c42323>Action failed.<newline><#8fa6b8>   <#e6fff3>Reason: <reason>'
+  failed: |-
+    <prefix> <#c42323>Action failed.
+    <#8c8c8c>   Reason: <#e6fff3><reason>
   reload-ok: '<prefix> <#2bba43>Configuration and locales reloaded.'
   reload-failed: '<prefix> <#c42323>Reload rejected. See the log.'
 
@@ -80,6 +87,12 @@ menu:
       - '<#8c8c8c>Players<#8c8c8c>: <#e3b341><queue><#8c8c8c>/<#e3b341><minimum>'
       - ''
       - '<#8c8c8c>[<#7bd88f>▶<#8c8c8c>] <#7bd88f>Click<#f2f0e6> — start'
+    arena-name: '<#92bed8>Choose a map'
+    arena-lore:
+      - '<#f2f0e6>Next-round map: <selected_arena><#f2f0e6>.'
+      - '<#8c8c8c>The roster creator controls this choice.'
+      - ''
+      - '<#8c8c8c>[<#92bed8>▶<#8c8c8c>] <#92bed8>Click<#f2f0e6> — open maps'
     roster-name: '<#92bed8><bold>Round roster'
     roster-lore:
       - '<#f2f0e6>Living, missing, and discovered players.'
@@ -159,7 +172,7 @@ menu:
     controls-name: '<#92bed8><bold>Commands'
     controls-lore:
       - '<#8c8c8c>/events shop <#f2f0e6>— role shop'
-      - '<#8c8c8c>/events team \<text> <#f2f0e6>— team chat'
+      - '<#8c8c8c>/events team [text] <#f2f0e6>— team chat'
       - '<#8c8c8c>/events status <#f2f0e6>— match status'
       - '<#8c8c8c>/events leave <#f2f0e6>— leave the event immediately'
       - '<#8c8c8c>/events spawn <#f2f0e6>— return to the map spawn'
@@ -211,6 +224,18 @@ menu:
     auto-lore:
       - '<#f2f0e6>Choose a ready map from the pool for every match.'
       - '<#8c8c8c>The match id makes the choice reproducible.'
+  event-arenas:
+    title: '<#20252b>Next-Round Map'
+    entry-name: '<arena>'
+    entry-lore:
+      - '<#8c8c8c>Selection: <selection>'
+      - ''
+      - '<#8c8c8c>[<#92bed8>▶<#8c8c8c>] <#92bed8>Click<#f2f0e6> — choose'
+    auto-name: '<#e3b341>Automatic rotation'
+    auto-lore:
+      - '<#f2f0e6>The server chooses an available map automatically.'
+      - ''
+      - '<#8c8c8c>[<#e3b341>▶<#8c8c8c>] <#e3b341>Click<#f2f0e6> — choose'
   shop:
     title: '<#20252b>Role Shop — <credits> cr.'
     credits-name: '<#e3b341><bold>Role credits'
@@ -339,12 +364,12 @@ arena:
     name: '<#e3b341>automatic rotation'
   citadel:
     name: '<#d6a8ff><bold>Citadel'
-  inferno:
-    name: '<#e3b341><bold>Inferno'
-  mirage:
-    name: '<#e3b341><bold>Mirage'
-  nuke:
-    name: '<#e3b341><bold>Nuke'
+  japanese-lobby:
+    name: '<#e3b341>Japanese Courtyard'
+  edged-mansion:
+    name: '<#d6a8ff>Edged Mansion'
+  practice-yard:
+    name: '<#7bd88f>Practice Yard'
   state:
     ready: '<#7bd88f>ready'
     active: '<#d6a8ff>hosting the current match'
@@ -372,21 +397,53 @@ phase:
   cancelled: '<#d84a4a>cancelled'
 
 queue:
-  joined: '<prefix> <#55ff88>Your queue place is confirmed.<newline><#8fa6b8>   <#ffffff>Roster: <#ffcc33><queue>/<#ffcc33><minimum>'
-  already: '<prefix> <#ff9f0f>You are already part of a forming roster.<newline><#8fa6b8>   <#8c8c8c>See your current status in <#92bed8>/events<#8c8c8c>.'
-  left: '<prefix> <#7bd88f>You left the queue.<newline><#8fa6b8>   <#8c8c8c>Your place has been released.'
-  not-queued: '<prefix> <#ff9f0f>You have not joined a queue yet.<newline><#8fa6b8>   <#8c8c8c>Choose an event in <#92bed8>/events<#8c8c8c>.'
-  leave-reserved: '<prefix> <#ff9f0f>The roster is already locked.<newline><#8fa6b8>   <#ffffff>Emergency exit: <#32d6ff>/events leave'
-  unavailable: '<prefix> <#d84a4a>The event is unavailable.<newline><#8fa6b8>   <#8c8c8c>Open <#92bed8>/events<#8c8c8c> again a little later.'
-  full: '<prefix> <#d84a4a>The queue is full.<newline><#8fa6b8>   <#8c8c8c>Try again after the current roster starts.'
+  joined: |-
+    <prefix> <#55ff88>Your queue place is confirmed.
+    <#8c8c8c>   Roster: <#ffcc33><queue>/<minimum>
+  already: |-
+    <prefix> <#ff9f0f>You are already in this roster.
+    <#8c8c8c>   Current status: <#92bed8>/events
+  left: |-
+    <prefix> <#7bd88f>You left the queue.
+    <#8c8c8c>   Your place has been released.
+  not-queued: |-
+    <prefix> <#ff9f0f>You have not joined a queue yet.
+    <#8c8c8c>   Choose an event: <#92bed8>/events
+  leave-reserved: |-
+    <prefix> <#ff9f0f>The roster is already locked.
+    <#8c8c8c>   Emergency exit: <#32d6ff>/events leave
+  unavailable: |-
+    <prefix> <#d84a4a>The event is unavailable.
+    <#8c8c8c>   Try again a little later.
+  full: |-
+    <prefix> <#d84a4a>The queue is full.
+    <#8c8c8c>   Wait for the current roster to start.
   reserved: '<prefix> <#55ff88>The roster is ready.'
-  returned: '<prefix> <#7bd88f>Return complete.<newline><#8fa6b8>   <#8c8c8c>You are back on your original server.'
-  start-requested: '<prefix> <#7bd88f>Start confirmed.<newline><#8fa6b8>   <#f2f0e6>The roster is locked.'
-  start-insufficient: '<prefix> <#ff9f0f>The roster is not ready yet.<newline><#8fa6b8>   <#f2f0e6>Wait for the minimum number of players.'
-  start-arena-unavailable: '<prefix> <#d84a4a>The arena is not ready.<newline><#8fa6b8>   <#8c8c8c>Try starting the event later.'
-  start-busy: '<prefix> <#ff9f0f>Another match is starting or active.<newline><#8fa6b8>   <#8c8c8c>Wait for it to finish.'
-  start-recovery-pending: '<prefix> <#ff9f0f>The previous match is still finishing.<newline><#8fa6b8>   <#8c8c8c>Player state is being restored safely.'
-  start-network-failed: '<prefix> <#d84a4a>The event network did not confirm the start.<newline><#8fa6b8>   <#8c8c8c>Try again a little later.'
+  returned: |-
+    <prefix> <#7bd88f>Return complete.
+    <#8c8c8c>   You are back on your original server.
+  start-requested: |-
+    <prefix> <#7bd88f>Start confirmed.
+    <#8c8c8c>   The roster is locked.
+  start-insufficient: |-
+    <prefix> <#ff9f0f>The roster is not ready yet.
+    <#8c8c8c>   Wait for enough players to join.
+  start-arena-unavailable: |-
+    <prefix> <#d84a4a>The arena is not ready.
+    <#8c8c8c>   Try starting the event later.
+  start-busy: |-
+    <prefix> <#ff9f0f>Another match is already active.
+    <#8c8c8c>   Wait for it to finish.
+  start-recovery-pending: |-
+    <prefix> <#ff9f0f>The previous match is still finishing.
+    <#8c8c8c>   Restoring player state.
+  start-network-failed: |-
+    <prefix> <#d84a4a>The network did not confirm the start.
+    <#8c8c8c>   Try again a little later.
+  start-not-owner: |-
+    <prefix> <#ff9f0f>Only the roster creator can start it.
+    <#8c8c8c>   Control passes on if the creator leaves.
+  arena-selected: '<prefix> <#7bd88f>Next-round map: <arena><#f2f0e6>.'
 
 match:
   unavailable: '<prefix> <#ff9f0f>You are not participating in a match.'
@@ -404,7 +461,9 @@ match:
   started: '<#55ff88><bold>Round started  <#ffffff>find bodies and evidence.'
   started-title: '<#55ff88><bold>Round started'
   started-subtitle: '<#ffffff>Find the traitors or preserve your cover'
-  detectives-announced: '<#32d6ff><bold>Round detectives<newline><#32d6ff>◆ <#ffffff><players>'
+  detectives-announced: |-
+    <#32d6ff>Round detectives
+    <#8c8c8c>   <#f2f0e6><players>
   time-title: '<#f2f0e6>Remaining: <#e3b341><time>'
   grace: '<#ffcc33><bold>Weapons unlock after countdown.'
   eliminated: '<#ff5b6e><bold><player> <#ffffff>has been eliminated.'
@@ -418,15 +477,27 @@ match:
   cancelled-title: '<#ff9f0f>Match stopped'
   cancelled-subtitle: '<#f2f0e6>Player state is being restored'
   restored: '<prefix> <#2bba43>Your pre-event state was restored.'
-  evacuated: '<prefix> <#7bd88f>Evacuation complete.<newline><#8fa6b8>   <#f2f0e6>Your pre-event state was restored.'
-  spawn-return-requested: '<prefix> <#e3b341>Map spawn return started.<newline><#8fa6b8>   <#f2f0e6>Do not move for <#e3b341><seconds> seconds<#f2f0e6>.'
+  evacuated: |-
+    <prefix> <#7bd88f>Evacuation complete.
+    <#8c8c8c>   Your pre-event state was restored.
+  spawn-return-requested: |-
+    <prefix> <#e3b341>Map spawn return started.
+    <#8c8c8c>   Do not move for <#e3b341><seconds> seconds<#8c8c8c>.
   spawn-return-actionbar: '<#e3b341>Do not move <#f2f0e6>returning in <#e3b341><seconds>s'
   spawn-return-cancelled: '<#d84a4a>Return cancelled <#f2f0e6>you moved or took damage'
   spawn-return-complete: '<prefix> <#7bd88f>You returned to the shared map spawn.'
-  spawn-return-unavailable: '<prefix> <#ff9f0f>You cannot return to the map spawn now.<newline><#8fa6b8>   <#8c8c8c>This command only works during your event.'
-  spawn-return-already: '<prefix> <#ff9f0f>A return is already pending.<newline><#8fa6b8>   <#8c8c8c>Stay still until the countdown finishes.'
-  restore-pending: '<prefix> <#ff9f0f>Recovery is not confirmed.<newline><#8fa6b8>   <#e6fff3>Do not change inventory. Contact an administrator.'
-  status: '<prefix> <#92bed8><phase>  <#e3b341><time><newline><#8fa6b8>   <#e6fff3>Alive: <#e3b341><alive><#8c8c8c>/<#e3b341><players>'
+  spawn-return-unavailable: |-
+    <prefix> <#ff9f0f>You cannot return to spawn now.
+    <#8c8c8c>   This command only works inside an event.
+  spawn-return-already: |-
+    <prefix> <#ff9f0f>A return is already pending.
+    <#8c8c8c>   Stay still until the countdown finishes.
+  restore-pending: |-
+    <prefix> <#ff9f0f>Recovery is not confirmed.
+    <#8c8c8c>   Do not change inventory. Contact an administrator.
+  status: |-
+    <prefix> <#92bed8><phase>  <#e3b341><time>
+    <#8c8c8c>   Alive: <#e3b341><alive>/<players>
 
 role:
   innocent-title: '<#55ff88><bold>You are innocent'
@@ -594,7 +665,7 @@ shop:
   medkit-full: '<prefix> <#ff9f0f>Your health is already full.'
 
 team:
-  usage: '<prefix> <#e6fff3>Chat: <#92bed8>/events team \<message>'
+  usage: '<prefix> <#e6fff3>Chat: <#92bed8>/events team [message]'
   unavailable: '<prefix> <#ff9f0f>Team chat is unavailable right now.'
   message: '<#666666>[Team] <role> <#f2f0e6><player><#8c8c8c>: <#f2f0e6><message>'
 
@@ -616,7 +687,7 @@ admin:
   no-match: '<prefix> <#ff9f0f>There is no active match.'
   recovery-started: '<prefix> <#e6fff3>Recovery retried<#8c8c8c>: <#e3b341><players> players<#e6fff3>.'
   weapon-points:
-    usage: '<prefix> <#e6fff3>Weapons: <#92bed8>/events admin weapons \<add|remove|show>'
+    usage: '<prefix> <#e6fff3>Weapons: <#92bed8>/events admin weapons [add|remove|show]'
     added: '<prefix> <#2bba43>Point added <#8c8c8c>— <#e3b341><count><#8c8c8c>/<#e3b341><target> <#e6fff3>on <arena><#e6fff3>.'
     removed: '<prefix> <#2bba43>Point removed <#8c8c8c>— <#e3b341><count><#8c8c8c>/<#e3b341><target> <#e6fff3>on <arena><#e6fff3>.'
     shown: '<prefix> <#e6fff3>Points for <arena> <#e6fff3>are marked<#8c8c8c>: <#e3b341><count><#8c8c8c>/<#e3b341><target><#e6fff3>.'
@@ -631,7 +702,13 @@ admin:
 
 debug:
   disabled: '<prefix> <#c42323>Debug is disabled in config.yml.'
-  usage: '<prefix> <#e6fff3>Debug harness:<newline><#8fa6b8>   <#92bed8>[status]|[player]|[network]|[arenas]|[recovery]|[bodies] <#8c8c8c>— snapshots<newline><#8fa6b8>   <#92bed8>[start]|[bootstrap \<arena|auto>]|[advance]|[end]|[timer]|[cleanup] <#8c8c8c>— round<newline><#8fa6b8>   <#92bed8>[credit]|[role]|[health]|[kill]|[revive] <#8c8c8c>— player<newline><#8fa6b8>   <#92bed8>[weapon]|[ammo]|[item]|[loot] <#8c8c8c>— equipment<newline><#8fa6b8>   <#92bed8>[discover]|[dna]|[call]|[menu]|[close] <#8c8c8c>— evidence and GUI'
+  usage: |-
+    <prefix> <#e6fff3>Debug harness
+    <#8c8c8c>   <#92bed8>[status]|[player]|[network]|[arenas]|[recovery]|[bodies] <#8c8c8c>— snapshots
+    <#8c8c8c>   <#92bed8>[start]|[bootstrap arena|auto]|[advance]|[end]|[timer]|[cleanup] <#8c8c8c>— round
+    <#8c8c8c>   <#92bed8>[credit]|[role]|[health]|[kill]|[revive] <#8c8c8c>— player
+    <#8c8c8c>   <#92bed8>[weapon]|[ammo]|[item]|[loot] <#8c8c8c>— equipment
+    <#8c8c8c>   <#92bed8>[discover]|[dna]|[call]|[menu]|[close] <#8c8c8c>— evidence and GUI
   applied: '<prefix> <#2bba43>Debug action applied: <#e3b341><action><#e6fff3>.'
   rejected: '<prefix> <#c42323>Action <#e3b341><action> <#c42323>was rejected<#8c8c8c>: <#f2f0e6><reason><#8c8c8c>.'
   reason:

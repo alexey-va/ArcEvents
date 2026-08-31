@@ -95,6 +95,40 @@ class TttLootScene(
         }
     }
 
+    /** Rebuilds only presentation entities; authoritative pickup entities and their stacks survive. */
+    fun reconfigure() {
+        stopAnimation()
+        entities.keys.toList().forEach { id ->
+            val pickup = (plugin.server.getEntity(id) as? Item)?.takeIf(Item::isValid)
+            if (pickup == null) {
+                consume(id)
+                return@forEach
+            }
+            val previous = entities[id] ?: return@forEach
+            var candidateDisplay: ItemDisplay? = null
+            var candidateEffect: ItemDisplay? = null
+            runCatching {
+                pickup.itemStack = firearms.refreshItem(pickup.itemStack, null)
+                candidateDisplay = if (settings().ui.lootDisplays) createItemDisplay(pickup) else null
+                candidateEffect = candidateDisplay?.let { createEffectDisplay(pickup) }
+                pickup.setVisibleByDefault(candidateDisplay == null)
+                entities[id] = previous.copy(
+                    itemDisplayId = candidateDisplay?.uniqueId,
+                    effectDisplayId = candidateEffect?.uniqueId,
+                )
+                removeEntity(previous.itemDisplayId)
+                removeEntity(previous.effectDisplayId)
+            }.onFailure { failure ->
+                logPresentationFailure(effect = false, failure)
+                removeEntity(candidateDisplay?.uniqueId)
+                removeEntity(candidateEffect?.uniqueId)
+                runCatching { pickup.setVisibleByDefault(previous.itemDisplayId == null) }
+                    .onFailure(::logCleanupFailure)
+            }
+        }
+        if (entities.values.any { it.itemDisplayId != null }) ensureAnimation()
+    }
+
     fun consume(itemId: UUID) {
         val tracked = entities.remove(itemId) ?: return
         removeEntity(tracked.itemDisplayId)
@@ -127,9 +161,10 @@ class TttLootScene(
     }
 
     private fun createItemDisplay(item: Item): ItemDisplay = item.world.spawn(
-        item.location.clone().add(0.0, DISPLAY_HEIGHT, 0.0),
+        item.location.clone().add(0.0, settings().ui.lootDisplay.height, 0.0),
         ItemDisplay::class.java,
     ) { display ->
+        val presentation = settings().ui.lootDisplay
         val shown = item.itemStack.clone().also { it.amount = 1 }
         display.setItemStack(shown)
         display.itemDisplayTransform = ItemDisplay.ItemDisplayTransform.FIXED
@@ -138,10 +173,10 @@ class TttLootScene(
         display.isInvulnerable = true
         display.isPersistent = false
         display.isSilent = true
-        display.viewRange = 0.75f
+        display.viewRange = presentation.viewRange.toFloat()
         display.interpolationDelay = 0
-        display.interpolationDuration = ROTATION_TICKS
-        display.setTransformationMatrix(Matrix4f().scale(DISPLAY_SCALE))
+        display.interpolationDuration = presentation.rotationTicks
+        display.setTransformationMatrix(Matrix4f().scale(presentation.scale.toFloat()))
     }
 
     private fun createEffectDisplay(item: Item): ItemDisplay? {
@@ -170,21 +205,25 @@ class TttLootScene(
             display.isInvulnerable = true
             display.isPersistent = false
             display.isSilent = true
-            display.viewRange = 0.75f
+            display.viewRange = settings().ui.lootDisplay.viewRange.toFloat()
             display.interpolationDelay = 0
-            display.interpolationDuration = ROTATION_TICKS
+            display.interpolationDuration = settings().ui.lootDisplay.rotationTicks
             display.setTransformationMatrix(Matrix4f().scale(effect.scale.toFloat()))
         }
     }
 
     private fun ensureAnimation() {
         if (animationTask != null) return
-        animationTask = Tasks.scheduler.runTimer(1L, ANIMATION_STEP_TICKS.toLong()) { animate() }
+        animationTask = Tasks.scheduler.runTimer(1L, settings().ui.lootDisplay.animationStepTicks) { animate() }
     }
 
     private fun animate() {
-        animationTicks += ANIMATION_STEP_TICKS
-        val rotate = animationTicks % ROTATION_TICKS == 0
+        val presentation = settings().ui.lootDisplay
+        val previousTicks = animationTicks
+        animationTicks += presentation.animationStepTicks.toInt()
+        val rotate = animationTicks / presentation.rotationTicks > previousTicks / presentation.rotationTicks
+        val emitParticle = animationTicks / presentation.particleIntervalTicks >
+            previousTicks / presentation.particleIntervalTicks
         if (rotate) rotation += Math.PI.toFloat() + ROTATION_EPSILON
         val iterator = entities.entries.iterator()
         while (iterator.hasNext()) {
@@ -212,7 +251,7 @@ class TttLootScene(
                 tracked
             }
             runCatching {
-                display.teleport(pickup.location.clone().add(0.0, DISPLAY_HEIGHT, 0.0))
+                display.teleport(pickup.location.clone().add(0.0, presentation.height, 0.0))
                 effectDisplay?.takeIf(ItemDisplay::isValid)?.teleport(
                     pickup.location.clone().add(0.0, settings().weapons.lootEffect.height, 0.0),
                 )
@@ -220,20 +259,22 @@ class TttLootScene(
             if (rotate) {
                 runCatching {
                     display.interpolationDelay = 0
-                    display.interpolationDuration = ROTATION_TICKS
-                    display.setTransformationMatrix(Matrix4f().scale(DISPLAY_SCALE).rotateY(rotation))
+                    display.interpolationDuration = presentation.rotationTicks
+                    display.setTransformationMatrix(Matrix4f().scale(presentation.scale.toFloat()).rotateY(rotation))
                 }.onFailure { logPresentationFailure(effect = false, it) }
                 effectDisplay?.takeIf(ItemDisplay::isValid)?.also { animatedEffect ->
                     runCatching {
                         animatedEffect.interpolationDelay = 0
-                        animatedEffect.interpolationDuration = ROTATION_TICKS
+                        animatedEffect.interpolationDuration = presentation.rotationTicks
                         animatedEffect.setTransformationMatrix(
                             Matrix4f().scale(settings().weapons.lootEffect.scale.toFloat()).rotateY(-rotation * 0.5f),
                         )
                     }.onFailure { logPresentationFailure(effect = true, it) }
                 }
             }
-            if (current.effectDisplayId == null && settings().ui.particles && animationTicks % PARTICLE_TICKS == 0) {
+            if (
+                current.effectDisplayId == null && settings().ui.particles && emitParticle
+            ) {
                 runCatching {
                     display.world.spawnParticle(
                         Particle.END_ROD,
@@ -285,11 +326,6 @@ class TttLootScene(
     }
 
     companion object {
-        private const val DISPLAY_HEIGHT = 0.18
-        private const val DISPLAY_SCALE = 0.78f
-        private const val ANIMATION_STEP_TICKS = 5
-        private const val PARTICLE_TICKS = 10
-        private const val ROTATION_TICKS = 40
         private const val ROTATION_EPSILON = 0.01f
     }
 }

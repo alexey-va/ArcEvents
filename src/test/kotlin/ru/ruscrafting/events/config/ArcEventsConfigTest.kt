@@ -2,10 +2,12 @@ package ru.ruscrafting.events.config
 
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.assertions.throwables.shouldNotThrowAny
+import io.kotest.assertions.withClue
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import org.opentest4j.TestAbortedException
 import ru.ruscrafting.events.domain.FirearmId
+import ru.ruscrafting.events.domain.TttFirearmCatalog
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -24,10 +26,35 @@ class ArcEventsConfigTest : StringSpec({
             config.weapons.visual(FirearmId.MCMILLAN).material shouldBe "NETHERITE_SHOVEL"
             config.weapons.visual(FirearmId.MCMILLAN).customModelData shouldBe 0
             config.weapons.visuals.keys shouldBe FirearmId.entries.toSet()
+            config.weapons.specs shouldBe TttFirearmCatalog.specs
             config.weapons.lootEffect.enabled shouldBe false
+            config.eventControls shouldBe EventControlSettings(
+                creatorControlsEnabled = true,
+                creatorArenaSelectionEnabled = true,
+                adminOverrideEnabled = true,
+            )
+            config.gameplay.preparationRations shouldBe 4
+            config.gameplay.medkitHealing shouldBe 8.0
+            config.gameplay.traitorBladeCost shouldBe 2
+            config.gameplay.detectiveArmorCost shouldBe 1
             config.ttt.preparationSeconds shouldBe 30
             config.ui.dialogsEnabled shouldBe false
             config.ui.lootDisplays shouldBe true
+            config.ui.lootDisplay shouldBe LootDisplaySettings(
+                enabled = true,
+                height = 0.18,
+                scale = 0.78,
+                viewRange = 0.75,
+                animationStepTicks = 5L,
+                rotationTicks = 40,
+                particleIntervalTicks = 10,
+            )
+            config.arenaRuntime shouldBe ArenaRuntimeSettings(
+                viewDistance = 6,
+                simulationDistance = 4,
+                preserveImportedDisplays = true,
+                maxImportedDisplays = 256,
+            )
             config.ui.nameplates shouldBe NameplateSettings(
                 enabled = true,
                 reconcilePeriodTicks = 2L,
@@ -55,7 +82,7 @@ class ArcEventsConfigTest : StringSpec({
         }
     }
 
-    "live reload accepts nameplate tuning during a match but protects gameplay and topology" {
+    "live reload separates immediate next-match route-bound and restart-only settings" {
         val root = Files.createTempDirectory("arcevents-reload-")
         try {
             val current = ArcEventsConfig.load(root)
@@ -64,26 +91,112 @@ class ArcEventsConfigTest : StringSpec({
             Files.writeString(root.resolve("config.yml"), original.replace("scale: 0.95", "scale: 0.7"))
             val nameplateCandidate = ArcEventsConfig.inspect(root)
             shouldNotThrowAny {
-                ArcEventsReloadPolicy.validate(current, nameplateCandidate, matchOrReservationActive = true)
+                ArcEventsReloadPolicy.validate(current, nameplateCandidate, matchOrReservationActive = true, activeArenaId = "default")
             }
 
             Files.writeString(root.resolve("config.yml"), original.replace("round-seconds: 600", "round-seconds: 480"))
             val gameplayCandidate = ArcEventsConfig.inspect(root)
-            shouldThrow<IllegalArgumentException> {
-                ArcEventsReloadPolicy.validate(current, gameplayCandidate, matchOrReservationActive = true)
-            }.message shouldBe "ttt settings can reload only while idle"
+            shouldNotThrowAny {
+                ArcEventsReloadPolicy.validate(current, gameplayCandidate, matchOrReservationActive = true, activeArenaId = "default")
+            }
 
             Files.writeString(root.resolve("config.yml"), original.replace("bossbar: true", "bossbar: false"))
             val uiCandidate = ArcEventsConfig.inspect(root)
-            shouldThrow<IllegalArgumentException> {
-                ArcEventsReloadPolicy.validate(current, uiCandidate, matchOrReservationActive = true)
-            }.message shouldBe "non-nameplate ui settings can reload only while idle"
+            shouldNotThrowAny {
+                ArcEventsReloadPolicy.validate(current, uiCandidate, matchOrReservationActive = true, activeArenaId = "default")
+            }
 
             Files.writeString(root.resolve("config.yml"), original.replace("heartbeat-seconds: 5", "heartbeat-seconds: 6"))
             val networkCandidate = ArcEventsConfig.inspect(root)
+            shouldNotThrowAny {
+                ArcEventsReloadPolicy.validate(current, networkCandidate, matchOrReservationActive = true, activeArenaId = "default")
+            }
+
+            Files.writeString(root.resolve("config.yml"), original.replace("minimum-players: 4", "minimum-players: 5"))
+            val capacityCandidate = ArcEventsConfig.inspect(root)
+            shouldNotThrowAny {
+                ArcEventsReloadPolicy.validate(current, capacityCandidate, matchOrReservationActive = true, activeArenaId = "default")
+            }
+
+            Files.writeString(root.resolve("config.yml"), original.replace("return-to-origin: true", "return-to-origin: false"))
+            val routeCandidate = ArcEventsConfig.inspect(root)
+            withClue("route-bound setting") {
+                shouldThrow<IllegalArgumentException> {
+                    ArcEventsReloadPolicy.validate(
+                        current,
+                        routeCandidate,
+                        matchOrReservationActive = false,
+                    )
+                }.message shouldBe "network.return-to-origin requires a restart"
+            }
+
+            Files.writeString(root.resolve("config.yml"), original.replace("max-displays: 256", "max-displays: 128"))
+            val sanitationCandidate = ArcEventsConfig.inspect(root)
             shouldThrow<IllegalArgumentException> {
-                ArcEventsReloadPolicy.validate(current, networkCandidate, matchOrReservationActive = false)
-            }.message shouldBe "network settings require a restart"
+                ArcEventsReloadPolicy.validate(current, sanitationCandidate, matchOrReservationActive = false)
+            }.message shouldBe "imported decoration sanitation requires a restart"
+
+            Files.writeString(root.resolve("config.yml"), original.replace("    enabled: false\n\nui:", "    enabled: true\n\nui:"))
+            val packetIsolationCandidate = ArcEventsConfig.inspect(root)
+            shouldThrow<IllegalArgumentException> {
+                ArcEventsReloadPolicy.validate(current, packetIsolationCandidate, matchOrReservationActive = false)
+            }.message shouldBe "chat.packet-isolation.enabled requires a restart"
+
+            Files.writeString(root.resolve("config.yml"), original.replace("damage-per-pellet: 13.0", "damage-per-pellet: 12.0"))
+            val weaponBalanceCandidate = ArcEventsConfig.inspect(root)
+            shouldNotThrowAny {
+                ArcEventsReloadPolicy.validate(current, weaponBalanceCandidate, matchOrReservationActive = false)
+            }
+            shouldThrow<IllegalArgumentException> {
+                ArcEventsReloadPolicy.validate(
+                    current,
+                    weaponBalanceCandidate,
+                    matchOrReservationActive = true,
+                    activeArenaId = "default",
+                )
+            }.message shouldBe "weapons.catalog can reload only while idle"
+
+            val arenaIdentitySource = if ("  world: pvp" in original) {
+                original.replaceFirst("  world: pvp", "  world: event_pvp")
+            } else {
+                original + "\narena:\n  world: event_pvp\n"
+            }
+            Files.writeString(root.resolve("config.yml"), arenaIdentitySource)
+            val arenaIdentityCandidate = ArcEventsConfig.inspect(root)
+            withClue("arena identity") {
+                shouldThrow<IllegalArgumentException> {
+                    ArcEventsReloadPolicy.validate(current, arenaIdentityCandidate, matchOrReservationActive = false)
+                }.message shouldBe "arena ids, worlds, templates, enablement, and bounds require a plugin restart"
+            }
+
+            Files.writeString(root.resolve("config.yml"), original.replace("server-id: parkour", "server-id: spawn"))
+            val identityCandidate = ArcEventsConfig.inspect(root)
+            withClue("server identity") {
+                shouldThrow<IllegalArgumentException> {
+                    ArcEventsReloadPolicy.validate(current, identityCandidate, matchOrReservationActive = false)
+                }.message shouldBe "server-id requires a restart"
+            }
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    "loading an older operator config merges new defaults once without replacing overrides" {
+        val root = Files.createTempDirectory("arcevents-config-upgrade-")
+        try {
+            Files.writeString(root.resolve("config.yml"), "locale:\n  default: en\n")
+
+            val upgraded = ArcEventsConfig.load(root)
+            val once = Files.readAllBytes(root.resolve("config.yml"))
+            upgraded.defaultLocale shouldBe "en"
+            upgraded.eventControls.creatorControlsEnabled shouldBe true
+            upgraded.ui.lootDisplay.scale shouldBe 0.78
+            Files.readString(root.resolve("config.yml")).contains("\narena:") shouldBe false
+            Files.readString(root.resolve("config.yml")).contains("\narenas:") shouldBe false
+            Files.readString(root.resolve("config.yml")).contains("\nweapons:") shouldBe false
+
+            ArcEventsConfig.load(root)
+            Files.readAllBytes(root.resolve("config.yml")).toList() shouldBe once.toList()
         } finally {
             root.toFile().deleteRecursively()
         }
@@ -137,15 +250,15 @@ class ArcEventsConfigTest : StringSpec({
         arena.operational(16) shouldBe false
     }
 
-    "reviewed parkour profile exposes the three complete CS2 arenas" {
+    "reviewed parkour profile exposes three lightweight packaged arenas" {
         val repository = opsRoot()
         val config = ArcEventsConfig.inspect(repository.resolve("parkour/plugins/ArcEvents"))
 
-        config.arenas.map(ArenaSettings::id) shouldBe listOf("inferno", "mirage", "nuke")
+        config.arenas.map(ArenaSettings::id) shouldBe listOf("edged-mansion", "japanese-lobby", "practice-yard")
         config.arenas.all { it.operational(config.ttt.maximumPlayers) } shouldBe true
-        val importedArenas = config.arenas.filter { it.template.startsWith("cs2-") }
+        val importedArenas = config.arenas.filter { it.template.endsWith("-v1") }
         importedArenas.all { it.spawns.size == 1 } shouldBe true
-        importedArenas.all { it.lootSpawns.size == 32 } shouldBe true
+        importedArenas.all { it.lootSpawns.size == 36 } shouldBe true
         importedArenas.all { it.weaponCount == 30 } shouldBe true
         config.weapons.visuals.mapValues { (_, visual) -> visual.customModelData } shouldBe mapOf(
             FirearmId.FLINTLOCK to 2100101,
@@ -167,18 +280,42 @@ class ArcEventsConfigTest : StringSpec({
         config.weapons.lootEffect.customModelData.values.toSet() shouldBe setOf(2, 3, 4, 5, 6)
     }
 
-    "loading a complete reviewed profile is byte stable" {
-        val root = Files.createTempDirectory("arcevents-byte-stable-")
+    "a weapon pickup cannot be configured with zero reserve ammunition" {
+        val root = Files.createTempDirectory("arcevents-ammo-")
         try {
-            val target = root.resolve("config.yml")
-            Files.copy(opsRoot().resolve("parkour/plugins/ArcEvents/config.yml"), target)
-            val before = Files.readAllBytes(target)
-
             ArcEventsConfig.load(root)
-
-            Files.readAllBytes(target).toList() shouldBe before.toList()
+            val original = Files.readString(root.resolve("config.yml"))
+            Files.writeString(
+                root.resolve("config.yml"),
+                original.replace("pickup-ammo-minimum: 12", "pickup-ammo-minimum: 0"),
+            )
+            shouldThrow<IllegalArgumentException> { ArcEventsConfig.inspect(root) }
         } finally {
             root.toFile().deleteRecursively()
+        }
+    }
+
+    "loading every reviewed runtime profile is byte stable" {
+        listOf(
+            "classic/plugins/ArcEvents/config.yml",
+            "classic_survival/plugins/ArcEvents/config.yml",
+            "parkour/plugins/ArcEvents/config.yml",
+            "scripts/lab/plugin-configs/ArcEvents/config.yml",
+        ).forEach { relative ->
+            val root = Files.createTempDirectory("arcevents-byte-stable-")
+            try {
+                val target = root.resolve("config.yml")
+                Files.copy(opsRoot().resolve(relative), target)
+                val before = Files.readAllBytes(target)
+
+                ArcEventsConfig.load(root)
+
+                withClue(relative) {
+                    Files.readAllBytes(target).toList() shouldBe before.toList()
+                }
+            } finally {
+                root.toFile().deleteRecursively()
+            }
         }
     }
 

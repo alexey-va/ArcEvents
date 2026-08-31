@@ -42,6 +42,14 @@ enum class ReservationStartResult {
     INSUFFICIENT_PLAYERS,
     RECOVERY_PENDING,
     NETWORK_FAILURE,
+    NOT_OWNER,
+}
+
+data class QueueControlSnapshot(
+    val state: QueueState?,
+    val ownerId: UUID?,
+) {
+    fun ownedBy(playerId: UUID): Boolean = ownerId == playerId
 }
 
 class EventNetworkCoordinator(
@@ -54,6 +62,7 @@ class EventNetworkCoordinator(
     private val debug: ArcEventsDebug,
     private val matchState: () -> Pair<UUID?, MatchPhase?>,
     private val arenaReady: () -> Boolean,
+    private val readyArenaIds: () -> List<String>,
     private val onReservation: (ReservationBatch) -> Boolean,
     private val onArrival: (QueueEntry) -> Boolean,
     private val clock: () -> Long = System::currentTimeMillis,
@@ -66,7 +75,8 @@ class EventNetworkCoordinator(
     private var nodePresence: RedisPresenceDirectory<HostNode>? = null
     private var nodePresenceLeaseMillis: Long = 0L
     private var eventChannel: RedisRequestReplyChannel<EventNetworkMessage>? = null
-    private val tasks = mutableListOf<ScheduledTask>()
+    private var maintenanceTask: ScheduledTask? = null
+    private var maintenancePeriodTicks = 0L
     private val statistics = ConcurrentHashMap<UUID, PlayerEventStats>()
     private val startInFlight = AtomicBoolean(false)
     @Volatile
@@ -91,10 +101,16 @@ class EventNetworkCoordinator(
         started = true
         refresh()
         heartbeat()
-        val heartbeatTicks = settings().network.heartbeatSeconds * 20L
-        tasks += Tasks.scheduler.runTimer(heartbeatTicks, heartbeatTicks) { maintain() }
+        scheduleMaintenance(settings().network.heartbeatSeconds * 20L)
         redis.init()
         debug.event("network_started", "server" to settings().serverId, "mode" to settings().nodeMode)
+    }
+
+    /** Applies live queue/network timing changes without rebuilding Redis channels or presence ownership. */
+    fun reconfigure() {
+        check(started) { "ArcEvents network coordinator is not started" }
+        scheduleMaintenance(settings().network.heartbeatSeconds * 20L)
+        maintain()
     }
 
     fun join(player: Player) {
@@ -170,13 +186,18 @@ class EventNetworkCoordinator(
         }
     }
 
-    fun reserveNow(requester: Player? = null): CompletableFuture<ReservationStartResult> {
-        if (requester != null) return queueRequesterThenReserve(requester)
+    fun reserveNow(requester: Player? = null, preferredArenaId: String? = null): CompletableFuture<ReservationStartResult> {
+        if (requester != null) return queueRequesterThenReserve(requester, preferredArenaId)
         val current = settings()
-        return if (current.nodeMode == NodeMode.HOST) reserveOnHost() else requestHostStart(current)
+        val adminBypass = current.eventControls.adminOverrideEnabled
+        return if (current.nodeMode == NodeMode.HOST) {
+            reserveOnHost(null, bypassOwner = adminBypass, preferredArenaId = preferredArenaId, requesterOrigin = current.serverId)
+        } else {
+            requestHostStart(current, null, preferredArenaId, adminBypass = adminBypass)
+        }
     }
 
-    private fun queueRequesterThenReserve(requester: Player): CompletableFuture<ReservationStartResult> {
+    private fun queueRequesterThenReserve(requester: Player, preferredArenaId: String?): CompletableFuture<ReservationStartResult> {
         val current = settings()
         if (!hostAvailable()) return CompletableFuture.completedFuture(ReservationStartResult.ARENA_UNAVAILABLE)
         val result = CompletableFuture<ReservationStartResult>()
@@ -194,7 +215,27 @@ class EventNetworkCoordinator(
                     return@runSync
                 }
                 refresh()
-                reserveNow().whenComplete { outcome, reserveFailure ->
+                val controls = current.eventControls
+                val bypassOwner = controls.adminOverrideEnabled &&
+                    requester.hasPermission(ArcEventsListener.ADMIN_BYPASS_PERMISSION)
+                val selectedArena = preferredArenaId.takeIf {
+                    controls.creatorArenaSelectionEnabled || bypassOwner
+                }
+                if (current.nodeMode == NodeMode.HOST) {
+                    reserveOnHost(
+                        requester.uniqueId,
+                        bypassOwner,
+                        selectedArena,
+                        requesterOrigin = current.serverId,
+                    ).whenComplete { outcome, reserveFailure ->
+                        result.complete(if (reserveFailure == null && outcome != null) outcome else ReservationStartResult.NETWORK_FAILURE)
+                    }
+                } else requestHostStart(
+                    current,
+                    requester.uniqueId,
+                    selectedArena,
+                    adminBypass = bypassOwner,
+                ).whenComplete { outcome, reserveFailure ->
                     result.complete(if (reserveFailure == null && outcome != null) outcome else ReservationStartResult.NETWORK_FAILURE)
                 }
             }
@@ -202,11 +243,19 @@ class EventNetworkCoordinator(
         return result
     }
 
-    private fun requestHostStart(current: ArcEventsConfig): CompletableFuture<ReservationStartResult> {
+    private fun requestHostStart(
+        current: ArcEventsConfig,
+        requesterId: UUID?,
+        preferredArenaId: String?,
+        adminBypass: Boolean,
+    ): CompletableFuture<ReservationStartResult> {
         if (!hostAvailable()) return CompletableFuture.completedFuture(ReservationStartResult.ARENA_UNAVAILABLE)
         val request = EventNetworkMessage.create(
             signal = EventNetworkSignal.START_REQUEST,
             destinationServer = current.hostServer,
+            requesterId = requesterId,
+            preferredArenaId = preferredArenaId,
+            adminBypass = adminBypass,
         )
         debug.event("start_requested", "origin" to current.serverId, "host" to current.hostServer, "request" to request.eventId)
         val channel = eventChannel ?: return CompletableFuture.completedFuture(ReservationStartResult.NETWORK_FAILURE)
@@ -233,12 +282,45 @@ class EventNetworkCoordinator(
         }
     }
 
-    private fun reserveOnHost(): CompletableFuture<ReservationStartResult> {
+    private fun reserveOnHost(
+        requesterId: UUID?,
+        bypassOwner: Boolean = false,
+        preferredArenaId: String? = null,
+        requesterOrigin: String? = null,
+    ): CompletableFuture<ReservationStartResult> {
         val current = settings()
         if (current.nodeMode != NodeMode.HOST) return CompletableFuture.completedFuture(ReservationStartResult.NETWORK_FAILURE)
         if (!arenaReady()) return CompletableFuture.completedFuture(ReservationStartResult.ARENA_UNAVAILABLE)
         if (matchState().first != null) return CompletableFuture.completedFuture(ReservationStartResult.BUSY)
+        val explicitArena = preferredArenaId?.takeUnless { it == "auto" }
+        if (explicitArena != null && explicitArena !in readyArenaIds()) {
+            return CompletableFuture.completedFuture(ReservationStartResult.ARENA_UNAVAILABLE)
+        }
         if (!startInFlight.compareAndSet(false, true)) return CompletableFuture.completedFuture(ReservationStartResult.BUSY)
+        if (current.eventControls.creatorControlsEnabled && requesterId == null && !bypassOwner) {
+            startInFlight.set(false)
+            return CompletableFuture.completedFuture(ReservationStartResult.NOT_OWNER)
+        }
+        val requiredOwnerId = requesterId.takeIf { current.eventControls.creatorControlsEnabled && !bypassOwner }
+        val requiredOwnerOrigin = requesterOrigin.takeIf { requiredOwnerId != null }
+        if (requiredOwnerId != null) {
+            return repository.loadQueue(clock()).thenCompose { entries ->
+                val owner = entries.firstOrNull { it.state == QueueState.QUEUED }
+                if (owner == null || owner.playerId != requiredOwnerId.toString() || owner.originServer != requiredOwnerOrigin) {
+                    CompletableFuture.completedFuture(ReservationStartResult.NOT_OWNER)
+                } else reserveOnHostInternal(requiredOwnerId, requiredOwnerOrigin, requesterId, preferredArenaId)
+            }.whenComplete { _, _ -> startInFlight.set(false) }
+        }
+        return reserveOnHostInternal(null, null, requesterId, preferredArenaId)
+    }
+
+    private fun reserveOnHostInternal(
+        requiredOwnerId: UUID?,
+        requiredOwnerOrigin: String?,
+        requesterId: UUID?,
+        preferredArenaId: String?,
+    ): CompletableFuture<ReservationStartResult> {
+        val current = settings()
         val result = CompletableFuture<ReservationStartResult>()
         val matchId = UUID.randomUUID()
         val reservationFuture = runCatching { repository.reserve(
@@ -248,6 +330,8 @@ class EventNetworkCoordinator(
             current.ttt.maximumPlayers,
             clock(),
             current.network.reservationSeconds * 1_000L,
+            requiredOwnerId = requiredOwnerId,
+            requiredOwnerOrigin = requiredOwnerOrigin,
         ) }.getOrElse { failure ->
             startInFlight.set(false)
             plugin.logger.log(Level.WARNING, "ArcEvents roster reservation could not be submitted", failure)
@@ -269,12 +353,13 @@ class EventNetworkCoordinator(
                     result.complete(ReservationStartResult.INSUFFICIENT_PLAYERS)
                     return@runSync
                 }
-                if (!onReservation(batch)) {
+                val ownedBatch = batch.copy(requesterId = requesterId, preferredArenaId = preferredArenaId)
+                if (!onReservation(ownedBatch)) {
                     releaseReservation(batch)
                     result.complete(ReservationStartResult.BUSY)
                     return@runSync
                 }
-                batch.entries.forEach { entry ->
+                ownedBatch.entries.forEach { entry ->
                     val message = EventNetworkMessage.create(
                         signal = EventNetworkSignal.ROUTE_PLAYER,
                         matchId = batch.matchId,
@@ -319,6 +404,26 @@ class EventNetworkCoordinator(
         repository.loadQueueEntry(playerId).thenApply { entry ->
             entry?.takeIf { it.expiresAtMs >= clock() }?.state
         }
+
+    fun queueControl(playerId: UUID): CompletableFuture<QueueControlSnapshot> = repository.loadQueue(clock()).thenApply { entries ->
+        val queued = entries.filter { it.state == QueueState.QUEUED }
+        QueueControlSnapshot(
+            state = entries.firstOrNull { it.playerId == playerId.toString() }?.state,
+            ownerId = queued.firstOrNull()?.playerId?.let(UUID::fromString),
+        )
+    }
+
+    fun selectableArenaIds(): List<String> {
+        val current = settings()
+        if (current.nodeMode == NodeMode.HOST) return readyArenaIds()
+        return nodes.firstOrNull { it.serverId == current.hostServer }?.arenaIds.orEmpty()
+    }
+
+    fun advertisedArenaReady(): Boolean {
+        val current = settings()
+        if (current.nodeMode == NodeMode.HOST) return arenaReady()
+        return nodes.firstOrNull { it.serverId == current.hostServer }?.arenaReady == true
+    }
 
     fun loadStats(playerId: UUID) {
         repository.loadStats(playerId).whenComplete { value, failure ->
@@ -447,6 +552,9 @@ class EventNetworkCoordinator(
             when (message.signal) {
                 EventNetworkSignal.QUEUE_CHANGED -> {
                     queueSize = message.queueSize ?: queueSize
+                    // The signal carries only the queued count; reconcile it with the
+                    // durable map without publishing another signal back to the sender.
+                    refreshQueue(announce = false)
                     refreshNodes()
                 }
                 EventNetworkSignal.ROUTE_PLAYER -> route(message)
@@ -465,7 +573,16 @@ class EventNetworkCoordinator(
     private fun handleStartRequest(message: EventNetworkMessage, origin: String) {
         val current = settings()
         if (current.nodeMode != NodeMode.HOST || message.destinationServer != current.serverId) return
-        reserveOnHost().whenComplete { result, failure ->
+        val requesterId = message.requesterId?.let(UUID::fromString)
+        val bypass = current.eventControls.adminOverrideEnabled && message.adminBypass
+        reserveOnHost(
+            requesterId,
+            bypassOwner = bypass,
+            preferredArenaId = message.preferredArenaId.takeIf {
+                current.eventControls.creatorArenaSelectionEnabled || bypass
+            },
+            requesterOrigin = origin,
+        ).whenComplete { result, failure ->
             if (!started) return@whenComplete
             val outcome = if (failure == null && result != null) result else ReservationStartResult.NETWORK_FAILURE
             runCatching {
@@ -582,14 +699,29 @@ class EventNetworkCoordinator(
         heartbeat()
     }
 
+    private fun scheduleMaintenance(periodTicks: Long) {
+        require(periodTicks > 0L)
+        if (maintenanceTask != null && maintenancePeriodTicks == periodTicks) return
+        val candidate = Tasks.scheduler.runTimer(periodTicks, periodTicks) { maintain() }
+        maintenanceTask?.cancel()
+        maintenanceTask = candidate
+        maintenancePeriodTicks = periodTicks
+    }
+
     private fun refresh() {
+        refreshQueue(announce = true)
+        refreshNodes()
+    }
+
+    private fun refreshQueue(announce: Boolean) {
         repository.loadQueue(clock()).whenComplete { queue, failure ->
             if (failure == null && queue != null) {
                 queueSize = queue.count { it.state == ru.ruscrafting.events.network.QueueState.QUEUED }
-                publish(EventNetworkMessage.create(EventNetworkSignal.QUEUE_CHANGED, queueSize = queueSize))
+                if (announce && started) {
+                    publish(EventNetworkMessage.create(EventNetworkSignal.QUEUE_CHANGED, queueSize = queueSize))
+                }
             }
         }
-        refreshNodes()
     }
 
     private fun refreshNodes() {
@@ -627,14 +759,20 @@ class EventNetworkCoordinator(
                 queueSize = queueSize,
                 capacity = if (current.nodeMode == NodeMode.HOST) current.ttt.maximumPlayers else 0,
                 heartbeatAtMs = clock(),
+                arenaIds = if (current.nodeMode == NodeMode.HOST) {
+                    readyArenaIds()
+                } else {
+                    emptyList()
+                },
             ),
         )
     }
 
     override fun close() {
         started = false
-        tasks.forEach(ScheduledTask::cancel)
-        tasks.clear()
+        maintenanceTask?.cancel()
+        maintenanceTask = null
+        maintenancePeriodTicks = 0L
         eventChannel?.close()
         eventChannel = null
         nodePresence?.close()

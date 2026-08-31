@@ -11,6 +11,7 @@ import org.bukkit.inventory.ItemStack
 import org.bukkit.inventory.meta.LeatherArmorMeta
 import org.bukkit.persistence.PersistentDataType
 import org.bukkit.plugin.Plugin
+import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.domain.TttRole
 
@@ -43,20 +44,27 @@ fun interface EventItemResolver {
 class TttItems(
     plugin: Plugin,
     private val locale: ArcEventsLocale,
+    private val settings: () -> ArcEventsConfig,
 ) : EventItemResolver {
     private val itemKindKey = NamespacedKey(plugin, "event_item")
     private val matchIdKey = NamespacedKey(plugin, "match_id")
 
-    val traitorOffers = listOf(
-        ShopOffer(EventItemKind.TRAITOR_BLADE, Material.IRON_SWORD, 2, "menu.shop.traitor-blade-name", "menu.shop.traitor-blade-lore"),
-        ShopOffer(EventItemKind.TRAITOR_RADAR, Material.COMPASS, 1, "menu.shop.traitor-radar-name", "menu.shop.traitor-radar-lore"),
-        ShopOffer(EventItemKind.TRAITOR_SMOKE, Material.FIREWORK_STAR, 1, "menu.shop.traitor-smoke-name", "menu.shop.traitor-smoke-lore"),
-    )
-    val detectiveOffers = listOf(
-        ShopOffer(EventItemKind.DETECTIVE_SCANNER, Material.COMPASS, 1, "menu.shop.detective-scanner-name", "menu.shop.detective-scanner-lore"),
-        ShopOffer(EventItemKind.DETECTIVE_MEDKIT, Material.GOLDEN_APPLE, 1, "menu.shop.detective-medkit-name", "menu.shop.detective-medkit-lore"),
-        ShopOffer(EventItemKind.DETECTIVE_ARMOR, Material.IRON_CHESTPLATE, 1, "menu.shop.detective-armor-name", "menu.shop.detective-armor-lore"),
-    )
+    val traitorOffers: List<ShopOffer>
+        get() = settings().gameplay.let { gameplay ->
+            listOf(
+                ShopOffer(EventItemKind.TRAITOR_BLADE, Material.IRON_SWORD, gameplay.traitorBladeCost, "menu.shop.traitor-blade-name", "menu.shop.traitor-blade-lore"),
+                ShopOffer(EventItemKind.TRAITOR_RADAR, Material.COMPASS, gameplay.traitorRadarCost, "menu.shop.traitor-radar-name", "menu.shop.traitor-radar-lore"),
+                ShopOffer(EventItemKind.TRAITOR_SMOKE, Material.FIREWORK_STAR, gameplay.traitorSmokeCost, "menu.shop.traitor-smoke-name", "menu.shop.traitor-smoke-lore"),
+            )
+        }
+    val detectiveOffers: List<ShopOffer>
+        get() = settings().gameplay.let { gameplay ->
+            listOf(
+                ShopOffer(EventItemKind.DETECTIVE_SCANNER, Material.COMPASS, gameplay.detectiveScannerCost, "menu.shop.detective-scanner-name", "menu.shop.detective-scanner-lore"),
+                ShopOffer(EventItemKind.DETECTIVE_MEDKIT, Material.GOLDEN_APPLE, gameplay.detectiveMedkitCost, "menu.shop.detective-medkit-name", "menu.shop.detective-medkit-lore"),
+                ShopOffer(EventItemKind.DETECTIVE_ARMOR, Material.IRON_CHESTPLATE, gameplay.detectiveArmorCost, "menu.shop.detective-armor-name", "menu.shop.detective-armor-lore"),
+            )
+        }
 
     fun givePreparationLoadout(player: Player, matchId: String) {
         player.inventory.clear()
@@ -64,7 +72,8 @@ class TttItems(
         player.inventory.setItemInOffHand(ItemStack.empty())
         player.setItemOnCursor(ItemStack.empty())
         player.inventory.setItem(0, simple(Material.IRON_SWORD, locale.render("loadout.blade", player)))
-        player.inventory.setItem(1, simple(Material.COOKED_BEEF, locale.render("loadout.rations", player), 4))
+        val rations = settings().gameplay.preparationRations
+        if (rations > 0) player.inventory.setItem(1, simple(Material.COOKED_BEEF, locale.render("loadout.rations", player), rations))
         player.inventory.setItem(8, tagged(
             Material.WRITTEN_BOOK,
             EventItemKind.GUIDE,

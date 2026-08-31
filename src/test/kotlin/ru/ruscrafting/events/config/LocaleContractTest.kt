@@ -35,7 +35,7 @@ class LocaleContractTest : StringSpec({
                 raw.contains('•') shouldBe false
                 raw.count { it == '·' } shouldBe 1
                 Regex("[А-ЯA-Z]{8,}").containsMatchIn(raw) shouldBe false
-                Regex("(?m)^    title: '<#20252b>").findAll(raw).count() shouldBe 11
+                Regex("(?m)^    title: '<#20252b>").findAll(raw).count() shouldBe 12
                 Regex("(?m)^  [a-z-]*actionbar: '.*<prefix>").containsMatchIn(raw) shouldBe false
                 Regex("(?m)^  reserved: '.*parkour").containsMatchIn(raw) shouldBe false
                 Regex("(?i)(we will move|transfer has begun|вас перенесут|перенос на арену)").containsMatchIn(raw) shouldBe false

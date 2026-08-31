@@ -63,11 +63,18 @@ object TttFirearmCatalog {
         FirearmSpec(FirearmId.MCMILLAN, 5, 1, 1, 16.0, 120.0, 0.25, 32, 58, FirearmRarity.LEGENDARY, 1),
     ).associateBy { it.id }.also { catalog -> catalog.values.forEach(FirearmSpec::validated) }
 
-    private val weightedLoot: List<FirearmId> = specs.values.flatMap { spec -> List(spec.lootWeight) { spec.id } }
-
     /** Ensures broad variety, then fills the remaining positions from the weighted rarity pool. */
-    fun lootSelection(count: Int, seed: Long): List<FirearmId> {
+    fun lootSelection(count: Int, seed: Long): List<FirearmId> = lootSelection(specs, count, seed)
+
+    /** Same deterministic selection using an operator-configured, validated catalog snapshot. */
+    fun lootSelection(catalog: Map<FirearmId, FirearmSpec>, count: Int, seed: Long): List<FirearmId> {
         require(count in 1..128)
+        require(catalog.keys == FirearmId.entries.toSet())
+        catalog.forEach { (id, spec) ->
+            require(spec.id == id)
+            spec.validated()
+        }
+        val weightedLoot = catalog.values.flatMap { spec -> List(spec.lootWeight) { spec.id } }
         val random = kotlin.random.Random(seed)
         val guaranteed = FirearmId.entries.shuffled(random).take(count)
         if (guaranteed.size == count) return guaranteed

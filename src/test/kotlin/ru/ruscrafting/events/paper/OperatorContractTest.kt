@@ -49,29 +49,30 @@ class OperatorContractTest : StringSpec({
     }
 
     "event menu exposes only actions valid for the player's current state" {
-        val available = eventMenuPlan(null, true, true, false, false, false, false, true)
+        val available = eventMenuPlan(null, true, true, false, false, false, false, true, true)
         available.showJoin shouldBe true
         available.showLeave shouldBe false
         available.showStart shouldBe false
 
-        val queued = eventMenuPlan(QueueState.QUEUED, true, true, false, false, false, false, true)
+        val queued = eventMenuPlan(QueueState.QUEUED, true, true, false, false, false, false, true, true)
         queued.showJoin shouldBe false
         queued.showQueueStatus shouldBe true
         queued.showLeave shouldBe true
         queued.showStart shouldBe true
+        queued.showArenaSelection shouldBe true
 
-        val reserved = eventMenuPlan(QueueState.RESERVED, true, true, false, false, false, false, true)
+        val reserved = eventMenuPlan(QueueState.RESERVED, true, true, false, false, false, false, true, true)
         reserved.showQueueStatus shouldBe true
         reserved.showLeave shouldBe false
         reserved.showStart shouldBe false
 
-        val active = eventMenuPlan(QueueState.MATCHED, true, true, true, true, false, true, true)
+        val active = eventMenuPlan(QueueState.MATCHED, true, true, true, true, false, true, true, true)
         active.showJoin shouldBe false
         active.showRoster shouldBe true
         active.showShop shouldBe true
         active.showEvacuate shouldBe true
 
-        val unavailable = eventMenuPlan(null, false, false, false, false, false, false, true)
+        val unavailable = eventMenuPlan(null, false, false, false, false, false, false, true, true)
         unavailable.showJoin shouldBe false
         unavailable.showJoinUnavailable shouldBe true
     }
