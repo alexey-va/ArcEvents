@@ -49,6 +49,8 @@ sources:
       - hud.preparing-tips
       - weapon.pickup-ammo-actionbar
       - nameplate.*
+      - team.message
+      - chat.*
 
 placeholders:
   queue: '14'
@@ -78,7 +80,9 @@ placeholders:
   target: '30'
   rounds: '48'
   seconds: '10'
-  player: StarlightFox
+  range: '<#67c58c>рядом'
+  player: VeryLongPlayer16
+  message: Идём через библиотеку
   health: '17'
   max_health: '20'
 
@@ -278,6 +282,8 @@ surfaces:
       include: [menu.event.state.*]
     - source: events
       include: [arena.inferno.name, arena.mirage.name, arena.nuke.name, arena.ttt-minecraft-b5.name]
+    - source: events
+      include: [chat.range.*]
 
   world:
     - id: event-player-nameplate
@@ -294,3 +300,7 @@ surfaces:
         - match.spawn-return-unavailable
         - match.spawn-return-already
         - admin.weapon-points.*
+        - team.message
+        - chat.self-message
+        - chat.match-message
+        - chat.spectator-message

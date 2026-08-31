@@ -73,6 +73,12 @@ class ArcEventsConfigTest : StringSpec({
                 summaryPriority = 100,
             )
             config.packetChatIsolationEnabled shouldBe false
+            config.localChat shouldBe LocalChatSettings(
+                enabled = true,
+                closeDistance = 8.0,
+                normalDistance = 24.0,
+                maximumDistance = 36.0,
+            )
             config.ui.back shouldBe UiItemSettings("BLUE_STAINED_GLASS_PANE", 11013)
             config.debug.enabled shouldBe false
             config.debug.allowedServerIds shouldBe setOf("lab")
@@ -110,6 +116,12 @@ class ArcEventsConfigTest : StringSpec({
             val networkCandidate = ArcEventsConfig.inspect(root)
             shouldNotThrowAny {
                 ArcEventsReloadPolicy.validate(current, networkCandidate, matchOrReservationActive = true, activeArenaId = "default")
+            }
+
+            Files.writeString(root.resolve("config.yml"), original.replace("maximum-distance: 36.0", "maximum-distance: 40.0"))
+            val localChatCandidate = ArcEventsConfig.inspect(root)
+            shouldNotThrowAny {
+                ArcEventsReloadPolicy.validate(current, localChatCandidate, matchOrReservationActive = true, activeArenaId = "default")
             }
 
             Files.writeString(root.resolve("config.yml"), original.replace("minimum-players: 4", "minimum-players: 5"))
@@ -191,12 +203,30 @@ class ArcEventsConfigTest : StringSpec({
             upgraded.defaultLocale shouldBe "en"
             upgraded.eventControls.creatorControlsEnabled shouldBe true
             upgraded.ui.lootDisplay.scale shouldBe 0.78
+            upgraded.localChat.maximumDistance shouldBe 36.0
             Files.readString(root.resolve("config.yml")).contains("\narena:") shouldBe false
             Files.readString(root.resolve("config.yml")).contains("\narenas:") shouldBe false
             Files.readString(root.resolve("config.yml")).contains("\nweapons:") shouldBe false
 
             ArcEventsConfig.load(root)
             Files.readAllBytes(root.resolve("config.yml")).toList() shouldBe once.toList()
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    "local chat distances are finite ordered and bounded" {
+        val root = Files.createTempDirectory("arcevents-local-chat-")
+        try {
+            ArcEventsConfig.load(root)
+            val original = Files.readString(root.resolve("config.yml"))
+            Files.writeString(root.resolve("config.yml"), original.replace("normal-distance: 24.0", "normal-distance: 8.0"))
+            shouldThrow<IllegalArgumentException> { ArcEventsConfig.inspect(root) }
+                .message shouldBe "chat.local distances must increase from close to normal to maximum"
+
+            Files.writeString(root.resolve("config.yml"), original.replace("maximum-distance: 36.0", "maximum-distance: 129.0"))
+            shouldThrow<IllegalArgumentException> { ArcEventsConfig.inspect(root) }
+                .message shouldBe "chat.local.maximum-distance must be between 1 and 128"
         } finally {
             root.toFile().deleteRecursively()
         }

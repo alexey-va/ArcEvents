@@ -71,6 +71,14 @@ locale:
   use-client-locale: true
 
 chat:
+  # Ordinary round chat is spatial. The sender always sees their own line;
+  # other living players (or other spectators) hear it only inside this range.
+  # All values are applied immediately by /events reload.
+  local:
+    enabled: true
+    close-distance: 8.0
+    normal-distance: 24.0
+    maximum-distance: 36.0
   # Paper chat/viewer isolation is always active during a match. This optional
   # layer also suppresses external player, disguised and system-chat packets.
   # Requires a ProtocolLib build compatible with the exact Minecraft version.

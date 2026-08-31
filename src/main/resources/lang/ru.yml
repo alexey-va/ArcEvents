@@ -669,11 +669,17 @@ shop:
 team:
   usage: '<prefix> <#e6fff3>Чат: <#92bed8>/events team [текст]'
   unavailable: '<prefix> <#ff9f0f>Сейчас командный чат недоступен.'
-  message: '<#666666>[Команда] <role> <#f2f0e6><player><#8c8c8c>: <#f2f0e6><message>'
+  message: '<#d75a5a>свои  <#f1c46d><player> <#66727a>› <#e6fff3><message>'
 
 chat:
-  match-message: '<#666666>[Раунд] <#f2f0e6><player><#8c8c8c>: <#f2f0e6><message>'
-  spectator-message: '<#666666>[Наблюдатели] <#8c8c8c><player>: <#b8b8b8><message>'
+  self-message: '<#91a0aa>вы <#66727a>› <#e6fff3><message>'
+  match-message: '<range>  <#f1c46d><player> <#66727a>› <#e6fff3><message>'
+  spectator-message: '<range>  <#b6a6d8><player> <#66727a>› <#d6d2df><message>'
+  range:
+    close: '<#67c58c>рядом'
+    normal: '<#7bb6d8>поблизости'
+    far: '<#d8a65e>далеко'
+    global: '<#7bb6d8>раунд'
 
 admin:
   arena-unavailable: '<prefix> <#c42323>Арена не готова: проверьте мир и точки.'

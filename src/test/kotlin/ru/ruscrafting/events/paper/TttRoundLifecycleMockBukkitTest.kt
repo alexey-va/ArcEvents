@@ -1,6 +1,8 @@
 package ru.ruscrafting.events.paper
 
 import com.google.gson.Gson
+import io.papermc.paper.chat.ChatRenderer
+import io.papermc.paper.event.player.AsyncChatEvent
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.assertions.withClue
 import io.kotest.matchers.collections.shouldContainExactly
@@ -17,6 +19,10 @@ import org.bukkit.damage.DamageType
 import org.bukkit.event.entity.EntityDamageByEntityEvent
 import org.bukkit.event.entity.EntityDamageEvent.DamageCause
 import org.bukkit.inventory.ItemStack
+import net.kyori.adventure.audience.Audience
+import net.kyori.adventure.chat.SignedMessage
+import net.kyori.adventure.text.Component
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
 import ru.arc.config.ConfigManager
 import ru.arc.core.PaperArcRuntime
 import ru.arc.core.Tasks
@@ -35,6 +41,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 /**
  * Host-local integration of [ArcEventsService] with the real [ArcEventsListener].
@@ -45,6 +52,55 @@ import java.util.UUID
  * [ArcEventsPlugin.onEnable] bootstrap are outside this host-local test and do not currently have MockBukkit coverage.
  */
 class TttRoundLifecycleMockBukkitTest : FunSpec({
+    test("isolated TTT chat uses live spatial bands and keeps spectator speech away from living players") {
+        failOnUnsupportedMockBukkitOperation {
+            TttRoundFixture().use { fixture ->
+                fixture.startActiveRound()
+                val sender = fixture.players[0]
+                val close = fixture.players[1]
+                val normal = fixture.players[2]
+                val far = fixture.players[3]
+                val outsider = fixture.addOutsider("Outsider")
+                fixture.move(sender, 0.5)
+                fixture.move(close, 6.5)
+                fixture.move(normal, 18.5)
+                fixture.move(far, 34.5)
+                fixture.drainAllMessages(fixture.players + outsider)
+
+                fixture.chat(sender, "Идём в центр")
+
+                fixture.drainMessages(sender) shouldContainExactly listOf("вы › Идём в центр")
+                fixture.drainMessages(close) shouldContainExactly listOf("рядом  Alpha › Идём в центр")
+                fixture.drainMessages(normal) shouldContainExactly listOf("поблизости  Alpha › Идём в центр")
+                fixture.drainMessages(far) shouldContainExactly listOf("далеко  Alpha › Идём в центр")
+                fixture.drainMessages(outsider) shouldBe emptyList()
+
+                fixture.reloadRuntime { raw -> raw.replace("maximum-distance: 36.0", "maximum-distance: 30.0") }
+                fixture.drainAllMessages(fixture.players + outsider)
+                fixture.chat(sender, "Слышно только рядом")
+                fixture.drainMessages(far) shouldBe emptyList()
+                fixture.drainMessages(outsider) shouldBe emptyList()
+
+                val dead = fixture.players
+                    .filter { fixture.service.participant(it.uniqueId)?.role != TttRole.TRAITOR }
+                    .take(2)
+                dead.forEach { player -> fixture.service.eliminate(player) }
+                fixture.service.phase() shouldBe MatchPhase.ACTIVE
+                dead.forEach { player -> fixture.move(player, 5.5) }
+                fixture.drainAllMessages(fixture.players + outsider)
+
+                fixture.chat(dead[0], "Вижу с той стороны")
+
+                fixture.drainMessages(dead[0]) shouldContainExactly listOf("вы › Вижу с той стороны")
+                fixture.drainMessages(dead[1]) shouldContainExactly listOf("рядом  ${dead[0].name} › Вижу с той стороны")
+                fixture.players.filterNot(dead::contains).forEach { living ->
+                    fixture.drainMessages(living) shouldBe emptyList()
+                }
+                fixture.drainMessages(outsider) shouldBe emptyList()
+            }
+        }
+    }
+
     test("a host-local Bukkit TTT round keeps parity active, consumes the knife, and restores every player") {
         failOnUnsupportedMockBukkitOperation {
             TttRoundFixture().use { fixture ->
@@ -202,6 +258,8 @@ private class TttRoundFixture : AutoCloseable {
     private var nowMs = 1_787_730_000_000L
     private var started = false
     private val debugLines = mutableListOf<String>()
+    private val plain = PlainTextComponentSerializer.plainText()
+    private val nextMessages = mutableMapOf<UUID, () -> Component?>()
 
     private var settings: ArcEventsConfig
     private val locale: ArcEventsLocale
@@ -333,6 +391,45 @@ private class TttRoundFixture : AutoCloseable {
 
     fun currentSettings(): ArcEventsConfig = settings
 
+    fun addOutsider(name: String): Player = paper.addPlayer(name).also { player ->
+        nextMessages[player.uniqueId] = player::nextComponentMessage
+        player.teleport(Location(world, 0.5, 64.0, 0.5))
+    }
+
+    fun move(player: Player, x: Double) {
+        player.teleport(Location(world, x, 64.0, 0.5)) shouldBe true
+    }
+
+    fun chat(player: Player, rawMessage: String) {
+        val message = Component.text(rawMessage)
+        val event = AsyncChatEvent(
+            true,
+            player,
+            paper.server.onlinePlayers.mapTo(mutableSetOf<Audience>()) { it },
+            ChatRenderer.defaultRenderer(),
+            message,
+            message,
+            SignedMessage.system(rawMessage, message),
+        )
+        paper.server.scheduler.executeAsyncEvent(event).get(5, TimeUnit.SECONDS)
+        event.isCancelled shouldBe true
+        paper.performTicks(2)
+    }
+
+    fun drainAllMessages(players: Iterable<Player>) {
+        players.forEach(::drainMessages)
+    }
+
+    fun drainMessages(player: Player): List<String> {
+        val nextMessage = requireNotNull(nextMessages[player.uniqueId])
+        return buildList {
+            while (true) {
+                val message = nextMessage() ?: break
+                add(plain.serialize(message))
+            }
+        }
+    }
+
     fun reloadRuntime(transform: (String) -> String) {
         val configPath = dataRoot.resolve("config.yml")
         Files.writeString(configPath, transform(Files.readString(configPath)))
@@ -342,6 +439,7 @@ private class TttRoundFixture : AutoCloseable {
 
     private fun createPlayer(name: String, material: Material, x: Double, amount: Int): Player =
         paper.addPlayer(name).also { player ->
+            nextMessages[player.uniqueId] = player::nextComponentMessage
             player.gameMode = GameMode.SURVIVAL
             player.teleport(Location(world, x, 70.0, -5.0, 90f, 0f))
             player.inventory.setItemInMainHand(ItemStack.of(material, amount))
@@ -439,7 +537,7 @@ private val TTT_FIXTURE_CONFIG = """
         lobby: '0.5,64.0,0.5'
         spectator: '5.5,66.0,5.5'
         minimum: '-20.0,50.0,-20.0'
-        maximum: '20.0,100.0,20.0'
+        maximum: '60.0,100.0,60.0'
         spawns:
           - '0.5,64.0,0.5'
         loot-spawns: []

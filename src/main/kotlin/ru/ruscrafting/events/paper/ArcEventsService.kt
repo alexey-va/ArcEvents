@@ -118,6 +118,7 @@ class ArcEventsService(
     private val lootSpawner: TttLootSpawner,
     private val clock: () -> Long = System::currentTimeMillis,
 ) : ArcEventsGameplayBoundary, AutoCloseable {
+    private val localChat = TttLocalChat(plugin.server, settings, locale)
     private data class MapSpawnReturn(
         val matchId: UUID,
         val origin: Location,
@@ -646,20 +647,7 @@ class ArcEventsService(
     override fun sendMatchChat(player: Player, message: Component) {
         val current = match ?: return
         if (current.phase !in CHAT_PHASES) return
-        val sender = current.participant(player.uniqueId) ?: return
-        if (sender.status == ParticipantStatus.RESTORED) return
-        val spectator = sender.status == ParticipantStatus.DEAD
-        val recipients = current.participants.values.filter { participant ->
-            if (spectator) participant.status == ParticipantStatus.DEAD
-            else participant.status in setOf(ParticipantStatus.RESERVED, ParticipantStatus.ALIVE)
-        }
-        val key = if (spectator) "chat.spectator-message" else "chat.match-message"
-        recipients.mapNotNull { plugin.server.getPlayer(it.playerId) }.forEach { recipient ->
-            recipient.sendEventMessage(locale.render(key, recipient, mapOf(
-                "player" to Component.text(player.name),
-                "message" to message,
-            )))
-        }
+        localChat.send(current, player, message)
     }
 
     override fun inspectBody(player: Player, bodyId: UUID) {
@@ -962,7 +950,6 @@ class ArcEventsService(
         }
         recipients.mapNotNull { plugin.server.getPlayer(it.playerId) }.forEach { recipient ->
             recipient.sendEventMessage(locale.render("team.message", recipient, mapOf(
-                "role" to roleName(sender.role, recipient),
                 "player" to Component.text(player.name),
                 "message" to message,
             )))

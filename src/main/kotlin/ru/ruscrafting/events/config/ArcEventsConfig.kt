@@ -100,6 +100,13 @@ data class EventControlSettings(
     val adminOverrideEnabled: Boolean,
 )
 
+data class LocalChatSettings(
+    val enabled: Boolean,
+    val closeDistance: Double,
+    val normalDistance: Double,
+    val maximumDistance: Double,
+)
+
 data class GameplaySettings(
     val spawnReturnSeconds: Int,
     val spawnReturnMovementTolerance: Double,
@@ -242,6 +249,13 @@ class ArcEventsConfig(private val config: Config) {
     val defaultLocale: String get() = config.string("locale.default", "ru").trim().lowercase()
     val useClientLocale: Boolean get() = config.bool("locale.use-client-locale", true)
     val packetChatIsolationEnabled: Boolean get() = config.bool("chat.packet-isolation.enabled", false)
+    val localChat: LocalChatSettings
+        get() = LocalChatSettings(
+            enabled = config.bool("chat.local.enabled", true),
+            closeDistance = config.double("chat.local.close-distance", 8.0),
+            normalDistance = config.double("chat.local.normal-distance", 24.0),
+            maximumDistance = config.double("chat.local.maximum-distance", 36.0),
+        )
     val debug: DebugSettings
         get() = DebugSettings(
             enabled = config.bool("debug.enabled", false),
@@ -412,6 +426,19 @@ class ArcEventsConfig(private val config: Config) {
         BackendServerId.of(serverId)
         BackendServerId.of(hostServer)
         require(defaultLocale in setOf("ru", "en")) { "locale.default must be ru or en" }
+        val localChat = localChat
+        require(localChat.closeDistance.isFinite() && localChat.closeDistance in 1.0..128.0) {
+            "chat.local.close-distance must be between 1 and 128"
+        }
+        require(localChat.normalDistance.isFinite() && localChat.normalDistance in 1.0..128.0) {
+            "chat.local.normal-distance must be between 1 and 128"
+        }
+        require(localChat.maximumDistance.isFinite() && localChat.maximumDistance in 1.0..128.0) {
+            "chat.local.maximum-distance must be between 1 and 128"
+        }
+        require(localChat.closeDistance < localChat.normalDistance && localChat.normalDistance < localChat.maximumDistance) {
+            "chat.local distances must increase from close to normal to maximum"
+        }
         require(debug.allowedServerIds.isNotEmpty() && debug.allowedServerIds.all { BackendServerId.parseOrNull(it) != null }) {
             "debug.allowed-server-ids contains an invalid server id"
         }

@@ -63,6 +63,24 @@ class LocaleContractTest : StringSpec({
             root.toFile().deleteRecursively()
         }
     }
+
+    "round chat has no square badges or bold decoration" {
+        val root = Files.createTempDirectory("arcevents-chat-style-")
+        try {
+            listOf("ru", "en").forEach { language ->
+                val config = Config(root, "lang/$language.yml")
+                listOf("team.message", "chat.self-message", "chat.match-message", "chat.spectator-message").forEach { path ->
+                    val message = config.string(path)
+                    message.contains('[') shouldBe false
+                    message.contains(']') shouldBe false
+                    message.contains("<bold>") shouldBe false
+                    message.count { it == '›' } shouldBe 1
+                }
+            }
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
 }) {
     companion object {
         private val roots = listOf(
