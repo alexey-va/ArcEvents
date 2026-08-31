@@ -59,16 +59,20 @@ class ArenaWorldProvisioner(private val plugin: Plugin) {
         val marker = worldFolder.resolve(ARENA_TEMPLATE_MARKER)
         val builtIn = arena.template == TttCitadelBlueprint.TEMPLATE
         val packaged = PackagedArenaTemplates.find(arena.template)
-        require(builtIn || packaged != null) { "Arena template ${arena.template} is not a reviewed packaged template" }
-        if (packaged != null) requireGlobalCommandBlocksDisabled(container)
+        val imported = ReviewedImportedArenaTemplates.find(arena.template)
+        require(builtIn || packaged != null || imported != null) {
+            "Arena template ${arena.template} is not reviewed"
+        }
+        if (packaged != null || imported != null) requireGlobalCommandBlocksDisabled(container)
 
         val existing = plugin.server.getWorld(arena.world)
         if (existing != null) {
             requireMarker(arena, marker)
             if (packaged != null) requirePackagedWorld(worldFolder, arena, packaged)
+            if (imported != null) requireReviewedImportedWorld(worldFolder, arena, imported)
             configure(existing, arena, settings)
             requireArenaChunks(existing, arena, generate = false)
-            if (packaged != null) sanitizeImportedDecorations(existing, arena, settings)
+            if (packaged != null || imported != null) sanitizeImportedDecorations(existing, arena, settings)
             rejectCommandBlocks(existing, arena)
             return existing
         }
@@ -78,8 +82,11 @@ class ArenaWorldProvisioner(private val plugin: Plugin) {
         if (folderExisted) {
             requireMarker(arena, marker)
             if (packaged != null) requirePackagedWorld(worldFolder, arena, packaged)
+            if (imported != null) requireReviewedImportedWorld(worldFolder, arena, imported)
         } else if (packaged != null) {
             provisionPackagedWorld(container, worldFolder, arena, packaged, settings)
+        } else if (imported != null) {
+            error("Reviewed imported arena world ${arena.world} is missing")
         }
 
         val creator = WorldCreator.name(arena.world)
@@ -88,7 +95,7 @@ class ArenaWorldProvisioner(private val plugin: Plugin) {
             .keepSpawnLoaded(TriState.FALSE)
         when {
             builtIn -> creator.seed(TttCitadelBlueprint.SEED).generator(TttCitadelChunkGenerator())
-            packaged != null -> creator.generator(EmptyArenaChunkGenerator())
+            packaged != null || imported != null -> creator.generator(EmptyArenaChunkGenerator())
         }
         val world = requireNotNull(creator.createWorld()) { "Could not load arena world ${arena.world}" }
         configure(world, arena, settings)
@@ -96,7 +103,7 @@ class ArenaWorldProvisioner(private val plugin: Plugin) {
         if (builtIn && !folderExisted) {
             Files.writeString(marker, arena.template + "\n", StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
         }
-        if (packaged != null) sanitizeImportedDecorations(world, arena, settings)
+        if (packaged != null || imported != null) sanitizeImportedDecorations(world, arena, settings)
         rejectCommandBlocks(world, arena)
         val action = if (folderExisted) "Loaded" else "Provisioned"
         plugin.logger.info("$action ArcEvents arena id=${arena.id} world=${world.name} template=${arena.template}")
@@ -390,6 +397,61 @@ class ArenaWorldProvisioner(private val plugin: Plugin) {
         }
     }
 
+    private fun requireReviewedImportedWorld(
+        worldFolder: Path,
+        arena: ArenaSettings,
+        template: ReviewedImportedArenaTemplate,
+    ) {
+        require(Files.isRegularFile(worldFolder.resolve("level.dat"))) { "Imported arena is missing level.dat" }
+        val sourceManifest = worldFolder.resolve(SOURCE_MANIFEST)
+        require(Files.isRegularFile(sourceManifest) && Files.size(sourceManifest) in 1..MAX_MANIFEST_BYTES) {
+            "Imported arena is missing its bounded source manifest"
+        }
+        val source = JsonParser.parseString(Files.readString(sourceManifest)).asJsonObject
+        require(source.get("format")?.asInt == IMPORTED_SOURCE_MANIFEST_FORMAT) {
+            "Imported arena source manifest format is unsupported"
+        }
+        require(source.get("world")?.asString == arena.world && source.get("template")?.asString == template.id) {
+            "Imported arena source identity does not match its configuration"
+        }
+        require(source.get("source")?.asString == template.source) { "Imported arena source URL changed" }
+        require(source.get("source_archive_sha256")?.asString == template.sourceArchiveSha256) {
+            "Imported arena archive checksum changed"
+        }
+        val sanitized = requireNotNull(source.getAsJsonObject("sanitized")) {
+            "Imported arena sanitizer record is missing"
+        }
+        require(sanitized.get("command_block_entities_removed")?.asInt?.let { it >= 0 } == true) {
+            "Imported arena sanitizer record is invalid"
+        }
+        auditImportedWorldFiles(worldFolder, "Imported arena")
+    }
+
+    private fun auditImportedWorldFiles(worldFolder: Path, label: String) {
+        var fileCount = 0
+        var bytes = 0L
+        Files.walk(worldFolder).use { paths ->
+            paths.forEach { path ->
+                require(!Files.isSymbolicLink(path)) { "$label contains a symbolic link" }
+                fileCount++
+                require(fileCount <= MAX_WORLD_FILES) { "$label contains too many files" }
+                if (Files.isRegularFile(path)) {
+                    bytes += Files.size(path)
+                    require(bytes <= MAX_WORLD_BYTES) { "$label exceeds the size limit" }
+                    require(!path.fileName.toString().endsWith(".mcfunction", ignoreCase = true)) {
+                        "$label contains a function file"
+                    }
+                }
+            }
+        }
+        val datapacks = worldFolder.resolve("datapacks")
+        if (Files.isDirectory(datapacks)) {
+            Files.walk(datapacks).use { entries ->
+                require(entries.asSequence().none(Files::isRegularFile)) { "$label datapacks must be empty" }
+            }
+        }
+    }
+
     private fun requireGlobalCommandBlocksDisabled(container: Path) {
         val properties = container.resolve("server.properties")
         if (!Files.isRegularFile(properties)) return
@@ -400,7 +462,7 @@ class ArenaWorldProvisioner(private val plugin: Plugin) {
             .mapNotNull { line -> line.substringAfter('=', "").takeIf { line.substringBefore('=') == "enable-command-block" } }
             .lastOrNull()
             ?.equals("true", ignoreCase = true) == true
-        require(!enabled) { "Packaged ArcEvents arenas require enable-command-block=false" }
+        require(!enabled) { "Reviewed ArcEvents arenas require enable-command-block=false" }
     }
 
     private fun requireArenaChunks(world: World, arena: ArenaSettings, generate: Boolean) {
@@ -573,6 +635,7 @@ class ArenaWorldProvisioner(private val plugin: Plugin) {
         private const val SOURCE_MANIFEST = ".arcevents-source.json"
         private const val SOURCE_ARTIFACTS = ".arcevents-source"
         private const val SOURCE_MANIFEST_FORMAT = 2
+        private const val IMPORTED_SOURCE_MANIFEST_FORMAT = 1
         private const val STAGE_PREFIX = ".arcevents-stage-"
         private const val SCHEMATIC_BASE_Y = 64
         private const val MAX_MANIFEST_BYTES = 16_384L

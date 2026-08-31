@@ -250,20 +250,21 @@ class ArcEventsConfigTest : StringSpec({
         arena.operational(16) shouldBe false
     }
 
-    "reviewed parkour profile exposes four lightweight packaged arenas" {
+    "reviewed parkour profile exposes the three Counter-Strike maps and classic B5" {
         val repository = opsRoot()
         val config = ArcEventsConfig.inspect(repository.resolve("parkour/plugins/ArcEvents"))
 
         config.arenas.map(ArenaSettings::id) shouldBe listOf(
-            "edged-mansion",
-            "japanese-lobby",
-            "practice-yard",
+            "inferno",
+            "mirage",
+            "nuke",
             "ttt-minecraft-b5",
         )
+        config.defaultArenaId shouldBe "inferno"
         config.arenas.all { it.operational(config.ttt.maximumPlayers) } shouldBe true
         val importedArenas = config.arenas.filter { it.template.endsWith("-v1") }
         importedArenas.all { it.spawns.size == 1 } shouldBe true
-        importedArenas.all { it.lootSpawns.size >= 36 } shouldBe true
+        importedArenas.all { it.lootSpawns.size >= 32 } shouldBe true
         importedArenas.all { it.weaponCount == 30 } shouldBe true
         config.weapons.visuals.mapValues { (_, visual) -> visual.customModelData } shouldBe mapOf(
             FirearmId.FLINTLOCK to 2100101,

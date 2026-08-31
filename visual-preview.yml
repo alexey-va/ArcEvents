@@ -33,6 +33,10 @@ sources:
       - menu.admin.*
       - menu.common.back-name
       - menu.common.back-lore
+      - arena.inferno.name
+      - arena.mirage.name
+      - arena.nuke.name
+      - arena.ttt-minecraft-b5.name
       - queue.*
       - match.preparing-title
       - match.preparing-subtitle
@@ -65,10 +69,10 @@ placeholders:
   node_mode: '<#7bd88f>хост'
   host: parkour
   network_state: '<#7bd88f>готова'
-  arenas: '3'
-  active: Японский двор
-  arena: Японский двор
-  selected_arena: Японский двор
+  arenas: '4'
+  active: Inferno
+  arena: Inferno
+  selected_arena: Inferno
   selection: '<#e3b341>назначена следующей'
   count: '7'
   target: '30'
@@ -176,6 +180,7 @@ surfaces:
         - {slot: 10, material: FILLED_MAP, name: events:menu.event-arenas.entry-name, lore: events:menu.event-arenas.entry-lore}
         - {slot: 12, material: LIME_CONCRETE, name: events:menu.event-arenas.entry-name, lore: events:menu.event-arenas.entry-lore}
         - {slot: 14, material: OAK_SAPLING, name: events:menu.event-arenas.entry-name, lore: events:menu.event-arenas.entry-lore}
+        - {slot: 16, material: STONE_BRICKS, name: events:menu.event-arenas.entry-name, lore: events:menu.event-arenas.entry-lore}
         - {slot: 40, material: COMPASS, name: events:menu.event-arenas.auto-name, lore: events:menu.event-arenas.auto-lore}
         - {slot: 45, material: BLUE_STAINED_GLASS_PANE, itemsadder: 'arc:left_gray', name: events:menu.common.back-name, lore: events:menu.common.back-lore}
 
@@ -271,6 +276,8 @@ surfaces:
   fragments:
     - source: events
       include: [menu.event.state.*]
+    - source: events
+      include: [arena.inferno.name, arena.mirage.name, arena.nuke.name, arena.ttt-minecraft-b5.name]
 
   world:
     - id: event-player-nameplate

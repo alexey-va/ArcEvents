@@ -20,6 +20,10 @@ event-controls:
   creator-arena-selection-enabled: true
   admin-override-enabled: true
 
+# Used when the event creator starts a round without choosing a map.
+# Leave empty to keep deterministic automatic rotation.
+default-arena: ''
+
 # Safe live gameplay tuning. In-progress timers keep their captured deadline;
 # new actions and the next match use the latest values.
 gameplay:

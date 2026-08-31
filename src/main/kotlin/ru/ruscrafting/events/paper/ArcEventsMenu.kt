@@ -173,7 +173,7 @@ class ArcEventsMenu(
                     canStart = canControl,
                     canSelectArena = canControl && (controls.creatorArenaSelectionEnabled || adminOverride),
                 )
-                val selectedArena = arenaName(selectedArenas[player.uniqueId] ?: "auto", player)
+                val selectedArena = arenaName(selectedArenaId(player.uniqueId), player)
                 if (dialogs.openTtt(player, queueState, plan, selectedArena)) return@runSync
                 val inventory = inventory(player, EventsView.Ttt, 45, "menu.event.title")
                 val values = mapOf(
@@ -361,7 +361,7 @@ class ArcEventsMenu(
     private fun openArenas(player: Player) {
         if (!player.hasPermission("arcevents.admin")) return
         val available = service.selectableArenaIds().take(ARENA_SLOTS.size)
-        val selected = selectedArenas[player.uniqueId] ?: "auto"
+        val selected = selectedArenaId(player.uniqueId)
         val inventory = inventory(player, EventsView.Arenas, 54, "menu.arenas.title", arenaIds = available)
         available.zip(ARENA_SLOTS).forEach { (arenaId, slot) ->
             val material = if (selected == arenaId) Material.LIME_CONCRETE else Material.FILLED_MAP
@@ -406,7 +406,7 @@ class ArcEventsMenu(
                     return@runSync
                 }
                 val available = service.selectableArenaIds().take(ARENA_SLOTS.size)
-                val selected = selectedArenas[player.uniqueId] ?: "auto"
+                val selected = selectedArenaId(player.uniqueId)
                 val inventory = inventory(
                     player,
                     EventsView.EventArenas,
@@ -473,6 +473,10 @@ class ArcEventsMenu(
         if (!controls.creatorArenaSelectionEnabled && !adminOverride) return false
         return canStartQueue(player, control)
     }
+
+    private fun selectedArenaId(playerId: UUID): String = selectedArenas[playerId]
+        ?: settings().defaultArenaId.takeIf(String::isNotEmpty)
+        ?: "auto"
 
     private fun canStartQueue(player: Player, control: QueueControlSnapshot): Boolean {
         if (control.state != QueueState.QUEUED) return false

@@ -8,14 +8,22 @@ import java.nio.file.Files
 class ArenaWorldGeneratorRegistryTest : StringSpec({
     "packaged arena keeps an empty border generator across server restarts" {
         val container = Files.createTempDirectory("arcevents-generator-")
-        val arena = Files.createDirectory(container.resolve("events_japanese"))
-        Files.writeString(arena.resolve(ARENA_TEMPLATE_MARKER), "japanese-lobby-v1\n")
+        val arena = Files.createDirectory(container.resolve("events_b5"))
+        Files.writeString(arena.resolve(ARENA_TEMPLATE_MARKER), "ttt-minecraft-b5-v1\n")
 
         val firstLoad = ArenaWorldGeneratorRegistry.generatorFor(container, arena.fileName.toString())
         val secondLoad = ArenaWorldGeneratorRegistry.generatorFor(container, arena.fileName.toString())
 
         (firstLoad is EmptyArenaChunkGenerator) shouldBe true
         (secondLoad is EmptyArenaChunkGenerator) shouldBe true
+    }
+
+    "reviewed Counter-Strike world keeps an empty border generator across server restarts" {
+        val container = Files.createTempDirectory("arcevents-cs2-generator-")
+        val arena = Files.createDirectory(container.resolve("events_inferno"))
+        Files.writeString(arena.resolve(ARENA_TEMPLATE_MARKER), "cs2-inferno-v1\n")
+
+        (ArenaWorldGeneratorRegistry.generatorFor(container, arena.fileName.toString()) is EmptyArenaChunkGenerator) shouldBe true
     }
 
     "built-in arena restores its deterministic generator" {

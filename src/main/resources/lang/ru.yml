@@ -364,14 +364,14 @@ arena:
     name: '<#e3b341>автоматическая ротация'
   citadel:
     name: '<#d6a8ff><bold>Цитадель'
-  japanese-lobby:
-    name: '<#e3b341>Японский двор'
-  edged-mansion:
-    name: '<#d6a8ff>Особняк на краю'
-  practice-yard:
-    name: '<#7bd88f>Тренировочный двор'
   ttt-minecraft-b5:
     name: '<#6fc7d9>Остров B5'
+  inferno:
+    name: '<#e3b341>Inferno'
+  mirage:
+    name: '<#e3b341>Mirage'
+  nuke:
+    name: '<#e3b341>Nuke'
   state:
     ready: '<#7bd88f>готова'
     active: '<#d6a8ff>идёт текущий матч'

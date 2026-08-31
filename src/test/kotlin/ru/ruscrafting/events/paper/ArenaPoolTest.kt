@@ -46,6 +46,50 @@ class ArenaPoolTest : StringSpec({
         }
     }
 
+    "configured default arena is used until the creator chooses another map" {
+        val root = Files.createTempDirectory("arcevents-pool-default-")
+        try {
+            Files.writeString(root.resolve("config.yml"), hostConfig(defaultArena = "beta"))
+            val config = ArcEventsConfig.inspect(root)
+            val pool = ArenaPool({ config }) { _, _ -> true }
+
+            pool.reserve(UUID.randomUUID())?.id shouldBe "beta"
+            pool.clear()
+            pool.selectNext("alpha") shouldBe true
+            pool.reserve(UUID.randomUUID())?.id shouldBe "alpha"
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    "explicit automatic selection overrides the configured default arena" {
+        val root = Files.createTempDirectory("arcevents-pool-explicit-auto-")
+        try {
+            Files.writeString(root.resolve("config.yml"), hostConfig(defaultArena = "beta"))
+            val config = ArcEventsConfig.inspect(root)
+            val matchId = UUID.fromString("10000000-0000-0000-2000-000000000000")
+            ArenaPool({ config }) { _, _ -> true }.reserve(matchId, "auto")?.id shouldBe "alpha"
+            ArenaPool({ config }) { _, _ -> true }.apply {
+                selectNext("auto")
+            }.reserve(matchId)?.id shouldBe "alpha"
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    "configured default falls back to another ready arena" {
+        val root = Files.createTempDirectory("arcevents-pool-default-fallback-")
+        try {
+            Files.writeString(root.resolve("config.yml"), hostConfig(defaultArena = "beta"))
+            val config = ArcEventsConfig.inspect(root)
+            val pool = ArenaPool({ config }) { arena, _ -> arena.id == "alpha" }
+
+            pool.reserve(UUID.randomUUID())?.id shouldBe "alpha"
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
     "availability stops after the first ready arena" {
         val root = Files.createTempDirectory("arcevents-pool-availability-")
         try {
@@ -118,7 +162,7 @@ class ArenaPoolTest : StringSpec({
     }
 }) {
     companion object {
-        private fun hostConfig(): String {
+        private fun hostConfig(defaultArena: String = ""): String {
             val spawns = "      - '3,65,3,0,0'"
             fun arena(world: String) = """
                 |    enabled: true
@@ -137,6 +181,7 @@ class ArenaPoolTest : StringSpec({
                 |server-id: parkour
                 |node-mode: HOST
                 |host-server: parkour
+                |default-arena: '$defaultArena'
                 |network:
                 |  enabled: true
                 |  allowed-origins: [spawn, survival, parkour]

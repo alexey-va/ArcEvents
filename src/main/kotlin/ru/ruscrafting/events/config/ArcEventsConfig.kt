@@ -402,6 +402,8 @@ class ArcEventsConfig(private val config: Config) {
         get() = config.keys("arenas").sorted().map { id -> parseArena(id, "arenas.$id") }
             .ifEmpty { listOf(parseArena("default", "arena")) }
 
+    val defaultArenaId: String get() = config.string("default-arena", "").trim().lowercase()
+
     /** Legacy convenience for safe relay defaults and older integrations. */
     val arena: ArenaSettings get() = arenas.first()
 
@@ -569,6 +571,9 @@ class ArcEventsConfig(private val config: Config) {
                 }
             }
         }
+        require(defaultArenaId.isEmpty() || arenas.any { it.enabled && it.id == defaultArenaId }) {
+            "default-arena must name an enabled arena"
+        }
         if (nodeMode == NodeMode.HOST) require(arenas.any(ArenaSettings::enabled)) { "HOST node requires an enabled arena" }
         if (nodeMode == NodeMode.HOST) require(serverId == hostServer) { "HOST node must equal host-server" }
     }
@@ -578,10 +583,10 @@ class ArcEventsConfig(private val config: Config) {
         private val SUPPORTED_TEMPLATES = setOf(
             "",
             "citadel-v1",
-            "japanese-lobby-v1",
-            "edged-mansion-v1",
-            "practice-yard-v1",
             "ttt-minecraft-b5-v1",
+            "cs2-inferno-v1",
+            "cs2-mirage-v1",
+            "cs2-nuke-v1",
         )
         private val PROTECTED_WORLDS = setOf("world", "world_nether", "world_the_end", "pvp", "parkour1")
 

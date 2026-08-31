@@ -26,6 +26,7 @@ internal object ArenaWorldGeneratorRegistry {
         return when {
             template == TttCitadelBlueprint.TEMPLATE -> TttCitadelChunkGenerator()
             PackagedArenaTemplates.find(template) != null -> EmptyArenaChunkGenerator()
+            ReviewedImportedArenaTemplates.find(template) != null -> EmptyArenaChunkGenerator()
             else -> error("ArcEvents arena template marker is not reviewed: $template")
         }
     }

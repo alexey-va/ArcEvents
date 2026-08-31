@@ -87,6 +87,7 @@ class ArenaWeaponPointEditorTest : FunSpec({
         private fun config(mode: NodeMode, arena: ArenaSettings): ArcEventsConfig = mockk {
             every { nodeMode } returns mode
             every { arenas } returns listOf(arena)
+            every { defaultArenaId } returns ""
             every { ttt } returns mockk<TttSettings> { every { maximumPlayers } returns 16 }
         }
 
