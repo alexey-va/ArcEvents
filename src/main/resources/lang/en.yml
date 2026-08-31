@@ -370,6 +370,8 @@ arena:
     name: '<#d6a8ff>Edged Mansion'
   practice-yard:
     name: '<#7bd88f>Practice Yard'
+  ttt-minecraft-b5:
+    name: '<#6fc7d9>B5 Island'
   state:
     ready: '<#7bd88f>ready'
     active: '<#d6a8ff>hosting the current match'

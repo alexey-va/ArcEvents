@@ -581,6 +581,7 @@ class ArcEventsConfig(private val config: Config) {
             "japanese-lobby-v1",
             "edged-mansion-v1",
             "practice-yard-v1",
+            "ttt-minecraft-b5-v1",
         )
         private val PROTECTED_WORLDS = setOf("world", "world_nether", "world_the_end", "pvp", "parkour1")
 

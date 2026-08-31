@@ -113,6 +113,7 @@ class ArenaWorldProvisioner(private val plugin: Plugin) {
         val files = loadPackagedFiles(template)
         when (template.format) {
             PackagedArenaFormat.ANVIL_WORLD -> provisionAnvil(container, worldFolder, arena, template, files, settings)
+            PackagedArenaFormat.SPONGE_V2_SCHEMATIC,
             PackagedArenaFormat.SPONGE_V3_SCHEMATIC,
             PackagedArenaFormat.MCEDIT_SCHEMATIC,
             -> provisionSchematic(container, worldFolder, arena, template, files, settings)
@@ -210,6 +211,7 @@ class ArenaWorldProvisioner(private val plugin: Plugin) {
 
     private fun readAndCropSchematic(template: PackagedArenaTemplate, source: ByteArray): Clipboard {
         val format = when (template.format) {
+            PackagedArenaFormat.SPONGE_V2_SCHEMATIC -> BuiltInClipboardFormat.SPONGE_V2_SCHEMATIC
             PackagedArenaFormat.SPONGE_V3_SCHEMATIC -> BuiltInClipboardFormat.SPONGE_V3_SCHEMATIC
             PackagedArenaFormat.MCEDIT_SCHEMATIC -> BuiltInClipboardFormat.MCEDIT_SCHEMATIC
             PackagedArenaFormat.ANVIL_WORLD -> error("An Anvil world is not a schematic")
@@ -262,9 +264,20 @@ class ArenaWorldProvisioner(private val plugin: Plugin) {
     private fun loadPackagedFiles(template: PackagedArenaTemplate): Map<PackagedArenaFile, ByteArray> {
         var total = 0L
         return template.files.associateWith { file ->
-            val bytes = requireNotNull(plugin.getResource(file.resource)) {
-                "Packaged arena resource ${file.resource} is missing"
-            }.use { input -> input.readNBytes(MAX_RESOURCE_BYTES + 1) }
+            val bytes = when (template.assetSource) {
+                PackagedArenaSource.CLASSPATH -> requireNotNull(plugin.getResource(file.resource)) {
+                    "Packaged arena resource ${file.resource} is missing"
+                }.use { input -> input.readNBytes(MAX_RESOURCE_BYTES + 1) }
+
+                PackagedArenaSource.DATA_FOLDER -> {
+                    val dataRoot = plugin.dataFolder.toPath().toAbsolutePath().normalize()
+                    val asset = safeChild(dataRoot, file.resource)
+                    require(Files.isRegularFile(asset) && !Files.isSymbolicLink(asset)) {
+                        "External arena asset ${file.resource} is missing or unsafe"
+                    }
+                    Files.newInputStream(asset).use { input -> input.readNBytes(MAX_RESOURCE_BYTES + 1) }
+                }
+            }
             require(bytes.size in 1..MAX_RESOURCE_BYTES) { "Packaged arena resource ${file.resource} is too large" }
             total += bytes.size
             require(total <= MAX_WORLD_BYTES) { "Packaged arena resources exceed the size limit" }

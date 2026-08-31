@@ -45,7 +45,7 @@ import java.util.zip.GZIPInputStream
 import java.util.zip.InflaterInputStream
 
 class PackagedArenaTemplatesTest : StringSpec({
-    "packaged arena registry pins the reviewed classpath assets" {
+    "arena registry pins reviewed classpath and external assets" {
         PackagedArenaTemplates.ids shouldContainExactlyInAnyOrder EXPECTED.keys
 
         EXPECTED.forEach { (id, expected) ->
@@ -61,10 +61,19 @@ class PackagedArenaTemplatesTest : StringSpec({
                 listOf(template.width, template.height, template.length) shouldBe expected.dimensions
                 template.cropMinimum shouldBe expected.cropMinimum
                 template.cropMaximum shouldBe expected.cropMaximum
+                template.assetSource shouldBe expected.assetSource
                 template.files.map { Triple(it.resource, it.destination, it.sha256) } shouldBe expected.files
             }
-            template.files.forEach { file ->
-                withClue(file.resource) { sha256(resourceBytes(file.resource)) shouldBe file.sha256 }
+            if (template.assetSource == PackagedArenaSource.CLASSPATH) {
+                template.files.forEach { file ->
+                    withClue(file.resource) { sha256(resourceBytes(file.resource)) shouldBe file.sha256 }
+                }
+            } else {
+                template.files.forEach { file ->
+                    withClue(file.resource) {
+                        PackagedArenaTemplatesTest::class.java.classLoader.getResource(file.resource) shouldBe null
+                    }
+                }
             }
         }
 
@@ -168,6 +177,7 @@ private data class ExpectedTemplate(
     val cropDimensions: List<Int> = emptyList(),
     val worldEditFormat: String? = null,
     val files: List<Triple<String, String, String>>,
+    val assetSource: PackagedArenaSource = PackagedArenaSource.CLASSPATH,
 )
 
 private val EXPECTED = linkedMapOf(
@@ -231,6 +241,27 @@ private val EXPECTED = linkedMapOf(
                 "60f4fc5ef6de4ff8741fd2cbe6d0294a1cd0d2423ad2b2ed9ae2710a8c4a6160",
             ),
         ),
+    ),
+    "ttt-minecraft-b5-v1" to ExpectedTemplate(
+        format = PackagedArenaFormat.SPONGE_V2_SCHEMATIC,
+        title = "TTT Minecraft B5",
+        source = "https://www.planetminecraft.com/project/ttt_minecraft_b5-minecraft-map/",
+        sourceArchiveSha256 = "93f385b9b6916a81dd425cbce3bdfd7c113447cf1192c5e7045c47cb1493ed6e",
+        author = "SukovicM (original GMod map by finniespin)",
+        license = "Server use only; no redistribution grant",
+        licenseUrl = "https://www.planetminecraft.com/project/ttt_minecraft_b5-minecraft-map/",
+        dimensions = listOf(128, 93, 128),
+        cropMinimum = TemplateBlockPoint(0, 0, 0),
+        cropMaximum = TemplateBlockPoint(127, 80, 127),
+        cropDimensions = listOf(128, 81, 128),
+        files = listOf(
+            Triple(
+                "arena-templates/ttt-minecraft-b5-v1/map.schem",
+                "map.schem",
+                "b072374dde6c6bbc136fd394e469c1f13d7e66a304b2371944a448bcad1ee289",
+            ),
+        ),
+        assetSource = PackagedArenaSource.DATA_FOLDER,
     ),
 )
 
