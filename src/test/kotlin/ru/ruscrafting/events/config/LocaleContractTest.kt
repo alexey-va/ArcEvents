@@ -33,7 +33,8 @@ class LocaleContractTest : StringSpec({
                 raw.contains("&lt;") shouldBe false
                 raw.contains("&gt;") shouldBe false
                 raw.contains('•') shouldBe false
-                raw.count { it == '·' } shouldBe 1
+                raw.contains('·') shouldBe false
+                Config(root, "lang/$language.yml").string("prefix") shouldBe "<white></white>"
                 Regex("[А-ЯA-Z]{8,}").containsMatchIn(raw) shouldBe false
                 Regex("(?m)^    title: '<#20252b>").findAll(raw).count() shouldBe 12
                 Regex("(?m)^  [a-z-]*actionbar: '.*<prefix>").containsMatchIn(raw) shouldBe false

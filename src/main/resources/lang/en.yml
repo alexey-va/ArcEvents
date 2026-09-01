@@ -1,4 +1,4 @@
-prefix: '<#ff5b6e>Events <#8fa6b8>·'
+prefix: '<white></white>'
 command:
   player-only: '<prefix> <#c42323>This command is only available to players.'
   no-permission: '<prefix> <#c42323>You do not have access to this action.'

@@ -86,6 +86,13 @@ placeholders:
   health: '17'
   max_health: '20'
 
+glyphs:
+  - character: ''
+    path: '@ops/classic/plugins/ItemsAdder/contents/arc/resourcepack/arc/textures/glyphs/event_calendar.png'
+    height: 9
+    ascent: 8
+    advance: 10
+
 surfaces:
   hud:
     - id: round-preparation
