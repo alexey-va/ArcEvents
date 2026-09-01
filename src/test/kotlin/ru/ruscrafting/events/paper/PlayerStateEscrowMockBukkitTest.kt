@@ -74,6 +74,34 @@ class PlayerStateEscrowMockBukkitTest : FunSpec({
         escrow.pendingCount(matchId) shouldBe 0
     }
 
+    test("an early arrival snapshot survives later roster completion") {
+        val world = paper.server.addSimpleWorld("arrival-world")
+        val first = paper.server.addPlayer("First")
+        val second = paper.server.addPlayer("Second")
+        first.teleport(Location(world, 1.0, 70.0, 1.0))
+        second.teleport(Location(world, 2.0, 70.0, 2.0))
+        first.inventory.setItem(0, ItemStack.of(Material.DIAMOND, 3))
+        second.inventory.setItem(0, ItemStack.of(Material.EMERALD, 4))
+        val escrow = PlayerStateEscrow(RecoveryBatchStore(dataRoot, Gson()))
+        val matchId = UUID.fromString("00000000-0000-0000-0000-000000000125")
+
+        escrow.commitThenMutate(matchId, listOf(first), mapOf(first.uniqueId to "spawn"), 1_787_730_000_000) {
+            first.inventory.clear()
+        }
+        escrow.commitThenMutate(
+            matchId,
+            listOf(first, second),
+            mapOf(first.uniqueId to "spawn", second.uniqueId to "survival"),
+            1_787_730_001_000,
+        ) { Unit }
+
+        escrow.pendingCount(matchId) shouldBe 2
+        escrow.recover(first) shouldBe PlayerRecovery(matchId, "spawn")
+        first.inventory.getItem(0) shouldBe ItemStack.of(Material.DIAMOND, 3)
+        escrow.recover(second) shouldBe PlayerRecovery(matchId, "survival")
+        second.inventory.getItem(0) shouldBe ItemStack.of(Material.EMERALD, 4)
+    }
+
     test("removed legacy recovery format fails closed") {
         val matchId = UUID.fromString("00000000-0000-0000-0000-000000000124")
         val record = dataRoot.resolve("data/recovery/$matchId.json")

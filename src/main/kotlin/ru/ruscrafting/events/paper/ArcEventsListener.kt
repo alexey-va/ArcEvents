@@ -3,7 +3,6 @@ package ru.ruscrafting.events.paper
 import io.papermc.paper.event.player.AsyncChatEvent
 import net.kyori.adventure.text.Component
 import org.bukkit.Location
-import org.bukkit.entity.ArmorStand
 import org.bukkit.entity.Entity
 import org.bukkit.entity.Player
 import org.bukkit.entity.Projectile
@@ -71,7 +70,7 @@ interface ArcEventsGameplayBoundary {
     fun canPickupLoot(player: Player, item: org.bukkit.entity.Item): Boolean
     fun handleLootPickup(player: Player, item: org.bukkit.entity.Item)
     fun cancelMapSpawnReturn(playerId: UUID, notify: Boolean = true)
-    fun readBodyId(stand: ArmorStand): UUID?
+    fun readBodyId(entity: Entity): UUID?
     fun inspectBody(player: Player, bodyId: UUID)
     fun isInternalTeleport(playerId: UUID, destination: Location?): Boolean
 }
@@ -218,8 +217,7 @@ class ArcEventsListener(
     fun onInteractAtEntity(event: PlayerInteractAtEntityEvent) = inspect(event.player, event.rightClicked) { event.isCancelled = true }
 
     private fun inspect(player: Player, entity: Entity, cancel: () -> Unit) {
-        val stand = entity as? ArmorStand ?: return
-        val bodyId = service.readBodyId(stand) ?: return
+        val bodyId = service.readBodyId(entity) ?: return
         cancel()
         service.inspectBody(player, bodyId)
         menu.open(player, EventsView.Body(bodyId))

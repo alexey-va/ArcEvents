@@ -37,6 +37,9 @@ import ru.ruscrafting.events.domain.ParticipantStatus
 import ru.ruscrafting.events.domain.PlayerEventStats
 import ru.ruscrafting.events.domain.TttRole
 import ru.ruscrafting.events.domain.TttTeam
+import ru.ruscrafting.events.network.QueueEntry
+import ru.ruscrafting.events.network.QueueState
+import ru.ruscrafting.events.network.ReservationBatch
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
@@ -52,6 +55,57 @@ import java.util.concurrent.TimeUnit
  * [ArcEventsPlugin.onEnable] bootstrap are outside this host-local test and do not currently have MockBukkit coverage.
  */
 class TttRoundLifecycleMockBukkitTest : FunSpec({
+    test("an arriving player is escrowed and cleared before the reserved roster completes") {
+        failOnUnsupportedMockBukkitOperation {
+            TttRoundFixture().use { fixture ->
+                fixture.startReservation()
+                val first = fixture.players.first()
+
+                fixture.arrive(first) shouldBe true
+
+                first.inventory.itemInMainHand.isEmpty shouldBe true
+                fixture.escrow.pendingCount() shouldBe 1
+                fixture.service.currentMatch() shouldBe null
+            }
+        }
+    }
+
+    test("arrival inventory clearing can be disabled without losing recovery") {
+        failOnUnsupportedMockBukkitOperation {
+            TttRoundFixture().use { fixture ->
+                fixture.reloadRuntime { it.replace("clear-inventory: true", "clear-inventory: false") }
+                fixture.startReservation()
+                val first = fixture.players.first()
+                val original = first.inventory.itemInMainHand.clone()
+
+                fixture.arrive(first) shouldBe true
+
+                first.inventory.itemInMainHand shouldBe original
+                fixture.escrow.pendingCount() shouldBe 1
+            }
+        }
+    }
+
+    test("elimination stays secret until the body is discovered") {
+        failOnUnsupportedMockBukkitOperation {
+            TttRoundFixture().use { fixture ->
+                fixture.startActiveRound()
+                fixture.drainAllMessages(fixture.players)
+                val victim = fixture.players.first { fixture.service.participant(it.uniqueId)?.role == TttRole.INNOCENT }
+                val witnesses = fixture.players.filterNot { it.uniqueId == victim.uniqueId }
+
+                fixture.service.eliminate(victim)
+
+                witnesses.forEach { witness -> fixture.drainMessages(witness) shouldBe emptyList() }
+
+                fixture.service.debugDiscover(witnesses.first(), victim) shouldBe DebugMutationResult.APPLIED
+                witnesses.forEach { witness ->
+                    fixture.drainMessages(witness).any { victim.name in it } shouldBe true
+                }
+            }
+        }
+    }
+
     test("isolated TTT chat uses live spatial bands and keeps spectator speech away from living players") {
         failOnUnsupportedMockBukkitOperation {
             TttRoundFixture().use { fixture ->
@@ -178,6 +232,7 @@ class TttRoundLifecycleMockBukkitTest : FunSpec({
                 fixture.service.currentMatch() shouldBe null
                 fixture.arenaPool.active() shouldBe null
                 fixture.escrow.pendingCount() shouldBe 0
+                fixture.service.qaBodies() shouldBe emptyList()
                 fixture.assertOriginalPlayerStateRestored()
                 verify(exactly = 4) { fixture.network.returnRecoveredPlayer(any(), any()) }
             }
@@ -273,6 +328,7 @@ private class TttRoundFixture : AutoCloseable {
     val service: ArcEventsService
     val players: List<Player>
     private val originals: Map<UUID, OriginalPlayerState>
+    private var reservationBatch: ReservationBatch? = null
 
     init {
         PaperArcRuntime.installScheduling(plugin)
@@ -344,6 +400,32 @@ private class TttRoundFixture : AutoCloseable {
         service.currentMatch()?.participants?.values?.all { it.status == ParticipantStatus.ALIVE } shouldBe true
         service.debugAdvance() shouldBe DebugMutationResult.APPLIED
         service.phase() shouldBe MatchPhase.ACTIVE
+    }
+
+    fun startReservation() {
+        check(!started) { "The fixture owns one TTT session" }
+        started = true
+        service.start()
+        paper.performTicks(1)
+        val matchId = UUID.randomUUID()
+        reservationBatch = ReservationBatch(matchId, players.mapIndexed { index, player ->
+            QueueEntry(
+                playerId = player.uniqueId.toString(),
+                playerName = player.name,
+                originServer = if (index == 0) "spawn" else "survival",
+                state = QueueState.ARRIVED,
+                joinedAtMs = nowMs - 1_000,
+                expiresAtMs = Long.MAX_VALUE,
+                matchId = matchId.toString(),
+                destinationServer = "parkour",
+            )
+        })
+        service.onReservation(requireNotNull(reservationBatch)) shouldBe true
+    }
+
+    fun arrive(player: Player): Boolean {
+        val batch = requireNotNull(reservationBatch)
+        return service.onArrival(batch.entries.single { it.playerId == player.uniqueId.toString() })
     }
 
     fun playerWithRole(role: TttRole): Player {
@@ -506,6 +588,8 @@ private val TTT_FIXTURE_CONFIG = """
       allowed-origins:
         - parkour
       return-to-origin: false
+    gameplay:
+      clear-inventory: true
     ttt:
       minimum-players: 4
       maximum-players: 4

@@ -34,6 +34,7 @@ class ArcEventsConfigTest : StringSpec({
                 adminOverrideEnabled = true,
             )
             config.gameplay.preparationRations shouldBe 4
+            config.gameplay.clearInventory shouldBe true
             config.gameplay.medkitHealing shouldBe 8.0
             config.gameplay.traitorBladeCost shouldBe 2
             config.gameplay.detectiveArmorCost shouldBe 1

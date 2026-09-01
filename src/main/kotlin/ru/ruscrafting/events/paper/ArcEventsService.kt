@@ -9,7 +9,7 @@ import org.bukkit.NamespacedKey
 import org.bukkit.Particle
 import org.bukkit.Sound
 import org.bukkit.attribute.Attribute
-import org.bukkit.entity.ArmorStand
+import org.bukkit.entity.Entity
 import org.bukkit.entity.Item
 import org.bukkit.entity.Player
 import org.bukkit.entity.Projectile
@@ -277,6 +277,21 @@ class ArcEventsService(
         if (entry.matchId != batch.matchId.toString()) return false
         val playerId = UUID.fromString(entry.playerId)
         if (batch.entries.none { it.playerId == entry.playerId }) return false
+        val player = plugin.server.getPlayer(playerId)?.takeIf(Player::isOnline) ?: return false
+        try {
+            escrow.commitThenMutate(
+                batch.matchId,
+                listOf(player),
+                mapOf(playerId to entry.originServer),
+                clock(),
+            ) {
+                items.clearForEvent(player)
+                player.saveData()
+            }
+        } catch (failure: Throwable) {
+            plugin.logger.log(Level.SEVERE, "ArcEvents could not isolate arrival $playerId", failure)
+            return false
+        }
         arrivals[playerId] = entry
         debug.event("reservation_arrival", "match" to batch.matchId, "player" to playerId, "arrived" to arrivals.size)
         if (arrivals.size == batch.entries.size) startReservedRoster()
@@ -477,6 +492,8 @@ class ArcEventsService(
 
     fun stopByAdmin(): AdminStopResult {
         reservation?.let { pending ->
+            val arrivedPlayers = arrivals.keys.mapNotNull(plugin.server::getPlayer)
+            restoreReservationArrivals(pending, arrivedPlayers)
             reservation = null
             matchSettings = null
             arrivals.clear()
@@ -600,7 +617,6 @@ class ArcEventsService(
                 Title.Times.times(Duration.ofMillis(150), Duration.ofSeconds(3), Duration.ofMillis(400)),
             ))
             player.sendEventMessage(locale.render("match.spectator", player))
-            broadcast("match.eliminated", mapOf("player" to Component.text(player.name)))
         }.onFailure { failure ->
             plugin.logger.log(Level.SEVERE, "ArcEvents could not apply elimination presentation for ${player.uniqueId}", failure)
         }
@@ -656,7 +672,7 @@ class ArcEventsService(
         if (current.matchId != body.matchId || current.phase != MatchPhase.ACTIVE || !isAlive(player.uniqueId)) return
         if (!body.discovered) {
             body.discovered = true
-            plugin.server.getEntity(body.entityId)?.customName(locale.render("body.identified", player, mapOf(
+            bodyRegistry.reveal(body.bodyId, locale.render("body.identified", player, mapOf(
                 "player" to Component.text(body.victimName),
                 "role" to roleName(body.role, player),
             )))
@@ -1357,6 +1373,7 @@ class ArcEventsService(
         val currentSettings = settings()
         val matchTtt = activeTtt()
         if (online.size < matchTtt.minimumPlayers) {
+            restoreReservationArrivals(batch, online)
             arenaPool.release(batch.matchId)
             matchSettings = null
             network.releaseReservation(batch)
@@ -1431,6 +1448,18 @@ class ArcEventsService(
             }
         }
         cancel(MatchEndReason.SHUTDOWN)
+    }
+
+    private fun restoreReservationArrivals(batch: ReservationBatch, players: Collection<Player>) {
+        players.filter(Player::isOnline).forEach { player ->
+            runCatching { recoverPlayer(player) }.onFailure { failure ->
+                plugin.logger.log(
+                    Level.SEVERE,
+                    "ArcEvents could not restore cancelled arrival ${player.uniqueId} for ${batch.matchId}",
+                    failure,
+                )
+            }
+        }
     }
 
     private fun applyEventState(players: List<Player>, current: TttMatch) {
@@ -1765,7 +1794,7 @@ class ArcEventsService(
         }
         .getOrNull()
 
-    override fun readBodyId(stand: ArmorStand): UUID? = bodyRegistry.readBodyId(stand)
+    override fun readBodyId(entity: Entity): UUID? = bodyRegistry.readBodyId(entity)
 
     private fun cleanupProjectiles() {
         runCatching(smokeGrenades::clear).onFailure { failure ->
@@ -2001,6 +2030,8 @@ class ArcEventsService(
         if (!started) return
         started = false
         reservation?.let { pending ->
+            val arrivedPlayers = arrivals.keys.mapNotNull(plugin.server::getPlayer)
+            restoreReservationArrivals(pending, arrivedPlayers)
             runCatching { network.releaseReservation(pending).get(2, TimeUnit.SECONDS) }
                 .onFailure { plugin.logger.log(Level.SEVERE, "Could not preserve reservation returns for ${pending.matchId}", it) }
         }

@@ -78,6 +78,31 @@ class RecoveryBatchStore(
     fun commit(batch: RecoveryBatch): RecoveryBatch =
         journal.commit(batch.matchId, batch.validated(stateCodec))
 
+    /** Adds newly arrived players while retaining every earlier pre-mutation snapshot. */
+    @Synchronized
+    fun merge(batch: RecoveryBatch): RecoveryBatch {
+        val candidate = batch.validated(stateCodec)
+        val current = journal.loadOrNull(candidate.matchId)
+        if (current == null) return journal.commit(candidate.matchId, candidate)
+        val existing = current.validated(stateCodec)
+        val existingByPlayer = existing.states.associateBy(CorePlayerState::playerId)
+        candidate.states.forEach { state ->
+            existingByPlayer[state.playerId]?.let { previous ->
+                require(previous.returnServer == state.returnServer) {
+                    "Recovery return server changed for ${state.playerId}"
+                }
+                require(state.playerId !in existing.restoredPlayerIds) {
+                    "Cannot re-add an already restored player ${state.playerId}"
+                }
+            }
+        }
+        val merged = existing.copy(
+            createdAtMs = minOf(existing.createdAtMs, candidate.createdAtMs),
+            states = existing.states + candidate.states.filter { it.playerId !in existingByPlayer },
+        ).validated(stateCodec)
+        return journal.commit(merged.matchId, merged)
+    }
+
     @Synchronized
     fun acknowledgeExactly(expected: RecoveryBatch, playerId: UUID): DurableAcknowledgementOutcome {
         val current = journal.loadOrNull(expected.matchId)
@@ -144,7 +169,8 @@ class PlayerStateEscrow(
         }
         val candidate = RecoveryBatch(matchId = matchId.toString(), createdAtMs = nowMs, states = states)
         return try {
-            workflow.commitThenMutate(candidate) { committed -> completed { mutation(committed) } }.awaitUnwrapped()
+            val committed = store.merge(candidate)
+            DurableMutationReceipt(committed, mutation(committed))
         } finally {
             refreshRecoveryBacklog()
         }

@@ -67,10 +67,7 @@ class TttItems(
         }
 
     fun givePreparationLoadout(player: Player, matchId: String) {
-        player.inventory.clear()
-        player.inventory.armorContents = arrayOfNulls(4)
-        player.inventory.setItemInOffHand(ItemStack.empty())
-        player.setItemOnCursor(ItemStack.empty())
+        clearForEvent(player)
         player.inventory.setItem(0, simple(Material.IRON_SWORD, locale.render("loadout.blade", player)))
         val rations = settings().gameplay.preparationRations
         if (rations > 0) player.inventory.setItem(1, simple(Material.COOKED_BEEF, locale.render("loadout.rations", player), rations))
@@ -83,6 +80,17 @@ class TttItems(
         ))
         player.inventory.heldItemSlot = 0
         player.updateInventory()
+    }
+
+    fun clearForEvent(player: Player): Boolean {
+        if (!settings().gameplay.clearInventory) return false
+        player.inventory.clear()
+        player.inventory.armorContents = arrayOfNulls(4)
+        player.inventory.setItemInOffHand(ItemStack.empty())
+        player.setItemOnCursor(ItemStack.empty())
+        player.inventory.heldItemSlot = 0
+        player.updateInventory()
+        return true
     }
 
     fun revealRoleLoadout(player: Player, role: TttRole, matchId: String) {

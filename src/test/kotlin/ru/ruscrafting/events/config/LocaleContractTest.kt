@@ -57,7 +57,11 @@ class LocaleContractTest : StringSpec({
                 guide.contains("<bold>") shouldBe false
                 guide.contains('◆') shouldBe false
                 config.stringList("hud.preparing-tips").none { "<bold>" in it } shouldBe true
-                config.string("hud.bossbar-preparing").contains("<bold>") shouldBe false
+                val preparingBossBar = config.string("hud.bossbar-preparing")
+                preparingBossBar.contains("<bold>") shouldBe false
+                preparingBossBar.contains(
+                    if (language == "ru") "Событие собирается" else "Event is forming",
+                ) shouldBe true
                 config.string("hud.countdown-actionbar").contains("<bold>") shouldBe false
             }
         } finally {

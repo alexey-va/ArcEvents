@@ -529,7 +529,7 @@ hud:
   objective-innocent: '<#7bd88f>найдите предателей'
   objective-traitor: '<#d84a4a>устраните мирных'
   objective-detective: '<#5fb3ff>исследуйте тела'
-  bossbar-preparing: '<#e3b341>Подготовка  <#f2f0e6>роли через <#e3b341><time>'
+  bossbar-preparing: '<#e3b341>Событие собирается  <#f2f0e6>роли через <#e3b341><time>'
   bossbar-countdown: '<role>  <#ffffff>старт через <#ffcc33><time>'
   bossbar-active: '<#32d6ff><bold>Раунд  <#ffcc33><time>  <#ffffff>живых <#55ff88><alive>'
   countdown-actionbar: '<role>  <#f2f0e6>Огонь через <#e3b341><time>'

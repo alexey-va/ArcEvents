@@ -27,6 +27,9 @@ default-arena: ''
 # Safe live gameplay tuning. In-progress timers keep their captured deadline;
 # new actions and the next match use the latest values.
 gameplay:
+  # The original inventory is committed to durable recovery before this runs.
+  # Disable only for a future mode that intentionally keeps player inventory.
+  clear-inventory: true
   spawn-return-seconds: 10
   spawn-return-movement-tolerance: 0.05
   radar-duration-seconds: 30
