@@ -42,6 +42,7 @@ internal class ArcEventsDialogMenu(
     private val protocols: ClientProtocolResolver = ClientProtocolResolver(),
 ) {
     fun open(player: Player, view: EventsView): Boolean {
+        if (!settings().ui.dialogsEnabled) return false
         if (!dialogFrontendSupported(settings().ui.dialogsEnabled, protocols.resolve(player), view)) return false
         if (view == EventsView.Admin && !player.hasPermission("arcevents.admin")) return true
         val dialog = when (view) {
@@ -83,6 +84,7 @@ internal class ArcEventsDialogMenu(
     }
 
     fun openTtt(player: Player, queueState: QueueState?, plan: EventMenuPlan, selectedArena: Component): Boolean {
+        if (!settings().ui.dialogsEnabled) return false
         if (!dialogFrontendSupported(settings().ui.dialogsEnabled, protocols.resolve(player), EventsView.Ttt)) return false
         return runCatching { player.showDialog(ttt(player, queueState, plan, selectedArena)) }.isSuccess
     }

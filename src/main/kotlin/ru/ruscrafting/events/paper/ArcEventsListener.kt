@@ -224,7 +224,6 @@ class ArcEventsListener(
     }
 
     @EventHandler fun onMenuClick(event: InventoryClickEvent) {
-        if (menu.isMenu(event.view.topInventory)) return menu.onClick(event)
         val player = event.whoClicked as? Player ?: return
         if (player.bypassesEventProtection()) return
         if (event.view.topInventory.location?.let(service::withinArena) == true ||
@@ -233,7 +232,6 @@ class ArcEventsListener(
     }
 
     @EventHandler fun onMenuDrag(event: InventoryDragEvent) {
-        if (menu.isMenu(event.view.topInventory)) return menu.onDrag(event)
         val player = event.whoClicked as? Player ?: return
         if (player.bypassesEventProtection()) return
         if (event.view.topInventory.location?.let(service::withinArena) == true ||

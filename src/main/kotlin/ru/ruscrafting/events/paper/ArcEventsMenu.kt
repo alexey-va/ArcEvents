@@ -5,14 +5,15 @@ import net.kyori.adventure.text.format.TextDecoration
 import org.bukkit.Bukkit
 import org.bukkit.Material
 import org.bukkit.entity.Player
-import org.bukkit.event.inventory.InventoryClickEvent
-import org.bukkit.event.inventory.InventoryDragEvent
-import org.bukkit.inventory.Inventory
-import org.bukkit.inventory.InventoryHolder
 import org.bukkit.inventory.ItemFlag
 import org.bukkit.inventory.ItemStack
 import org.bukkit.inventory.meta.SkullMeta
+import org.bukkit.plugin.Plugin
 import ru.arc.core.Tasks
+import ru.arc.paper.menu.PaperMenuConfiguration
+import ru.arc.paper.menu.PaperMenuFrame
+import ru.arc.paper.menu.PaperMenuRuntime
+import ru.arc.paper.menu.physicalFrame
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.domain.MatchPhase
@@ -40,21 +41,26 @@ sealed interface EventsView {
 }
 
 class ArcEventsMenu(
+    private val plugin: Plugin,
     private val service: ArcEventsService,
     private val items: TttItems,
     private val locale: ArcEventsLocale,
     private val settings: () -> ArcEventsConfig,
     private val reload: () -> Result<Unit>,
     private val layouts: ArcEventsMenuLayouts,
-) {
-    private class Holder(val view: EventsView, val arenaIds: List<String> = emptyList()) : InventoryHolder {
-        lateinit var backing: Inventory
-        override fun getInventory(): Inventory = backing
-    }
+) : AutoCloseable {
 
     private val pendingClicks = mutableSetOf<UUID>()
     private val selectedArenas = mutableMapOf<UUID, String>()
     private val dialogs = ArcEventsDialogMenu(service, locale, settings, ::dispatchClick)
+    private val menuRuntime = PaperMenuRuntime(plugin, Tasks.scheduler, layouts.current())
+    private val activeFrames = mutableMapOf<UUID, ActiveFrame>()
+
+    private data class ActiveFrame(
+        val view: EventsView,
+        val frame: PaperMenuFrame,
+        val arenaIds: List<String> = emptyList(),
+    )
 
     fun open(player: Player, view: EventsView = EventsView.Main) {
         if (view == EventsView.Ttt) {
@@ -78,24 +84,17 @@ class ArcEventsMenu(
         }
     }
 
-    fun isMenu(inventory: Inventory): Boolean = inventory.holder is Holder
-
-    fun onClick(event: InventoryClickEvent) {
-        val holder = event.view.topInventory.holder as? Holder ?: return
-        event.isCancelled = true
-        if (event.clickedInventory !== event.view.topInventory) return
-        val player = event.whoClicked as? Player ?: return
+    private fun scheduleClick(player: Player, active: ActiveFrame, slot: Int) {
         if (!pendingClicks.add(player.uniqueId)) return
-        val slot = event.rawSlot
         Tasks.scheduler.runLater(1L) {
             try {
-                if (!player.isOnline || player.openInventory.topInventory.holder !== holder) return@runLater
-                if (holder.view == EventsView.EventArenas) {
-                    clickEventArenas(player, slot, holder.arenaIds)
-                } else if (holder.view == EventsView.Arenas) {
-                    clickArenas(player, slot, holder.arenaIds)
+                if (!player.isOnline || activeFrames[player.uniqueId] !== active || menuRuntime.session(player) == null) return@runLater
+                if (active.view == EventsView.EventArenas) {
+                    clickEventArenas(player, slot, active.arenaIds)
+                } else if (active.view == EventsView.Arenas) {
+                    clickArenas(player, slot, active.arenaIds)
                 } else {
-                    dispatchClick(player, holder.view, slot)
+                    dispatchClick(player, active.view, slot)
                 }
             } finally {
                 pendingClicks.remove(player.uniqueId)
@@ -103,12 +102,15 @@ class ArcEventsMenu(
         }
     }
 
-    fun onDrag(event: InventoryDragEvent) {
-        if (event.view.topInventory.holder is Holder) event.isCancelled = true
+    fun replaceMenus(candidate: PaperMenuConfiguration) {
+        layouts.replace(candidate)
+        activeFrames.clear()
+        menuRuntime.replace(candidate)
     }
 
-    fun closeOpenMenus() {
-        Bukkit.getOnlinePlayers().filter { isMenu(it.openInventory.topInventory) }.forEach(Player::closeInventory)
+    override fun close() {
+        activeFrames.clear()
+        menuRuntime.close()
     }
 
     private fun dispatchClick(player: Player, view: EventsView, slot: Int) {
@@ -143,7 +145,7 @@ class ArcEventsMenu(
         if (player.hasPermission("arcevents.admin")) {
             inventory.setItem(element(view, "admin"), item(Material.COMMAND_BLOCK, player, "menu.main.admin-name", "menu.main.admin-lore"))
         }
-        player.openInventory(inventory)
+        show(player, view, inventory)
     }
 
     private fun clickMain(player: Player, slot: Int) {
@@ -219,7 +221,7 @@ class ArcEventsMenu(
                 inventory.setItem(element(view, "help"), item(Material.KNOWLEDGE_BOOK, player, "menu.event.help-name", "menu.event.help-lore"))
                 inventory.setItem(element(view, "back"), backItem(player))
                 if (plan.showEvacuate) inventory.setItem(element(view, "evacuate"), item(Material.ENDER_PEARL, player, "menu.event.evacuate-name", "menu.event.evacuate-lore"))
-                player.openInventory(inventory)
+                show(player, view, inventory)
             }
         }
     }
@@ -292,7 +294,7 @@ class ArcEventsMenu(
             "karma" to locale.text(stats.karma),
         )))
         inventory.setItem(element(view, "back"), backItem(player))
-        player.openInventory(inventory)
+        show(player, view, inventory)
     }
 
     private fun openHelp(player: Player, view: EventsView) {
@@ -305,7 +307,7 @@ class ArcEventsMenu(
         inventory.setItem(element(view, "weapons"), item(Material.CROSSBOW, player, "menu.help.weapons-name", "menu.help.weapons-lore"))
         inventory.setItem(element(view, "controls"), item(Material.COMMAND_BLOCK, player, "menu.help.controls-name", "menu.help.controls-lore"))
         inventory.setItem(element(view, "back"), backItem(player))
-        player.openInventory(inventory)
+        show(player, view, inventory)
     }
 
     private fun openAdmin(player: Player) {
@@ -332,7 +334,7 @@ class ArcEventsMenu(
         inventory.setItem(element(view, "reload"), item(Material.CLOCK, player, "menu.admin.reload-name", "menu.admin.reload-lore"))
         inventory.setItem(element(view, "recover"), item(Material.TOTEM_OF_UNDYING, player, "menu.admin.recover-name", "menu.admin.recover-lore"))
         inventory.setItem(element(view, "back"), backItem(player))
-        player.openInventory(inventory)
+        show(player, view, inventory)
     }
 
     private fun clickAdmin(player: Player, slot: Int) {
@@ -376,7 +378,7 @@ class ArcEventsMenu(
         val arenaSlots = region(view, "arenas")
         val available = service.selectableArenaIds().take(arenaSlots.size)
         val selected = selectedArenaId(player.uniqueId)
-        val inventory = inventory(player, view, "menu.arenas.title", arenaIds = available)
+        val inventory = inventory(player, view, "menu.arenas.title")
         available.zip(arenaSlots).forEach { (arenaId, slot) ->
             val material = if (selected == arenaId) Material.LIME_CONCRETE else Material.FILLED_MAP
             inventory.setItem(slot, item(material, player, "menu.arenas.entry-name", "menu.arenas.entry-lore", mapOf(
@@ -393,7 +395,7 @@ class ArcEventsMenu(
             "menu.arenas.auto-lore",
         ))
         inventory.setItem(element(view, "back"), backItem(player))
-        player.openInventory(inventory)
+        show(player, view, inventory, available)
     }
 
     private fun clickArenas(player: Player, slot: Int, renderedArenaIds: List<String>) {
@@ -428,7 +430,6 @@ class ArcEventsMenu(
                     player,
                     view,
                     "menu.event-arenas.title",
-                    arenaIds = available,
                 )
                 available.zip(arenaSlots).forEach { (arenaId, slot) ->
                     inventory.setItem(slot, item(
@@ -452,7 +453,7 @@ class ArcEventsMenu(
                     "menu.event-arenas.auto-lore",
                 ))
                 inventory.setItem(element(view, "back"), backItem(player))
-                player.openInventory(inventory)
+                show(player, view, inventory, available)
             }
         }
     }
@@ -531,7 +532,7 @@ class ArcEventsMenu(
             }
         }
         inventory.setItem(element(view, "back"), backItem(player))
-        player.openInventory(inventory)
+        show(player, view, inventory)
     }
 
     private fun clickShop(player: Player, slot: Int) {
@@ -566,7 +567,7 @@ class ArcEventsMenu(
             )))
         }
         inventory.setItem(element(view, "back"), backItem(player))
-        player.openInventory(inventory)
+        show(player, view, inventory)
     }
 
     private fun clickRoster(player: Player, slot: Int) {
@@ -607,7 +608,7 @@ class ArcEventsMenu(
         ))
         inventory.setItem(element(view, "roster"), item(Material.PLAYER_HEAD, player, "menu.body.roster-name", "menu.body.roster-lore"))
         inventory.setItem(element(view, "back"), backItem(player))
-        player.openInventory(inventory)
+        show(player, view, inventory)
     }
 
     private fun clickBody(player: Player, bodyId: UUID, slot: Int) {
@@ -653,7 +654,7 @@ class ArcEventsMenu(
             "events" to locale.text(report.combat.size),
         )))
         inventory.setItem(element(view, "back"), backItem(player))
-        player.openInventory(inventory)
+        show(player, view, inventory)
     }
 
     private fun clickReport(player: Player, slot: Int) {
@@ -700,7 +701,7 @@ class ArcEventsMenu(
         inventory.setItem(element(currentView, "back"), backItem(player))
         if (safePage > 0) inventory.setItem(element(currentView, "previous"), item(Material.ARROW, player, "menu.common.previous-name", "menu.common.previous-lore"))
         if (safePage < maxPage) inventory.setItem(element(currentView, "next"), item(Material.ARROW, player, "menu.common.next-name", "menu.common.next-lore"))
-        player.openInventory(inventory)
+        show(player, currentView, inventory)
     }
 
     private fun clickCombatLog(player: Player, page: Int, slot: Int) {
@@ -732,11 +733,7 @@ class ArcEventsMenu(
         view: EventsView,
         titleKey: String,
         values: Map<String, Component> = emptyMap(),
-        arenaIds: List<String> = emptyList(),
-    ): Inventory {
-        val holder = Holder(view, arenaIds.toList())
-        val inventory = layouts.create(holder, view, locale.render(titleKey, player, values))
-        holder.backing = inventory
+    ): PaperMenuFrame {
         val fillerSettings = settings().ui.filler
         val material = Material.matchMaterial(fillerSettings.material)?.takeIf(Material::isItem) ?: Material.BLACK_STAINED_GLASS_PANE
         val filler = ItemStack.of(material).also { stack ->
@@ -749,8 +746,25 @@ class ArcEventsMenu(
                 }
             }
         }
-        repeat(inventory.size) { inventory.setItem(it, filler) }
-        return inventory
+        return menuRuntime.physicalFrame(
+            ArcEventsMenuLayouts.menu(view),
+            locale.render(titleKey, player, values),
+            filler,
+        )
+    }
+
+    private fun show(
+        player: Player,
+        view: EventsView,
+        frame: PaperMenuFrame,
+        arenaIds: List<String> = emptyList(),
+    ) {
+        val active = ActiveFrame(view, frame, arenaIds.toList())
+        activeFrames[player.uniqueId] = active
+        menuRuntime.open(player, ArcEventsMenuLayouts.menu(view)) {
+            val latest = activeFrames[player.uniqueId].takeIf { it === active } ?: active
+            latest.frame.content { slot, _ -> scheduleClick(player, latest, slot) }
+        }
     }
 
     private fun element(view: EventsView, id: String): Int = layouts.slot(view, id)

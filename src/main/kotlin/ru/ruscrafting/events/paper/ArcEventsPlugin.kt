@@ -160,7 +160,8 @@ class ArcEventsPlugin : JavaPlugin() {
                     dependencies = mapOf("redis" to redisReady),
                 )
             }
-            menu = ArcEventsMenu(activeService, items, locale, { settings }, ::reloadPlugin, menuLayouts)
+            menu = ArcEventsMenu(this, activeService, items, locale, { settings }, ::reloadPlugin, menuLayouts)
+            lifecycle.own(menu)
             val command = ArcEventsCommand(this, activeService, menu, weaponPointEditor, locale, { settings }, ::reloadPlugin)
             requireNotNull(getCommand("arcevents")).apply {
                 setExecutor(command)
@@ -250,8 +251,7 @@ class ArcEventsPlugin : JavaPlugin() {
             runCatching(activeService::reconfigureRuntime).onFailure(failure::addSuppressed)
             throw failure
         }
-        menuLayouts.replace(candidateLayouts)
-        menu.closeOpenMenus()
+        menu.replaceMenus(candidateLayouts)
         Unit
     }.onFailure { logger.log(Level.WARNING, "ArcEvents reload was rejected", it) }
 
