@@ -25,12 +25,13 @@ repositories {
 java { toolchain { languageVersion.set(JavaLanguageVersion.of(25)) } }
 kotlin { jvmToolchain(25) }
 
-val arcCoreVersion = "2.2.4"
+val arcCoreVersion = "2.3.0"
 val worldEditVersion = "7.3.18"
 
 dependencies {
     implementation(kotlin("stdlib"))
     implementation("ru.ruscrafting.arc:arc-core:$arcCoreVersion")
+    implementation("ru.ruscrafting.arc:arc-core-menu:$arcCoreVersion")
     implementation("ru.ruscrafting.arc:arc-core-paper:$arcCoreVersion")
     implementation("ru.ruscrafting.arc:arc-core-redis:$arcCoreVersion")
     implementation("com.google.code.gson:gson:2.11.0")

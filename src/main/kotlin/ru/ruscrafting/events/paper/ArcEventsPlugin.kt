@@ -31,6 +31,8 @@ class ArcEventsPlugin : JavaPlugin() {
     @Volatile
     private lateinit var settings: ArcEventsConfig
     private lateinit var locale: ArcEventsLocale
+    private lateinit var menuLayouts: ArcEventsMenuLayouts
+    private lateinit var menu: ArcEventsMenu
     private var redis: RedisManager? = null
     private var network: EventNetworkCoordinator? = null
     private var service: ArcEventsService? = null
@@ -61,6 +63,7 @@ class ArcEventsPlugin : JavaPlugin() {
         try {
             val dataRoot = dataFolder.toPath()
             settings = ArcEventsConfig.load(dataRoot)
+            menuLayouts = ArcEventsMenuLayouts(dataRoot)
             ArcEventsLocale.mergeMissingFiles(dataRoot)
             ArcEventsLocale.validateFiles(dataRoot)
             locale = ArcEventsLocale(dataRoot) { settings }
@@ -157,7 +160,7 @@ class ArcEventsPlugin : JavaPlugin() {
                     dependencies = mapOf("redis" to redisReady),
                 )
             }
-            val menu = ArcEventsMenu(activeService, items, locale, { settings }, ::reloadPlugin)
+            menu = ArcEventsMenu(activeService, items, locale, { settings }, ::reloadPlugin, menuLayouts)
             val command = ArcEventsCommand(this, activeService, menu, weaponPointEditor, locale, { settings }, ::reloadPlugin)
             requireNotNull(getCommand("arcevents")).apply {
                 setExecutor(command)
@@ -199,6 +202,7 @@ class ArcEventsPlugin : JavaPlugin() {
         ArcEventsConfig.mergeMissing(dataRoot)
         ArcEventsLocale.mergeMissingFiles(dataRoot)
         val candidate = ArcEventsConfig.inspect(dataRoot)
+        val candidateLayouts = menuLayouts.prepare(dataRoot)
         val current = settings
         val activeService = requireNotNull(service) { "ArcEvents service is unavailable" }
         val liveSnapshot = activeService.snapshot()
@@ -246,6 +250,8 @@ class ArcEventsPlugin : JavaPlugin() {
             runCatching(activeService::reconfigureRuntime).onFailure(failure::addSuppressed)
             throw failure
         }
+        menuLayouts.replace(candidateLayouts)
+        menu.closeOpenMenus()
         Unit
     }.onFailure { logger.log(Level.WARNING, "ArcEvents reload was rejected", it) }
 

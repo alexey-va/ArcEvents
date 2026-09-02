@@ -231,6 +231,7 @@ data class UiSettings(
     val nameplates: NameplateSettings,
     val filler: UiItemSettings,
     val back: UiItemSettings,
+    val menuItems: Map<String, UiItemSettings>,
 ) {
     val lootDisplays: Boolean get() = lootDisplay.enabled
 }
@@ -391,6 +392,12 @@ class ArcEventsConfig(private val config: Config) {
                 material = config.string("ui.back.material", "BLUE_STAINED_GLASS_PANE").uppercase(),
                 customModelData = config.int("ui.back.custom-model-data", 11013),
             ),
+            menuItems = config.keys("ui.menu-items").associateWith { id ->
+                UiItemSettings(
+                    material = config.string("ui.menu-items.$id.material").uppercase(),
+                    customModelData = config.int("ui.menu-items.$id.custom-model-data", 0),
+                )
+            },
         )
 
     val weapons: WeaponSettings
@@ -522,6 +529,13 @@ class ArcEventsConfig(private val config: Config) {
         }
         require(lootDisplay.particleIntervalTicks in 1..200) {
             "ui.loot-display.particle-interval-ticks must be between 1 and 200"
+        }
+        ui.menuItems.forEach { (id, item) ->
+            require(item.material.matches(Regex("[A-Z0-9_]{1,64}"))) { "ui.menu-items.$id.material is invalid" }
+            require(item.customModelData >= 0) { "ui.menu-items.$id.custom-model-data cannot be negative" }
+            if (id.endsWith("-player-head")) {
+                require(item.material == "PLAYER_HEAD") { "ui.menu-items.$id.material must remain PLAYER_HEAD" }
+            }
         }
         val nameplates = ui.nameplates
         require(nameplates.reconcilePeriodTicks in 1L..20L) {

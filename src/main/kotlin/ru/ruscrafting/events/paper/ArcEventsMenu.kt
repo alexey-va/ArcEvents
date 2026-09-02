@@ -45,6 +45,7 @@ class ArcEventsMenu(
     private val locale: ArcEventsLocale,
     private val settings: () -> ArcEventsConfig,
     private val reload: () -> Result<Unit>,
+    private val layouts: ArcEventsMenuLayouts,
 ) {
     private class Holder(val view: EventsView, val arenaIds: List<String> = emptyList()) : InventoryHolder {
         lateinit var backing: Inventory
@@ -106,13 +107,17 @@ class ArcEventsMenu(
         if (event.view.topInventory.holder is Holder) event.isCancelled = true
     }
 
+    fun closeOpenMenus() {
+        Bukkit.getOnlinePlayers().filter { isMenu(it.openInventory.topInventory) }.forEach(Player::closeInventory)
+    }
+
     private fun dispatchClick(player: Player, view: EventsView, slot: Int) {
         when (view) {
             EventsView.Main -> clickMain(player, slot)
-            EventsView.Help -> if (slot == 36) open(player, EventsView.Main)
-            EventsView.EventHelp -> if (slot == 36) open(player, EventsView.Ttt)
+            EventsView.Help -> if (slot == element(view, "back")) open(player, EventsView.Main)
+            EventsView.EventHelp -> if (slot == element(view, "back")) open(player, EventsView.Ttt)
             EventsView.Ttt -> clickTtt(player, slot)
-            EventsView.Statistics -> if (slot == 18) open(player, EventsView.Main)
+            EventsView.Statistics -> if (slot == element(view, "back")) open(player, EventsView.Main)
             EventsView.Admin -> clickAdmin(player, slot)
             EventsView.Arenas -> clickArenas(player, slot, emptyList())
             EventsView.EventArenas -> clickEventArenas(player, slot, emptyList())
@@ -126,26 +131,28 @@ class ArcEventsMenu(
 
     private fun openMain(player: Player) {
         val state = service.snapshot()
-        val inventory = inventory(player, EventsView.Main, 27, "menu.main.title")
-        inventory.setItem(4, item(Material.SPYGLASS, player, "menu.main.ttt-name", "menu.main.ttt-lore", mapOf(
+        val view = EventsView.Main
+        val inventory = inventory(player, view, "menu.main.title")
+        inventory.setItem(element(view, "ttt"), item(Material.SPYGLASS, player, "menu.main.ttt-name", "menu.main.ttt-lore", mapOf(
             "queue" to locale.text(state.queueSize),
             "minimum" to locale.text(settings().ttt.minimumPlayers),
             "arena_state" to locale.render(if (state.arenaReady) "state.arena-ready" else "state.arena-unavailable", player),
         )))
-        inventory.setItem(18, item(Material.WRITABLE_BOOK, player, "menu.main.stats-name", "menu.main.stats-lore"))
-        inventory.setItem(22, item(Material.KNOWLEDGE_BOOK, player, "menu.main.help-name", "menu.main.help-lore"))
+        inventory.setItem(element(view, "statistics"), item(Material.WRITABLE_BOOK, player, "menu.main.stats-name", "menu.main.stats-lore"))
+        inventory.setItem(element(view, "help"), item(Material.KNOWLEDGE_BOOK, player, "menu.main.help-name", "menu.main.help-lore"))
         if (player.hasPermission("arcevents.admin")) {
-            inventory.setItem(26, item(Material.COMMAND_BLOCK, player, "menu.main.admin-name", "menu.main.admin-lore"))
+            inventory.setItem(element(view, "admin"), item(Material.COMMAND_BLOCK, player, "menu.main.admin-name", "menu.main.admin-lore"))
         }
         player.openInventory(inventory)
     }
 
     private fun clickMain(player: Player, slot: Int) {
+        val view = EventsView.Main
         when (slot) {
-            4 -> open(player, EventsView.Ttt)
-            18 -> open(player, EventsView.Statistics)
-            22 -> open(player, EventsView.Help)
-            26 -> if (player.hasPermission("arcevents.admin")) open(player, EventsView.Admin)
+            element(view, "ttt") -> open(player, EventsView.Ttt)
+            element(view, "statistics") -> open(player, EventsView.Statistics)
+            element(view, "help") -> open(player, EventsView.Help)
+            element(view, "admin") -> if (player.hasPermission("arcevents.admin")) open(player, EventsView.Admin)
         }
     }
 
@@ -175,26 +182,27 @@ class ArcEventsMenu(
                 )
                 val selectedArena = arenaName(selectedArenaId(player.uniqueId), player)
                 if (dialogs.openTtt(player, queueState, plan, selectedArena)) return@runSync
-                val inventory = inventory(player, EventsView.Ttt, 45, "menu.event.title")
+                val view = EventsView.Ttt
+                val inventory = inventory(player, view, "menu.event.title")
                 val values = mapOf(
                     "queue" to locale.text(state.queueSize),
                     "minimum" to locale.text(settings().ttt.minimumPlayers),
                     "arena_state" to locale.render(if (state.arenaReady) "state.arena-ready" else "state.arena-unavailable", player),
                     "selected_arena" to selectedArena,
                 )
-                inventory.setItem(13, item(Material.SPYGLASS, player, "menu.event.overview-name", "menu.event.overview-lore", values))
+                inventory.setItem(element(view, "overview"), item(Material.SPYGLASS, player, "menu.event.overview-name", "menu.event.overview-lore", values))
                 if (plan.showQueueStatus) {
-                    inventory.setItem(20, item(Material.CLOCK, player, "menu.event.queue-name", "menu.event.queue-lore", values + mapOf(
+                    inventory.setItem(element(view, "left"), item(Material.CLOCK, player, "menu.event.queue-name", "menu.event.queue-lore", values + mapOf(
                         "queue_state" to locale.render(queueStateLocaleKey(requireNotNull(queueState)), player),
                     )))
                 }
                 when {
-                    plan.showJoin -> inventory.setItem(22, item(Material.LIME_DYE, player, "menu.event.join-name", "menu.event.join-lore"))
-                    plan.showJoinUnavailable -> inventory.setItem(22, item(Material.GRAY_DYE, player, "menu.event.join-unavailable-name", "menu.event.join-unavailable-lore"))
-                    plan.showLeave -> inventory.setItem(22, item(Material.RED_DYE, player, "menu.event.leave-name", "menu.event.leave-lore"))
+                    plan.showJoin -> inventory.setItem(element(view, "center"), item(Material.LIME_DYE, player, "menu.event.join-name", "menu.event.join-lore"))
+                    plan.showJoinUnavailable -> inventory.setItem(element(view, "center"), item(Material.GRAY_DYE, player, "menu.event.join-unavailable-name", "menu.event.join-unavailable-lore"))
+                    plan.showLeave -> inventory.setItem(element(view, "center"), item(Material.RED_DYE, player, "menu.event.leave-name", "menu.event.leave-lore"))
                 }
                 if (plan.showStart) {
-                    inventory.setItem(24, item(
+                    inventory.setItem(element(view, "right"), item(
                         if (state.queueSize >= settings().ttt.minimumPlayers) Material.LIME_CONCRETE else Material.GRAY_CONCRETE,
                         player,
                         "menu.event.start-name",
@@ -203,23 +211,24 @@ class ArcEventsMenu(
                     ))
                 }
                 if (plan.showArenaSelection) {
-                    inventory.setItem(29, item(Material.FILLED_MAP, player, "menu.event.arena-name", "menu.event.arena-lore", values))
+                    inventory.setItem(element(view, "arena"), item(Material.FILLED_MAP, player, "menu.event.arena-name", "menu.event.arena-lore", values))
                 }
-                if (plan.showRoster) inventory.setItem(20, item(Material.PLAYER_HEAD, player, "menu.event.roster-name", "menu.event.roster-lore"))
-                if (plan.showShop) inventory.setItem(22, item(Material.NETHER_STAR, player, "menu.event.shop-name", "menu.event.shop-lore"))
-                if (plan.showReport) inventory.setItem(24, item(Material.WRITTEN_BOOK, player, "menu.event.report-name", "menu.event.report-lore"))
-                inventory.setItem(31, item(Material.KNOWLEDGE_BOOK, player, "menu.event.help-name", "menu.event.help-lore"))
-                inventory.setItem(36, backItem(player))
-                if (plan.showEvacuate) inventory.setItem(40, item(Material.ENDER_PEARL, player, "menu.event.evacuate-name", "menu.event.evacuate-lore"))
+                if (plan.showRoster) inventory.setItem(element(view, "left"), item(Material.PLAYER_HEAD, player, "menu.event.roster-name", "menu.event.roster-lore"))
+                if (plan.showShop) inventory.setItem(element(view, "center"), item(Material.NETHER_STAR, player, "menu.event.shop-name", "menu.event.shop-lore"))
+                if (plan.showReport) inventory.setItem(element(view, "right"), item(Material.WRITTEN_BOOK, player, "menu.event.report-name", "menu.event.report-lore"))
+                inventory.setItem(element(view, "help"), item(Material.KNOWLEDGE_BOOK, player, "menu.event.help-name", "menu.event.help-lore"))
+                inventory.setItem(element(view, "back"), backItem(player))
+                if (plan.showEvacuate) inventory.setItem(element(view, "evacuate"), item(Material.ENDER_PEARL, player, "menu.event.evacuate-name", "menu.event.evacuate-lore"))
                 player.openInventory(inventory)
             }
         }
     }
 
     private fun clickTtt(player: Player, slot: Int) {
+        val view = EventsView.Ttt
         when (slot) {
-            20 -> if (service.roster(player.uniqueId) != null) open(player, EventsView.Roster)
-            22 -> when {
+            element(view, "left") -> if (service.roster(player.uniqueId) != null) open(player, EventsView.Roster)
+            element(view, "center") -> when {
                 shopAccessible(service.currentMatch(), service.participant(player.uniqueId)) -> open(player, EventsView.Shop)
                 else -> service.queueState(player.uniqueId).whenComplete { queueState, _ ->
                     Tasks.scheduler.runSync {
@@ -239,7 +248,7 @@ class ArcEventsMenu(
                     }
                 }
             }
-            24 -> when {
+            element(view, "right") -> when {
                 service.report() != null && service.participant(player.uniqueId) != null -> open(player, EventsView.Report)
                 else -> service.queueControl(player.uniqueId).whenComplete { control, _ ->
                     Tasks.scheduler.runSync {
@@ -249,10 +258,10 @@ class ArcEventsMenu(
                     }
                 }
             }
-            29 -> open(player, EventsView.EventArenas)
-            31 -> open(player, EventsView.EventHelp)
-            36 -> open(player, EventsView.Main)
-            40 -> if (evacuationAccessible(service.currentMatch(), service.participant(player.uniqueId))) {
+            element(view, "arena") -> open(player, EventsView.EventArenas)
+            element(view, "help") -> open(player, EventsView.EventHelp)
+            element(view, "back") -> open(player, EventsView.Main)
+            element(view, "evacuate") -> if (evacuationAccessible(service.currentMatch(), service.participant(player.uniqueId))) {
                 player.closeInventory()
                 service.leave(player)
             }
@@ -273,36 +282,38 @@ class ArcEventsMenu(
 
     private fun openStatistics(player: Player) {
         val stats = service.stats(player.uniqueId)
-        val inventory = inventory(player, EventsView.Statistics, 27, "menu.stats.title")
-        inventory.setItem(13, item(Material.WRITABLE_BOOK, player, "menu.stats.summary-name", "menu.stats.summary-lore", mapOf(
+        val view = EventsView.Statistics
+        val inventory = inventory(player, view, "menu.stats.title")
+        inventory.setItem(element(view, "summary"), item(Material.WRITABLE_BOOK, player, "menu.stats.summary-name", "menu.stats.summary-lore", mapOf(
             "matches" to locale.text(stats.matches),
             "wins" to locale.text(stats.wins),
             "kills" to locale.text(stats.kills),
             "deaths" to locale.text(stats.deaths),
             "karma" to locale.text(stats.karma),
         )))
-        inventory.setItem(18, backItem(player))
+        inventory.setItem(element(view, "back"), backItem(player))
         player.openInventory(inventory)
     }
 
     private fun openHelp(player: Player, view: EventsView) {
-        val inventory = inventory(player, view, 45, "menu.help.title")
-        inventory.setItem(11, item(Material.EMERALD, player, "menu.help.innocent-name", "menu.help.innocent-lore"))
-        inventory.setItem(13, item(Material.REDSTONE, player, "menu.help.traitor-name", "menu.help.traitor-lore"))
-        inventory.setItem(15, item(Material.LAPIS_LAZULI, player, "menu.help.detective-name", "menu.help.detective-lore"))
-        inventory.setItem(22, item(Material.CLOCK, player, "menu.help.flow-name", "menu.help.flow-lore"))
-        inventory.setItem(29, item(Material.PLAYER_HEAD, player, "menu.help.evidence-name", "menu.help.evidence-lore"))
-        inventory.setItem(31, item(Material.CROSSBOW, player, "menu.help.weapons-name", "menu.help.weapons-lore"))
-        inventory.setItem(33, item(Material.COMMAND_BLOCK, player, "menu.help.controls-name", "menu.help.controls-lore"))
-        inventory.setItem(36, backItem(player))
+        val inventory = inventory(player, view, "menu.help.title")
+        inventory.setItem(element(view, "innocent"), item(Material.EMERALD, player, "menu.help.innocent-name", "menu.help.innocent-lore"))
+        inventory.setItem(element(view, "traitor"), item(Material.REDSTONE, player, "menu.help.traitor-name", "menu.help.traitor-lore"))
+        inventory.setItem(element(view, "detective"), item(Material.LAPIS_LAZULI, player, "menu.help.detective-name", "menu.help.detective-lore"))
+        inventory.setItem(element(view, "flow"), item(Material.CLOCK, player, "menu.help.flow-name", "menu.help.flow-lore"))
+        inventory.setItem(element(view, "evidence"), item(Material.PLAYER_HEAD, player, "menu.help.evidence-name", "menu.help.evidence-lore"))
+        inventory.setItem(element(view, "weapons"), item(Material.CROSSBOW, player, "menu.help.weapons-name", "menu.help.weapons-lore"))
+        inventory.setItem(element(view, "controls"), item(Material.COMMAND_BLOCK, player, "menu.help.controls-name", "menu.help.controls-lore"))
+        inventory.setItem(element(view, "back"), backItem(player))
         player.openInventory(inventory)
     }
 
     private fun openAdmin(player: Player) {
         if (!player.hasPermission("arcevents.admin")) return
         val state = service.snapshot()
-        val inventory = inventory(player, EventsView.Admin, 54, "menu.admin.title")
-        inventory.setItem(13, item(Material.OBSERVER, player, "menu.admin.status-name", "menu.admin.status-lore", mapOf(
+        val view = EventsView.Admin
+        val inventory = inventory(player, view, "menu.admin.title")
+        inventory.setItem(element(view, "status"), item(Material.OBSERVER, player, "menu.admin.status-name", "menu.admin.status-lore", mapOf(
             "phase" to locale.render("phase.${state.phase?.name?.lowercase() ?: "idle"}", player),
             "match" to locale.text(state.matchId?.toString()?.take(8) ?: "—"),
             "queue" to locale.text(state.queueSize),
@@ -312,23 +323,24 @@ class ArcEventsMenu(
             "host" to locale.text(state.hostServer),
             "network_state" to locale.render(if (state.hostAvailable) "state.network-ready" else "state.network-degraded", player),
         )))
-        inventory.setItem(20, item(Material.FILLED_MAP, player, "menu.admin.arenas-name", "menu.admin.arenas-lore", mapOf(
+        inventory.setItem(element(view, "arenas"), item(Material.FILLED_MAP, player, "menu.admin.arenas-name", "menu.admin.arenas-lore", mapOf(
             "arenas" to locale.text(service.selectableArenaIds().size),
             "active" to (state.arenaId?.let { arenaName(it, player) } ?: locale.render("arena.auto.name", player)),
         )))
-        inventory.setItem(29, item(Material.LIME_CONCRETE, player, "menu.admin.start-name", "menu.admin.start-lore"))
-        inventory.setItem(31, item(Material.RED_CONCRETE, player, "menu.admin.stop-name", "menu.admin.stop-lore"))
-        inventory.setItem(33, item(Material.CLOCK, player, "menu.admin.reload-name", "menu.admin.reload-lore"))
-        inventory.setItem(40, item(Material.TOTEM_OF_UNDYING, player, "menu.admin.recover-name", "menu.admin.recover-lore"))
-        inventory.setItem(45, backItem(player))
+        inventory.setItem(element(view, "start"), item(Material.LIME_CONCRETE, player, "menu.admin.start-name", "menu.admin.start-lore"))
+        inventory.setItem(element(view, "stop"), item(Material.RED_CONCRETE, player, "menu.admin.stop-name", "menu.admin.stop-lore"))
+        inventory.setItem(element(view, "reload"), item(Material.CLOCK, player, "menu.admin.reload-name", "menu.admin.reload-lore"))
+        inventory.setItem(element(view, "recover"), item(Material.TOTEM_OF_UNDYING, player, "menu.admin.recover-name", "menu.admin.recover-lore"))
+        inventory.setItem(element(view, "back"), backItem(player))
         player.openInventory(inventory)
     }
 
     private fun clickAdmin(player: Player, slot: Int) {
         if (!player.hasPermission("arcevents.admin")) return
+        val view = EventsView.Admin
         when (slot) {
-            20 -> open(player, EventsView.Arenas)
-            29 -> {
+            element(view, "arenas") -> open(player, EventsView.Arenas)
+            element(view, "start") -> {
                 service.startFromQueue(player, selectedArenas[player.uniqueId]).thenAccept { result ->
                     Tasks.scheduler.runSync {
                         if (!player.isOnline) return@runSync
@@ -338,32 +350,34 @@ class ArcEventsMenu(
                     }
                 }
             }
-            31 -> {
+            element(view, "stop") -> {
                 player.sendEventMessage(locale.render(stopMessage(service.stopByAdmin()), player))
                 open(player, EventsView.Admin)
             }
-            33 -> {
+            element(view, "reload") -> {
                 val result = reload()
                 player.sendEventMessage(locale.render(if (result.isSuccess) "command.reload-ok" else "command.reload-failed", player, mapOf(
                     "reason" to locale.text(result.exceptionOrNull()?.message ?: "unknown"),
                 )))
                 open(player, EventsView.Admin)
             }
-            40 -> {
+            element(view, "recover") -> {
                 val count = service.retryRecovery()
                 player.sendEventMessage(locale.render("admin.recovery-started", player, mapOf("players" to locale.text(count))))
                 open(player, EventsView.Admin)
             }
-            45 -> open(player, EventsView.Main)
+            element(view, "back") -> open(player, EventsView.Main)
         }
     }
 
     private fun openArenas(player: Player) {
         if (!player.hasPermission("arcevents.admin")) return
-        val available = service.selectableArenaIds().take(ARENA_SLOTS.size)
+        val view = EventsView.Arenas
+        val arenaSlots = region(view, "arenas")
+        val available = service.selectableArenaIds().take(arenaSlots.size)
         val selected = selectedArenaId(player.uniqueId)
-        val inventory = inventory(player, EventsView.Arenas, 54, "menu.arenas.title", arenaIds = available)
-        available.zip(ARENA_SLOTS).forEach { (arenaId, slot) ->
+        val inventory = inventory(player, view, "menu.arenas.title", arenaIds = available)
+        available.zip(arenaSlots).forEach { (arenaId, slot) ->
             val material = if (selected == arenaId) Material.LIME_CONCRETE else Material.FILLED_MAP
             inventory.setItem(slot, item(material, player, "menu.arenas.entry-name", "menu.arenas.entry-lore", mapOf(
                 "arena" to arenaName(arenaId, player),
@@ -372,19 +386,20 @@ class ArcEventsMenu(
                 "state" to locale.render(if (selected == arenaId) "arena.state.next" else "arena.state.ready", player),
             )))
         }
-        inventory.setItem(40, item(
+        inventory.setItem(element(view, "auto"), item(
             if (selected == "auto") Material.LIME_CONCRETE else Material.COMPASS,
             player,
             "menu.arenas.auto-name",
             "menu.arenas.auto-lore",
         ))
-        inventory.setItem(45, backItem(player))
+        inventory.setItem(element(view, "back"), backItem(player))
         player.openInventory(inventory)
     }
 
     private fun clickArenas(player: Player, slot: Int, renderedArenaIds: List<String>) {
         if (!player.hasPermission("arcevents.admin")) return
-        val selected = if (slot == 40) "auto" else renderedArenaIds.getOrNull(ARENA_SLOTS.indexOf(slot))
+        val view = EventsView.Arenas
+        val selected = if (slot == element(view, "auto")) "auto" else renderedArenaIds.getOrNull(region(view, "arenas").indexOf(slot))
         when {
             selected != null -> {
                 selectedArenas[player.uniqueId] = selected
@@ -393,7 +408,7 @@ class ArcEventsMenu(
                 )))
                 open(player, EventsView.Arenas)
             }
-            slot == 45 -> open(player, EventsView.Admin)
+            slot == element(view, "back") -> open(player, EventsView.Admin)
         }
     }
 
@@ -405,16 +420,17 @@ class ArcEventsMenu(
                     open(player, EventsView.Ttt)
                     return@runSync
                 }
-                val available = service.selectableArenaIds().take(ARENA_SLOTS.size)
+                val view = EventsView.EventArenas
+                val arenaSlots = region(view, "arenas")
+                val available = service.selectableArenaIds().take(arenaSlots.size)
                 val selected = selectedArenaId(player.uniqueId)
                 val inventory = inventory(
                     player,
-                    EventsView.EventArenas,
-                    54,
+                    view,
                     "menu.event-arenas.title",
                     arenaIds = available,
                 )
-                available.zip(ARENA_SLOTS).forEach { (arenaId, slot) ->
+                available.zip(arenaSlots).forEach { (arenaId, slot) ->
                     inventory.setItem(slot, item(
                         if (selected == arenaId) Material.LIME_CONCRETE else Material.FILLED_MAP,
                         player,
@@ -429,25 +445,26 @@ class ArcEventsMenu(
                         ),
                     ))
                 }
-                inventory.setItem(40, item(
+                inventory.setItem(element(view, "auto"), item(
                     if (selected == "auto") Material.LIME_CONCRETE else Material.COMPASS,
                     player,
                     "menu.event-arenas.auto-name",
                     "menu.event-arenas.auto-lore",
                 ))
-                inventory.setItem(45, backItem(player))
+                inventory.setItem(element(view, "back"), backItem(player))
                 player.openInventory(inventory)
             }
         }
     }
 
     private fun clickEventArenas(player: Player, slot: Int, renderedArenaIds: List<String>) {
-        if (slot == 45) {
+        val view = EventsView.EventArenas
+        if (slot == element(view, "back")) {
             open(player, EventsView.Ttt)
             return
         }
-        val selected = if (slot == 40) "auto" else {
-            renderedArenaIds.getOrNull(ARENA_SLOTS.indexOf(slot))
+        val selected = if (slot == element(view, "auto")) "auto" else {
+            renderedArenaIds.getOrNull(region(view, "arenas").indexOf(slot))
         } ?: return
         service.queueControl(player.uniqueId).whenComplete { control, failure ->
             Tasks.scheduler.runSync {
@@ -495,8 +512,9 @@ class ArcEventsMenu(
         }
         val activeMatch = requireNotNull(current)
         val activeParticipant = requireNotNull(participant)
-        val inventory = inventory(player, EventsView.Shop, 45, "menu.shop.title", mapOf("credits" to locale.text(activeParticipant.credits)))
-        inventory.setItem(4, item(Material.SUNFLOWER, player, "menu.shop.credits-name", "menu.shop.credits-lore", mapOf(
+        val view = EventsView.Shop
+        val inventory = inventory(player, view, "menu.shop.title", mapOf("credits" to locale.text(activeParticipant.credits)))
+        inventory.setItem(element(view, "credits"), item(Material.SUNFLOWER, player, "menu.shop.credits-name", "menu.shop.credits-lore", mapOf(
             "credits" to locale.text(activeParticipant.credits),
         )))
         val offers = when (activeParticipant.role) {
@@ -504,27 +522,30 @@ class ArcEventsMenu(
             TttRole.DETECTIVE -> items.detectiveOffers
             TttRole.INNOCENT -> emptyList()
         }
+        val offerSlots = region(view, "offers")
         if (offers.isEmpty()) {
-            inventory.setItem(22, item(Material.GRAY_DYE, player, "menu.shop.unavailable-name", "menu.shop.unavailable-lore"))
+            inventory.setItem(offerSlots[offerSlots.size / 2], item(Material.GRAY_DYE, player, "menu.shop.unavailable-name", "menu.shop.unavailable-lore"))
         } else {
-            offers.zip(listOf(20, 22, 24)).forEach { (offer, slot) ->
+            offers.zip(offerSlots).forEach { (offer, slot) ->
                 inventory.setItem(slot, items.offerItem(offer, player, activeMatch.matchId.toString()))
             }
         }
-        inventory.setItem(36, backItem(player))
+        inventory.setItem(element(view, "back"), backItem(player))
         player.openInventory(inventory)
     }
 
     private fun clickShop(player: Player, slot: Int) {
+        val view = EventsView.Shop
         val participant = service.participant(player.uniqueId)
         val offers = when (participant?.role) {
             TttRole.TRAITOR -> items.traitorOffers
             TttRole.DETECTIVE -> items.detectiveOffers
             else -> emptyList()
         }
-        when (slot) {
-            20, 22, 24 -> offers.getOrNull(listOf(20, 22, 24).indexOf(slot))?.let { service.buy(player, it); open(player, EventsView.Shop) }
-            36 -> open(player, EventsView.Ttt)
+        val index = region(view, "offers").indexOf(slot)
+        when {
+            index >= 0 -> offers.getOrNull(index)?.let { service.buy(player, it); open(player, view) }
+            slot == element(view, "back") -> open(player, EventsView.Ttt)
         }
     }
 
@@ -534,8 +555,9 @@ class ArcEventsMenu(
             player.sendEventMessage(locale.render("match.unavailable", player))
             return
         }
-        val inventory = inventory(player, EventsView.Roster, 54, "menu.roster.title")
-        val slots = contentSlots(10, 34)
+        val view = EventsView.Roster
+        val inventory = inventory(player, view, "menu.roster.title")
+        val slots = region(view, "players")
         roster.entries.take(slots.size).zip(slots).forEach { (entry, slot) ->
             inventory.setItem(slot, playerHead(entry.playerId, player, "menu.roster.player-name", "menu.roster.player-lore", mapOf(
                 "player" to Component.text(entry.playerName),
@@ -543,14 +565,12 @@ class ArcEventsMenu(
                 "role" to (entry.publicRole?.let { roleName(it, player) } ?: locale.render("roster.role-hidden", player)),
             )))
         }
-        inventory.setItem(45, backItem(player))
+        inventory.setItem(element(view, "back"), backItem(player))
         player.openInventory(inventory)
     }
 
     private fun clickRoster(player: Player, slot: Int) {
-        when (slot) {
-            45 -> open(player, EventsView.Ttt)
-        }
+        if (slot == element(EventsView.Roster, "back")) open(player, EventsView.Ttt)
     }
 
     private fun openBody(player: Player, bodyId: UUID) {
@@ -559,41 +579,43 @@ class ArcEventsMenu(
             player.sendEventMessage(locale.render("body.unavailable", player))
             return
         }
-        val inventory = inventory(player, EventsView.Body(bodyId), 45, "menu.body.title")
-        inventory.setItem(13, playerHead(evidence.victimId, player, "menu.body.victim-name", "menu.body.victim-lore", mapOf(
+        val view = EventsView.Body(bodyId)
+        val inventory = inventory(player, view, "menu.body.title")
+        inventory.setItem(element(view, "victim"), playerHead(evidence.victimId, player, "menu.body.victim-name", "menu.body.victim-lore", mapOf(
             "player" to Component.text(evidence.victimName),
             "role" to roleName(evidence.role, player),
         )))
-        inventory.setItem(20, item(Material.CLOCK, player, "menu.body.time-name", "menu.body.time-lore", mapOf(
+        inventory.setItem(element(view, "time"), item(Material.CLOCK, player, "menu.body.time-name", "menu.body.time-lore", mapOf(
             "seconds" to locale.text(evidence.secondsSinceDeath),
         )))
-        inventory.setItem(22, item(Material.TARGET, player, "menu.body.cause-name", "menu.body.cause-lore", mapOf(
+        inventory.setItem(element(view, "cause"), item(Material.TARGET, player, "menu.body.cause-name", "menu.body.cause-lore", mapOf(
             "weapon" to weaponName(evidence.weaponKey, player),
             "damage" to locale.text("%.1f".format(evidence.finalDamage)),
             "hit" to locale.render(if (evidence.headshot) "body.hit-head" else "body.hit-body", player),
         )))
-        inventory.setItem(24, item(
+        inventory.setItem(element(view, "dna"), item(
             if (evidence.dnaAvailable) Material.COMPASS else Material.GRAY_DYE,
             player,
             if (evidence.dnaAvailable) "menu.body.dna-name" else "menu.body.dna-lost-name",
             if (evidence.dnaAvailable) "menu.body.dna-lore" else "menu.body.dna-lost-lore",
         ))
-        inventory.setItem(31, item(
+        inventory.setItem(element(view, "call"), item(
             if (evidence.detectiveCalled) Material.LIGHT_BLUE_DYE else Material.BELL,
             player,
             if (evidence.detectiveCalled) "menu.body.called-name" else "menu.body.call-name",
             if (evidence.detectiveCalled) "menu.body.called-lore" else "menu.body.call-lore",
         ))
-        inventory.setItem(33, item(Material.PLAYER_HEAD, player, "menu.body.roster-name", "menu.body.roster-lore"))
-        inventory.setItem(36, backItem(player))
+        inventory.setItem(element(view, "roster"), item(Material.PLAYER_HEAD, player, "menu.body.roster-name", "menu.body.roster-lore"))
+        inventory.setItem(element(view, "back"), backItem(player))
         player.openInventory(inventory)
     }
 
     private fun clickBody(player: Player, bodyId: UUID, slot: Int) {
+        val view = EventsView.Body(bodyId)
         when (slot) {
-            24 -> { service.scanBody(player, bodyId); openBody(player, bodyId) }
-            31 -> { service.callDetective(player, bodyId); openBody(player, bodyId) }
-            33, 36 -> open(player, EventsView.Roster)
+            element(view, "dna") -> { service.scanBody(player, bodyId); openBody(player, bodyId) }
+            element(view, "call") -> { service.callDetective(player, bodyId); openBody(player, bodyId) }
+            element(view, "roster"), element(view, "back") -> open(player, EventsView.Roster)
         }
     }
 
@@ -603,8 +625,9 @@ class ArcEventsMenu(
             player.sendEventMessage(locale.render("report.unavailable", player))
             return
         }
-        val inventory = inventory(player, EventsView.Report, 54, "menu.report.title")
-        inventory.setItem(4, item(
+        val view = EventsView.Report
+        val inventory = inventory(player, view, "menu.report.title")
+        inventory.setItem(element(view, "summary"), item(
             if (report.winner == ru.ruscrafting.events.domain.TttTeam.INNOCENTS) Material.EMERALD else Material.REDSTONE,
             player,
             "menu.report.summary-name",
@@ -616,7 +639,7 @@ class ArcEventsMenu(
                 "events" to locale.text(report.combat.size),
             ),
         ))
-        val participantSlots = listOf(10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 23, 24, 25, 29, 33)
+        val participantSlots = region(view, "participants")
         report.participants.take(participantSlots.size).zip(participantSlots).forEach { (entry, slot) ->
             inventory.setItem(slot, playerHead(entry.playerId, player, "menu.report.player-name", "menu.report.player-lore", mapOf(
                 "player" to Component.text(entry.playerName),
@@ -626,27 +649,30 @@ class ArcEventsMenu(
                 "friendly" to locale.text("%.1f".format(entry.friendlyDamage)),
             )))
         }
-        inventory.setItem(40, item(Material.WRITABLE_BOOK, player, "menu.report.combat-name", "menu.report.combat-lore", mapOf(
+        inventory.setItem(element(view, "combat"), item(Material.WRITABLE_BOOK, player, "menu.report.combat-name", "menu.report.combat-lore", mapOf(
             "events" to locale.text(report.combat.size),
         )))
-        inventory.setItem(45, backItem(player))
+        inventory.setItem(element(view, "back"), backItem(player))
         player.openInventory(inventory)
     }
 
     private fun clickReport(player: Player, slot: Int) {
+        val view = EventsView.Report
         when (slot) {
-            40 -> open(player, EventsView.CombatLog(0))
-            45 -> open(player, EventsView.Ttt)
+            element(view, "combat") -> open(player, EventsView.CombatLog(0))
+            element(view, "back") -> open(player, EventsView.Ttt)
         }
     }
 
     private fun openCombatLog(player: Player, page: Int) {
         val report = service.report()
         if (report == null || service.participant(player.uniqueId) == null) return openReport(player)
-        val slots = contentSlots(10, 34)
+        val view = EventsView.CombatLog(page)
+        val slots = region(view, "entries")
         val maxPage = ((report.combat.size - 1).coerceAtLeast(0) / slots.size)
         val safePage = page.coerceIn(0, maxPage)
-        val inventory = inventory(player, EventsView.CombatLog(safePage), 54, "menu.combat.title", mapOf(
+        val currentView = EventsView.CombatLog(safePage)
+        val inventory = inventory(player, currentView, "menu.combat.title", mapOf(
             "page" to locale.text(safePage + 1),
             "pages" to locale.text(maxPage + 1),
         ))
@@ -671,17 +697,18 @@ class ArcEventsMenu(
                 ),
             ))
         }
-        inventory.setItem(45, backItem(player))
-        if (safePage > 0) inventory.setItem(48, item(Material.ARROW, player, "menu.common.previous-name", "menu.common.previous-lore"))
-        if (safePage < maxPage) inventory.setItem(50, item(Material.ARROW, player, "menu.common.next-name", "menu.common.next-lore"))
+        inventory.setItem(element(currentView, "back"), backItem(player))
+        if (safePage > 0) inventory.setItem(element(currentView, "previous"), item(Material.ARROW, player, "menu.common.previous-name", "menu.common.previous-lore"))
+        if (safePage < maxPage) inventory.setItem(element(currentView, "next"), item(Material.ARROW, player, "menu.common.next-name", "menu.common.next-lore"))
         player.openInventory(inventory)
     }
 
     private fun clickCombatLog(player: Player, page: Int, slot: Int) {
+        val view = EventsView.CombatLog(page)
         when (slot) {
-            45 -> open(player, EventsView.Report)
-            48 -> open(player, EventsView.CombatLog(page - 1))
-            50 -> open(player, EventsView.CombatLog(page + 1))
+            element(view, "back") -> open(player, EventsView.Report)
+            element(view, "previous") -> open(player, EventsView.CombatLog(page - 1))
+            element(view, "next") -> open(player, EventsView.CombatLog(page + 1))
         }
     }
 
@@ -703,13 +730,12 @@ class ArcEventsMenu(
     private fun inventory(
         player: Player,
         view: EventsView,
-        size: Int,
         titleKey: String,
         values: Map<String, Component> = emptyMap(),
         arenaIds: List<String> = emptyList(),
     ): Inventory {
         val holder = Holder(view, arenaIds.toList())
-        val inventory = Bukkit.createInventory(holder, size, locale.render(titleKey, player, values))
+        val inventory = layouts.create(holder, view, locale.render(titleKey, player, values))
         holder.backing = inventory
         val fillerSettings = settings().ui.filler
         val material = Material.matchMaterial(fillerSettings.material)?.takeIf(Material::isItem) ?: Material.BLACK_STAINED_GLASS_PANE
@@ -723,9 +749,13 @@ class ArcEventsMenu(
                 }
             }
         }
-        repeat(size) { inventory.setItem(it, filler) }
+        repeat(inventory.size) { inventory.setItem(it, filler) }
         return inventory
     }
+
+    private fun element(view: EventsView, id: String): Int = layouts.slot(view, id)
+
+    private fun region(view: EventsView, id: String): List<Int> = layouts.region(view, id)
 
     private fun item(
         material: Material,
@@ -733,11 +763,22 @@ class ArcEventsMenu(
         nameKey: String,
         loreKey: String,
         values: Map<String, Component> = emptyMap(),
-    ): ItemStack = ItemStack.of(material).also { stack ->
-        stack.editMeta { meta ->
-            meta.displayName(TttItems.nonItalic(locale.render(nameKey, player, values)))
-            meta.lore(locale.lore(loreKey, player, values).map(TttItems::nonItalic))
-            meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES)
+    ): ItemStack {
+        val styleId = nameKey.removePrefix("menu.").removeSuffix("-name").replace('.', '-') +
+            "-" + material.name.lowercase().replace('_', '-')
+        val appearance = settings().ui.menuItems[styleId]
+        val configuredMaterial = appearance?.material?.let(Material::matchMaterial)?.takeIf(Material::isItem) ?: material
+        return ItemStack.of(configuredMaterial).also { stack ->
+            stack.editMeta { meta ->
+                meta.displayName(TttItems.nonItalic(locale.render(nameKey, player, values)))
+                meta.lore(locale.lore(loreKey, player, values).map(TttItems::nonItalic))
+                meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES)
+                if (appearance != null && appearance.customModelData > 0) {
+                    val model = meta.customModelDataComponent
+                    model.floats = listOf(appearance.customModelData.toFloat())
+                    meta.setCustomModelDataComponent(model)
+                }
+            }
         }
     }
 
@@ -750,8 +791,6 @@ class ArcEventsMenu(
     ): ItemStack = item(Material.PLAYER_HEAD, audience, nameKey, loreKey, values).also { stack ->
         stack.editMeta(SkullMeta::class.java) { meta -> meta.owningPlayer = Bukkit.getOfflinePlayer(playerId) }
     }
-
-    private fun contentSlots(start: Int, end: Int): List<Int> = (start..end).filter { slot -> slot % 9 in 1..7 }
 
     private fun roleName(role: TttRole, player: Player): Component = locale.render(
         when (role) {
@@ -778,7 +817,6 @@ class ArcEventsMenu(
     }
 
     companion object {
-        private val ARENA_SLOTS = listOf(10, 12, 14, 16, 28, 30, 32, 34)
     }
 
 }

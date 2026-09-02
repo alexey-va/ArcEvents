@@ -81,9 +81,27 @@ class ArcEventsConfigTest : StringSpec({
                 maximumDistance = 36.0,
             )
             config.ui.back shouldBe UiItemSettings("BLUE_STAINED_GLASS_PANE", 11013)
+            config.ui.menuItems["main-ttt-spyglass"] shouldBe UiItemSettings("SPYGLASS", 0)
             config.debug.enabled shouldBe false
             config.debug.allowedServerIds shouldBe setOf("lab")
             config.debugMutationsAllowed shouldBe false
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    "menu materials and model data are runtime configuration" {
+        val root = Files.createTempDirectory("arcevents-menu-item-")
+        try {
+            ArcEventsConfig.load(root)
+            val path = root.resolve("config.yml")
+            Files.writeString(path, Files.readString(path).replace(
+                "main-ttt-spyglass: {material: SPYGLASS}",
+                "main-ttt-spyglass: {material: AMETHYST_SHARD, custom-model-data: 731}",
+            ))
+
+            ArcEventsConfig.inspect(root).ui.menuItems["main-ttt-spyglass"] shouldBe
+                UiItemSettings("AMETHYST_SHARD", 731)
         } finally {
             root.toFile().deleteRecursively()
         }

@@ -130,6 +130,172 @@ ui:
   filler: {material: GRAY_STAINED_GLASS_PANE, custom-model-data: 0}
   # Shared 32x32 arc:left_gray navigation control.
   back: {material: BLUE_STAINED_GLASS_PANE, custom-model-data: 11013}
+  # Item id is derived from the locale name key plus the state material. This
+  # keeps ready/unavailable variants independently configurable.
+  menu-items:
+    main-ttt-spyglass: {material: SPYGLASS}
+    main-stats-writable-book: {material: WRITABLE_BOOK}
+    main-help-knowledge-book: {material: KNOWLEDGE_BOOK}
+    main-admin-command-block: {material: COMMAND_BLOCK}
+    event-overview-spyglass: {material: SPYGLASS}
+    event-queue-clock: {material: CLOCK}
+    event-join-lime-dye: {material: LIME_DYE}
+    event-join-unavailable-gray-dye: {material: GRAY_DYE}
+    event-leave-red-dye: {material: RED_DYE}
+    event-start-lime-concrete: {material: LIME_CONCRETE}
+    event-start-gray-concrete: {material: GRAY_CONCRETE}
+    event-arena-filled-map: {material: FILLED_MAP}
+    event-roster-player-head: {material: PLAYER_HEAD}
+    event-shop-nether-star: {material: NETHER_STAR}
+    event-report-written-book: {material: WRITTEN_BOOK}
+    event-help-knowledge-book: {material: KNOWLEDGE_BOOK}
+    event-evacuate-ender-pearl: {material: ENDER_PEARL}
+    stats-summary-writable-book: {material: WRITABLE_BOOK}
+    help-innocent-emerald: {material: EMERALD}
+    help-traitor-redstone: {material: REDSTONE}
+    help-detective-lapis-lazuli: {material: LAPIS_LAZULI}
+    help-flow-clock: {material: CLOCK}
+    help-evidence-player-head: {material: PLAYER_HEAD}
+    help-weapons-crossbow: {material: CROSSBOW}
+    help-controls-command-block: {material: COMMAND_BLOCK}
+    admin-status-observer: {material: OBSERVER}
+    admin-arenas-filled-map: {material: FILLED_MAP}
+    admin-start-lime-concrete: {material: LIME_CONCRETE}
+    admin-stop-red-concrete: {material: RED_CONCRETE}
+    admin-reload-clock: {material: CLOCK}
+    admin-recover-totem-of-undying: {material: TOTEM_OF_UNDYING}
+    arenas-entry-lime-concrete: {material: LIME_CONCRETE}
+    arenas-entry-filled-map: {material: FILLED_MAP}
+    arenas-auto-lime-concrete: {material: LIME_CONCRETE}
+    arenas-auto-compass: {material: COMPASS}
+    event-arenas-entry-lime-concrete: {material: LIME_CONCRETE}
+    event-arenas-entry-filled-map: {material: FILLED_MAP}
+    event-arenas-auto-lime-concrete: {material: LIME_CONCRETE}
+    event-arenas-auto-compass: {material: COMPASS}
+    shop-credits-sunflower: {material: SUNFLOWER}
+    shop-unavailable-gray-dye: {material: GRAY_DYE}
+    roster-player-player-head: {material: PLAYER_HEAD}
+    body-victim-player-head: {material: PLAYER_HEAD}
+    body-time-clock: {material: CLOCK}
+    body-cause-target: {material: TARGET}
+    body-dna-compass: {material: COMPASS}
+    body-dna-lost-gray-dye: {material: GRAY_DYE}
+    body-called-light-blue-dye: {material: LIGHT_BLUE_DYE}
+    body-call-bell: {material: BELL}
+    body-roster-player-head: {material: PLAYER_HEAD}
+    report-summary-emerald: {material: EMERALD}
+    report-summary-redstone: {material: REDSTONE}
+    report-player-player-head: {material: PLAYER_HEAD}
+    report-combat-writable-book: {material: WRITABLE_BOOK}
+    combat-entry-red-dye: {material: RED_DYE}
+    combat-entry-wither-skeleton-skull: {material: WITHER_SKELETON_SKULL}
+    combat-entry-paper: {material: PAPER}
+    common-previous-arrow: {material: ARROW}
+    common-next-arrow: {material: ARROW}
+  # Chest GUI topology. Code addresses semantic ids only; the complete candidate
+  # is rejected on a missing id, overlap, invalid slot or undersized region.
+  layouts:
+    main:
+      schema-version: 1
+      rows: 3
+      elements:
+        ttt: {slot: 4}
+        statistics: {slot: 18}
+        help: {slot: 22}
+        admin: {slot: 26}
+    help:
+      schema-version: 1
+      rows: 5
+      elements:
+        innocent: {slot: 11}
+        traitor: {slot: 13}
+        detective: {slot: 15}
+        flow: {slot: 22}
+        evidence: {slot: 29}
+        weapons: {slot: 31}
+        controls: {slot: 33}
+        back: {slot: 36}
+    ttt:
+      schema-version: 1
+      rows: 5
+      elements:
+        overview: {slot: 13}
+        left: {slot: 20}
+        center: {slot: 22}
+        right: {slot: 24}
+        arena: {slot: 29}
+        help: {slot: 31}
+        back: {slot: 36}
+        evacuate: {slot: 40}
+    statistics:
+      schema-version: 1
+      rows: 3
+      elements:
+        summary: {slot: 13}
+        back: {slot: 18}
+    admin:
+      schema-version: 1
+      rows: 6
+      elements:
+        status: {slot: 13}
+        arenas: {slot: 20}
+        start: {slot: 29}
+        stop: {slot: 31}
+        reload: {slot: 33}
+        recover: {slot: 40}
+        back: {slot: 45}
+    arenas:
+      schema-version: 1
+      rows: 6
+      elements:
+        auto: {slot: 40}
+        back: {slot: 45}
+      regions:
+        arenas: {slots: [10, 12, 14, 16, 28, 30, 32, 34]}
+    shop:
+      schema-version: 1
+      rows: 5
+      elements:
+        credits: {slot: 4}
+        back: {slot: 36}
+      regions:
+        offers: {slots: [20, 22, 24]}
+    roster:
+      schema-version: 1
+      rows: 6
+      elements:
+        back: {slot: 45}
+      regions:
+        players: {slots: ['10-16', '19-25', '28-34']}
+    body:
+      schema-version: 1
+      rows: 5
+      elements:
+        victim: {slot: 13}
+        time: {slot: 20}
+        cause: {slot: 22}
+        dna: {slot: 24}
+        call: {slot: 31}
+        roster: {slot: 33}
+        back: {slot: 36}
+    report:
+      schema-version: 1
+      rows: 6
+      elements:
+        summary: {slot: 4}
+        combat: {slot: 40}
+        back: {slot: 45}
+      regions:
+        participants: {slots: [10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 23, 24, 25, 29, 33]}
+    combat:
+      schema-version: 1
+      rows: 6
+      elements:
+        back: {slot: 45}
+        previous: {slot: 48}
+        next: {slot: 50}
+      regions:
+        entries: {slots: ['10-16', '19-25', '28-34']}
 
 ttt:
   minimum-players: 4

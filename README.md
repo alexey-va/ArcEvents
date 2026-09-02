@@ -7,6 +7,36 @@ statistics, match-scoped living/spectator chat, and crash-safe player-state
 restoration. Projectiles are tagged with their match and removed during cleanup,
 so an arrow from an old round cannot affect a later one.
 
+## Menu configuration
+
+All chest-menu rows, fixed controls and dynamic regions live under
+`ui.layouts` in `config.yml`. Runtime code refers only to semantic ids such as
+`center`, `arenas`, `offers`, `participants`, `back` and `next`. Reload parses
+and validates the complete candidate before activation; missing ids, overlaps,
+out-of-range slots and undersized regions reject the whole generation.
+
+`ui.menu-items` configures every system icon and optional `custom-model-data`.
+State variants have separate ids, for example ready/unavailable start buttons,
+selected/ordinary arenas, available/lost DNA and friendly/lethal/ordinary
+combat records. Player-head roles remain heads so their owner skin can be
+rendered.
+
+Names and lore are MiniMessage templates in `lang/ru.yml` and `lang/en.yml`.
+The locale contract requires identical keys, row counts and placeholder counts,
+while runtime values are injected as non-parsing Adventure components. The
+main available tag groups are:
+
+| Surface | Value tags |
+|---|---|
+| event overview and queue | `<queue>`, `<minimum>`, `<arena_state>`, `<queue_state>`, `<selected_arena>` |
+| statistics and admin | `<matches>`, `<wins>`, `<kills>`, `<deaths>`, `<karma>`, `<phase>`, `<match>`, `<recovery>`, `<server>`, `<host>`, `<network_state>` |
+| arenas and shop | `<arena>`, `<state>`, `<template>`, `<world>`, `<selection>`, `<credits>` |
+| roster and bodies | `<player>`, `<role>`, `<status>`, `<seconds>`, `<weapon>`, `<damage>`, `<hit>` |
+| report and combat | `<winner>`, `<reason>`, `<time>`, `<events>`, `<kills>`, `<friendly>`, `<sequence>`, `<attacker>`, `<victim>`, `<flags>` |
+
+These value tags can be combined freely with MiniMessage colors, gradients and
+decorations; changing the template does not require recompilation.
+
 ## Network shape
 
 - `spawn` and `survival` run in `RELAY` mode: menus, queueing, announcements,
