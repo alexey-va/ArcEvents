@@ -100,10 +100,11 @@ object FirearmSpread {
         val yawedZ = direction.x * sin(yaw) + direction.z * cos(yaw)
         val horizontal = kotlin.math.sqrt(yawedX * yawedX + yawedZ * yawedZ)
         val basePitch = kotlin.math.atan2(direction.y, horizontal) + pitch
+        // Vertical rays have no azimuth; use the yaw offset as their horizontal reference.
         return ShotDirection(
-            yawedX / horizontal.coerceAtLeast(1e-9) * cos(basePitch),
+            (if (horizontal > 0.0) yawedX / horizontal else cos(yaw)) * cos(basePitch),
             sin(basePitch),
-            yawedZ / horizontal.coerceAtLeast(1e-9) * cos(basePitch),
+            (if (horizontal > 0.0) yawedZ / horizontal else sin(yaw)) * cos(basePitch),
         ).normalized()
     }
 }

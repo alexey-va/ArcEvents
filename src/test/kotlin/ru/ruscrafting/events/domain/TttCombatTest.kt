@@ -37,4 +37,15 @@ class TttCombatTest : StringSpec({
         (kotlin.math.abs(changed.y) > 0.01) shouldBe true
         (kotlin.math.abs(sqrt(changed.x * changed.x + changed.y * changed.y + changed.z * changed.z) - 1.0) < 1e-9) shouldBe true
     }
+
+    "vertical and nearly vertical shots retain their configured pitch spread" {
+        for (vertical in listOf(-1.0, 1.0)) {
+            for (horizontal in listOf(0.0, 1e-12)) {
+                val changed = FirearmSpread.apply(ShotDirection(horizontal, vertical, 0.0), 30.0, 5.0)
+                val lateral = sqrt(changed.x * changed.x + changed.z * changed.z)
+                (kotlin.math.abs(lateral - kotlin.math.sin(Math.toRadians(5.0))) < 1e-9) shouldBe true
+                (kotlin.math.abs(sqrt(lateral * lateral + changed.y * changed.y) - 1.0) < 1e-9) shouldBe true
+            }
+        }
+    }
 })
