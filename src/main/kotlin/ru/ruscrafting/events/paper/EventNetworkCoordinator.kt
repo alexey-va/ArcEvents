@@ -334,8 +334,8 @@ class EventNetworkCoordinator(
         val reservationFuture = runCatching { repository.reserve(
             matchId,
             current.serverId,
-            current.arcade.rules(mode).minimumPlayers,
-            current.arcade.rules(mode).maximumPlayers,
+            if (mode == EventMode.TTT) current.ttt.minimumPlayers else current.arcade.rules(mode).minimumPlayers,
+            if (mode == EventMode.TTT) current.ttt.maximumPlayers else current.arcade.rules(mode).maximumPlayers,
             clock(),
             current.network.reservationSeconds * 1_000L,
             requiredOwnerId = requiredOwnerId,
@@ -772,7 +772,9 @@ class EventNetworkCoordinator(
                 phase = phase,
                 matchId = matchId?.toString(),
                 queueSize = queueSize,
-                capacity = if (current.nodeMode == NodeMode.HOST) current.arcade.rules(EventMode.TTT).maximumPlayers else 0,
+                capacity = if (current.nodeMode == NodeMode.HOST) maxOf(
+                    current.ttt.maximumPlayers, current.arcade.gunGame.maximumPlayers, current.arcade.disasters.maximumPlayers,
+                ) else 0,
                 heartbeatAtMs = clock(),
                 arenaIds = if (current.nodeMode == NodeMode.HOST) {
                     readyArenaIds()

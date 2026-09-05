@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "ru.ruscrafting"
-version = "0.3.0"
+version = "0.3.1"
 description = "Cross-server custom events for RusCrafting"
 
 val integrationTestSourceSet = sourceSets.create("integrationTest") {
@@ -66,6 +66,7 @@ tasks {
         isReproducibleFileOrder = true
     }
     processResources {
+        inputs.property("version", project.version)
         filesMatching("plugin.yml") { expand("version" to project.version) }
     }
     test {
