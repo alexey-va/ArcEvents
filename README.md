@@ -1,11 +1,21 @@
 # ArcEvents
 
-ArcEvents is the network event engine for RusCrafting. The first mode is a
-Minecraft-native interpretation of Trouble in Terrorist Town: hidden traitors,
-public detectives, evidence, role shops, a timed round, spectators, persistent
-statistics, match-scoped living/spectator chat, and crash-safe player-state
-restoration. Projectiles are tagged with their match and removed during cleanup,
-so an arrow from an old round cannot affect a later one.
+ArcEvents is the network event engine for RusCrafting with three modes:
+
+- **TTT**: hidden traitors, detectives, evidence, role shops and living/spectator chat.
+- **GunGame** (`gungame`): each elimination advances through the twelve existing
+  firearms; a final knife hit wins. Players respawn after three seconds with
+  two seconds of protection. The six-minute limit ranks progress, then kills.
+- **Disasters** (`disasters`): six survival waves alternate meteors, lightning
+  and low fog. Survivors earn one point per wave; everyone returns for the next
+  wave. The dedicated generated arena provides roofs and climbable terraces.
+
+All modes use the same durable player-state escrow, origin-server return routes
+and common FIFO queue. The queue creator selects the mode at start; starting a
+mode does not split or reorder the queue. GunGame and Disasters require three
+players by default (configurable under `arcade`), while TTT keeps its own rules.
+Arcade wins contribute to shared match/win statistics without changing TTT karma
+or role-specific wins. Old-round projectiles cannot affect a later match.
 
 ## Menu configuration
 
@@ -109,8 +119,8 @@ is the host adapter for players, inventories, HUD, arenas and network messages;
 it does not own TTT match transitions directly. `EventGameRuntime` is the small
 mode boundary, and `TttMatchRuntime` owns the current match, exact phase clocks,
 recent-attacker attribution, bounded combat history, cancellation and recovery
-transitions. A future mode implements its own runtime rather than adding a
-second state machine to the Paper service.
+transitions. The arcade modes use `ArcadeMatchRuntime` for their rules and `ArcadeSession`
+for Paper presentation, sharing escrow, routing, firearms and the arena lease.
 
 Mode-specific world artifacts are lifecycle owners as well. In particular,
 `TttBodyRegistry` owns corpse entities, evidence records, despawn tasks,
@@ -122,18 +132,19 @@ plugin heartbeat or leave a previous round's work alive.
 Cross-server movement is fail-closed. A `ROUTE_PLAYER` message is acted on only
 when Redis still contains the exact `RESERVED` tuple for player, match and
 destination and the reservation has not expired. A return message likewise
-requires the exact `RETURN_PENDING` tuple and recorded origin. Adding another
-mode still requires a mode-aware queue partition and protocol migration; the
-runtime boundary keeps that network migration independent from the new game's
-rules and Bukkit presentation.
+requires the exact `RETURN_PENDING` tuple and recorded origin. Host heartbeats advertise supported modes. Start requests and reservations
+carry the selected mode, while legacy messages default to TTT. A relay refuses
+to send a new mode to a host that has not advertised it. Deploy the host and
+relays together before offering the arcade modes to a mixed-version network.
 
 ## Commands
 
 - `/events` — player hub.
 - `/events join`, `/events leave`, `/events status`, `/events shop`.
+- `/events start [ttt|gungame|disasters]` — start the common queue as its creator.
 - `/events team <message>` — private traitor/detective team chat in a match.
 - `/events admin` — operator GUI. `status|player|network|arenas|recovery` are
-  readable diagnostics; `arena <id|auto>`, `start [id]`, `stop`, `reload`, and
+  readable diagnostics; `arena <id|auto>`, `start [ttt|gungame|disasters] [id]`, `stop`, `reload`, and
   `recover` operate the map pool, queue, round, config, and escrow recovery.
 - `/events reload` — direct `arcevents.admin` shortcut. Locale text, menu/HUD
   presentation, nameplates, loot displays, smoke, active item visuals and safe
@@ -150,7 +161,7 @@ rules and Bukkit presentation.
   `ARCEVENTS_QA` prefix.
 - `/events debug help|status|player|network|arenas|recovery|bodies` — lab snapshots.
 - `/events debug start` reserves the real distributed queue; `bootstrap
-  [arena|auto] [players...]` starts a local roster from online players for isolated tests;
+  [ttt|gungame|disasters] [arena|auto] [players...]` starts a local roster from online players for isolated tests;
   `advance`, `end <innocents|traitors>`, `timer <seconds>`, and `cleanup` drive
   round lifecycle cases.
 - `/events debug credit|role|health|kill|revive` changes one participant;
@@ -231,13 +242,16 @@ living participant inside it, including the thrower.
 ## Build
 
 ```bash
-./gradlew clean check shadowJar
+RUSCRAFTING_OPS_ROOT=/absolute/path/to/ruscrafting-ops ./gradlew clean test shadowJar
 ```
+
+The GitHub Actions storage integration job runs the real Redis tests; do not
+run Testcontainers or the integration-bearing `check` task locally.
 
 The three production locale mirrors are governed by the durable `arcevents`
 translation profile:
 
 ```bash
-../scripts/mc translate arcevents validate
-../scripts/mc translate arcevents render-check
+../ruscrafting-ops/scripts/mc translate arcevents validate
+../ruscrafting-ops/scripts/mc translate arcevents render-check
 ```

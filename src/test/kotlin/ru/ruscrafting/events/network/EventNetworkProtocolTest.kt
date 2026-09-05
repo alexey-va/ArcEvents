@@ -4,8 +4,42 @@ import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import java.util.UUID
+import ru.ruscrafting.events.domain.EventMode
 
 class EventNetworkProtocolTest : StringSpec({
+    "supported event modes round trip through queue and start payloads" {
+        QueueEntry(UUID.randomUUID().toString(), "ModePlayer", "spawn", EventMode.GUN_GAME.id, joinedAtMs = 1_000, expiresAtMs = 2_000)
+            .validated().mode shouldBe EventMode.GUN_GAME.id
+        EventNetworkMessage.create(
+            EventNetworkSignal.START_REQUEST,
+            nowMs = 1_000,
+            destinationServer = "parkour",
+            mode = EventMode.DISASTERS.id,
+        ).mode shouldBe EventMode.DISASTERS.id
+    }
+
+    "unknown event modes fail closed" {
+        shouldThrow<IllegalArgumentException> {
+            QueueEntry(UUID.randomUUID().toString(), "ModePlayer", "spawn", "future", joinedAtMs = 1_000, expiresAtMs = 2_000).validated()
+        }
+        shouldThrow<IllegalArgumentException> {
+            EventNetworkMessage.create(EventNetworkSignal.START_REQUEST, nowMs = 1_000, destinationServer = "parkour", mode = "future")
+        }
+    }
+
+    "reservation batches reject mixed persisted modes" {
+        val first = QueueEntry(UUID.randomUUID().toString(), "One", "spawn", EventMode.TTT.id, joinedAtMs = 1_000, expiresAtMs = 2_000)
+        val second = first.copy(playerId = UUID.randomUUID().toString(), mode = EventMode.GUN_GAME.id)
+        shouldThrow<IllegalArgumentException> { ReservationBatch(UUID.randomUUID(), listOf(first, second), mode = EventMode.TTT) }
+    }
+
+    "host capabilities default to legacy TTT and validate declared modes" {
+        HostNode("parkour", "HOST", true, true, null, null, 0, 16, 1_000).supportedModes shouldBe listOf(EventMode.TTT.id)
+        shouldThrow<IllegalArgumentException> {
+            HostNode("parkour", "HOST", true, true, null, null, 0, 16, 1_000, supportedModes = listOf("future")).validated()
+        }
+    }
+
     "cross-server start messages are target and correlation bound" {
         val request = EventNetworkMessage.create(
             EventNetworkSignal.START_REQUEST,

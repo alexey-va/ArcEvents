@@ -16,6 +16,7 @@ import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.domain.TttRole
 
 enum class EventItemKind {
+    ARCADE_KNIFE,
     GUIDE,
     SHOP,
     FIREARM,
@@ -127,6 +128,11 @@ class TttItems(
         val offer = (traitorOffers + detectiveOffers).first { it.kind == kind }
         return offerItem(offer, player, matchId)
     }
+
+    fun arcadeKnife(player: Player, matchId: String): ItemStack = tagged(
+        Material.IRON_SWORD, EventItemKind.ARCADE_KNIFE, matchId,
+        locale.render("arcade.knife-name", player), locale.lore("arcade.knife-lore", player),
+    )
 
     fun roundReport(player: Player, matchId: String): ItemStack = tagged(
         Material.WRITTEN_BOOK,

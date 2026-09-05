@@ -7,6 +7,7 @@ import ru.ruscrafting.events.domain.MatchPhase
 import ru.ruscrafting.events.domain.PlayerEventStats
 import ru.ruscrafting.events.domain.QueuedPlayer
 import ru.ruscrafting.events.domain.TttTeam
+import ru.ruscrafting.events.domain.EventMode
 import java.util.UUID
 
 enum class QueueState { QUEUED, RESERVED, ARRIVED, MATCHED, RETURN_PENDING }
@@ -15,7 +16,7 @@ data class QueueEntry(
     val playerId: String,
     val playerName: String,
     val originServer: String,
-    val mode: String = "ttt",
+    val mode: String = EventMode.TTT.id,
     val state: QueueState = QueueState.QUEUED,
     val joinedAtMs: Long,
     val expiresAtMs: Long,
@@ -26,7 +27,7 @@ data class QueueEntry(
         require(UUID.fromString(playerId).toString() == playerId) { "Invalid queue player id" }
         NetworkPlayerName.of(playerName)
         BackendServerId.of(originServer)
-        require(mode == "ttt") { "Unsupported event mode" }
+        require(EventMode.fromId(mode ?: EventMode.TTT.id) != null) { "Unsupported event mode" }
         require(joinedAtMs > 0 && expiresAtMs > joinedAtMs)
         when (state) {
             QueueState.QUEUED -> {
@@ -66,7 +67,10 @@ data class HostNode(
     val capacity: Int,
     val heartbeatAtMs: Long,
     val arenaIds: List<String> = emptyList(),
+    val supportedModes: List<String> = listOf(EventMode.TTT.id),
 ) {
+    fun supports(mode: EventMode): Boolean = (supportedModes ?: listOf(EventMode.TTT.id)).contains(mode.id)
+
     fun validated(): HostNode = apply {
         BackendServerId.of(serverId)
         require(mode in setOf("RELAY", "HOST"))
@@ -74,6 +78,9 @@ data class HostNode(
         require(heartbeatAtMs > 0)
         require(arenaIds.size <= 16 && arenaIds.distinct().size == arenaIds.size)
         require(arenaIds.all { it.matches(Regex("[a-z0-9_-]{1,32}")) })
+        val modes = supportedModes ?: listOf(EventMode.TTT.id)
+        require(modes.isNotEmpty() && modes.size <= 8 && modes.distinct().size == modes.size)
+        require(modes.all { EventMode.fromId(it) != null })
         matchId?.let { require(UUID.fromString(it).toString() == it) }
         if (available) require(mode == "HOST" && arenaReady && phase == null)
     }
@@ -109,6 +116,7 @@ data class EventNetworkMessage(
     val preferredArenaId: String? = null,
     /** Set only by a trusted backend after checking arcevents.admin. */
     val adminBypass: Boolean = false,
+    val mode: String = EventMode.TTT.id,
 ) {
     fun validated(): EventNetworkMessage = apply {
         require(UUID.fromString(eventId).toString() == eventId)
@@ -120,6 +128,7 @@ data class EventNetworkMessage(
         replyTo?.let { require(UUID.fromString(it).toString() == it) }
         requesterId?.let { require(UUID.fromString(it).toString() == it) }
         preferredArenaId?.let { require(it.matches(Regex("[a-z0-9_-]{1,32}|auto"))) }
+        require(EventMode.fromId(mode ?: EventMode.TTT.id) != null) { "Unsupported event mode" }
         when (signal) {
             EventNetworkSignal.QUEUE_CHANGED -> require(queueSize != null)
             EventNetworkSignal.ROUTE_PLAYER -> require(matchId != null && playerId != null && destinationServer != null)
@@ -156,6 +165,7 @@ data class EventNetworkMessage(
             requesterId: UUID? = null,
             preferredArenaId: String? = null,
             adminBypass: Boolean = false,
+            mode: String = EventMode.TTT.id,
         ): EventNetworkMessage = EventNetworkMessage(
             eventId = UUID.randomUUID().toString(),
             signal = signal,
@@ -171,6 +181,7 @@ data class EventNetworkMessage(
             requesterId = requesterId?.toString(),
             preferredArenaId = preferredArenaId,
             adminBypass = adminBypass,
+            mode = mode,
         ).validated()
 
         private val START_RESULTS = setOf(
@@ -203,6 +214,11 @@ data class ReservationBatch(
     val entries: List<QueueEntry>,
     val requesterId: UUID? = null,
     val preferredArenaId: String? = null,
-)
+    val mode: EventMode = EventMode.TTT,
+) {
+    init {
+        require(entries.all { (it.mode ?: EventMode.TTT.id) == mode.id }) { "Reservation entries use mixed event modes" }
+    }
+}
 
 data class StatsUpdate(val before: PlayerEventStats, val after: PlayerEventStats)

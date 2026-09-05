@@ -24,6 +24,7 @@ internal object ArenaWorldGeneratorRegistry {
         require(Files.size(marker) in 1..MAX_MARKER_BYTES) { "ArcEvents arena template marker is invalid" }
         val template = Files.readString(marker, StandardCharsets.UTF_8).trim()
         return when {
+            template == DisasterArenaGenerator.TEMPLATE -> DisasterArenaGenerator()
             template == TttCitadelBlueprint.TEMPLATE -> TttCitadelChunkGenerator()
             PackagedArenaTemplates.find(template) != null -> EmptyArenaChunkGenerator()
             ReviewedImportedArenaTemplates.find(template) != null -> EmptyArenaChunkGenerator()

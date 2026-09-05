@@ -28,6 +28,7 @@ class ArcEventsMenuLayouts(dataRoot: Path) {
         val MAIN = MenuId.of("main")
         val HELP = MenuId.of("help")
         val TTT = MenuId.of("ttt")
+        val ARCADE = MenuId.of("arcade")
         val STATISTICS = MenuId.of("statistics")
         val ADMIN = MenuId.of("admin")
         val ARENAS = MenuId.of("arenas")
@@ -41,9 +42,10 @@ class ArcEventsMenuLayouts(dataRoot: Path) {
         private fun regions(vararg ids: String) = ids.mapTo(linkedSetOf(), MenuRegionId::of)
 
         val CONTRACTS = linkedMapOf(
-            MAIN to MenuContract(requiredElements = elements("ttt", "statistics", "help", "admin")),
+            MAIN to MenuContract(requiredElements = elements("ttt", "gungame", "disasters", "statistics", "help", "admin")),
             HELP to MenuContract(requiredElements = elements("innocent", "traitor", "detective", "flow", "evidence", "weapons", "controls", "back")),
             TTT to MenuContract(requiredElements = elements("overview", "left", "center", "right", "arena", "help", "back", "evacuate")),
+            ARCADE to MenuContract(requiredElements = elements("overview", "left", "center", "right", "arena", "help", "back", "evacuate")),
             STATISTICS to MenuContract(requiredElements = elements("summary", "back")),
             ADMIN to MenuContract(requiredElements = elements("status", "arenas", "start", "stop", "reload", "recover", "back")),
             ARENAS to MenuContract(requiredElements = elements("auto", "back"), requiredRegions = regions("arenas")),
@@ -58,6 +60,7 @@ class ArcEventsMenuLayouts(dataRoot: Path) {
             EventsView.Main -> MAIN
             EventsView.Help, EventsView.EventHelp -> HELP
             EventsView.Ttt -> TTT
+            is EventsView.Arcade -> ARCADE
             EventsView.Statistics -> STATISTICS
             EventsView.Admin -> ADMIN
             EventsView.Arenas, EventsView.EventArenas -> ARENAS

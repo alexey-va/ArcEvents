@@ -6,6 +6,8 @@ import ru.arc.network.BackendServerId
 import ru.arc.redis.RedisConnectionSettingsSnapshot
 import ru.arc.redis.RedisConfigBootstrap
 import ru.arc.redis.RedisModuleConfig
+import ru.ruscrafting.events.domain.ArcadeRules
+import ru.ruscrafting.events.domain.EventMode
 import ru.ruscrafting.events.domain.FirearmId
 import ru.ruscrafting.events.domain.FirearmRarity
 import ru.ruscrafting.events.domain.FirearmSpec
@@ -243,7 +245,34 @@ data class DebugSettings(
     fun mutationsAllowed(serverId: String): Boolean = enabled && serverId in allowedServerIds
 }
 
+data class ArcadeSettings(val gunGame: ArcadeRules, val disasters: ArcadeRules) {
+    fun rules(mode: EventMode): ArcadeRules = when (mode) {
+        EventMode.GUN_GAME -> gunGame
+        EventMode.DISASTERS -> disasters
+        EventMode.TTT -> error("TTT owns its own rules")
+    }
+}
+
 class ArcEventsConfig(private val config: Config) {
+    val arcade: ArcadeSettings get() = ArcadeSettings(arcadeRules("gungame", 12), arcadeRules("disasters", 16))
+
+    private fun arcadeRules(id: String, maximum: Int): ArcadeRules {
+        val path = "arcade.$id"
+        return ArcadeRules(
+            minimumPlayers = config.int("$path.minimum-players", 3),
+            maximumPlayers = config.int("$path.maximum-players", maximum),
+            preparationSeconds = config.int("$path.preparation-seconds", 15),
+            countdownSeconds = config.int("$path.countdown-seconds", 5),
+            roundSeconds = config.int("$path.round-seconds", 360),
+            postRoundSeconds = config.int("$path.post-round-seconds", 8),
+            respawnSeconds = config.int("$path.respawn-seconds", 3),
+            spawnProtectionSeconds = config.int("$path.spawn-protection-seconds", 2),
+            disasterSeconds = config.int("$path.disaster-seconds", 25),
+            intermissionSeconds = config.int("$path.intermission-seconds", 5),
+            disasterRounds = config.int("$path.disaster-rounds", 6),
+        ).validated()
+    }
+
     val enabled: Boolean get() = config.bool("enabled", true)
     val serverId: String get() = config.string("server-id", "parkour").trim().lowercase()
     val nodeMode: NodeMode get() = NodeMode.valueOf(config.string("node-mode", "RELAY").trim().uppercase())
@@ -424,6 +453,20 @@ class ArcEventsConfig(private val config: Config) {
     val arenas: List<ArenaSettings>
         get() = config.keys("arenas").sorted().map { id -> parseArena(id, "arenas.$id") }
             .ifEmpty { listOf(parseArena("default", "arena")) }
+            .let { configured ->
+                if (nodeMode == NodeMode.HOST && config.bool("arcade.disasters.arena.enabled", false)) {
+                    require(configured.none { it.id == "disasters" }) { "disasters is reserved for the generated arena" }
+                    configured + disasterArena()
+                } else configured
+            }
+
+    private fun disasterArena(): ArenaSettings {
+        val world = config.string("arcade.disasters.arena.world", "arcevents_disasters")
+        val spawn = EventLocation(world, 0.5, 65.0, 0.5)
+        return ArenaSettings("disasters", true, world, "disasters-v1", spawn, spawn,
+            EventBounds(EventLocation(world, -24.0, 59.0, -24.0), EventLocation(world, 25.0, 91.0, 25.0)),
+            listOf(spawn), emptyList())
+    }
 
     val defaultArenaId: String get() = config.string("default-arena", "").trim().lowercase()
 
@@ -496,6 +539,7 @@ class ArcEventsConfig(private val config: Config) {
         require(arenaRuntime.maxImportedDisplays in 0..1_024) {
             "arena-runtime.imported-decorations.max-displays must be between 0 and 1024"
         }
+        arcade
         val ttt = ttt
         require(ttt.minimumPlayers in 4..ttt.maximumPlayers)
         require(ttt.maximumPlayers in 4..32)
@@ -605,7 +649,7 @@ class ArcEventsConfig(private val config: Config) {
             }
             require(arena.spawns.size <= 1) { "Arena ${arena.id} must use one common player spawn" }
             require(arena.lootSpawns.size <= 128) { "Arena ${arena.id} has too many loot spawns" }
-            if (arena.enabled && weapons.enabled && arena.template !in setOf("", "citadel-v1")) {
+            if (arena.enabled && weapons.enabled && arena.template !in setOf("", "citadel-v1", "disasters-v1")) {
                 require(arena.lootSpawns.size >= ttt.maximumPlayers) {
                     "Imported arena ${arena.id} requires at least ${ttt.maximumPlayers} loot spawns"
                 }
@@ -626,6 +670,7 @@ class ArcEventsConfig(private val config: Config) {
         private val SUPPORTED_TEMPLATES = setOf(
             "",
             "citadel-v1",
+            "disasters-v1",
             "ttt-minecraft-b5-v1",
             "cs2-inferno-v1",
             "cs2-mirage-v1",

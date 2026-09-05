@@ -7,6 +7,22 @@ import java.nio.file.Files
 import java.util.UUID
 
 class ArenaPoolTest : StringSpec({
+    "disasters use their own arena without entering the combat rotation" {
+        val root = Files.createTempDirectory("arcevents-mode-arena-")
+        try {
+            Files.writeString(root.resolve("config.yml"), hostConfig() + "\narcade: {disasters: {arena: {enabled: true, world: arcevents_disasters}}}\n")
+            val config = ArcEventsConfig.inspect(root)
+            val pool = ArenaPool({ config }) { _, _ -> true }
+            pool.selectNext("disasters") shouldBe false
+            pool.reserve(UUID.randomUUID(), "disasters", ru.ruscrafting.events.domain.EventMode.GUN_GAME) shouldBe null
+            pool.reserve(UUID.randomUUID(), "disasters", ru.ruscrafting.events.domain.EventMode.DISASTERS)?.id shouldBe "disasters"
+            pool.clear()
+            (pool.reserve(UUID.randomUUID())?.id in listOf("alpha", "beta")) shouldBe true
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
     "one-shot selection leases one ready arena until the matching release" {
         val root = Files.createTempDirectory("arcevents-pool-")
         try {

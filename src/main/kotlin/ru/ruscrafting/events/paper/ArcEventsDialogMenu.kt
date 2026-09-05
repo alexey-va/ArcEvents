@@ -19,19 +19,20 @@ import ru.arc.core.Tasks
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.network.QueueState
+import ru.ruscrafting.events.domain.EventMode
 import java.time.Duration
 
 internal const val MIN_DIALOG_PROTOCOL = 771 // Minecraft Java 1.21.6
 
 internal fun dialogFrontendSupported(enabled: Boolean, protocolVersion: Int, view: EventsView): Boolean =
-    enabled && protocolVersion >= MIN_DIALOG_PROTOCOL && view in setOf(
+    enabled && protocolVersion >= MIN_DIALOG_PROTOCOL && (view in setOf(
         EventsView.Main,
         EventsView.Help,
         EventsView.EventHelp,
         EventsView.Ttt,
         EventsView.Statistics,
         EventsView.Admin,
-    )
+    ))
 
 @Suppress("UnstableApiUsage")
 internal class ArcEventsDialogMenu(
@@ -74,6 +75,10 @@ internal class ArcEventsDialogMenu(
                     ),
                 ),
             ))
+            add(button(player, "arcade.gungame-name", "arcade.gungame-lore", EventsView.Main, 2,
+                mapOf("queue" to locale.text(state.queueSize), "minimum" to locale.text(settings().arcade.rules(EventMode.GUN_GAME).minimumPlayers))))
+            add(button(player, "arcade.disasters-name", "arcade.disasters-lore", EventsView.Main, 6,
+                mapOf("queue" to locale.text(state.queueSize), "minimum" to locale.text(settings().arcade.rules(EventMode.DISASTERS).minimumPlayers))))
             add(button(player, "menu.main.stats-name", "menu.main.stats-lore", EventsView.Main, 18))
             add(button(player, "menu.main.help-name", "menu.main.help-lore", EventsView.Main, 22))
             if (player.hasPermission("arcevents.admin")) {

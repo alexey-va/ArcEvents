@@ -3,6 +3,7 @@ package ru.ruscrafting.events.paper
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArenaSettings
 import java.util.UUID
+import ru.ruscrafting.events.domain.EventMode
 
 data class ArenaPoolEntry(
     val id: String,
@@ -75,6 +76,7 @@ class ArenaPool(
             return true
         }
         val arena = configured(id) ?: return false
+        if (arena.id == "disasters") return false
         if (!ready(arena, settings().ttt.maximumPlayers)) return false
         nextArenaId = arena.id
         nextArenaAutomatic = false
@@ -93,9 +95,9 @@ class ArenaPool(
     }
 
     @Synchronized
-    fun reserve(matchId: UUID, preferredId: String? = null): ArenaSettings? {
+    fun reserve(matchId: UUID, preferredId: String? = null, mode: EventMode = EventMode.TTT): ArenaSettings? {
         if (activeMatchId != null) return null
-        val ready = readyArenas()
+        val ready = readyArenas().filter { (it.id == "disasters") == (mode == EventMode.DISASTERS) }
         if (ready.isEmpty()) return null
         val normalizedPreferred = preferredId?.lowercase()
         val automatic = normalizedPreferred == "auto" || (normalizedPreferred == null && nextArenaAutomatic)

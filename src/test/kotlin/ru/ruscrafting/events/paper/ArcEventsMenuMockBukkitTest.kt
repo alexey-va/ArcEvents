@@ -17,6 +17,9 @@ import ru.arc.paper.testing.failOnUnsupportedMockBukkitOperation
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.config.NodeMode
+import ru.ruscrafting.events.domain.EventMode
+import ru.ruscrafting.events.network.QueueState
+import java.util.concurrent.CompletableFuture
 import java.nio.file.Files
 
 class ArcEventsMenuMockBukkitTest : FunSpec({
@@ -87,7 +90,54 @@ class ArcEventsMenuMockBukkitTest : FunSpec({
             }
         } }
     }
+    test("main menu opens both arcade mode cards") {
+        failOnUnsupportedMockBukkitOperation { MockBukkitTestRuntime.open().use { paper ->
+            val plugin = paper.createSimplePlugin("ArcEventsModeMenuTest"); PaperArcRuntime.installScheduling(plugin)
+            val player = paper.addPlayer("ModeQA"); val root = Files.createTempDirectory("arcevents-mode-menu-")
+            try {
+                Files.createDirectories(root.resolve("lang")); copyResource("config.yml", root.resolve("config.yml")); copyResource("lang/ru.yml", root.resolve("lang/ru.yml")); copyResource("lang/en.yml", root.resolve("lang/en.yml"))
+                val settings = ArcEventsConfig.load(root); val locale = ArcEventsLocale(root) { settings }; val layouts = ArcEventsMenuLayouts(root)
+                val service = mockk<ArcEventsService> {
+                    every { snapshot() } returns testSnapshot(0)
+                    every { queueControl(player.uniqueId) } returns CompletableFuture.completedFuture(QueueControlSnapshot(null, null))
+                    every { arcadeSnapshot() } returns null
+                }
+                ArcEventsMenu(plugin, service, mockk<TttItems>(), locale, { settings }, { Result.success(Unit) }, layouts).use { menu ->
+                    menu.open(player)
+                    for ((slot, mode) in listOf(2 to EventMode.GUN_GAME, 6 to EventMode.DISASTERS)) {
+                        paper.callEvent(InventoryClickEvent(player.openInventory, InventoryType.SlotType.CONTAINER, slot, ClickType.LEFT, InventoryAction.PICKUP_ALL)); paper.performTicks(2)
+                        player.openInventory.topInventory.getItem(layouts.slot(EventsView.Arcade(mode), "overview"))?.type shouldBe if (mode == EventMode.GUN_GAME) Material.IRON_SWORD else Material.LIGHTNING_ROD
+                        menu.open(player)
+                    }
+                }
+            } finally { Tasks.reset(); root.toFile().deleteRecursively() }
+        } }
+    }
+
+    test("deferred queue control enables the owner to start Gun Game") {
+        failOnUnsupportedMockBukkitOperation { MockBukkitTestRuntime.open().use { paper ->
+            val plugin = paper.createSimplePlugin("ArcEventsOwnerMenuTest"); PaperArcRuntime.installScheduling(plugin)
+            val player = paper.addPlayer("OwnerQA"); val root = Files.createTempDirectory("arcevents-owner-menu-")
+            try {
+                Files.createDirectories(root.resolve("lang")); copyResource("config.yml", root.resolve("config.yml")); copyResource("lang/ru.yml", root.resolve("lang/ru.yml")); copyResource("lang/en.yml", root.resolve("lang/en.yml"))
+                val settings = ArcEventsConfig.load(root); val locale = ArcEventsLocale(root) { settings }; val layouts = ArcEventsMenuLayouts(root); val deferred = CompletableFuture<QueueControlSnapshot>()
+                val service = mockk<ArcEventsService> {
+                    every { snapshot() } returns testSnapshot(3)
+                    every { queueControl(player.uniqueId) } returns deferred
+                    every { arcadeSnapshot() } returns null
+                    every { startFromQueue(any(), any(), EventMode.GUN_GAME) } returns CompletableFuture.completedFuture(ReservationStartResult.STARTED)
+                }
+                ArcEventsMenu(plugin, service, mockk<TttItems>(), locale, { settings }, { Result.success(Unit) }, layouts).use { menu ->
+                    menu.open(player, EventsView.Arcade(EventMode.GUN_GAME)); paper.performTicks(1); deferred.complete(QueueControlSnapshot(QueueState.QUEUED, player.uniqueId)); paper.performTicks(2)
+                    paper.callEvent(InventoryClickEvent(player.openInventory, InventoryType.SlotType.CONTAINER, layouts.slot(EventsView.Arcade(EventMode.GUN_GAME), "right"), ClickType.LEFT, InventoryAction.PICKUP_ALL)); paper.performTicks(3)
+                    verify(exactly = 1) { service.startFromQueue(player, null, EventMode.GUN_GAME) }
+                }
+            } finally { Tasks.reset(); root.toFile().deleteRecursively() }
+        } }
+    }
 })
+
+private fun testSnapshot(queueSize: Int) = ServiceSnapshot("test", NodeMode.HOST, "test", true, true, true, null, queueSize, null, null, 0, 0, 0, 0, 0, 0)
 
 private fun copyResource(name: String, target: java.nio.file.Path) {
     requireNotNull(ArcEventsMenuMockBukkitTest::class.java.classLoader.getResourceAsStream(name)).use { source ->

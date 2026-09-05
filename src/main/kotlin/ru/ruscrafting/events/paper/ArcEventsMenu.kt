@@ -17,6 +17,7 @@ import ru.arc.paper.menu.physicalFrame
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.domain.MatchPhase
+import ru.ruscrafting.events.domain.EventMode
 import ru.ruscrafting.events.domain.ParticipantStatus
 import ru.ruscrafting.events.domain.TttMatch
 import ru.ruscrafting.events.domain.TttParticipant
@@ -29,6 +30,7 @@ sealed interface EventsView {
     data object Help : EventsView
     data object EventHelp : EventsView
     data object Ttt : EventsView
+    data class Arcade(val mode: EventMode) : EventsView
     data object Statistics : EventsView
     data object Admin : EventsView
     data object Arenas : EventsView
@@ -65,6 +67,10 @@ class ArcEventsMenu(
     fun open(player: Player, view: EventsView = EventsView.Main) {
         if (view == EventsView.Ttt) {
             openTtt(player)
+            return
+        }
+        if (view is EventsView.Arcade) {
+            openArcade(player, view.mode)
             return
         }
         if (dialogs.open(player, view)) return
@@ -119,6 +125,7 @@ class ArcEventsMenu(
             EventsView.Help -> if (slot == element(view, "back")) open(player, EventsView.Main)
             EventsView.EventHelp -> if (slot == element(view, "back")) open(player, EventsView.Ttt)
             EventsView.Ttt -> clickTtt(player, slot)
+            is EventsView.Arcade -> clickArcade(player, view.mode, slot)
             EventsView.Statistics -> if (slot == element(view, "back")) open(player, EventsView.Main)
             EventsView.Admin -> clickAdmin(player, slot)
             EventsView.Arenas -> clickArenas(player, slot, emptyList())
@@ -140,6 +147,14 @@ class ArcEventsMenu(
             "minimum" to locale.text(settings().ttt.minimumPlayers),
             "arena_state" to locale.render(if (state.arenaReady) "state.arena-ready" else "state.arena-unavailable", player),
         )))
+        inventory.setItem(element(view, "gungame"), item(Material.IRON_SWORD, player, "arcade.gungame-name", "arcade.gungame-lore", mapOf(
+            "queue" to locale.text(state.queueSize),
+            "minimum" to locale.text(settings().arcade.rules(EventMode.GUN_GAME).minimumPlayers),
+        )))
+        inventory.setItem(element(view, "disasters"), item(Material.LIGHTNING_ROD, player, "arcade.disasters-name", "arcade.disasters-lore", mapOf(
+            "queue" to locale.text(state.queueSize),
+            "minimum" to locale.text(settings().arcade.rules(EventMode.DISASTERS).minimumPlayers),
+        )))
         inventory.setItem(element(view, "statistics"), item(Material.WRITABLE_BOOK, player, "menu.main.stats-name", "menu.main.stats-lore"))
         inventory.setItem(element(view, "help"), item(Material.KNOWLEDGE_BOOK, player, "menu.main.help-name", "menu.main.help-lore"))
         if (player.hasPermission("arcevents.admin")) {
@@ -152,9 +167,92 @@ class ArcEventsMenu(
         val view = EventsView.Main
         when (slot) {
             element(view, "ttt") -> open(player, EventsView.Ttt)
+            element(view, "gungame") -> open(player, EventsView.Arcade(EventMode.GUN_GAME))
+            element(view, "disasters") -> open(player, EventsView.Arcade(EventMode.DISASTERS))
             element(view, "statistics") -> open(player, EventsView.Statistics)
             element(view, "help") -> open(player, EventsView.Help)
             element(view, "admin") -> if (player.hasPermission("arcevents.admin")) open(player, EventsView.Admin)
+        }
+    }
+
+    private fun openArcade(player: Player, mode: EventMode) {
+        service.queueControl(player.uniqueId).whenComplete { control, failure ->
+            Tasks.scheduler.runSync {
+                if (!player.isOnline) return@runSync
+                val queueState = control?.state
+                val view = EventsView.Arcade(mode)
+                val state = service.snapshot()
+                val rules = settings().arcade.rules(mode)
+                val controls = settings().eventControls
+                val adminOverride = controls.adminOverrideEnabled && player.hasPermission("arcevents.admin")
+                val creator = controls.creatorControlsEnabled && control?.ownedBy(player.uniqueId) == true
+                val arcadeParticipant = service.arcadeSnapshot()?.participants?.get(player.uniqueId)
+                val inArcadeMatch = arcadeParticipant != null && arcadeParticipant.status != ParticipantStatus.RESTORED
+                val canStart = queueState == QueueState.QUEUED && (adminOverride || creator ||
+                    (!controls.creatorControlsEnabled && player.hasPermission("arcevents.start"))) &&
+                    state.hostAvailable && state.matchId == null && state.queueSize >= rules.minimumPlayers && failure == null
+                val values = mapOf("queue" to locale.text(state.queueSize), "minimum" to locale.text(rules.minimumPlayers), "mode" to locale.render("arcade.${mode.id}-name", player))
+                val inventory = inventory(player, view, "arcade.${mode.id}-title", values)
+                inventory.setItem(element(view, "overview"), item(Material.IRON_SWORD.takeIf { mode == EventMode.GUN_GAME } ?: Material.LIGHTNING_ROD, player, "arcade.${mode.id}-name", "arcade.${mode.id}-guide", values))
+                val queued = queueState == QueueState.QUEUED
+                inventory.setItem(element(view, "center"), item(
+                    when { inArcadeMatch -> Material.ENDER_PEARL; queued -> Material.RED_DYE; else -> Material.LIME_DYE }, player,
+                    when { inArcadeMatch -> "menu.event.evacuate-name"; queued -> "arcade.leave-name"; else -> "arcade.join-name" },
+                    when { inArcadeMatch -> "menu.event.evacuate-lore"; queued -> "arcade.leave-lore"; else -> "arcade.join-lore" }, values))
+                if (canStart) inventory.setItem(element(view, "right"), item(Material.LIME_CONCRETE, player, "arcade.start-name", "arcade.start-lore", values))
+                inventory.setItem(element(view, "left"), item(Material.CLOCK, player, "arcade.status-name", "arcade.status-lore", values + mapOf("queue_state" to locale.render(
+                    when { failure != null -> "state.network-degraded"; inArcadeMatch -> "menu.event.state.matched"; queueState != null -> queueStateLocaleKey(queueState); !state.hostAvailable -> "state.network-degraded"; else -> "state.idle" }, player))))
+                inventory.setItem(element(view, "help"), item(Material.KNOWLEDGE_BOOK, player, "arcade.${mode.id}-guide-name", "arcade.${mode.id}-guide", values))
+                inventory.setItem(element(view, "back"), backItem(player))
+                show(player, view, inventory)
+            }
+        }
+    }
+
+    private fun clickArcade(player: Player, mode: EventMode, slot: Int) {
+        val view = EventsView.Arcade(mode)
+        when (slot) {
+            element(view, "back") -> open(player, EventsView.Main)
+            element(view, "help") -> open(player, EventsView.Arcade(mode))
+            element(view, "center") -> {
+                val participant = service.arcadeSnapshot()?.participants?.get(player.uniqueId)
+                if (participant != null && participant.status != ParticipantStatus.RESTORED) {
+                    player.closeInventory()
+                    service.leave(player)
+                } else service.queueControl(player.uniqueId).whenComplete { control, _ ->
+                    Tasks.scheduler.runSync { if (player.isOnline) { player.closeInventory(); if (control?.state == QueueState.QUEUED) service.leaveQueue(player) else service.joinQueue(player) } }
+                }
+            }
+            element(view, "right") -> {
+                service.queueControl(player.uniqueId).whenComplete { control, failure ->
+                    Tasks.scheduler.runSync {
+                        if (!player.isOnline) return@runSync
+                        val controls = settings().eventControls
+                        val allowed = failure == null && control?.state == QueueState.QUEUED &&
+                            (controls.adminOverrideEnabled && player.hasPermission("arcevents.admin") ||
+                                (controls.creatorControlsEnabled && control.ownedBy(player.uniqueId)) ||
+                                (!controls.creatorControlsEnabled && player.hasPermission("arcevents.start"))) &&
+                            service.snapshot().queueSize >= settings().arcade.rules(mode).minimumPlayers &&
+                            service.snapshot().hostAvailable && service.snapshot().matchId == null
+                        if (!allowed) {
+                            player.sendEventMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.contended", player))))
+                            open(player, view)
+                            return@runSync
+                        }
+                        player.closeInventory()
+                        service.startFromQueue(player, null, mode).whenComplete { result, startFailure ->
+                            Tasks.scheduler.runSync {
+                                if (!player.isOnline) return@runSync
+                                player.sendEventMessage(locale.render(
+                                    if (startFailure == null) reservationStartMessage(result, StartMessageAudience.PLAYER) else "command.failed",
+                                    player,
+                                    if (startFailure == null) emptyMap() else mapOf("reason" to locale.render("reason.network", player)),
+                                ))
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 

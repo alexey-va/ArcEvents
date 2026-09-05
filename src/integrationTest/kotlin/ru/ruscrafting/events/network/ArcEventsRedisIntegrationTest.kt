@@ -16,6 +16,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import ru.ruscrafting.events.domain.EventMode
 
 class ArcEventsRedisIntegrationTest : StringSpec({
     "two real Redis nodes complete remote start routing and preserve return acknowledgement" {
@@ -54,7 +55,7 @@ class ArcEventsRedisIntegrationTest : StringSpec({
                         timeoutScheduler = timeouts,
                     ) { message, origin ->
                         if (message.signal == EventNetworkSignal.START_REQUEST && message.destinationServer == "parkour") {
-                            parkourRepository.reserve(matchId, "parkour", 4, 16, 2_000, 30_000).whenComplete { batch, failure ->
+                                parkourRepository.reserve(matchId, "parkour", 4, 16, 2_000, 30_000, mode = EventMode.DISASTERS.id).whenComplete { batch, failure ->
                                 require(failure == null && batch != null)
                                 reservedBatch.set(batch)
                                 batch.entries.forEach { entry ->
@@ -64,6 +65,7 @@ class ArcEventsRedisIntegrationTest : StringSpec({
                                         matchId = batch.matchId,
                                         playerId = UUID.fromString(entry.playerId),
                                         destinationServer = "parkour",
+                                        mode = EventMode.DISASTERS.id,
                                     ))
                                 }
                                 parkourEvents.publish(EventNetworkMessage.create(
@@ -89,12 +91,15 @@ class ArcEventsRedisIntegrationTest : StringSpec({
                         signal = EventNetworkSignal.START_REQUEST,
                         nowMs = 1_500,
                         destinationServer = "parkour",
+                        mode = EventMode.DISASTERS.id,
                     )
                     val startResult = spawnEvents.request(request).get(5, TimeUnit.SECONDS)
                     routeLatch.await(5, TimeUnit.SECONDS) shouldBe true
 
                     val batch = reservedBatch.get()!!
                     batch.entries.size shouldBe 4
+                    batch.mode shouldBe EventMode.DISASTERS
+                    batch.entries.map(QueueEntry::mode).distinct() shouldBe listOf(EventMode.DISASTERS.id)
                     batch.entries.map(QueueEntry::originServer).toSet() shouldBe setOf("spawn", "survival")
                     val reply = startResult as RedisRequestResult.Reply
                     reply.message.replyTo shouldBe request.eventId

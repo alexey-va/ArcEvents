@@ -26,6 +26,22 @@ sources:
     exclude: [prefix]
     include:
       - menu.main.*
+      - arcade.gungame-title
+      - arcade.gungame-name
+      - arcade.gungame-lore
+      - arcade.gungame-guide
+      - arcade.gungame-guide-name
+      - arcade.disasters-title
+      - arcade.disasters-name
+      - arcade.disasters-lore
+      - arcade.disasters-guide
+      - arcade.disasters-guide-name
+      - arcade.gungame-hud
+      - arcade.disasters-hud
+      - arcade.knife-name
+      - arcade.knife-lore
+      - arcade.status-name
+      - arcade.status-lore
       - menu.event.*
       - menu.event-arenas.*
       - menu.stats.*
@@ -85,6 +101,13 @@ placeholders:
   message: Идём через библиотеку
   health: '17'
   max_health: '20'
+  mode: '<#e3b341>Гонка вооружений'
+  score: '8'
+  stage: '9'
+  total: '13'
+  round: '4'
+  winners: 'PlayerOne, PlayerTwo'
+  hazard: Метеоры
 
 glyphs:
   - character: ''
@@ -95,6 +118,15 @@ glyphs:
 
 surfaces:
   hud:
+    - id: gun-game-hud
+      bossbar: events:arcade.gungame-hud
+      bossbar-color: yellow
+      bossbar-progress: 0.5
+    - id: disasters-hud
+      bossbar: events:arcade.disasters-hud
+      bossbar-color: yellow
+      bossbar-progress: 0.72
+      placeholders: {round: '4', rounds: '6', score: '3', seconds: '18'}
     - id: round-preparation
       title: events:match.preparing-title
       subtitle: events:match.preparing-subtitle
@@ -119,6 +151,8 @@ surfaces:
       background-item: arc:background
       items:
         - {slot: 4, material: SPYGLASS, name: events:menu.main.ttt-name, lore: events:menu.main.ttt-lore}
+        - {slot: 2, material: IRON_SWORD, name: events:arcade.gungame-name, lore: events:arcade.gungame-lore}
+        - {slot: 6, material: LIGHTNING_ROD, name: events:arcade.disasters-name, lore: events:arcade.disasters-lore}
         - {slot: 18, material: WRITABLE_BOOK, name: events:menu.main.stats-name, lore: events:menu.main.stats-lore}
         - {slot: 22, material: KNOWLEDGE_BOOK, name: events:menu.main.help-name, lore: events:menu.main.help-lore}
 
@@ -129,6 +163,8 @@ surfaces:
       background-item: arc:background
       items:
         - {slot: 4, material: SPYGLASS, name: events:menu.main.ttt-name, lore: events:menu.main.ttt-lore}
+        - {slot: 2, material: IRON_SWORD, name: events:arcade.gungame-name, lore: events:arcade.gungame-lore}
+        - {slot: 6, material: LIGHTNING_ROD, name: events:arcade.disasters-name, lore: events:arcade.disasters-lore}
         - {slot: 18, material: WRITABLE_BOOK, name: events:menu.main.stats-name, lore: events:menu.main.stats-lore}
         - {slot: 22, material: KNOWLEDGE_BOOK, name: events:menu.main.help-name, lore: events:menu.main.help-lore}
         - {slot: 26, material: COMMAND_BLOCK, name: events:menu.main.admin-name, lore: events:menu.main.admin-lore}
@@ -246,6 +282,32 @@ surfaces:
         - *event_back
         - *event_evacuate
 
+    - id: gun-game-active
+      title: events:arcade.gungame-title
+      rows: 5
+      filler: GRAY_STAINED_GLASS_PANE
+      background-item: arc:background
+      placeholders: {queue_state: '<#7bd88f>в матче', mode: '<#e3b341>Гонка вооружений', stage: '9', total: '13', score: '8', seconds: '42', round: '1'}
+      items:
+        - {slot: 13, material: IRON_SWORD, name: events:arcade.gungame-name, lore: events:arcade.gungame-guide}
+        - {slot: 20, material: CLOCK, name: events:arcade.status-name, lore: events:arcade.status-lore}
+        - {slot: 22, material: ENDER_PEARL, name: events:menu.event.evacuate-name, lore: events:menu.event.evacuate-lore}
+        - {slot: 31, material: KNOWLEDGE_BOOK, name: events:arcade.gungame-guide-name, lore: events:arcade.gungame-guide}
+        - *event_back
+
+    - id: disasters-active
+      title: events:arcade.disasters-title
+      rows: 5
+      filler: GRAY_STAINED_GLASS_PANE
+      background-item: arc:background
+      placeholders: {queue_state: '<#7bd88f>в матче', mode: '<#ff9f0f>Катастрофы', round: '4', total: '6', score: '3', seconds: '18', phase: '<#7bd88f>волна', hazard: Метеоры}
+      items:
+        - {slot: 13, material: LIGHTNING_ROD, name: events:arcade.disasters-name, lore: events:arcade.disasters-guide}
+        - {slot: 20, material: CLOCK, name: events:arcade.status-name, lore: events:arcade.status-lore}
+        - {slot: 22, material: ENDER_PEARL, name: events:menu.event.evacuate-name, lore: events:menu.event.evacuate-lore}
+        - {slot: 31, material: KNOWLEDGE_BOOK, name: events:arcade.disasters-guide-name, lore: events:arcade.disasters-guide}
+        - *event_back
+
     - id: event-statistics
       title: events:menu.stats.title
       rows: 3
@@ -285,6 +347,8 @@ surfaces:
         - {slot: 45, material: BLUE_STAINED_GLASS_PANE, itemsadder: 'arc:left_gray', name: events:menu.common.back-name, lore: events:menu.common.back-lore}
 
   fragments:
+    - source: events
+      include: [arcade.knife-name, arcade.knife-lore]
     - source: events
       include: [menu.event.state.*]
     - source: events

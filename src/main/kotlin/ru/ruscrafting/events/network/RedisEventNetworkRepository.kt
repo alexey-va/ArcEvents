@@ -16,6 +16,7 @@ import ru.arc.redis.safety.RedisHashDecision
 import ru.arc.redis.safety.RedisHashUpdateResult
 import ru.arc.redis.safety.RedisHashUpdater
 import ru.ruscrafting.events.domain.PlayerEventStats
+import ru.ruscrafting.events.domain.EventMode
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 
@@ -164,7 +165,9 @@ class RedisEventNetworkRepository(
         reservationMs: Long,
         requiredOwnerId: UUID? = null,
         requiredOwnerOrigin: String? = null,
+        mode: String = EventMode.TTT.id,
     ): CompletableFuture<ReservationBatch?> = loadQueue(nowMs).thenCompose { entries ->
+        require(EventMode.fromId(mode) != null) { "Unsupported event mode" }
         val candidates = entries.filter { it.state == QueueState.QUEUED }.take(maximum)
         val owner = candidates.firstOrNull()
         if (requiredOwnerId != null && (
@@ -184,6 +187,7 @@ class RedisEventNetworkRepository(
             reservationMs,
             requiredOwnerId,
             requiredOwnerOrigin,
+            mode,
             0,
             emptyList(),
         )
@@ -274,12 +278,13 @@ class RedisEventNetworkRepository(
         reservationMs: Long,
         requiredOwnerId: UUID?,
         requiredOwnerOrigin: String?,
+        mode: String,
         index: Int,
         reserved: List<ReservedCandidate>,
     ): CompletableFuture<ReservationBatch?> {
         if (index >= candidates.size) {
             if (reserved.size >= minimum) {
-                return CompletableFuture.completedFuture(ReservationBatch(matchId, reserved.map(ReservedCandidate::reserved)))
+                return CompletableFuture.completedFuture(ReservationBatch(matchId, reserved.map(ReservedCandidate::reserved), mode = requireNotNull(EventMode.fromId(mode))))
             }
             return rollbackReservation(matchId, reserved).thenApply { null }
         }
@@ -295,6 +300,7 @@ class RedisEventNetworkRepository(
                         expiresAtMs = nowMs + reservationMs,
                         matchId = matchId.toString(),
                         destinationServer = destinationServer,
+                        mode = mode,
                     ).validated(),
                 )
             } else RedisHashDecision.Reject
@@ -312,6 +318,7 @@ class RedisEventNetworkRepository(
                 reservationMs,
                 requiredOwnerId,
                 requiredOwnerOrigin,
+                mode,
                 index + 1,
                 if (after == null) reserved else reserved + ReservedCandidate(candidate, after),
             )
@@ -402,16 +409,16 @@ class RedisEventNetworkRepository(
         private val QUEUE_REQUIRED_FIELDS = QUEUE_FIELDS - setOf("matchId", "destinationServer")
         private val NODE_FIELDS = setOf(
             "serverId", "mode", "available", "arenaReady", "phase", "matchId", "queueSize", "capacity", "heartbeatAtMs",
-            "arenaIds",
+            "arenaIds", "supportedModes",
         )
-        private val NODE_REQUIRED_FIELDS = NODE_FIELDS - setOf("phase", "matchId", "arenaIds")
+        private val NODE_REQUIRED_FIELDS = NODE_FIELDS - setOf("phase", "matchId", "arenaIds", "supportedModes")
         private val STATS_FIELDS = setOf(
             "revision", "lastMatchId", "matches", "wins", "traitorWins", "innocentWins", "kills", "deaths", "karma",
         )
         private val STATS_REQUIRED_FIELDS = STATS_FIELDS - "lastMatchId"
         private val MESSAGE_FIELDS = setOf(
             "eventId", "signal", "occurredAtMs", "matchId", "playerId", "destinationServer", "queueSize", "winner",
-            "endReason", "replyTo", "startResult", "requesterId", "preferredArenaId", "adminBypass",
+            "endReason", "replyTo", "startResult", "requesterId", "preferredArenaId", "adminBypass", "mode",
         )
         private val MESSAGE_REQUIRED_FIELDS = setOf("eventId", "signal", "occurredAtMs")
         private val ROUTED_STATES = setOf(

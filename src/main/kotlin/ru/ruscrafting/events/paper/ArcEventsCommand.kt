@@ -12,6 +12,7 @@ import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.domain.FirearmId
 import ru.ruscrafting.events.domain.TttRole
 import ru.ruscrafting.events.domain.TttTeam
+import ru.ruscrafting.events.domain.EventMode
 
 class ArcEventsCommand(
     private val plugin: Plugin,
@@ -36,7 +37,9 @@ class ArcEventsCommand(
                 if (settings().eventControls.creatorControlsEnabled || player.hasPermission("arcevents.start") ||
                     player.hasPermission("arcevents.admin")
                 ) {
-                    sendStartResult(player, StartMessageAudience.PLAYER)
+                    parseMode(args.getOrNull(1))?.let { sendStartResult(player, StartMessageAudience.PLAYER, mode = it) }
+                        ?: if (args.getOrNull(1) == null) sendStartResult(player, StartMessageAudience.PLAYER)
+                        else sender.sendEventMessage(locale.render("arcade.unsupported-mode", sender, mapOf("mode" to locale.text(args[1]))))
                 } else deny(player)
             }
             "leave" -> player(sender)?.let(service::leave)
@@ -66,6 +69,7 @@ class ArcEventsCommand(
                 if (sender.hasPermission("arcevents.debug")) add("debug")
             }
             2 -> when (args[0].lowercase()) {
+                "start" -> EventMode.entries.map(EventMode::id)
                 "admin" -> listOf("menu", "status", "player", "network", "arenas", "arena", "weapons", "recovery", "start", "stop", "reload", "recover")
                 "qa" -> listOf("status", "player", "network", "arenas", "recovery")
                 "debug" -> DEBUG_ACTIONS
@@ -146,11 +150,16 @@ class ArcEventsCommand(
             "weapons" -> editWeaponPoints(sender, args.drop(1))
             "recovery" -> sender.sendEventMessage(Component.text(service.qaRecovery()))
             "start" -> {
-                val explicitArena = args.getOrNull(1)?.lowercase()
+                val mode = parseMode(args.getOrNull(1)) ?: EventMode.TTT.takeIf { args.getOrNull(1) == null }
+                if (mode == null) {
+                    sender.sendEventMessage(locale.render("arcade.unsupported-mode", sender, mapOf("mode" to locale.text(args[1]))))
+                    return
+                }
+                val explicitArena = args.getOrNull(if (args.getOrNull(1) != null && parseMode(args[1]) != null) 2 else 1)?.lowercase()
                 val arena = explicitArena ?: selectedAdminArenas[senderSelectionKey(sender)]
                 if (arena != null && arena != "auto" && arena !in service.selectableArenaIds()) {
                     sender.sendEventMessage(locale.render("admin.arena-selection-failed", sender, mapOf("arena" to locale.text(arena))))
-                } else sendStartResult(sender, StartMessageAudience.ADMIN, arena)
+                } else sendStartResult(sender, StartMessageAudience.ADMIN, arena, mode)
             }
             "stop" -> sender.sendEventMessage(locale.render(stopMessage(service.stopByAdmin()), sender))
             "reload" -> sendReload(sender)
@@ -212,7 +221,7 @@ class ArcEventsCommand(
                 val requested = args.drop(if (requestedArena == null) 1 else 2)
                 val players = if (requested.isEmpty()) plugin.server.onlinePlayers.toList() else requested.mapNotNull(::servicePlayer)
                 if (requested.isNotEmpty() && players.size != requested.distinct().size) DebugMutationResult.PLAYER_NOT_FOUND
-                else service.debugStartLocal(players, requestedArena)
+                else service.debugStartLocal(players, requestedArena, parseMode(args.getOrNull(if (requestedArena == null) 1 else 2)) ?: EventMode.TTT)
             }
             "advance" -> service.debugAdvance()
             "end" -> parseTeam(args.getOrNull(1))?.let(service::debugEnd) ?: DebugMutationResult.INVALID_ARGUMENT
@@ -311,6 +320,8 @@ class ArcEventsCommand(
     private fun parseView(raw: String?): EventsView? = when (raw?.lowercase()) {
         "main" -> EventsView.Main
         "event" -> EventsView.Ttt
+        "gungame" -> EventsView.Arcade(EventMode.GUN_GAME)
+        "disasters" -> EventsView.Arcade(EventMode.DISASTERS)
         "stats" -> EventsView.Statistics
         "help" -> EventsView.Help
         "admin" -> EventsView.Admin
@@ -357,8 +368,9 @@ class ArcEventsCommand(
         sender: CommandSender,
         audience: StartMessageAudience,
         preferredArenaId: String? = null,
+        mode: EventMode = EventMode.TTT,
     ) {
-        service.startFromQueue(sender as? Player, preferredArenaId).thenAccept { result ->
+        service.startFromQueue(sender as? Player, preferredArenaId, mode).thenAccept { result ->
             Tasks.scheduler.runSync {
                 if (sender is Player && !sender.isOnline) return@runSync
                 if (result == ReservationStartResult.STARTED && audience == StartMessageAudience.ADMIN) {
@@ -395,6 +407,7 @@ class ArcEventsCommand(
     private fun senderSelectionKey(sender: CommandSender): String = (sender as? Player)?.uniqueId?.toString()
         ?: "console:${sender.name.lowercase()}"
     private fun servicePlayer(name: String): Player? = plugin.server.getPlayerExact(name)
+    private fun parseMode(raw: String?): EventMode? = raw?.lowercase()?.let(EventMode::fromId)
 
     companion object {
         internal val DEBUG_ACTIONS = listOf(

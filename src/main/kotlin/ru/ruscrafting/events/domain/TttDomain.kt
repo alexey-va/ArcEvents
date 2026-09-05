@@ -294,5 +294,17 @@ data class PlayerEventStats(
         ).validated()
     }
 
+    fun recordArcade(matchId: UUID, participant: ArcadePlayer, won: Boolean): PlayerEventStats {
+        if (lastMatchId == matchId.toString()) return this
+        return copy(
+            revision = revision + 1,
+            lastMatchId = matchId.toString(),
+            matches = matches + 1,
+            wins = wins + if (won) 1 else 0,
+            kills = kills + participant.kills,
+            deaths = deaths + participant.deaths,
+        ).validated()
+    }
+
     fun damageMultiplier(): Double = (0.5 + karma.coerceIn(0, 1000) / 2_000.0).coerceIn(0.5, 1.0)
 }

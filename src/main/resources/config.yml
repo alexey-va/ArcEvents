@@ -134,6 +134,8 @@ ui:
   # keeps ready/unavailable variants independently configurable.
   menu-items:
     main-ttt-spyglass: {material: SPYGLASS}
+    main-gungame-iron-sword: {material: IRON_SWORD}
+    main-disasters-lightning-rod: {material: LIGHTNING_ROD}
     main-stats-writable-book: {material: WRITABLE_BOOK}
     main-help-knowledge-book: {material: KNOWLEDGE_BOOK}
     main-admin-command-block: {material: COMMAND_BLOCK}
@@ -200,6 +202,8 @@ ui:
       rows: 3
       elements:
         ttt: {slot: 4}
+        gungame: {slot: 2}
+        disasters: {slot: 6}
         statistics: {slot: 18}
         help: {slot: 22}
         admin: {slot: 26}
@@ -216,6 +220,18 @@ ui:
         controls: {slot: 33}
         back: {slot: 36}
     ttt:
+      schema-version: 1
+      rows: 5
+      elements:
+        overview: {slot: 13}
+        left: {slot: 20}
+        center: {slot: 22}
+        right: {slot: 24}
+        arena: {slot: 29}
+        help: {slot: 31}
+        back: {slot: 36}
+        evacuate: {slot: 40}
+    arcade:
       schema-version: 1
       rows: 5
       elements:
@@ -309,6 +325,32 @@ ttt:
   traitor-credits: 2
   detective-credits: 1
   body-despawn-seconds: 600
+
+arcade:
+  gungame:
+    minimum-players: 3
+    maximum-players: 12
+    preparation-seconds: 15
+    countdown-seconds: 5
+    round-seconds: 360
+    post-round-seconds: 8
+    respawn-seconds: 3
+    protection-seconds: 2
+  disasters:
+    minimum-players: 3
+    maximum-players: 16
+    preparation-seconds: 15
+    countdown-seconds: 5
+    round-seconds: 360
+    post-round-seconds: 8
+    respawn-seconds: 3
+    protection-seconds: 2
+    disaster-seconds: 25
+    intermission-seconds: 5
+    disaster-rounds: 6
+    arena:
+      enabled: true
+      world: arcevents_disasters
 
 weapons:
   enabled: true

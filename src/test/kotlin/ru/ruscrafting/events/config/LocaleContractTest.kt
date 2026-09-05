@@ -22,6 +22,19 @@ class LocaleContractTest : StringSpec({
         }
     }
 
+    "disaster HUD uses the configured wave count independently of GunGame weapon count" {
+        val root = Files.createTempDirectory("arcevents-wave-hud-")
+        try {
+            listOf("ru", "en").forEach { language ->
+                val hud = Config(root, "lang/$language.yml").string("arcade.disasters-hud")
+                hud.contains("<round>/<rounds>") shouldBe true
+                hud.contains("<total>") shouldBe false
+            }
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
     "catalog does not opt GUI text into italics or shouting caps" {
         val root = Files.createTempDirectory("arcevents-style-")
         try {
@@ -91,7 +104,7 @@ class LocaleContractTest : StringSpec({
         private val roots = listOf(
             "prefix", "command", "reason", "menu", "arena", "state", "phase", "queue", "match", "role",
             "loadout", "body", "weapon", "roster", "report", "shop", "team", "chat", "admin", "debug", "hud", "guide",
-            "nameplate",
+            "nameplate", "arcade",
         )
 
         private fun leaves(config: Config): Set<String> = roots.flatMap { root -> collect(config, root) }.toSet()

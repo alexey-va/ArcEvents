@@ -41,6 +41,9 @@ import ru.ruscrafting.events.domain.ShotDirection
 import ru.ruscrafting.events.domain.RoleAllocationSettings
 import ru.ruscrafting.events.domain.QueuedPlayer
 import ru.ruscrafting.events.domain.TttMatch
+import ru.ruscrafting.events.domain.EventMode
+import ru.ruscrafting.events.domain.ArcadeMatch
+import ru.ruscrafting.events.domain.ArcadeRules
 import ru.ruscrafting.events.domain.TttMatchEngine
 import ru.ruscrafting.events.domain.TttMatchRuntime
 import ru.ruscrafting.events.domain.TttParticipant
@@ -130,6 +133,9 @@ class ArcEventsService(
     private val runtime = TttMatchRuntime(engine = ::engine, clock = clock)
     private val match: TttMatch?
         get() = runtime.current
+    private val arcade = ArcadeSession(plugin, settings, locale, items, firearms, arenaPool, network, escrow,
+        ::teleport, ::recoverPlayer, { player, recovery -> completeRecovery(player, recovery) }, ::clearWeaponState, clock)
+    private var arcadeRules: ArcadeRules? = null
     private var reservation: ReservationBatch? = null
     /** Gameplay and phase clocks are immutable for one reservation and its resulting match. */
     private var matchSettings: TttSettings? = null
@@ -163,6 +169,7 @@ class ArcEventsService(
         val current = settings()
         val active = match
         val pendingReservation = reservation
+        val arcadeMatch = arcade.current
         return ServiceSnapshot(
             serverId = current.serverId,
             nodeMode = current.nodeMode,
@@ -172,20 +179,23 @@ class ArcEventsService(
             arenaReady = network.advertisedArenaReady(),
             arenaId = arenaPool.active()?.id,
             queueSize = network.queueSize,
-            matchId = active?.matchId ?: pendingReservation?.matchId,
-            phase = active?.phase ?: pendingReservation?.let { MatchPhase.RESERVED },
-            participants = active?.participants?.size ?: pendingReservation?.entries?.size ?: 0,
-            alive = active?.let(::visibleAliveCount) ?: 0,
+            matchId = active?.matchId ?: arcadeMatch?.matchId ?: pendingReservation?.matchId,
+            phase = active?.phase ?: arcadeMatch?.phase ?: pendingReservation?.let { MatchPhase.RESERVED },
+            participants = active?.participants?.size ?: arcadeMatch?.participants?.size ?: pendingReservation?.entries?.size ?: 0,
+            alive = active?.let(::visibleAliveCount) ?: arcadeMatch?.participants?.values?.count { it.status == ParticipantStatus.ALIVE } ?: 0,
             traitors = active?.alive()?.count { it.role == TttRole.TRAITOR } ?: 0,
             detectives = active?.alive()?.count { it.role == TttRole.DETECTIVE } ?: 0,
             recoveryPending = totalPendingCount(),
-            secondsRemaining = phaseRemainingSeconds(active).toLong(),
+            secondsRemaining = (if (arcadeMatch != null) arcade.secondsRemaining() else phaseRemainingSeconds(active)).toLong(),
         )
     }
 
     fun matchState(): Pair<UUID?, MatchPhase?> = match?.let { it.matchId to it.phase }
+        ?: arcade.current?.let { it.matchId to it.phase }
         ?: reservation?.let { it.matchId to MatchPhase.RESERVED }
         ?: (null to null)
+    fun currentMode(): EventMode? = if (match != null) EventMode.TTT else arcade.current?.mode ?: reservation?.mode
+    fun arcadeSnapshot(): ArcadeMatch? = arcade.current
     fun currentMatch(): TttMatch? = match
     fun participant(playerId: UUID): TttParticipant? = match?.participant(playerId)
     fun stats(playerId: UUID): PlayerEventStats = network.stats(playerId)
@@ -195,8 +205,8 @@ class ArcEventsService(
     fun report(): RoundReportView? = roundReport
     fun bodyId(entityId: UUID): UUID? = bodyRegistry.bodyId(entityId)
     override fun isParticipant(playerId: UUID): Boolean =
-        match?.participant(playerId)?.status?.let { it != ParticipantStatus.RESTORED } == true
-    override fun isAlive(playerId: UUID): Boolean = participant(playerId)?.status == ParticipantStatus.ALIVE
+        arcade.isParticipant(playerId) || match?.participant(playerId)?.status?.let { it != ParticipantStatus.RESTORED } == true
+    override fun isAlive(playerId: UUID): Boolean = arcade.isAlive(playerId) || participant(playerId)?.status == ParticipantStatus.ALIVE
     fun canViewNameplate(viewerId: UUID, targetId: UUID): Boolean {
         val current = match ?: return false
         if (current.phase !in LIVE_PHASES) return false
@@ -207,8 +217,9 @@ class ArcEventsService(
             ParticipantStatus.ALIVE,
         )
     }
-    override fun phase(): MatchPhase? = match?.phase
-    fun activeMatchId(): String? = match?.matchId?.toString()
+    override fun matchIdentity(): UUID? = matchState().first
+    override fun phase(): MatchPhase? = match?.phase ?: arcade.current?.phase
+    fun activeMatchId(): String? = matchState().first?.toString()
     fun arenaReady(): Boolean = arenaPool.anyReady()
     fun activeArenaId(): String? = arenaPool.active()?.id
     fun arenaEntries(): List<ArenaPoolEntry> = arenaPool.entries()
@@ -258,11 +269,12 @@ class ArcEventsService(
     }
 
     fun onReservation(batch: ReservationBatch): Boolean {
-        if (!started || match != null || reservation != null) {
+        if (!started || settings().nodeMode != NodeMode.HOST || match != null || arcade.current != null || reservation != null) {
             return false
         }
-        if (arenaPool.reserve(batch.matchId, batch.preferredArenaId) == null) return false
+        if (arenaPool.reserve(batch.matchId, if (batch.mode == EventMode.DISASTERS) "disasters" else batch.preferredArenaId, batch.mode) == null) return false
         matchSettings = settings().ttt
+        arcadeRules = batch.mode.takeUnless { it == EventMode.TTT }?.let { settings().arcade.rules(it) }
         reservation = batch
         arrivals.clear()
         debug.event("reservation_created", "match" to batch.matchId, "players" to batch.entries.size)
@@ -274,7 +286,7 @@ class ArcEventsService(
 
     fun onArrival(entry: QueueEntry): Boolean {
         val batch = reservation ?: return false
-        if (entry.matchId != batch.matchId.toString()) return false
+        if (entry.matchId != batch.matchId.toString() || entry.mode != batch.mode.id) return false
         val playerId = UUID.fromString(entry.playerId)
         if (batch.entries.none { it.playerId == entry.playerId }) return false
         val player = plugin.server.getPlayer(playerId)?.takeIf(Player::isOnline) ?: return false
@@ -309,6 +321,13 @@ class ArcEventsService(
     fun leaveQueue(player: Player) = network.leave(player)
 
     fun leave(player: Player) {
+        if (arcade.isParticipant(player.uniqueId)) {
+            arcade.disconnect(player)
+            runCatching { recoverPlayer(player) }.onSuccess { recovery ->
+                if (recovery != null) completeRecovery(player, recovery, "match.evacuated")
+            }.onFailure { plugin.logger.log(Level.SEVERE, "ArcEvents arcade evacuation failed", it) }
+            return
+        }
         cancelMapSpawnReturn(player.uniqueId, notify = false)
         val current = match
         val participant = current?.participant(player.uniqueId)
@@ -347,6 +366,10 @@ class ArcEventsService(
     }
 
     fun requestMapSpawnReturn(player: Player) {
+        if (arcade.isParticipant(player.uniqueId)) {
+            player.sendEventMessage(locale.render("match.unavailable", player))
+            return
+        }
         val current = match
         val participant = current?.participant(player.uniqueId)
         val arena = arenaPool.active()
@@ -440,6 +463,7 @@ class ArcEventsService(
     }
 
     override fun handleQuit(player: Player) {
+        if (arcade.isParticipant(player.uniqueId)) { arcade.disconnect(player); return }
         cancelMapSpawnReturn(player.uniqueId, notify = false)
         hud.remove(player.uniqueId)
         val current = match ?: return
@@ -455,11 +479,12 @@ class ArcEventsService(
     fun startFromQueue(
         requester: Player? = null,
         preferredArenaId: String? = null,
+        mode: EventMode = EventMode.TTT,
     ): CompletableFuture<ReservationStartResult> {
         if (requester != null && hasPendingRecovery(requester.uniqueId)) {
             return CompletableFuture.completedFuture(ReservationStartResult.RECOVERY_PENDING)
         }
-        return network.reserveNow(requester, preferredArenaId)
+        return network.reserveNow(requester, preferredArenaId, mode)
     }
 
     /** Reconciles every live consumer after the plugin atomically swaps its settings snapshot. */
@@ -491,6 +516,7 @@ class ArcEventsService(
     }
 
     fun stopByAdmin(): AdminStopResult {
+        if (arcade.current != null) { arcade.cancel(MatchEndReason.ADMIN); return AdminStopResult.MATCH }
         reservation?.let { pending ->
             val arrivedPlayers = arrivals.keys.mapNotNull(plugin.server::getPlayer)
             restoreReservationArrivals(pending, arrivedPlayers)
@@ -525,9 +551,12 @@ class ArcEventsService(
 
     fun escrowPending(playerId: UUID): Boolean = hasPendingRecovery(playerId)
 
-    override fun recordAttack(victimId: UUID, attackerId: UUID?) = runtime.recordAttack(victimId, attackerId)
+    override fun recordAttack(victimId: UUID, attackerId: UUID?) {
+        if (arcade.current != null) arcade.recordAttack(victimId, attackerId) else runtime.recordAttack(victimId, attackerId)
+    }
 
     override fun damageMultiplier(attackerId: UUID?): Double {
+        if (arcade.current != null) return 1.0
         val current = match ?: return 1.0
         val attacker = attackerId?.let(current::participant) ?: return 1.0
         if (current.phase != MatchPhase.ACTIVE || attacker.status != ParticipantStatus.ALIVE) return 1.0
@@ -559,6 +588,14 @@ class ArcEventsService(
     }
 
     override fun shouldCancelDamage(victimId: UUID, attackerId: UUID?, projectile: Boolean, projectileMatchId: UUID?): Boolean {
+        if (arcade.current != null) {
+            if (attackerId != null && (arcade.isParticipant(victimId) || arcade.isParticipant(attackerId)) &&
+                arcade.current?.mode == EventMode.GUN_GAME && pendingHit == null) {
+                val attacker = plugin.server.getPlayer(attackerId)
+                if (attacker == null || items.kind(attacker.inventory.itemInMainHand) != EventItemKind.ARCADE_KNIFE) return true
+            }
+            return arcade.shouldCancelDamage(victimId, attackerId, projectile, projectileMatchId)
+        }
         val current = match
         if (projectileMatchId != null && projectileMatchId != current?.matchId) return true
         if (current == null) return false
@@ -572,6 +609,7 @@ class ArcEventsService(
     }
 
     override fun useTraitorBlade(attacker: Player, victim: Player): Boolean {
+        if (arcade.current != null) return arcade.useKnife(attacker, victim)
         val current = match ?: return false
         val attackerState = current.participant(attacker.uniqueId) ?: return false
         val victimState = current.participant(victim.uniqueId) ?: return false
@@ -592,6 +630,7 @@ class ArcEventsService(
     }
 
     override fun eliminate(player: Player, killerId: UUID?) {
+        if (arcade.current != null) { arcade.eliminate(player, killerId); return }
         val current = match ?: return
         if (current.phase != MatchPhase.ACTIVE || current.participant(player.uniqueId)?.status != ParticipantStatus.ALIVE) return
         val elimination = runtime.eliminate(player.uniqueId, killerId)
@@ -644,6 +683,7 @@ class ArcEventsService(
         ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
 
     override fun belongsToCurrentMatch(playerId: UUID, item: ItemStack?): Boolean {
+        arcade.current?.let { return arcade.isParticipant(playerId) && items.belongsTo(item, it.matchId.toString()) }
         val current = match ?: return false
         return current.participant(playerId) != null && items.belongsTo(item, current.matchId.toString())
     }
@@ -656,11 +696,13 @@ class ArcEventsService(
     }
 
     override fun handlesMatchChat(playerId: UUID): Boolean {
+        arcade.current?.let { return it.phase in CHAT_PHASES && arcade.isParticipant(playerId) }
         val current = match ?: return false
         return current.phase in CHAT_PHASES && current.participant(playerId)?.status != ParticipantStatus.RESTORED
     }
 
     override fun sendMatchChat(player: Player, message: Component) {
+        if (arcade.current != null) { arcade.sendChat(player, message); return }
         val current = match ?: return
         if (current.phase !in CHAT_PHASES) return
         localChat.send(current, player, message)
@@ -799,17 +841,17 @@ class ArcEventsService(
             EventItemKind.TRAITOR_SMOKE -> activateSmoke(player)
             EventItemKind.DETECTIVE_MEDKIT -> activateMedkit(player)
             EventItemKind.GUIDE, EventItemKind.SHOP, EventItemKind.FIREARM, EventItemKind.AMMUNITION, EventItemKind.ROUND_REPORT,
-            EventItemKind.DETECTIVE_SCANNER, EventItemKind.TRAITOR_BLADE, EventItemKind.DETECTIVE_ARMOR -> false
+            EventItemKind.ARCADE_KNIFE, EventItemKind.DETECTIVE_SCANNER, EventItemKind.TRAITOR_BLADE, EventItemKind.DETECTIVE_ARMOR -> false
         }
     }
 
     override fun useFirearm(player: Player): Boolean {
-        val current = match ?: return false
-        val participant = current.participant(player.uniqueId) ?: return false
+        val matchId = activeMatchId() ?: return false
+        if (!isAlive(player.uniqueId) || phase() != MatchPhase.ACTIVE || currentMode() == EventMode.DISASTERS) return false
         val held = player.inventory.itemInMainHand
         val state = firearms.state(held) ?: return false
-        if (!settings().weapons.enabled || current.phase != MatchPhase.ACTIVE || participant.status != ParticipantStatus.ALIVE ||
-            state.matchId != current.matchId.toString()
+        if (!settings().weapons.enabled || phase() != MatchPhase.ACTIVE || !isAlive(player.uniqueId) ||
+            state.matchId != matchId
         ) return false
         if (reloadTasks.containsKey(player.uniqueId)) {
             player.sendEventActionBar(locale.render("weapon.reloading-actionbar", player))
@@ -857,16 +899,16 @@ class ArcEventsService(
             "weapon" to locale.render("weapon.${state.id.name.lowercase()}-name", player),
             "loaded" to locale.text(loaded),
             "magazine" to locale.text(spec.magazineSize),
-            "reserve" to locale.text(firearms.reserveAmmo(player, current.matchId.toString())),
+            "reserve" to locale.text(firearms.reserveAmmo(player, matchId)),
         )))
         return true
     }
 
     override fun reloadFirearm(player: Player): Boolean {
-        val current = match ?: return false
-        val participant = current.participant(player.uniqueId) ?: return false
+        val matchId = activeMatchId() ?: return false
+        if (!isAlive(player.uniqueId) || phase() != MatchPhase.ACTIVE || currentMode() == EventMode.DISASTERS) return false
         val state = firearms.state(player.inventory.itemInMainHand) ?: return false
-        if (current.phase != MatchPhase.ACTIVE || participant.status != ParticipantStatus.ALIVE || state.matchId != current.matchId.toString()) return false
+        if (phase() != MatchPhase.ACTIVE || !isAlive(player.uniqueId) || state.matchId != matchId) return false
         val spec = firearms.spec(state.id)
         if (state.loaded >= spec.magazineSize) {
             player.sendEventActionBar(locale.render("weapon.magazine-full-actionbar", player))
@@ -881,10 +923,10 @@ class ArcEventsService(
         if (settings().ui.sounds) player.playSound(player.location, Sound.ITEM_ARMOR_EQUIP_IRON, 0.5f, 1.4f)
         reloadTasks[player.uniqueId] = Tasks.scheduler.runLater(spec.reloadTicks.toLong()) {
             reloadTasks.remove(player.uniqueId)
-            val live = match
+            val liveId = activeMatchId()
             val held = player.inventory.itemInMainHand
             val latest = firearms.state(held)
-            if (!player.isOnline || live?.matchId != current.matchId || live.phase != MatchPhase.ACTIVE ||
+            if (!player.isOnline || liveId != matchId || phase() != MatchPhase.ACTIVE || !isAlive(player.uniqueId) ||
                 latest?.id != state.id || latest.matchId != state.matchId
             ) return@runLater
             val needed = spec.magazineSize - latest.loaded
@@ -973,6 +1015,7 @@ class ArcEventsService(
     }
 
     fun status(player: Player) {
+        if (arcade.current != null) { arcade.status(player); return }
         val current = match
         if (current == null || current.participant(player.uniqueId) == null) {
             player.sendEventMessage(locale.render("match.unavailable", player))
@@ -991,6 +1034,7 @@ class ArcEventsService(
         return ArcEventsDebug.qa(
             "server" to state.serverId,
             "mode" to state.nodeMode.name.lowercase(),
+            "game" to (currentMode()?.id ?: "-"),
             "redis" to if (state.redisConnected) "up" else "down",
             "host" to if (state.hostAvailable) "ready" else "unavailable",
             "arena" to if (state.arenaReady) "ready" else "disabled",
@@ -1071,11 +1115,12 @@ class ArcEventsService(
         )
     }
 
-    fun debugStartLocal(players: List<Player>, arenaId: String? = null): DebugMutationResult {
+    fun debugStartLocal(players: List<Player>, arenaId: String? = null, mode: EventMode = EventMode.TTT): DebugMutationResult {
+        if (mode != EventMode.TTT) return debugStartArcade(players, arenaId, mode)
         val currentSettings = settings()
         if (!currentSettings.debugMutationsAllowed) return DebugMutationResult.MUTATIONS_DISABLED
         if (currentSettings.nodeMode != NodeMode.HOST) return DebugMutationResult.WRONG_NODE
-        if (match != null || reservation != null) return DebugMutationResult.BUSY
+        if (match != null || arcade.current != null || reservation != null) return DebugMutationResult.BUSY
         val online = players.filter(Player::isOnline).distinctBy(Player::getUniqueId)
         if (online.size !in currentSettings.ttt.minimumPlayers..currentSettings.ttt.maximumPlayers) {
             return DebugMutationResult.INSUFFICIENT_PLAYERS
@@ -1332,7 +1377,7 @@ class ArcEventsService(
 
     fun debugCleanup(): DebugMutationResult {
         if (!settings().debugMutationsAllowed) return DebugMutationResult.MUTATIONS_DISABLED
-        if (match != null || reservation != null) return DebugMutationResult.BUSY
+        if (match != null || arcade.current != null || reservation != null) return DebugMutationResult.BUSY
         bodyRegistry.clear()
         cleanupProjectiles()
         cleanupLoot()
@@ -1364,6 +1409,68 @@ class ArcEventsService(
 
     fun arenaBounds(): EventBounds? = arenaPool.active()?.bounds
 
+    private fun clearWeaponState(playerId: UUID) {
+        reloadTasks.remove(playerId)?.cancel()
+        shotCooldownUntil.remove(playerId)
+    }
+
+    private fun startReservedArcade(batch: ReservationBatch, online: List<Player>) {
+        val rules = arcadeRules ?: settings().arcade.rules(batch.mode)
+        val entries = batch.entries.filter { entry -> online.any { it.uniqueId.toString() == entry.playerId } }
+        if (online.size < rules.minimumPlayers) {
+            restoreReservationArrivals(batch, online)
+            arenaPool.release(batch.matchId)
+            network.releaseReservation(batch)
+            return
+        }
+        try {
+            arcade.start(batch.matchId, batch.mode, entries, online, rules)
+            network.completeReservation(batch.matchId, online.map(Player::getUniqueId)).whenComplete { _, failure ->
+                Tasks.scheduler.runSync {
+                    if (!started || arcade.current?.matchId != batch.matchId) return@runSync
+                    if (failure != null) {
+                        plugin.logger.log(Level.SEVERE, "ArcEvents could not finalize arcade roster", failure)
+                        arcade.cancel(MatchEndReason.SHUTDOWN)
+                        network.releaseReservation(batch)
+                    } else {
+                        arcade.confirmRoster()
+                        if (online.size < batch.entries.size) network.releaseUnarrived(batch, online.map(Player::getUniqueId))
+                        network.announceStarted(batch.matchId)
+                    }
+                }
+            }
+        } catch (failure: Throwable) {
+            plugin.logger.log(Level.SEVERE, "ArcEvents could not prepare arcade match", failure)
+            if (arcade.current != null) arcade.cancel(MatchEndReason.SHUTDOWN) else arenaPool.release(batch.matchId)
+            network.releaseReservation(batch)
+        }
+    }
+
+    private fun debugStartArcade(players: List<Player>, arenaId: String?, mode: EventMode): DebugMutationResult {
+        val config = settings()
+        if (!config.debugMutationsAllowed) return DebugMutationResult.MUTATIONS_DISABLED
+        if (config.nodeMode != NodeMode.HOST) return DebugMutationResult.WRONG_NODE
+        if (matchState().first != null) return DebugMutationResult.BUSY
+        val online = players.filter(Player::isOnline).distinctBy(Player::getUniqueId)
+        val rules = config.arcade.rules(mode)
+        if (online.size !in rules.minimumPlayers..rules.maximumPlayers) return DebugMutationResult.INSUFFICIENT_PLAYERS
+        if (online.any { hasPendingRecovery(it.uniqueId) }) return DebugMutationResult.PRECONDITION_FAILED
+        val id = UUID.randomUUID()
+        val arena = arenaPool.reserve(id, if (mode == EventMode.DISASTERS) "disasters" else arenaId, mode)
+            ?: return DebugMutationResult.ARENA_UNAVAILABLE
+        return try {
+            val entries = online.map { QueueEntry(it.uniqueId.toString(), it.name, config.serverId, mode.id,
+                joinedAtMs = clock(), expiresAtMs = clock() + 60_000L) }
+            arcade.start(id, mode, entries, online, rules)
+            arcade.confirmRoster()
+            DebugMutationResult.APPLIED
+        } catch (failure: Throwable) {
+            plugin.logger.log(Level.SEVERE, "ArcEvents local arcade bootstrap failed on ${arena.id}", failure)
+            if (arcade.current != null) arcade.cancel(MatchEndReason.SHUTDOWN) else arenaPool.release(id)
+            DebugMutationResult.INTERNAL_ERROR
+        }
+    }
+
     private fun startReservedRoster() {
         val batch = reservation ?: return
         reservation = null
@@ -1372,6 +1479,7 @@ class ArcEventsService(
         arrivals.clear()
         val currentSettings = settings()
         val matchTtt = activeTtt()
+        if (batch.mode != EventMode.TTT) { startReservedArcade(batch, online); return }
         if (online.size < matchTtt.minimumPlayers) {
             restoreReservationArrivals(batch, online)
             arenaPool.release(batch.matchId)
@@ -1569,6 +1677,13 @@ class ArcEventsService(
     }
 
     private fun tick() {
+        if (arcade.current != null) {
+            runCatching(arcade::tick).onFailure { failure ->
+                plugin.logger.log(Level.SEVERE, "ArcEvents arcade tick failed", failure)
+                arcade.cancel(MatchEndReason.SHUTDOWN)
+            }
+            return
+        }
         val current = match ?: return
         when (current.phase) {
             MatchPhase.PREPARING -> {
@@ -1745,6 +1860,7 @@ class ArcEventsService(
     }
 
     private fun markRecovered(playerId: UUID, recovery: PlayerRecovery) {
+        plugin.server.getPlayer(playerId)?.let { arcade.markRecovered(it, recovery) }
         val current = match ?: return
         if (current.matchId != recovery.matchId || current.participant(playerId) == null) return
         runtime.markRecoveryApplied(playerId)
@@ -1832,7 +1948,7 @@ class ArcEventsService(
         range: Double,
         baseDamage: Double,
     ) {
-        val current = match ?: return
+        val matchId = activeMatchId() ?: return
         val result = shooter.world.rayTrace(
             origin,
             direction,
@@ -1842,7 +1958,7 @@ class ArcEventsService(
             0.12,
         ) { entity ->
             entity is Player && entity.uniqueId != shooter.uniqueId &&
-                current.participant(entity.uniqueId)?.status == ParticipantStatus.ALIVE
+                isAlive(entity.uniqueId) && activeMatchId() == matchId
         }
         val endpoint = result?.hitPosition ?: origin.toVector().add(direction.clone().multiply(range))
         if (settings().ui.particles) {
@@ -2029,6 +2145,7 @@ class ArcEventsService(
     override fun close() {
         if (!started) return
         started = false
+        arcade.cancel(MatchEndReason.SHUTDOWN)
         reservation?.let { pending ->
             val arrivedPlayers = arrivals.keys.mapNotNull(plugin.server::getPlayer)
             restoreReservationArrivals(pending, arrivedPlayers)

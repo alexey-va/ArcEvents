@@ -8,6 +8,7 @@ import ru.arc.redis.RedisOperations
 import ru.arc.redis.ServerIdentity
 import ru.ruscrafting.events.domain.PlayerEventStats
 import ru.ruscrafting.events.domain.TttRole
+import ru.ruscrafting.events.domain.EventMode
 import ru.ruscrafting.events.domain.TttParticipant
 import ru.ruscrafting.events.domain.TttTeam
 import ru.ruscrafting.events.domain.ParticipantStatus
@@ -15,6 +16,14 @@ import java.util.UUID
 import java.util.concurrent.CompletableFuture
 
 class RedisEventNetworkRepositoryTest : StringSpec({
+    "one common FIFO queue reserves the selected mode across every entry" {
+        val repository = RedisEventNetworkRepository(InMemoryRedis(ServerIdentity { "spawn" }))
+        (1..4).forEach { index -> repository.joinQueue(uuid(index), "Player$index", "spawn", index.toLong(), 60_000).join() }
+        val batch = requireNotNull(repository.reserve(uuid(99), "parkour", 4, 4, 10_000, 60_000, mode = EventMode.DISASTERS.id).join())
+        batch.mode shouldBe EventMode.DISASTERS
+        batch.entries.map { it.mode }.distinct() shouldBe listOf(EventMode.DISASTERS.id)
+    }
+
     "owner-aware network state is isolated while compatible statistics retain history" {
         RedisEventNetworkRepository.QUEUE_KEY shouldBe "arc:events:v2:queue"
         RedisEventNetworkRepository.NODES_KEY shouldBe "arc:events:v2:nodes"

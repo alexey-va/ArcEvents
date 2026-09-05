@@ -31,6 +31,7 @@ import ru.arc.paper.testing.failOnUnsupportedMockBukkitOperation
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.domain.FirearmId
+import ru.ruscrafting.events.domain.EventMode
 import ru.ruscrafting.events.domain.MatchEndReason
 import ru.ruscrafting.events.domain.MatchPhase
 import ru.ruscrafting.events.domain.ParticipantStatus
@@ -305,11 +306,12 @@ class TttRoundLifecycleMockBukkitTest : FunSpec({
     }
 })
 
-private class TttRoundFixture : AutoCloseable {
+internal class TttRoundFixture : AutoCloseable {
     val paper = MockBukkitTestRuntime.open()
     private val plugin = paper.createSimplePlugin("ArcEventsTttRoundTest")
     private val dataRoot = Files.createTempDirectory("arcevents-ttt-round-")
     private val world = paper.addSimpleWorld("ttt_arena")
+    private val disastersWorld = paper.addSimpleWorld("arcevents_disasters")
     private var nowMs = 1_787_730_000_000L
     private var started = false
     private val debugLines = mutableListOf<String>()
@@ -333,6 +335,13 @@ private class TttRoundFixture : AutoCloseable {
     init {
         PaperArcRuntime.installScheduling(plugin)
         writeFixtureFiles(dataRoot)
+        for (x in -2..2) for (z in -2..2) {
+            world.getBlockAt(x, 63, z).type = Material.STONE
+        }
+        for (x in -24..24) for (z in -24..24) {
+            disastersWorld.getBlockAt(x, 63, z).type = Material.STONE
+            disastersWorld.getBlockAt(x, 64, z).type = Material.MOSS_BLOCK
+        }
         ConfigManager.clear()
         settings = ArcEventsConfig.load(dataRoot)
         locale = ArcEventsLocale(dataRoot) { settings }
@@ -378,13 +387,13 @@ private class TttRoundFixture : AutoCloseable {
         }
     }
 
-    fun startActiveRound() {
+    fun startActiveRound(mode: EventMode = EventMode.TTT) {
         check(!started) { "The fixture owns one TTT round" }
         started = true
         service.start()
         paper.performTicks(1)
 
-        service.debugStartLocal(players, "test") shouldBe DebugMutationResult.APPLIED
+        service.debugStartLocal(players, "test", mode) shouldBe DebugMutationResult.APPLIED
         service.phase() shouldBe MatchPhase.PREPARING
         escrow.pendingCount(requireNotNull(service.currentMatch()).matchId) shouldBe players.size
         players.forEach { player ->
@@ -400,6 +409,23 @@ private class TttRoundFixture : AutoCloseable {
         service.currentMatch()?.participants?.values?.all { it.status == ParticipantStatus.ALIVE } shouldBe true
         service.debugAdvance() shouldBe DebugMutationResult.APPLIED
         service.phase() shouldBe MatchPhase.ACTIVE
+    }
+
+    fun startActiveArcade(mode: EventMode) {
+        check(mode != EventMode.TTT)
+        check(!started) { "The fixture owns one event round" }
+        started = true
+        service.start()
+        paper.performTicks(1)
+        service.debugStartLocal(players, if (mode == EventMode.DISASTERS) "disasters" else "test", mode) shouldBe DebugMutationResult.APPLIED
+        advanceTime(16_000)
+        service.arcadeSnapshot()?.phase shouldBe MatchPhase.ACTIVE
+    }
+
+    fun advanceTime(milliseconds: Long) {
+        require(milliseconds >= 0)
+        nowMs += milliseconds
+        paper.performTicks(20)
     }
 
     fun startReservation() {
@@ -602,6 +628,25 @@ private val TTT_FIXTURE_CONFIG = """
       traitor-credits: 2
       detective-credits: 1
       body-despawn-seconds: 60
+    arcade:
+      gungame:
+        minimum-players: 3
+        maximum-players: 4
+        preparation-seconds: 0
+        countdown-seconds: 0
+        round-seconds: 60
+        respawn-seconds: 3
+      disasters:
+        arena:
+          enabled: true
+        minimum-players: 3
+        maximum-players: 4
+        preparation-seconds: 0
+        countdown-seconds: 0
+        round-seconds: 180
+        intermission-seconds: 3
+        disaster-seconds: 5
+        disaster-rounds: 6
     ui:
       sounds: false
       particles: false

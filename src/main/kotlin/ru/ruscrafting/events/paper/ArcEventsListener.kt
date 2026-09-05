@@ -52,6 +52,7 @@ interface ArcEventsGameplayBoundary {
     fun recordAttack(victimId: UUID, attackerId: UUID?)
     fun damageMultiplier(attackerId: UUID?): Double
     fun recordDamage(victim: Player, attacker: Player?, finalDamage: Double, lethal: Boolean)
+    fun matchIdentity(): UUID? = null
     fun phase(): MatchPhase?
     fun isAlive(playerId: UUID): Boolean
     fun useTraitorBlade(attacker: Player, victim: Player): Boolean
@@ -124,9 +125,10 @@ class ArcEventsListener(
         if (lethal) {
             event.isCancelled = true
             if (!pendingEliminations.add(victim.uniqueId)) return
+            val matchId = service.matchIdentity()
             Tasks.scheduler.runLater(1L) {
                 try {
-                    if (victim.isOnline) {
+                    if (victim.isOnline && service.matchIdentity() == matchId) {
                         if (attacker == null) service.eliminate(victim) else service.eliminate(victim, attacker.uniqueId)
                     }
                 } finally {

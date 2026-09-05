@@ -299,7 +299,7 @@ class ArcEventsConfigTest : StringSpec({
         arena.operational(16) shouldBe false
     }
 
-    "reviewed parkour profile exposes the three Counter-Strike maps and classic B5" {
+    "reviewed parkour profile exposes four combat maps and the disasters arena" {
         val repository = opsRoot()
         val config = ArcEventsConfig.inspect(repository.resolve("parkour/plugins/ArcEvents"))
 
@@ -308,10 +308,11 @@ class ArcEventsConfigTest : StringSpec({
             "mirage",
             "nuke",
             "ttt-minecraft-b5",
+            "disasters",
         )
         config.defaultArenaId shouldBe "inferno"
         config.arenas.all { it.operational(config.ttt.maximumPlayers) } shouldBe true
-        val importedArenas = config.arenas.filter { it.template.endsWith("-v1") }
+        val importedArenas = config.arenas.filter { it.id != "disasters" && it.template.endsWith("-v1") }
         importedArenas.all { it.spawns.size == 1 } shouldBe true
         importedArenas.all { it.lootSpawns.size >= 32 } shouldBe true
         importedArenas.all { it.weaponCount == 30 } shouldBe true
