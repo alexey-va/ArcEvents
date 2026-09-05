@@ -25,7 +25,7 @@ repositories {
 java { toolchain { languageVersion.set(JavaLanguageVersion.of(25)) } }
 kotlin { jvmToolchain(25) }
 
-val arcCoreVersion = "2.4.3"
+val arcCoreVersion = "2.5.0"
 val worldEditVersion = "7.3.18"
 
 dependencies {
