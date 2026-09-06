@@ -139,14 +139,14 @@ relays together before offering the arcade modes to a mixed-version network.
 
 ## Commands
 
-- `/events` — player hub.
-- `/events join`, `/events leave`, `/events status`, `/events shop`.
-- `/events start [ttt|gungame|disasters]` — start the common queue as its creator.
-- `/events team <message>` — private traitor/detective team chat in a match.
-- `/events admin` — operator GUI. `status|player|network|arenas|recovery` are
+- `/arcevents` — player hub.
+- `/arcevents join`, `/arcevents leave`, `/arcevents status`, `/arcevents shop`.
+- `/arcevents start [ttt|gungame|disasters]` — start the common queue as its creator.
+- `/arcevents team <message>` — private traitor/detective team chat in a match.
+- `/arcevents admin` — operator GUI. `status|player|network|arenas|recovery` are
   readable diagnostics; `arena <id|auto>`, `start [ttt|gungame|disasters] [id]`, `stop`, `reload`, and
   `recover` operate the map pool, queue, round, config, and escrow recovery.
-- `/events reload` — direct `arcevents.admin` shortcut. Locale text, menu/HUD
+- `/arcevents reload` — direct `arcevents.admin` shortcut. Locale text, menu/HUD
   presentation, nameplates, loot displays, smoke, active item visuals and safe
   world-distance limits update without stopping a live round. Match rules and
   timing are snapshotted, so a running round remains internally consistent and
@@ -154,20 +154,20 @@ relays together before offering the arcade modes to a mixed-version network.
   event; imported-world sanitation, network, arena/node identity and packet
   interception require restart. Rejected reloads keep the last known-good
   runtime configuration.
-- `/events admin weapons add|remove|show` — while standing inside an idle map,
+- `/arcevents admin weapons add|remove|show` — while standing inside an idle map,
   persist an exact mandatory weapon point, remove the nearest point within
   three blocks, or preview all mandatory points with client-only particles.
-- `/events qa status|player|network|arenas|recovery` — stable read-only output with the
+- `/arcevents qa status|player|network|arenas|recovery` — stable read-only output with the
   `ARCEVENTS_QA` prefix.
-- `/events debug help|status|player|network|arenas|recovery|bodies` — lab snapshots.
-- `/events debug start` reserves the real distributed queue; `bootstrap
+- `/arcevents debug help|status|player|network|arenas|recovery|bodies` — lab snapshots.
+- `/arcevents debug start` reserves the real distributed queue; `bootstrap
   [ttt|gungame|disasters] [arena|auto] [players...]` starts a local roster from online players for isolated tests;
   `advance`, `end <innocents|traitors>`, `timer <seconds>`, and `cleanup` drive
   round lifecycle cases.
-- `/events debug credit|role|health|kill|revive` changes one participant;
+- `/arcevents debug credit|role|health|kill|revive` changes one participant;
   `weapon|ammo|item` supplies match-tagged equipment; `loot
   status|respawn|clear` controls map pickups.
-- `/events debug discover|dna|call` drives body-evidence scenarios; `menu
+- `/arcevents debug discover|dna|call` drives body-evidence scenarios; `menu
   <player> <main|help|admin|arenas|shop|roster|report>` and `close` target either UI
   frontend without manual navigation.
 
@@ -180,7 +180,7 @@ amounts, and views.
 The participant TextDisplay is configured under `ui.nameplates`: enablement,
 refresh period, distance, width, view range, scale, vertical offset, shadow,
 ARGB background, visibility protections and both row priorities. Row text and
-colors remain locale-owned under `nameplate.lines`, so one `/events reload`
+colors remain locale-owned under `nameplate.lines`, so one `/arcevents reload`
 updates geometry and wording together without restarting Paper.
 
 ## Firearms and loot

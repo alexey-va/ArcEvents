@@ -14,7 +14,7 @@ network:
   return-to-origin: true
 
 # Queue ownership is deterministic: the earliest queued player is the event
-# creator. These controls are read live and can be changed with /events reload.
+# creator. These controls are read live and can be changed with /arcevents reload.
 event-controls:
   creator-controls-enabled: true
   creator-arena-selection-enabled: true
@@ -76,7 +76,7 @@ locale:
 chat:
   # Ordinary round chat is spatial. The sender always sees their own line;
   # other living players (or other spectators) hear it only inside this range.
-  # All values are applied immediately by /events reload.
+  # All values are applied immediately by /arcevents reload.
   local:
     enabled: true
     close-distance: 8.0

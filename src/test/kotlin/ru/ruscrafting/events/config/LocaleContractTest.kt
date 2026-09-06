@@ -7,6 +7,22 @@ import ru.arc.config.Config
 import java.nio.file.Files
 
 class LocaleContractTest : StringSpec({
+    "only arcevents is registered and advertised as the event command" {
+        val root = Files.createTempDirectory("arcevents-command-")
+        try {
+            val descriptor = Config(root, "plugin.yml")
+            descriptor.keys("commands").toSet() shouldBe setOf("arcevents")
+            descriptor.stringList("commands.arcevents.aliases").isEmpty() shouldBe true
+            listOf("ru", "en").forEach { language ->
+                val locale = Config(root, "lang/$language.yml")
+                locale.string("command.help").contains("/arcevents") shouldBe true
+                Regex("""/(?:ae|events)\b""").containsMatchIn(Files.readString(root.resolve("lang/$language.yml"))) shouldBe false
+            }
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
     "Russian and English catalogs have identical nonblank leaves" {
         val root = Files.createTempDirectory("arcevents-locale-")
         try {

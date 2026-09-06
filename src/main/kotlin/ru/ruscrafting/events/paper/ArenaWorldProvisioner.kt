@@ -529,7 +529,7 @@ class ArenaWorldProvisioner(private val plugin: Plugin) {
         )
     }
 
-    /** Applies only reversible world performance knobs during `/events reload`. */
+    /** Applies only reversible world performance knobs during `/arcevents reload`. */
     fun applyRuntimeTuning(settings: ArcEventsConfig) {
         settings.arenas.filter(ArenaSettings::enabled).forEach { arena ->
             val world = requireNotNull(plugin.server.getWorld(arena.world)) { "Arena world ${arena.world} is not loaded" }

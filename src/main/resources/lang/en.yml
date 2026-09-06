@@ -3,11 +3,11 @@ command:
   player-only: '<prefix> <#c42323>This command is only available to players.'
   no-permission: '<prefix> <#c42323>You do not have access to this action.'
   help: |-
-    <prefix> <#e6fff3>Menu and rules: <#92bed8>/events
-    <#8c8c8c>   Queue: <#92bed8>/events join  <#8c8c8c>leave: <#92bed8>/events leave
-    <#8c8c8c>   Start roster: <#92bed8>/events start
-    <#8c8c8c>   Match: <#92bed8>/events status  <#8c8c8c>roster: <#92bed8>/events roster
-    <#8c8c8c>   Shop: <#92bed8>/events shop  <#8c8c8c>report: <#92bed8>/events report
+    <prefix> <#e6fff3>Menu and rules: <#92bed8>/arcevents
+    <#8c8c8c>   Queue: <#92bed8>/arcevents join  <#8c8c8c>leave: <#92bed8>/arcevents leave
+    <#8c8c8c>   Start roster: <#92bed8>/arcevents start
+    <#8c8c8c>   Match: <#92bed8>/arcevents status  <#8c8c8c>roster: <#92bed8>/arcevents roster
+    <#8c8c8c>   Shop: <#92bed8>/arcevents shop  <#8c8c8c>report: <#92bed8>/arcevents report
   unknown: '<prefix> <#c42323>Unknown<#8c8c8c>: <#e6fff3><input>'
   failed: |-
     <prefix> <#c42323>Action failed.
@@ -171,11 +171,11 @@ menu:
       - '<#8c8c8c>Right-click — fire <#8c8c8c>F — reload'
     controls-name: '<#92bed8><bold>Commands'
     controls-lore:
-      - '<#8c8c8c>/events shop <#f2f0e6>— role shop'
-      - '<#8c8c8c>/events team [text] <#f2f0e6>— team chat'
-      - '<#8c8c8c>/events status <#f2f0e6>— match status'
-      - '<#8c8c8c>/events leave <#f2f0e6>— leave the event immediately'
-      - '<#8c8c8c>/events spawn <#f2f0e6>— return to the map spawn'
+      - '<#8c8c8c>/arcevents shop <#f2f0e6>— role shop'
+      - '<#8c8c8c>/arcevents team [text] <#f2f0e6>— team chat'
+      - '<#8c8c8c>/arcevents status <#f2f0e6>— match status'
+      - '<#8c8c8c>/arcevents leave <#f2f0e6>— leave the event immediately'
+      - '<#8c8c8c>/arcevents spawn <#f2f0e6>— return to the map spawn'
   admin:
     title: '<#20252b>Event Admin Panel'
     status-name: '<#5fb3ff><bold>Current status'
@@ -404,16 +404,16 @@ queue:
     <#8c8c8c>   Roster: <#ffcc33><queue>/<minimum>
   already: |-
     <prefix> <#ff9f0f>You are already in this roster.
-    <#8c8c8c>   Current status: <#92bed8>/events
+    <#8c8c8c>   Current status: <#92bed8>/arcevents
   left: |-
     <prefix> <#7bd88f>You left the queue.
     <#8c8c8c>   Your place has been released.
   not-queued: |-
     <prefix> <#ff9f0f>You have not joined a queue yet.
-    <#8c8c8c>   Choose an event: <#92bed8>/events
+    <#8c8c8c>   Choose an event: <#92bed8>/arcevents
   leave-reserved: |-
     <prefix> <#ff9f0f>The roster is already locked.
-    <#8c8c8c>   Emergency exit: <#32d6ff>/events leave
+    <#8c8c8c>   Emergency exit: <#32d6ff>/arcevents leave
   unavailable: |-
     <prefix> <#d84a4a>The event is unavailable.
     <#8c8c8c>   Try again a little later.
@@ -641,7 +641,7 @@ report:
     - '<#f2f0e6>Roles, damage, and the combat log.'
     - ''
     - '<#e3b341>Right-click<#f2f0e6> to open'
-  ready: '<prefix> <#e6fff3>The report is ready: open the book or use <#92bed8>/events report<#e6fff3>.'
+  ready: '<prefix> <#e6fff3>The report is ready: open the book or use <#92bed8>/arcevents report<#e6fff3>.'
   unavailable: '<prefix> <#ff9f0f>The previous round report is unavailable.'
   winner-innocents: '<#7bd88f>innocents'
   winner-traitors: '<#d84a4a>traitors'
@@ -667,7 +667,7 @@ shop:
   medkit-full: '<prefix> <#ff9f0f>Your health is already full.'
 
 team:
-  usage: '<prefix> <#e6fff3>Chat: <#92bed8>/events team [message]'
+  usage: '<prefix> <#e6fff3>Chat: <#92bed8>/arcevents team [message]'
   unavailable: '<prefix> <#ff9f0f>Team chat is unavailable right now.'
   message: '<#d75a5a>team  <#f1c46d><player> <#66727a>› <#e6fff3><message>'
 
@@ -695,7 +695,7 @@ admin:
   no-match: '<prefix> <#ff9f0f>There is no active match.'
   recovery-started: '<prefix> <#e6fff3>Recovery retried<#8c8c8c>: <#e3b341><players> players<#e6fff3>.'
   weapon-points:
-    usage: '<prefix> <#e6fff3>Weapons: <#92bed8>/events admin weapons [add|remove|show]'
+    usage: '<prefix> <#e6fff3>Weapons: <#92bed8>/arcevents admin weapons [add|remove|show]'
     added: '<prefix> <#2bba43>Point added <#8c8c8c>— <#e3b341><count><#8c8c8c>/<#e3b341><target> <#e6fff3>on <arena><#e6fff3>.'
     removed: '<prefix> <#2bba43>Point removed <#8c8c8c>— <#e3b341><count><#8c8c8c>/<#e3b341><target> <#e6fff3>on <arena><#e6fff3>.'
     shown: '<prefix> <#e6fff3>Points for <arena> <#e6fff3>are marked<#8c8c8c>: <#e3b341><count><#8c8c8c>/<#e3b341><target><#e6fff3>.'

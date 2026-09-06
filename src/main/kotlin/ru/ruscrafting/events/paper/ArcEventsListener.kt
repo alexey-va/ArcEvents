@@ -347,7 +347,7 @@ class ArcEventsListener(
         if (event.player.bypassesEventProtection()) return
         if (!service.isParticipant(event.player.uniqueId) || service.phase() !in CONTROLLED_PHASES) return
         val root = event.message.removePrefix("/").substringBefore(' ').lowercase()
-        if (root !in setOf("arcevents", "events", "ae")) event.isCancelled = true
+        if (root != "arcevents") event.isCancelled = true
     }
 
     private fun attacker(entity: Entity): Player? = when (entity) {

@@ -8,7 +8,6 @@ softdepend: [WorldEdit, WorldGuard, ViaVersion, ProtocolLib]
 loadbefore: [My_Worlds]
 commands:
   arcevents:
-    aliases: [events, ae]
     description: RusCrafting events
     usage: /arcevents
     permission: arcevents.play

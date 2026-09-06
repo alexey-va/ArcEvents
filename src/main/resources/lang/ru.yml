@@ -3,11 +3,11 @@ command:
   player-only: '<prefix> <#c42323>Эта команда доступна только игроку.'
   no-permission: '<prefix> <#c42323>У вас нет доступа к этому действию.'
   help: |-
-    <prefix> <#e6fff3>Меню и правила: <#92bed8>/events
-    <#8c8c8c>   Очередь: <#92bed8>/events join  <#8c8c8c>выйти: <#92bed8>/events leave
-    <#8c8c8c>   Запуск состава: <#92bed8>/events start
-    <#8c8c8c>   Матч: <#92bed8>/events status  <#8c8c8c>состав: <#92bed8>/events roster
-    <#8c8c8c>   Магазин: <#92bed8>/events shop  <#8c8c8c>итоги: <#92bed8>/events report
+    <prefix> <#e6fff3>Меню и правила: <#92bed8>/arcevents
+    <#8c8c8c>   Очередь: <#92bed8>/arcevents join  <#8c8c8c>выйти: <#92bed8>/arcevents leave
+    <#8c8c8c>   Запуск состава: <#92bed8>/arcevents start
+    <#8c8c8c>   Матч: <#92bed8>/arcevents status  <#8c8c8c>состав: <#92bed8>/arcevents roster
+    <#8c8c8c>   Магазин: <#92bed8>/arcevents shop  <#8c8c8c>итоги: <#92bed8>/arcevents report
   unknown: '<prefix> <#c42323>Неизвестно<#8c8c8c>: <#e6fff3><input>'
   failed: |-
     <prefix> <#c42323>Действие не выполнено.
@@ -171,11 +171,11 @@ menu:
       - '<#8c8c8c>ПКМ — огонь <#8c8c8c>F — перезарядка'
     controls-name: '<#92bed8><bold>Команды'
     controls-lore:
-      - '<#8c8c8c>/events shop <#f2f0e6>— магазин роли'
-      - '<#8c8c8c>/events team [текст] <#f2f0e6>— командный чат'
-      - '<#8c8c8c>/events status <#f2f0e6>— состояние матча'
-      - '<#8c8c8c>/events leave <#f2f0e6>— срочно покинуть событие'
-      - '<#8c8c8c>/events spawn <#f2f0e6>— вернуться на спавн карты'
+      - '<#8c8c8c>/arcevents shop <#f2f0e6>— магазин роли'
+      - '<#8c8c8c>/arcevents team [текст] <#f2f0e6>— командный чат'
+      - '<#8c8c8c>/arcevents status <#f2f0e6>— состояние матча'
+      - '<#8c8c8c>/arcevents leave <#f2f0e6>— срочно покинуть событие'
+      - '<#8c8c8c>/arcevents spawn <#f2f0e6>— вернуться на спавн карты'
   admin:
     title: '<#20252b>Админ-панель событий'
     status-name: '<#5fb3ff><bold>Текущее состояние'
@@ -404,16 +404,16 @@ queue:
     <#8c8c8c>   Состав: <#ffcc33><queue>/<minimum>
   already: |-
     <prefix> <#ff9f0f>Вы уже участвуете в сборе состава.
-    <#8c8c8c>   Текущий статус: <#92bed8>/events
+    <#8c8c8c>   Текущий статус: <#92bed8>/arcevents
   left: |-
     <prefix> <#7bd88f>Вы покинули очередь.
     <#8c8c8c>   Ваше место освобождено.
   not-queued: |-
     <prefix> <#ff9f0f>Вы ещё не вставали в очередь.
-    <#8c8c8c>   Выберите ивент: <#92bed8>/events
+    <#8c8c8c>   Выберите ивент: <#92bed8>/arcevents
   leave-reserved: |-
     <prefix> <#ff9f0f>Состав уже закреплён.
-    <#8c8c8c>   Срочная эвакуация: <#32d6ff>/events leave
+    <#8c8c8c>   Срочная эвакуация: <#32d6ff>/arcevents leave
   unavailable: |-
     <prefix> <#d84a4a>Ивент сейчас недоступен.
     <#8c8c8c>   Попробуйте снова немного позже.
@@ -641,7 +641,7 @@ report:
     - '<#f2f0e6>Роли, урон и журнал столкновений.'
     - ''
     - '<#e3b341>ПКМ<#f2f0e6>, чтобы открыть'
-  ready: '<prefix> <#e6fff3>Итоги готовы: откройте книгу или <#92bed8>/events report<#e6fff3>.'
+  ready: '<prefix> <#e6fff3>Итоги готовы: откройте книгу или <#92bed8>/arcevents report<#e6fff3>.'
   unavailable: '<prefix> <#ff9f0f>Итоги прошлого раунда недоступны.'
   winner-innocents: '<#7bd88f>мирные'
   winner-traitors: '<#d84a4a>предатели'
@@ -667,7 +667,7 @@ shop:
   medkit-full: '<prefix> <#ff9f0f>Ваше здоровье уже заполнено.'
 
 team:
-  usage: '<prefix> <#e6fff3>Чат: <#92bed8>/events team [текст]'
+  usage: '<prefix> <#e6fff3>Чат: <#92bed8>/arcevents team [текст]'
   unavailable: '<prefix> <#ff9f0f>Сейчас командный чат недоступен.'
   message: '<#d75a5a>свои  <#f1c46d><player> <#66727a>› <#e6fff3><message>'
 
@@ -695,7 +695,7 @@ admin:
   no-match: '<prefix> <#ff9f0f>Активного матча нет.'
   recovery-started: '<prefix> <#e6fff3>Восстановление повторено<#8c8c8c>: <#e3b341><players> игроков<#e6fff3>.'
   weapon-points:
-    usage: '<prefix> <#e6fff3>Оружие: <#92bed8>/events admin weapons [add|remove|show]'
+    usage: '<prefix> <#e6fff3>Оружие: <#92bed8>/arcevents admin weapons [add|remove|show]'
     added: '<prefix> <#2bba43>Точка добавлена <#8c8c8c>— <#e3b341><count><#8c8c8c>/<#e3b341><target> <#e6fff3>на <arena><#e6fff3>.'
     removed: '<prefix> <#2bba43>Точка удалена <#8c8c8c>— <#e3b341><count><#8c8c8c>/<#e3b341><target> <#e6fff3>на <arena><#e6fff3>.'
     shown: '<prefix> <#e6fff3>Точки <arena> <#e6fff3>показаны<#8c8c8c>: <#e3b341><count><#8c8c8c>/<#e3b341><target><#e6fff3>.'
