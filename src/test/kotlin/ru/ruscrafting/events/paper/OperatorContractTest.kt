@@ -116,6 +116,10 @@ class OperatorContractTest : StringSpec({
         dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL, EventsView.Roster) shouldBe false
     }
 
+    "TTT loading completion replaces the same dialog visit" {
+        TTT_DIALOG_ID shouldBe "events.ttt"
+    }
+
     "ViaVersion original client protocol wins over the backend protocol" {
         effectiveClientProtocol(774, 769) shouldBe 769
         effectiveClientProtocol(774, 771) shouldBe 771

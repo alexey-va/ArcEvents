@@ -24,6 +24,9 @@ reason:
 menu:
   main:
     title: '<#20252b>Events'
+    main-body:
+      - '<#e8dfd2>Queue with players and join network events.'
+      - '<#aaa49a>Queue: <queue>/<minimum> | Arena: <arena_state>'
     ttt-name: '<#e3b341><bold>Hidden Roles'
     ttt-lore:
       - '<#f2f0e6>Find the traitors before'
@@ -52,6 +55,9 @@ menu:
       - '<#8c8c8c>[<#c58cff>▶<#8c8c8c>] <#c58cff>Click<#f2f0e6> — open'
   event:
     title: '<#20252b>Hidden Roles'
+    loading-name: '<#f4bd6a>Loading event state'
+    loading-lore:
+      - '<#aaa49a>Please wait while the current queue is loaded.'
     overview-name: '<#e3b341><bold>About this event'
     overview-lore:
       - '<#f2f0e6>Innocents and detectives hunt traitors'
@@ -279,6 +285,9 @@ menu:
       - '<#f2f0e6>Innocents do not have a role shop.'
   common:
     back-name: '<#92bed8><bold>Back'
+    close-name: '<#aaa49a>Close'
+    close-lore:
+      - '<#aaa49a>Close the event menu.'
     back-lore:
       - '<#f2f0e6>Return to the previous menu.'
       - ''

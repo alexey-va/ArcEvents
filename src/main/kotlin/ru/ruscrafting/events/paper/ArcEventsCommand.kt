@@ -27,11 +27,11 @@ class ArcEventsCommand(
 
     override fun onCommand(sender: CommandSender, command: Command, label: String, args: Array<out String>): Boolean {
         if (args.isEmpty()) {
-            if (sender is Player) menu.open(sender) else sender.sendEventMessage(locale.render("command.help", sender))
+            if (sender is Player) menu.openRoot(sender) else sender.sendEventMessage(locale.render("command.help", sender))
             return true
         }
         when (args[0].lowercase()) {
-            "menu" -> player(sender)?.let(menu::open)
+            "menu" -> player(sender)?.let(menu::openRoot)
             "join" -> player(sender)?.let(service::joinQueue)
             "start" -> player(sender)?.let { player ->
                 if (settings().eventControls.creatorControlsEnabled || player.hasPermission("arcevents.start") ||
@@ -45,9 +45,9 @@ class ArcEventsCommand(
             "leave" -> player(sender)?.let(service::leave)
             "spawn" -> player(sender)?.let(service::requestMapSpawnReturn)
             "status" -> player(sender)?.let(service::status)
-            "shop" -> player(sender)?.let { menu.open(it, EventsView.Shop) }
-            "roster" -> player(sender)?.let { menu.open(it, EventsView.Roster) }
-            "report" -> player(sender)?.let { menu.open(it, EventsView.Report) }
+            "shop" -> player(sender)?.let { menu.openRoot(it, EventsView.Shop) }
+            "roster" -> player(sender)?.let { menu.openRoot(it, EventsView.Roster) }
+            "report" -> player(sender)?.let { menu.openRoot(it, EventsView.Report) }
             "team" -> team(sender, args.drop(1))
             "reload" -> sendReload(sender)
             "admin" -> admin(sender, args.drop(1))
@@ -131,7 +131,7 @@ class ArcEventsCommand(
     private fun admin(sender: CommandSender, args: List<String>) {
         if (!sender.hasPermission("arcevents.admin")) return deny(sender)
         if (args.isEmpty() || args[0].equals("menu", true)) {
-            if (sender is Player) menu.open(sender, EventsView.Admin) else sender.sendEventMessage(locale.render("command.help", sender))
+            if (sender is Player) menu.openRoot(sender, EventsView.Admin) else sender.sendEventMessage(locale.render("command.help", sender))
             return
         }
         when (args[0].lowercase()) {
@@ -273,7 +273,7 @@ class ArcEventsCommand(
             "cleanup" -> service.debugCleanup()
             "menu" -> withPlayer(args.getOrNull(1)) { target ->
                 val view = parseView(args.getOrNull(2)) ?: return@withPlayer DebugMutationResult.INVALID_ARGUMENT
-                menu.open(target, view)
+                menu.openRoot(target, view)
                 DebugMutationResult.APPLIED
             }
             "close" -> withPlayer(args.getOrNull(1)) { target ->

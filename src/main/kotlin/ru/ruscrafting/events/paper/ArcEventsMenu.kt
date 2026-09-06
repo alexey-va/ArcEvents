@@ -13,6 +13,7 @@ import ru.arc.core.Tasks
 import ru.arc.paper.menu.PaperMenuConfiguration
 import ru.arc.paper.menu.PaperMenuFrame
 import ru.arc.paper.menu.PaperMenuRuntime
+import ru.arc.paper.menu.PaperDialogRuntime
 import ru.arc.paper.menu.physicalFrame
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
@@ -50,11 +51,14 @@ class ArcEventsMenu(
     private val settings: () -> ArcEventsConfig,
     private val reload: () -> Result<Unit>,
     private val layouts: ArcEventsMenuLayouts,
+    private val escapeCloses: (Player) -> Boolean = { false },
 ) : AutoCloseable {
 
     private val pendingClicks = mutableSetOf<UUID>()
+    private val pendingDialogLoads = mutableMapOf<UUID, UUID>()
     private val selectedArenas = mutableMapOf<UUID, String>()
-    private val dialogs = ArcEventsDialogMenu(service, locale, settings, ::dispatchClick)
+    private val dialogRuntime = PaperDialogRuntime(plugin)
+    private val dialogs = ArcEventsDialogMenu(dialogRuntime, service, locale, settings, ::dispatchClick, escapeCloses = escapeCloses)
     private val menuRuntime = PaperMenuRuntime(plugin, Tasks.scheduler, layouts.current())
     private val activeFrames = mutableMapOf<UUID, ActiveFrame>()
 
@@ -64,7 +68,17 @@ class ArcEventsMenu(
         val arenaIds: List<String> = emptyList(),
     )
 
+    /** Command/hotkey entry: discard an older dialog flow before rendering a root. */
+    fun openRoot(player: Player, view: EventsView = EventsView.Main) {
+        pendingDialogLoads.remove(player.uniqueId)
+        if (view !in nativeDialogViews) dialogRuntime.close(player)
+        dialogRuntime.beginFlow(player)
+        open(player, view)
+    }
+
     fun open(player: Player, view: EventsView = EventsView.Main) {
+        if (view != EventsView.Ttt) pendingDialogLoads.remove(player.uniqueId)
+        if (view !in nativeDialogViews) dialogRuntime.close(player)
         if (view == EventsView.Ttt) {
             openTtt(player)
             return
@@ -116,7 +130,9 @@ class ArcEventsMenu(
 
     override fun close() {
         activeFrames.clear()
+        pendingDialogLoads.clear()
         menuRuntime.close()
+        dialogRuntime.close()
     }
 
     private fun dispatchClick(player: Player, view: EventsView, slot: Int) {
@@ -136,6 +152,10 @@ class ArcEventsMenu(
             EventsView.Report -> clickReport(player, slot)
             is EventsView.CombatLog -> clickCombatLog(player, view.page, slot)
         }
+    }
+
+    companion object {
+        val nativeDialogViews = setOf<EventsView>(EventsView.Main, EventsView.Help, EventsView.EventHelp, EventsView.Ttt, EventsView.Statistics, EventsView.Admin)
     }
 
     private fun openMain(player: Player) {
@@ -257,9 +277,15 @@ class ArcEventsMenu(
     }
 
     private fun openTtt(player: Player) {
+        val loadToken = UUID.randomUUID()
+        pendingDialogLoads[player.uniqueId] = loadToken
+        val dialogLoading = dialogs.openTttLoading(player, { openTtt(player) }) {
+            pendingDialogLoads.remove(player.uniqueId, loadToken)
+        }
         service.queueControl(player.uniqueId).whenComplete { queueControl, failure ->
             Tasks.scheduler.runSync {
-                if (!player.isOnline) return@runSync
+                if (!player.isOnline || pendingDialogLoads[player.uniqueId] != loadToken) return@runSync
+                pendingDialogLoads.remove(player.uniqueId, loadToken)
                 val state = service.snapshot()
                 val queueState = queueControl?.state
                 val controls = settings().eventControls
@@ -281,7 +307,9 @@ class ArcEventsMenu(
                     canSelectArena = canControl && (controls.creatorArenaSelectionEnabled || adminOverride),
                 )
                 val selectedArena = arenaName(selectedArenaId(player.uniqueId), player)
-                if (dialogs.openTtt(player, queueState, plan, selectedArena)) return@runSync
+                if (dialogLoading && dialogs.openTtt(player, queueState, plan, selectedArena, { openTtt(player) }) {
+                    pendingDialogLoads.remove(player.uniqueId, loadToken)
+                }) return@runSync
                 val view = EventsView.Ttt
                 val inventory = inventory(player, view, "menu.event.title")
                 val values = mapOf(
@@ -926,9 +954,6 @@ class ArcEventsMenu(
         AdminStopResult.MATCH -> "admin.stopped"
         AdminStopResult.RESERVATION -> "admin.reservation-cancelled"
         AdminStopResult.NO_MATCH -> "admin.no-match"
-    }
-
-    companion object {
     }
 
 }

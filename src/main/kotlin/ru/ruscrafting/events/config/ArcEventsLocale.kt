@@ -58,8 +58,8 @@ class ArcEventsLocale(
             "state.mode-relay", "state.mode-host",
             "phase.idle", "phase.reserved", "phase.preparing", "phase.countdown", "phase.active",
             "phase.resolving", "phase.restoring", "phase.completed", "phase.cancelled",
-            "menu.main.title", "menu.main.ttt-name", "menu.main.stats-name", "menu.main.help-name", "menu.main.admin-name",
-            "menu.event.title", "menu.event.overview-name", "menu.event.queue-name", "menu.event.join-name",
+            "menu.main.title", "menu.main.ttt-name", "menu.main.stats-name", "menu.main.help-name", "menu.main.admin-name", "menu.common.close-name",
+            "menu.event.title", "menu.event.loading-name", "menu.event.overview-name", "menu.event.queue-name", "menu.event.join-name",
             "menu.event.join-unavailable-name", "menu.event.leave-name", "menu.event.start-name", "menu.event.roster-name",
             "menu.event.arena-name", "menu.event.shop-name", "menu.event.report-name", "menu.event.help-name", "menu.event.evacuate-name",
             "menu.event-arenas.title", "menu.event-arenas.entry-name", "menu.event-arenas.auto-name", "menu.event.state.queued",
@@ -115,8 +115,8 @@ class ArcEventsLocale(
         } + FirearmRarity.entries.map { rarity -> "weapon.rarity.${rarity.name.lowercase()}" }
 
         val REQUIRED_LISTS = setOf(
-            "menu.main.ttt-lore", "menu.main.stats-lore", "menu.main.help-lore", "menu.main.admin-lore",
-            "menu.event.overview-lore", "menu.event.queue-lore", "menu.event.join-lore", "menu.event.join-unavailable-lore",
+            "menu.main.ttt-lore", "menu.main.stats-lore", "menu.main.help-lore", "menu.main.admin-lore", "menu.main.main-body", "menu.common.close-lore",
+            "menu.event.loading-lore", "menu.event.overview-lore", "menu.event.queue-lore", "menu.event.join-lore", "menu.event.join-unavailable-lore",
             "menu.event.leave-lore", "menu.event.start-lore", "menu.event.arena-lore", "menu.event.roster-lore", "menu.event.shop-lore",
             "menu.event.report-lore", "menu.event.help-lore", "menu.event.evacuate-lore", "menu.stats.summary-lore", "menu.help.weapons-lore",
             "menu.help.flow-lore",

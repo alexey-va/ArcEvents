@@ -4,6 +4,7 @@ import com.google.gson.Gson
 import kotlinx.coroutines.runBlocking
 import org.bukkit.plugin.java.JavaPlugin
 import org.bukkit.generator.ChunkGenerator
+import net.luckperms.api.LuckPerms
 import org.slf4j.LoggerFactory
 import ru.arc.core.PaperArcRuntime
 import ru.arc.core.Tasks
@@ -160,7 +161,9 @@ class ArcEventsPlugin : JavaPlugin() {
                     dependencies = mapOf("redis" to redisReady),
                 )
             }
-            menu = ArcEventsMenu(this, activeService, items, locale, { settings }, ::reloadPlugin, menuLayouts)
+            val luckPerms = server.servicesManager.getRegistration(LuckPerms::class.java)?.provider
+            menu = ArcEventsMenu(this, activeService, items, locale, { settings }, ::reloadPlugin, menuLayouts,
+                escapeCloses = { player -> luckPerms?.userManager?.getUser(player.uniqueId)?.cachedData?.metaData?.getMetaValue("arc-menu-escape")?.equals("close", true) == true })
             lifecycle.own(menu)
             val command = ArcEventsCommand(this, activeService, menu, weaponPointEditor, locale, { settings }, ::reloadPlugin)
             requireNotNull(getCommand("arcevents")).apply {
