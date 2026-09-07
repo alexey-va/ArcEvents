@@ -118,6 +118,21 @@ class ArcadeMatchRuntimeTest : StringSpec({
         runtime.current!!.participants.keys.forEach(runtime::markRecoveryApplied)
         runtime.release(); runtime.current shouldBe null
 
+        val lateClock = Clock(0L)
+        val late = ArcadeMatchRuntime(lateClock::read)
+        late.start(UUID.randomUUID(), EventMode.GUN_GAME, players(3), ArcadeRules(2, 16, 0, 0, 30))
+        late.tick()
+        val lateIds = late.current!!.participants.keys.toList()
+        late.disconnect(lateIds[2])
+        lateClock.now = 30_000L
+        late.tick()
+        late.beginRestoring()
+        late.markRecoveryApplied(lateIds[0])
+        late.markRecoveryApplied(lateIds[1])
+        late.phase shouldBe MatchPhase.COMPLETED
+        late.markRecoveryApplied(lateIds[2]).participants.getValue(lateIds[2]).status shouldBe ParticipantStatus.RESTORED
+        late.markRecoveryApplied(lateIds[2]).revision shouldBe late.current!!.revision
+
         val active = ArcadeMatchRuntime { 0L }
         active.start(UUID.randomUUID(), EventMode.GUN_GAME, players(3), ArcadeRules(2, 16, 0, 0, 30))
         shouldThrow<IllegalArgumentException> { active.release() }
