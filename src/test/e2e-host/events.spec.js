@@ -40,6 +40,15 @@ async function waitForFiringPosition(...players) {
   assert.fail(`teleport did not settle at the firing position: ${players.map((entry) => `${entry.username}:${entry.bot.entity?.position.y}`).join(', ')}`);
 }
 
+async function waitForWeapon(player, weaponId) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const weapon = player.bot.inventory.slots[36];
+    if (weapon && weapon.name !== 'air' && new RegExp(weaponId, 'i').test(JSON.stringify(weapon.nbt ?? weapon))) return weapon;
+    await pause(50);
+  }
+  return player.bot.inventory.slots[36];
+}
+
 async function createConnected(createPlayer, prefix) {
   const username = `${prefix}${Math.floor(Math.random() * 1_000_000)}`;
   assert.ok(username.length <= 16, `invalid Minecraft username: ${username}`);
@@ -99,7 +108,7 @@ test('Gun Game advances through every firearm and finishes on the real knife hit
   try {
     await startGunGame(players);
     for (let stage = 0; stage < 12; stage += 1) {
-      const weapon = players[0].bot.inventory.slots[36];
+      const weapon = await waitForWeapon(players[0], firearmIds[stage]);
       assert.ok(weapon, `missing Gun Game weapon at stage ${stage}`);
       assert.notEqual(weapon.name, 'air', `empty Gun Game weapon at stage ${stage}`);
       assert.match(JSON.stringify(weapon.nbt ?? weapon), new RegExp(firearmIds[stage], 'i'), `wrong firearm at stage ${stage}`);
