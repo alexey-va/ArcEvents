@@ -251,9 +251,17 @@ run Testcontainers or the integration-bearing `check` task locally.
 The Plugwright suite in `src/test/e2e` runs ArcEvents on Paper 1.21.11 with a
 disposable Redis instance. Its relay fixture has no host arena, so the
 acceptance journey verifies the real player command route rejects queue
-admission and keeps status and leave stable. Run it locally with the shared
-Paper runner from the workspace: `python3 /tmp/arc-plugwright-run.py
-./gradlew plugwrightTest`.
+admission and keeps status and leave stable. The hosted suite in
+`src/test/e2e-host` runs a real Paper host and disposable Redis through the
+GunGame firearm-to-knife win, seeded exact restoration and disconnect recovery,
+plus a real TTT role allocation, traitor-blade eliminations, winner report and
+exact restoration. The TTT case grants a tagged traitor blade through the
+permission-gated debug setup to make the combat path deterministic; it checks
+the allocated role through that same lab inspection command, so it does not
+itself establish that role secrecy is hidden from an administrator. Run the
+relay suite locally with the shared Paper runner from the workspace:
+`python3 /tmp/arc-plugwright-run.py ./gradlew plugwrightTest`; set
+`ARC_EVENTS_E2E_HOST=1` for the hosted profile.
 
 The three production locale mirrors are governed by the durable `arcevents`
 translation profile:

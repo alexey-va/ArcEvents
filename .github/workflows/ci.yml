@@ -75,7 +75,7 @@ jobs:
           mkdir -p build
           ./gradlew --no-daemon plugwrightTest 2>&1 | tee build/plugwright-e2e.log
           git diff --exit-code -- src/test/e2e/package-lock.json
-      - name: Test hosted Gun Game on real Paper
+      - name: Test hosted GunGame and TTT on real Paper
         shell: bash
         run: |
           set -o pipefail
