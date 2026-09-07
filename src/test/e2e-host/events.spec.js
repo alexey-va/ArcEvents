@@ -64,7 +64,7 @@ async function seedPlayerState(admin, player, index) {
   const command = async (text) => {
     const marker = admin.getMessageBufferIndex();
     admin.chat(text);
-    await expect(admin).toHaveReceivedMessage(/Given|Set item|Set experience|Experience/i, { since: marker, timeout: 5000 });
+    await expect(admin).toHaveReceivedMessage(/Gave|replaced|Set|Experience/i, { since: marker, timeout: 5000 });
   };
   await command(`/give ${player.username} minecraft:diamond[custom_name='{"text":"E2E-${index}"}'] 3`);
   await command(`/item replace entity ${player.username} armor.head with minecraft:golden_helmet`);
