@@ -17,6 +17,23 @@ ui:
   particles: false
   loot-displays: false
 
+debug:
+  enabled: true
+  allowed-server-ids: [parkour]
+
+ttt:
+  minimum-players: 4
+  maximum-players: 4
+  preparation-seconds: 3
+  countdown-seconds: 3
+  round-seconds: 60
+  post-round-seconds: 3
+  traitor-player-ratio: 3
+  detective-minimum-players: 4
+  traitor-credits: 2
+  detective-credits: 1
+  body-despawn-seconds: 60
+
 arcade:
   gungame:
     minimum-players: 2

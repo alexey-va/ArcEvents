@@ -27,6 +27,25 @@ function assertRestored(player, before) {
     `${player.username} location was not restored`);
 }
 
+function assertSeeded(player, index) {
+  const state = snapshot(player);
+  assert.ok(state.inventory.some((item) => item?.name === 'diamond' && JSON.stringify(item).includes(`E2E-${index}`)),
+    `${player.username} did not receive the named component item`);
+  assert.ok(state.armor.some((item) => item?.name === 'golden_helmet'), `${player.username} helmet was not seeded`);
+  assert.equal(state.offhand?.name, 'shield', `${player.username} offhand was not seeded`);
+  assert.ok(state.experience.level >= index + 3, `${player.username} XP was not seeded`);
+}
+
+async function waitForRestored(player, before) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const after = snapshot(player);
+    if (JSON.stringify(after.inventory) === JSON.stringify(before.inventory) &&
+        JSON.stringify(after.experience) === JSON.stringify(before.experience)) return;
+    await pause(100);
+  }
+  assertRestored(player, before);
+}
+
 const pause = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 async function waitForFiringPosition(...players) {
@@ -96,6 +115,49 @@ async function startGunGame(players) {
   await expect(players[0]).toHaveReceivedMessage(/Gun Game has started\./, { timeout: 15000 });
 }
 
+async function startTtt(players) {
+  await players[0].makeOp();
+  players[0].chat(`/lp user ${players[0].username} permission set arcevents.start true`);
+  await expect(players[0]).toHaveReceivedMessage('Set arcevents.start to true');
+  for (const player of players) await join(player);
+  players[0].chat('/arcevents start ttt');
+  await expect(players[0]).toHaveReceivedMessage(/Start confirmed\./);
+  await expect(players[0]).toHaveReceivedMessage(/Round preparation/i, { timeout: 15000 });
+  await expect(players[0]).toHaveReceivedMessage(/Round started/i, { timeout: 15000 });
+}
+
+async function qaPlayer(admin, player, pattern) {
+  const marker = admin.getMessageBufferIndex();
+  admin.chat(`/arcevents debug player ${player.username}`);
+  await expect(admin).toHaveReceivedMessage(pattern, { since: marker, timeout: 5000 });
+}
+
+async function grantTraitorBlade(admin, traitor) {
+  const marker = admin.getMessageBufferIndex();
+  admin.chat(`/arcevents debug item ${traitor.username} traitor_blade`);
+  await expect(admin).toHaveReceivedMessage(/Debug action applied: item/i, { since: marker, timeout: 5000 });
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const slot = traitor.bot.inventory.slots.findIndex((item) => JSON.stringify(item).includes('TRAITOR_BLADE'));
+    if (slot >= 0) return slot;
+    await pause(50);
+  }
+  assert.fail(`${traitor.username} did not receive a tagged traitor blade`);
+}
+
+async function tttKill(admin, attacker, victim, bladeSlot) {
+  admin.chat(`/tp ${attacker.username} -12.5 16 -12.5`);
+  await expect(admin).toHaveReceivedMessage(new RegExp(`Teleported ${attacker.username}`), { timeout: 5000 });
+  admin.chat(`/tp ${victim.username} -10.5 16 -12.5`);
+  await expect(admin).toHaveReceivedMessage(new RegExp(`Teleported ${victim.username}`), { timeout: 5000 });
+  await waitForFiringPosition(attacker, victim);
+  const marker = victim.getMessageBufferIndex();
+  attacker.bot.setQuickBarSlot(bladeSlot - 36);
+  await pause(250);
+  await attacker.bot.lookAt(victim.bot.entity.position.offset(0, 1.2, 0), true);
+  attacker.bot.attack(victim.bot.entity);
+  await expect(victim).toHaveReceivedMessage(/Spectator mode/i, { since: marker, timeout: 10000 });
+}
+
 async function shoot(attacker, victim) {
   attacker.bot.chat(`/tp ${attacker.username} -12.5 16 -12.5`);
   await expect(attacker).toHaveReceivedMessage(new RegExp(`Teleported ${attacker.username}`), { timeout: 5000 });
@@ -120,6 +182,8 @@ test('Gun Game advances through every firearm and finishes on the real knife hit
   await player.makeOp();
   await seedPlayerState(player, player, 0);
   await seedPlayerState(player, rival, 1);
+  assertSeeded(player, 0);
+  assertSeeded(rival, 1);
   const before = players.map(snapshot);
   try {
     await startGunGame(players);
@@ -151,6 +215,45 @@ test('Gun Game advances through every firearm and finishes on the real knife hit
   }
 });
 
+test('TTT assigns hidden roles, completes a real traitor blade win, and restores exact state', async ({ player, createPlayer }) => {
+  const players = [
+    player,
+    await createConnected(createPlayer, 'TttA'),
+    await createConnected(createPlayer, 'TttB'),
+    await createConnected(createPlayer, 'TttC'),
+  ];
+  let traitor;
+  const before = [];
+  try {
+    await player.makeOp();
+    for (const [index, entry] of players.entries()) await seedPlayerState(player, entry, index);
+    players.forEach((entry, index) => { assertSeeded(entry, index); before[index] = snapshot(entry); });
+    await startTtt(players);
+    for (const entry of players) {
+      const marker = player.getMessageBufferIndex();
+      player.chat(`/arcevents debug player ${entry.username}`);
+      try {
+        await expect(player).toHaveReceivedMessage(new RegExp(`player=${entry.username}.*phase=active.*role=traitor`, 'i'), { since: marker, timeout: 5000 });
+        traitor = entry;
+      } catch {
+        // QA role output is intentionally used only by this permission-gated harness.
+      }
+    }
+    assert.ok(traitor, 'QA role snapshot did not identify a traitor');
+    const victims = players.filter((entry) => entry !== traitor);
+    for (const victim of victims) {
+      const bladeSlot = await grantTraitorBlade(player, traitor);
+      await tttKill(player, traitor, victim, bladeSlot);
+    }
+    await qaPlayer(player, traitor, new RegExp(`player=${traitor.username}.*role=traitor.*kills=3`));
+    await expect(traitor).toHaveReceivedMessage(/The report is ready/i, { timeout: 10000 });
+    for (const entry of players) await expect(entry).toHaveReceivedMessage(/Your pre-event state was restored\./, { timeout: 15000 });
+    players.forEach((entry, index) => assertRestored(entry, before[index]));
+  } finally {
+    await cleanup(players);
+  }
+});
+
 test('Gun Game disconnect removes one participant while the two-player match stays active, then cleans up', async ({ player, createPlayer }) => {
   const leaver = await createConnected(createPlayer, 'Leaver');
   const keeper = await createConnected(createPlayer, 'Keeper');
@@ -160,6 +263,9 @@ test('Gun Game disconnect removes one participant while the two-player match sta
   await seedPlayerState(player, player, 0);
   await seedPlayerState(player, leaver, 1);
   await seedPlayerState(player, keeper, 2);
+  assertSeeded(player, 0);
+  assertSeeded(leaver, 1);
+  assertSeeded(keeper, 2);
   const before = players.map(snapshot);
   try {
     await startGunGame(players);
@@ -174,7 +280,7 @@ test('Gun Game disconnect removes one participant while the two-player match sta
     assertRestored(players[0], before[0]);
     assertRestored(players[2], before[2]);
     rejoined = await createPlayer({ username: leaver.username });
-    await pause(1500);
+    await waitForRestored(rejoined, before[1]);
     assertRestored(rejoined, before[1]);
   } finally {
     await cleanup(rejoined ? [...players, rejoined] : players);
