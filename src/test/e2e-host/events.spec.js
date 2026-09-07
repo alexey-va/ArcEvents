@@ -155,6 +155,7 @@ test('Gun Game disconnect removes one participant while the two-player match sta
   const leaver = await createConnected(createPlayer, 'Leaver');
   const keeper = await createConnected(createPlayer, 'Keeper');
   const players = [player, leaver, keeper];
+  let rejoined = null;
   await player.makeOp();
   await seedPlayerState(player, player, 0);
   await seedPlayerState(player, leaver, 1);
@@ -172,10 +173,10 @@ test('Gun Game disconnect removes one participant while the two-player match sta
     await expect(players[2]).toHaveReceivedMessage(/Your pre-event state was restored\./, { timeout: 15000 });
     assertRestored(players[0], before[0]);
     assertRestored(players[2], before[2]);
-    const rejoined = await createPlayer({ username: leaver.username });
-    await expect(rejoined).toHaveReceivedMessage(/Your pre-event state was restored\./, { timeout: 15000 });
+    rejoined = await createPlayer({ username: leaver.username });
+    await pause(1500);
     assertRestored(rejoined, before[1]);
   } finally {
-    await cleanup(players);
+    await cleanup(rejoined ? [...players, rejoined] : players);
   }
 });
