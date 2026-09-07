@@ -1,0 +1,53 @@
+enabled: true
+server-id: parkour
+node-mode: HOST
+host-server: parkour
+
+network:
+  enabled: true
+  allowed-origins: [parkour]
+  transfer-on-reservation: false
+  return-to-origin: false
+
+locale:
+  default: en
+  use-client-locale: false
+
+ui:
+  particles: false
+  loot-displays: false
+
+arcade:
+  gungame:
+    minimum-players: 2
+    preparation-seconds: 1
+    countdown-seconds: 1
+    round-seconds: 180
+    post-round-seconds: 1
+    respawn-seconds: 1
+    spawn-protection-seconds: 0
+
+arena:
+  enabled: true
+  world: arcevents_e2e
+  template: citadel-v1
+  lobby: 0.5,42.0,0.5,180,0
+  spectator: 0.5,38.0,0.5
+  minimum: -72.0,4.0,-72.0
+  maximum: 72.0,48.0,72.0
+  spawns: ["-12.5,16.0,-12.5,45,0"]
+
+weapons:
+  catalog:
+    flintlock: {magazine-size: 64, damage-per-pellet: 40.0, spread-degrees: 0.0, cooldown-ticks: 1, reload-ticks: 1}
+    revolver: {magazine-size: 64, damage-per-pellet: 40.0, spread-degrees: 0.0, cooldown-ticks: 1, reload-ticks: 1}
+    hand_cannon: {magazine-size: 64, damage-per-pellet: 40.0, spread-degrees: 0.0, cooldown-ticks: 1, reload-ticks: 1}
+    double_barrel: {magazine-size: 64, damage-per-pellet: 40.0, spread-degrees: 0.0, cooldown-ticks: 1, reload-ticks: 1}
+    five_seven: {magazine-size: 64, damage-per-pellet: 40.0, spread-degrees: 0.0, cooldown-ticks: 1, reload-ticks: 1}
+    g36: {magazine-size: 64, damage-per-pellet: 40.0, spread-degrees: 0.0, cooldown-ticks: 1, reload-ticks: 1}
+    aek_971: {magazine-size: 64, damage-per-pellet: 40.0, spread-degrees: 0.0, cooldown-ticks: 1, reload-ticks: 1}
+    rpl_20: {magazine-size: 64, damage-per-pellet: 40.0, spread-degrees: 0.0, cooldown-ticks: 1, reload-ticks: 1}
+    vepr_12: {magazine-size: 64, damage-per-pellet: 40.0, spread-degrees: 0.0, cooldown-ticks: 1, reload-ticks: 1}
+    m1_garand: {magazine-size: 64, damage-per-pellet: 40.0, spread-degrees: 0.0, cooldown-ticks: 1, reload-ticks: 1}
+    vss_vintorez: {magazine-size: 64, damage-per-pellet: 40.0, spread-degrees: 0.0, cooldown-ticks: 1, reload-ticks: 1}
+    mcmillan: {magazine-size: 64, damage-per-pellet: 40.0, spread-degrees: 0.0, cooldown-ticks: 1, reload-ticks: 1}

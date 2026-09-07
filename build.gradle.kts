@@ -103,17 +103,25 @@ dependencyLocking { lockAllConfigurations() }
 
 plugwright {
     minecraftVersion.set("1.21.11")
-    runDir.set(layout.buildDirectory.dir("plugwright"))
-    testsDir.set(layout.projectDirectory.dir("src/test/e2e"))
+    val hostE2e = providers.environmentVariable("ARC_EVENTS_E2E_HOST").orNull == "1"
+    runDir.set(layout.buildDirectory.dir(if (hostE2e) "plugwright-host" else "plugwright"))
+    testsDir.set(layout.projectDirectory.dir(if (hostE2e) "src/test/e2e-host" else "src/test/e2e"))
     downloadNode.set(true)
     nodeVersion.set("22.14.0")
     acceptEula.set(true)
-    jvmArgs.set(listOf("-Xms512M", "-Xmx2G", "-XX:ActiveProcessorCount=2"))
+    jvmArgs.set(
+        listOf("-Xms512M", "-Xmx2G", "-XX:ActiveProcessorCount=2") +
+            if (hostE2e) listOf("-Dterminal.jline=false", "-Djna.nounpack=true") else emptyList(),
+    )
     downloadPlugins {
         url("https://cdn.modrinth.com/data/Vebnzrzj/versions/OrIs0S6b/LuckPerms-Bukkit-5.5.17.jar")
     }
     writeFiles {
         file("server.properties", projectDir.resolve("src/test/e2e/fixtures/server.properties"))
-        file("plugins/ArcEvents/modules/redis.yml", projectDir.resolve("src/test/e2e/fixtures/redis.yml"))
+        file(
+            "plugins/ArcEvents/modules/redis.yml",
+            projectDir.resolve(if (hostE2e) "src/test/e2e/fixtures/host-redis.yml" else "src/test/e2e/fixtures/redis.yml"),
+        )
+        if (hostE2e) file("plugins/ArcEvents/config.yml", projectDir.resolve("src/test/e2e/fixtures/host-config.yml"))
     }
 }

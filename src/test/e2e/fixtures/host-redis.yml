@@ -1,0 +1,7 @@
+enabled: true
+host: 127.0.0.1
+port: 16379
+username: default
+password: e2e-secret
+server-name: parkour
+main-server: false
