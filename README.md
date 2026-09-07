@@ -268,3 +268,12 @@ Direct `/arcevents` entry starts a new flow. Informational and loading screens
 use one muted footer; the TTT loading result replaces its current visit and
 late replies cannot reopen a dismissed menu. Unsupported clients and tactical
 inventory screens retain the inventory frontend.
+
+
+### Optional ARC telemetry and world loading
+
+ArcEvents must load before My_Worlds so persisted arena worlds can resolve their
+generators. ARC loads after My_Worlds, so declaring ARC in ArcEvents softdepend
+would create a Paper load cycle. Event completion uses ARC's enabled plugin
+classloader at call time instead; absence or telemetry errors remain harmless.
+Other dependencies and early generator registration are unchanged.
