@@ -60,6 +60,19 @@ async function join(player) {
   await expect(player).toHaveReceivedMessage(/Your queue place is confirmed\./);
 }
 
+async function seedPlayerState(admin, player, index) {
+  const command = async (text) => {
+    const marker = admin.getMessageBufferIndex();
+    admin.chat(text);
+    await expect(admin).toHaveReceivedMessage(/Given|Set item|Set experience|Experience/i, { since: marker, timeout: 5000 });
+  };
+  await command(`/give ${player.username} minecraft:diamond[custom_name='{"text":"E2E-${index}"}'] 3`);
+  await command(`/item replace entity ${player.username} armor.head with minecraft:golden_helmet`);
+  await command(`/item replace entity ${player.username} weapon.offhand with minecraft:shield`);
+  await command(`/experience set ${player.username} ${index + 3} levels`);
+  await pause(250);
+}
+
 async function cleanup(players) {
   for (const player of players) {
     try {
@@ -104,6 +117,9 @@ test('Gun Game advances through every firearm and finishes on the real knife hit
   const rival = await createConnected(createPlayer, 'Rival');
   const players = [player, rival];
   const firearmIds = ['flintlock', 'revolver', 'hand_cannon', 'double_barrel', 'five_seven', 'g36', 'aek_971', 'rpl_20', 'vepr_12', 'm1_garand', 'vss_vintorez', 'mcmillan'];
+  await player.makeOp();
+  await seedPlayerState(player, player, 0);
+  await seedPlayerState(player, rival, 1);
   const before = players.map(snapshot);
   try {
     await startGunGame(players);
@@ -139,6 +155,10 @@ test('Gun Game disconnect removes one participant while the two-player match sta
   const leaver = await createConnected(createPlayer, 'Leaver');
   const keeper = await createConnected(createPlayer, 'Keeper');
   const players = [player, leaver, keeper];
+  await player.makeOp();
+  await seedPlayerState(player, player, 0);
+  await seedPlayerState(player, leaver, 1);
+  await seedPlayerState(player, keeper, 2);
   const before = players.map(snapshot);
   try {
     await startGunGame(players);
@@ -152,6 +172,9 @@ test('Gun Game disconnect removes one participant while the two-player match sta
     await expect(players[2]).toHaveReceivedMessage(/Your pre-event state was restored\./, { timeout: 15000 });
     assertRestored(players[0], before[0]);
     assertRestored(players[2], before[2]);
+    const rejoined = await createPlayer({ username: leaver.username });
+    await expect(rejoined).toHaveReceivedMessage(/Your pre-event state was restored\./, { timeout: 15000 });
+    assertRestored(rejoined, before[1]);
   } finally {
     await cleanup(players);
   }
