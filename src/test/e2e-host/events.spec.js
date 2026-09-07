@@ -43,7 +43,7 @@ async function waitForFiringPosition(...players) {
 async function waitForWeapon(player, weaponId) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const weapon = player.bot.inventory.slots[36];
-    if (weapon && weapon.name !== 'air' && new RegExp(weaponId, 'i').test(JSON.stringify(weapon.nbt ?? weapon))) return weapon;
+    if (weapon && weapon.name !== 'air' && new RegExp(weaponId, 'i').test(JSON.stringify(weapon))) return weapon;
     await pause(50);
   }
   return player.bot.inventory.slots[36];
@@ -111,7 +111,7 @@ test('Gun Game advances through every firearm and finishes on the real knife hit
       const weapon = await waitForWeapon(players[0], firearmIds[stage]);
       assert.ok(weapon, `missing Gun Game weapon at stage ${stage}`);
       assert.notEqual(weapon.name, 'air', `empty Gun Game weapon at stage ${stage}`);
-      assert.match(JSON.stringify(weapon.nbt ?? weapon), new RegExp(firearmIds[stage], 'i'),
+      assert.match(JSON.stringify(weapon), new RegExp(firearmIds[stage], 'i'),
         `wrong firearm at stage ${stage}: ${JSON.stringify(weapon)}`);
       await shoot(players[0], players[1]);
     }
