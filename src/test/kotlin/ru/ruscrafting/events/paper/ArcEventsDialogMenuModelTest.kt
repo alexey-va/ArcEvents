@@ -4,6 +4,7 @@ import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import net.kyori.adventure.text.Component
 import org.bukkit.entity.Player
 import ru.arc.paper.menu.PaperDialogRuntime
@@ -14,6 +15,19 @@ import java.nio.file.Files
 import java.util.UUID
 
 class ArcEventsDialogMenuModelTest : StringSpec({
+    "native domain exits close the dialog while inventory exits close the container" {
+        val player = mockk<Player>(relaxed = true)
+        var dialogCloses = 0
+
+        ArcEventsMenu.closeSurfaceForPresentation(player, nativePresentation = true) { dialogCloses++ }
+        dialogCloses shouldBe 1
+        verify(exactly = 0) { player.closeInventory() }
+
+        ArcEventsMenu.closeSurfaceForPresentation(player, nativePresentation = false) { dialogCloses++ }
+        dialogCloses shouldBe 1
+        verify(exactly = 1) { player.closeInventory() }
+    }
+
     "native entry models expose purpose, footer and loading state" {
         val root = Files.createTempDirectory("arcevents-dialog-model-")
         try {

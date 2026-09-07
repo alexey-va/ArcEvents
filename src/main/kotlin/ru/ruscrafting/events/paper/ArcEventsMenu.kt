@@ -58,7 +58,10 @@ class ArcEventsMenu(
     private val pendingDialogLoads = mutableMapOf<UUID, UUID>()
     private val selectedArenas = mutableMapOf<UUID, String>()
     private val dialogRuntime = PaperDialogRuntime(plugin)
-    private val dialogs = ArcEventsDialogMenu(dialogRuntime, service, locale, settings, ::dispatchClick, escapeCloses = escapeCloses)
+    private val dialogs = ArcEventsDialogMenu(dialogRuntime, service, locale, settings,
+        { player, view, slot -> dispatchClick(player, view, slot, nativePresentation = true) },
+        escapeCloses = escapeCloses,
+    )
     private val menuRuntime = PaperMenuRuntime(plugin, Tasks.scheduler, layouts.current())
     private val activeFrames = mutableMapOf<UUID, ActiveFrame>()
 
@@ -114,7 +117,7 @@ class ArcEventsMenu(
                 } else if (active.view == EventsView.Arenas) {
                     clickArenas(player, slot, active.arenaIds)
                 } else {
-                    dispatchClick(player, active.view, slot)
+                    dispatchClick(player, active.view, slot, nativePresentation = false)
                 }
             } finally {
                 pendingClicks.remove(player.uniqueId)
@@ -135,12 +138,12 @@ class ArcEventsMenu(
         dialogRuntime.close()
     }
 
-    private fun dispatchClick(player: Player, view: EventsView, slot: Int) {
+    private fun dispatchClick(player: Player, view: EventsView, slot: Int, nativePresentation: Boolean = false) {
         when (view) {
             EventsView.Main -> clickMain(player, slot)
             EventsView.Help -> if (slot == element(view, "back")) open(player, EventsView.Main)
             EventsView.EventHelp -> if (slot == element(view, "back")) open(player, EventsView.Ttt)
-            EventsView.Ttt -> clickTtt(player, slot)
+            EventsView.Ttt -> clickTtt(player, slot, nativePresentation)
             is EventsView.Arcade -> clickArcade(player, view.mode, slot)
             EventsView.Statistics -> if (slot == element(view, "back")) open(player, EventsView.Main)
             EventsView.Admin -> clickAdmin(player, slot)
@@ -154,8 +157,20 @@ class ArcEventsMenu(
         }
     }
 
+    private fun closeSurface(player: Player, nativePresentation: Boolean) {
+        closeSurfaceForPresentation(player, nativePresentation, dialogRuntime::close)
+    }
+
     companion object {
         val nativeDialogViews = setOf<EventsView>(EventsView.Main, EventsView.Help, EventsView.EventHelp, EventsView.Ttt, EventsView.Statistics, EventsView.Admin)
+
+        internal fun closeSurfaceForPresentation(
+            player: Player,
+            nativePresentation: Boolean,
+            closeDialog: (Player) -> Unit,
+        ) {
+            if (nativePresentation) closeDialog(player) else player.closeInventory()
+        }
     }
 
     private fun openMain(player: Player) {
@@ -352,7 +367,7 @@ class ArcEventsMenu(
         }
     }
 
-    private fun clickTtt(player: Player, slot: Int) {
+    private fun clickTtt(player: Player, slot: Int, nativePresentation: Boolean) {
         val view = EventsView.Ttt
         when (slot) {
             element(view, "left") -> if (service.roster(player.uniqueId) != null) open(player, EventsView.Roster)
@@ -364,11 +379,11 @@ class ArcEventsMenu(
                         when {
                             queueState == QueueState.QUEUED -> {
                                 selectedArenas.remove(player.uniqueId)
-                                player.closeInventory()
+                                closeSurface(player, nativePresentation)
                                 service.leaveQueue(player)
                             }
                             queueState == null && service.snapshot().hostAvailable -> {
-                                player.closeInventory()
+                                closeSurface(player, nativePresentation)
                                 service.joinQueue(player)
                             }
                             else -> open(player, EventsView.Ttt)
@@ -381,7 +396,7 @@ class ArcEventsMenu(
                 else -> service.queueControl(player.uniqueId).whenComplete { control, _ ->
                     Tasks.scheduler.runSync {
                         if (!player.isOnline) return@runSync
-                        if (control != null && canStartQueue(player, control)) startFromEventMenu(player)
+                        if (control != null && canStartQueue(player, control)) startFromEventMenu(player, nativePresentation)
                         else open(player, EventsView.Ttt)
                     }
                 }
@@ -390,14 +405,14 @@ class ArcEventsMenu(
             element(view, "help") -> open(player, EventsView.EventHelp)
             element(view, "back") -> open(player, EventsView.Main)
             element(view, "evacuate") -> if (evacuationAccessible(service.currentMatch(), service.participant(player.uniqueId))) {
-                player.closeInventory()
+                closeSurface(player, nativePresentation)
                 service.leave(player)
             }
         }
     }
 
-    private fun startFromEventMenu(player: Player) {
-        player.closeInventory()
+    private fun startFromEventMenu(player: Player, nativePresentation: Boolean) {
+        closeSurface(player, nativePresentation)
         service.startFromQueue(player, selectedArenas[player.uniqueId]).thenAccept { result ->
             Tasks.scheduler.runSync {
                 if (player.isOnline) {
