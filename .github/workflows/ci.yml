@@ -3,9 +3,9 @@ name: CI
 on:
   push:
     branches: [main]
-    paths-ignore: [docs/**, '**/*.md', .agents/**, .codex/**, src/test/e2e/**, src/test/e2e-host/**]
+    paths-ignore: [docs/**, '**/*.md', .agents/**, .codex/**]
   pull_request:
-    paths-ignore: [docs/**, '**/*.md', .agents/**, .codex/**, src/test/e2e/**, src/test/e2e-host/**]
+    paths-ignore: [docs/**, '**/*.md', .agents/**, .codex/**]
   workflow_dispatch:
 
 permissions:
@@ -75,6 +75,13 @@ jobs:
           mkdir -p build
           ./gradlew --no-daemon plugwrightTest 2>&1 | tee build/plugwright-e2e.log
           git diff --exit-code -- src/test/e2e/package-lock.json
+      - name: Test hosted Gun Game on real Paper
+        shell: bash
+        run: |
+          set -o pipefail
+          sed -i 's/16379/6379/g' src/test/e2e/fixtures/host-redis.yml
+          ARC_EVENTS_E2E_HOST=1 ./gradlew --no-daemon plugwrightTest 2>&1 | tee build/plugwright-host-e2e.log
+          git diff --exit-code -- src/test/e2e-host/package-lock.json
       - name: Upload E2E results and Paper logs
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -83,5 +90,8 @@ jobs:
           retention-days: 7
           path: |
             build/plugwright-e2e.log
+            build/plugwright-host-e2e.log
             build/plugwright/logs/
             build/plugwright/crash-reports/
+            build/plugwright-host/logs/
+            build/plugwright-host/crash-reports/
