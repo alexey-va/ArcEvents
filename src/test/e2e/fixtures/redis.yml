@@ -1,0 +1,8 @@
+enabled: true
+inherit-connection-from-arc: false
+host: 127.0.0.1
+port: 6379
+username: default
+password: e2e-secret
+server-name: parkour
+main-server: false

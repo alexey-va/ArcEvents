@@ -1,6 +1,7 @@
 plugins {
     kotlin("jvm") version "2.3.0"
     id("com.gradleup.shadow") version "9.3.0"
+    id("io.github.drownek.plugwright") version "2.0.4"
     jacoco
 }
 
@@ -96,4 +97,23 @@ tasks {
         exclude("net/kyori/adventure/**")
     }
     check { dependsOn(shadowJar, "integrationTest") }
+}
+
+dependencyLocking { lockAllConfigurations() }
+
+plugwright {
+    minecraftVersion.set("1.21.11")
+    runDir.set(layout.buildDirectory.dir("plugwright"))
+    testsDir.set(layout.projectDirectory.dir("src/test/e2e"))
+    downloadNode.set(true)
+    nodeVersion.set("22.14.0")
+    acceptEula.set(true)
+    jvmArgs.set(listOf("-Xms512M", "-Xmx2G", "-XX:ActiveProcessorCount=2"))
+    downloadPlugins {
+        url("https://cdn.modrinth.com/data/Vebnzrzj/versions/OrIs0S6b/LuckPerms-Bukkit-5.5.17.jar")
+    }
+    writeFiles {
+        file("server.properties", projectDir.resolve("src/test/e2e/fixtures/server.properties"))
+        file("plugins/ArcEvents/modules/redis.yml", projectDir.resolve("src/test/e2e/fixtures/redis.yml"))
+    }
 }

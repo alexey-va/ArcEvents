@@ -248,6 +248,13 @@ RUSCRAFTING_OPS_ROOT=/absolute/path/to/ruscrafting-ops ./gradlew clean test shad
 The GitHub Actions storage integration job runs the real Redis tests; do not
 run Testcontainers or the integration-bearing `check` task locally.
 
+The Plugwright suite in `src/test/e2e` runs ArcEvents on Paper 1.21.11 with a
+disposable Redis instance. Its relay fixture has no host arena, so the
+acceptance journey verifies the real player command route rejects queue
+admission and keeps status and leave stable. Run it locally with the shared
+Paper runner from the workspace: `python3 /tmp/arc-plugwright-run.py
+./gradlew plugwrightTest`.
+
 The three production locale mirrors are governed by the durable `arcevents`
 translation profile:
 
