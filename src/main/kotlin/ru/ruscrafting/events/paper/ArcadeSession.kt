@@ -143,6 +143,7 @@ class ArcadeSession(
 
     fun cancel(reason: MatchEndReason) {
         val match = current ?: return
+        if (match.phase == MatchPhase.COMPLETED) return
         if (match.phase == MatchPhase.RESTORING) { restorePlayers(); return }
         if (match.phase == MatchPhase.RESOLVING) { beginRestoration(); return }
         if (match.phase != MatchPhase.CANCELLED) runtime.cancel(reason)

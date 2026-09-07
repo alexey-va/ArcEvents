@@ -199,7 +199,7 @@ class ArcadeMatchRuntime(
         val match = requireCurrent()
         val player = requireNotNull(match.participants[playerId])
         if (player.status == ParticipantStatus.RESTORED) return match
-        require(match.phase in setOf(MatchPhase.PREPARING, MatchPhase.COUNTDOWN, MatchPhase.ACTIVE, MatchPhase.RESOLVING, MatchPhase.CANCELLED, MatchPhase.RESTORING))
+        require(match.phase in setOf(MatchPhase.PREPARING, MatchPhase.COUNTDOWN, MatchPhase.ACTIVE, MatchPhase.RESOLVING, MatchPhase.CANCELLED, MatchPhase.RESTORING, MatchPhase.COMPLETED))
         val players = match.participants + (playerId to player.copy(status = ParticipantStatus.RESTORED))
         val complete = match.phase == MatchPhase.RESTORING && players.values.all { it.status in setOf(ParticipantStatus.RESTORED, ParticipantStatus.DISCONNECTED) }
         return change(match, participants = players, phase = if (complete) MatchPhase.COMPLETED else match.phase)

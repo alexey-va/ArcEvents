@@ -114,6 +114,8 @@ class ArcadeMatchRuntimeTest : StringSpec({
         runtime.beginRestoring()
         val id = runtime.current!!.participants.keys.first(); runtime.markRecoveryApplied(id); runtime.markRecoveryApplied(id)
         runtime.current!!.participants.keys.filter { it != id }.forEach(runtime::markRecoveryApplied)
+        runtime.current!!.phase shouldBe MatchPhase.COMPLETED
+        runtime.current!!.participants.keys.forEach(runtime::markRecoveryApplied)
         runtime.release(); runtime.current shouldBe null
 
         val active = ArcadeMatchRuntime { 0L }
