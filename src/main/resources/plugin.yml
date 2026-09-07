@@ -4,7 +4,7 @@ main: ru.ruscrafting.events.paper.ArcEventsPlugin
 api-version: '1.21.11'
 authors: [RusCrafting]
 description: Cross-server custom events for RusCrafting
-softdepend: [WorldEdit, WorldGuard, ViaVersion, ProtocolLib]
+softdepend: [ARC, WorldEdit, WorldGuard, ViaVersion, ProtocolLib]
 loadbefore: [My_Worlds]
 commands:
   arcevents:

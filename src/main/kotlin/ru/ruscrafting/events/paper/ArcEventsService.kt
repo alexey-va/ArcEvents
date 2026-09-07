@@ -1852,6 +1852,14 @@ class ArcEventsService(
             return
         }
         cleanupRetryTask = null
+        if (current.phase == MatchPhase.COMPLETED) {
+            current.participants.values.forEach { participant ->
+                ArcProductTelemetryBridge.completed(
+                    participant.playerId,
+                    "match:${current.matchId}:${participant.playerId}",
+                )
+            }
+        }
         debug.event("match_released", "match" to current.matchId, "phase" to current.phase, "recovery" to totalPendingCount())
         arenaPool.release(current.matchId)
         recoveryReadFailures.remove(current.matchId)
