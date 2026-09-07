@@ -242,11 +242,14 @@ living participant inside it, including the thrower.
 ## Build
 
 ```bash
-RUSCRAFTING_OPS_ROOT=/absolute/path/to/ruscrafting-ops ./gradlew clean test shadowJar
+./gradlew shadowJar
 ```
 
-The GitHub Actions storage integration job runs the real Redis tests; do not
-run Testcontainers or the integration-bearing `check` task locally.
+For a focused change, run only the relevant unit test, for example
+`./gradlew test --tests '*TttCitadelLootTest' shadowJar`. Full verification is opt-in:
+`RUSCRAFTING_OPS_ROOT=/absolute/path/to/ruscrafting-ops ./gradlew clean check shadowJar`.
+That lane includes the disposable Redis integration suite and is normally
+owned by GitHub Actions.
 
 The Plugwright suite in `src/test/e2e` runs ArcEvents on Paper 1.21.11 with a
 disposable Redis instance. Its relay fixture has no host arena, so the

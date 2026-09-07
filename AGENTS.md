@@ -33,6 +33,10 @@ Standalone Kotlin/Paper plugin for network-wide RusCrafting custom events.
   explicitly non-italic.
 - Runtime recovery data belongs under `plugins/ArcEvents/data/` and is never
   tracked or deployed as configuration.
-- Build and test with `./gradlew clean check shadowJar`. Set
-  `RUSCRAFTING_OPS_ROOT=/absolute/path/to/ruscrafting-ops` to include tests
-  that verify tracked runtime profiles.
+- Fast developer build: `./gradlew shadowJar`. Run a focused unit test with
+  `./gradlew test --tests '<fully-qualified-test-pattern>' shadowJar` when the
+  change needs it; do not make the full verification lane a blanket dev gate.
+  The opt-in full check is `./gradlew clean check shadowJar`; it includes the
+  disposable Redis integration suite and is owned by CI or an explicitly
+  requested validation run. Set `RUSCRAFTING_OPS_ROOT=/absolute/path/to/ruscrafting-ops`
+  only when checking tracked runtime profiles.
