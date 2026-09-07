@@ -111,7 +111,8 @@ test('Gun Game advances through every firearm and finishes on the real knife hit
       const weapon = await waitForWeapon(players[0], firearmIds[stage]);
       assert.ok(weapon, `missing Gun Game weapon at stage ${stage}`);
       assert.notEqual(weapon.name, 'air', `empty Gun Game weapon at stage ${stage}`);
-      assert.match(JSON.stringify(weapon.nbt ?? weapon), new RegExp(firearmIds[stage], 'i'), `wrong firearm at stage ${stage}`);
+      assert.match(JSON.stringify(weapon.nbt ?? weapon), new RegExp(firearmIds[stage], 'i'),
+        `wrong firearm at stage ${stage}: ${JSON.stringify(weapon)}`);
       await shoot(players[0], players[1]);
     }
 
