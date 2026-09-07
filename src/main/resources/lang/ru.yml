@@ -286,6 +286,7 @@ menu:
   common:
     back-name: '<#92bed8><bold>Назад'
     close-name: '<#aaa49a>Закрыть'
+    unavailable-prefix: '<#aaa49a>[Недоступно] '
     close-lore:
       - '<#aaa49a>Закрыть меню событий.'
     back-lore:

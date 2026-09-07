@@ -286,6 +286,7 @@ menu:
   common:
     back-name: '<#92bed8><bold>Back'
     close-name: '<#aaa49a>Close'
+    unavailable-prefix: '<#aaa49a>[Unavailable] '
     close-lore:
       - '<#aaa49a>Close the event menu.'
     back-lore:

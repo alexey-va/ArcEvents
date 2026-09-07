@@ -58,7 +58,7 @@ class ArcEventsLocale(
             "state.mode-relay", "state.mode-host",
             "phase.idle", "phase.reserved", "phase.preparing", "phase.countdown", "phase.active",
             "phase.resolving", "phase.restoring", "phase.completed", "phase.cancelled",
-            "menu.main.title", "menu.main.ttt-name", "menu.main.stats-name", "menu.main.help-name", "menu.main.admin-name", "menu.common.close-name",
+            "menu.main.title", "menu.main.ttt-name", "menu.main.stats-name", "menu.main.help-name", "menu.main.admin-name", "menu.common.close-name", "menu.common.unavailable-prefix",
             "menu.event.title", "menu.event.loading-name", "menu.event.overview-name", "menu.event.queue-name", "menu.event.join-name",
             "menu.event.join-unavailable-name", "menu.event.leave-name", "menu.event.start-name", "menu.event.roster-name",
             "menu.event.arena-name", "menu.event.shop-name", "menu.event.report-name", "menu.event.help-name", "menu.event.evacuate-name",
