@@ -28,10 +28,10 @@ class ArcProductTelemetryBridgeTest : StringSpec({
         ArcProductTelemetryBridge.recordWith({ _, _, _, _ -> error("ARC unavailable") }, UUID.randomUUID(), "match:throw") shouldBe false
     }
 
-    "keeps arena generators before My_Worlds and declares the optional ARC service" {
+    "declares ARC as optional without imposing a cross-plugin load-order edge" {
         val text = requireNotNull(javaClass.getResourceAsStream("/plugin.yml")).bufferedReader().use { it.readText() }
         val yaml = org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(java.io.StringReader(text))
-        yaml.getStringList("loadbefore").contains("My_Worlds") shouldBe true
+        yaml.getStringList("loadbefore").contains("My_Worlds") shouldBe false
         yaml.getStringList("softdepend").contains("ARC") shouldBe true
         yaml.getStringList("depend").contains("ARC") shouldBe false
     }
