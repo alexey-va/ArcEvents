@@ -161,9 +161,8 @@ class ArcEventsPlugin : JavaPlugin() {
                     dependencies = mapOf("redis" to redisReady),
                 )
             }
-            val luckPerms = server.servicesManager.getRegistration(LuckPerms::class.java)?.provider
             menu = ArcEventsMenu(this, activeService, items, locale, { settings }, ::reloadPlugin, menuLayouts,
-                escapeCloses = { player -> luckPerms?.userManager?.getUser(player.uniqueId)?.cachedData?.metaData?.getMetaValue("arc-menu-escape")?.equals("close", true) == true })
+                escapeCloses = { player -> server.servicesManager.load(LuckPerms::class.java)?.userManager?.getUser(player.uniqueId)?.cachedData?.metaData?.getMetaValue("arc-menu-escape")?.equals("close", true) == true })
             lifecycle.own(menu)
             val command = ArcEventsCommand(this, activeService, menu, weaponPointEditor, locale, { settings }, ::reloadPlugin)
             requireNotNull(getCommand("arcevents")).apply {
