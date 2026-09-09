@@ -1,29 +1,16 @@
 package ru.ruscrafting.events.paper
 
+import org.bukkit.Bukkit
+import ru.arc.paper.api.ArcTelemetryProvider
 import java.util.UUID
 
 /** Optional ARC product event bridge; telemetry failures never affect match cleanup. */
 internal object ArcProductTelemetryBridge {
-    // ArcEvents must precede My_Worlds for arena generators; ARC loads after it.
-    // Resolve the optional API from ARC's own loader when an event completes.
-    fun completed(playerId: UUID, operationId: String): Boolean =
-        completedWithLoader(playerId, operationId) {
-            org.bukkit.Bukkit.getPluginManager().getPlugin("ARC")
-                ?.takeIf { it.isEnabled }?.javaClass?.classLoader
-        }
+    private val telemetry by lazy { Bukkit.getServicesManager().load(ArcTelemetryProvider::class.java) }
 
-    internal fun completedWithLoader(
-        playerId: UUID,
-        operationId: String,
-        classLoader: () -> ClassLoader?,
-    ): Boolean = recordWith(
+    fun completed(playerId: UUID, operationId: String): Boolean = recordWith(
         gateway = { id, source, event, stableId ->
-            val loader = classLoader()
-            if (loader == null) false else Class.forName(
-                "ru.arc.metrics.ExternalProductTelemetryBridge", true, loader,
-            ).getMethod(
-                "recordEvent", UUID::class.java, String::class.java, String::class.java, String::class.java,
-            ).invoke(null, id, source, event, stableId) as Boolean
+            telemetry?.recordEvent(id, source, event, stableId) == true
         },
         playerId = playerId,
         operationId = operationId,
