@@ -30,7 +30,6 @@ private val AMBER_COLOR = TextColor.fromHexString("#ffb277")!!
 private val RED_COLOR = TextColor.fromHexString("#ff6b61")!!
 private val WARM_NEUTRAL_COLOR = TextColor.fromHexString("#d7b486")!!
 private val BODY_COLOR = TextColor.fromHexString("#e8dfd2")!!
-private val MUTED_COLOR = TextColor.fromHexString("#aaa49a")!!
 
 private enum class NativeButtonRole(
     val color: TextColor,
@@ -43,11 +42,11 @@ private enum class NativeButtonRole(
     PLAYER_DESTINATION(PINK_COLOR, suffix = " ›"),
     PERSONAL_DESTINATION(VIOLET_COLOR, suffix = " ›"),
     TRADE_DESTINATION(TRADE_COLOR, suffix = " ›"),
-    ROOT_DESTINATION(MUTED_COLOR, suffix = " ›"),
+    ROOT_DESTINATION(WHITE_COLOR, suffix = " ›"),
     DESTRUCTIVE(RED_COLOR),
-    UNAVAILABLE(MUTED_COLOR),
-    BACK(MUTED_COLOR, prefix = "‹ "),
-    CLOSE(MUTED_COLOR),
+    UNAVAILABLE(WHITE_COLOR),
+    BACK(WHITE_COLOR, prefix = "‹ "),
+    CLOSE(WHITE_COLOR),
     ORDINARY(WARM_NEUTRAL_COLOR),
 }
 
@@ -210,10 +209,12 @@ internal class ArcEventsDialogMenu(
         .decoration(TextDecoration.ITALIC, false)
         .children(value.children().map(::nativeText))
 
-    private fun nativeTint(value: Component, color: TextColor): Component = value
-        .color(color)
-        .decoration(TextDecoration.ITALIC, false)
-        .children(value.children().map { nativeTint(it, color) })
+    private fun nativeTint(value: Component, color: TextColor, root: Boolean = true): Component {
+        val source = value.color()
+        val tinted = if (root || source?.value() in NATIVE_NEUTRALS) value.color(color) else value
+        return tinted.decoration(TextDecoration.ITALIC, false)
+            .children(tinted.children().map { nativeTint(it, color, root = false) })
+    }
 
     private fun nativeColor(color: TextColor?): TextColor? = when (color?.value()) {
         0x20252b -> BODY_COLOR
@@ -231,7 +232,7 @@ internal class ArcEventsDialogMenu(
         0xffb277 -> AMBER_COLOR
         0xf2f0e6 -> WHITE_COLOR
         0xe6fff3 -> BODY_COLOR
-        0x8c8c8c, 0x969696, 0xaaaaaa -> MUTED_COLOR
+        in NATIVE_NEUTRALS -> BODY_COLOR
         else -> color
     }
 
@@ -273,6 +274,12 @@ internal class ArcEventsDialogMenu(
         .append(nativeTint(value, role.color))
         .append(if (role.suffix.isNotEmpty() && !hasSuffix(value)) Component.text(role.suffix, role.color) else Component.empty())
         .decoration(TextDecoration.ITALIC, false)
+
+    private val NATIVE_NEUTRALS = setOf(
+        0x20252b, 0x555555, 0x666666, 0x707070, 0x707a76, 0x77736d, 0x777777,
+        0x8c8c8c, 0x969696, 0x9aa8b7, 0xaaaaaa, 0xaaa49a, 0xb8b8b8, 0xb8c8c0,
+        0xc9c3ba, 0xd0d0d0,
+    )
 
     private fun hasPrefix(value: Component, role: NativeButtonRole): Boolean {
         val text = PlainTextComponentSerializer.plainText().serialize(value).trimStart()
