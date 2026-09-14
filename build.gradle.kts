@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "ru.ruscrafting"
-version = "0.3.7"
+version = "0.3.8"
 description = "Cross-server custom events for RusCrafting"
 
 val integrationTestSourceSet = sourceSets.create("integrationTest") {
@@ -26,7 +26,7 @@ repositories {
 java { toolchain { languageVersion.set(JavaLanguageVersion.of(25)) } }
 kotlin { jvmToolchain(25) }
 
-val arcCoreVersion = "2.7.6"
+val arcCoreVersion = "2.7.9"
 val worldEditVersion = "7.3.18"
 
 dependencies {
@@ -97,6 +97,8 @@ tasks {
         exclude("org/bukkit/**")
         exclude("io/papermc/**")
         exclude("net/kyori/adventure/**")
+        // ARC is the sole native sidebar host; consumers share only its API class identity.
+        exclude("ru/arc/paper/sidebar/**")
     }
     check { dependsOn(shadowJar, "integrationTest") }
 }

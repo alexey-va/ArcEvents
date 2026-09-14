@@ -15,6 +15,8 @@ import ru.arc.paper.nameplate.PaperNameplateVisibilityPolicy
 import ru.arc.paper.nameplate.PaperPlayerNameplates
 import ru.arc.paper.nameplate.ViewAlignedPaperNameplateVisibilityPolicy
 import ru.arc.paper.runtime.PaperPluginRuntime
+import ru.arc.paper.api.ArcSidebarPriorities
+import ru.arc.paper.api.ArcSidebarService
 import ru.arc.observability.RuntimeHealthContribution
 import ru.arc.observability.RuntimeHealthState
 import ru.arc.redis.RedisManager
@@ -130,7 +132,10 @@ class ArcEventsPlugin : JavaPlugin() {
                 rendererFactory = ::openNameplateRenderer,
             )).also { nameplates = it }
             nameplateRuntime.reconfigure(settings.ui.nameplates)
-            val hud = TttHud(this, { settings }, locale, nameplateRuntime)
+            val sidebar = requireNotNull(server.servicesManager.load(ArcSidebarService::class.java)) {
+                "ARC shared sidebar service is unavailable"
+            }.register(this, "ttt", ArcSidebarPriorities.EVENT).also(lifecycle::own)
+            val hud = TttHud(this, { settings }, locale, nameplateRuntime, sidebar)
             activeService = ArcEventsService(
                 plugin = this,
                 settings = { settings },

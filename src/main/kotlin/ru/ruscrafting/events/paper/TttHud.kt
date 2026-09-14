@@ -4,10 +4,8 @@ import net.kyori.adventure.bossbar.BossBar
 import net.kyori.adventure.text.Component
 import org.bukkit.entity.Player
 import org.bukkit.plugin.Plugin
-import org.bukkit.scoreboard.Criteria
-import org.bukkit.scoreboard.DisplaySlot
-import org.bukkit.scoreboard.Scoreboard
-import org.bukkit.scoreboard.Team
+import ru.arc.paper.api.ArcSidebarFrame
+import ru.arc.paper.api.ArcSidebarHandle
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.domain.MatchPhase
@@ -17,17 +15,15 @@ import ru.ruscrafting.events.domain.TttParticipant
 import ru.ruscrafting.events.domain.TttRole
 import java.util.UUID
 
-/** Owns the complete per-player HUD lifecycle, including restoration of a prior scoreboard. */
+/** Owns the event HUD while ARC Core arbitrates the shared native sidebar. */
 class TttHud(
     private val plugin: Plugin,
     private val settings: () -> ArcEventsConfig,
     private val locale: ArcEventsLocale,
     private val nameplates: TttNameplateRuntime,
+    private val sidebar: ArcSidebarHandle,
 ) : AutoCloseable {
     private data class Session(
-        val previousScoreboard: Scoreboard,
-        val scoreboard: Scoreboard?,
-        val lines: List<Team>,
         val bossBar: BossBar?,
     )
 
@@ -47,7 +43,7 @@ class TttHud(
             val player = plugin.server.getPlayer(participant.playerId) ?: return@forEach
             val session = sessions[player.uniqueId] ?: open(player, match)
             val roleVisible = match.phase != MatchPhase.PREPARING
-            updateScoreboard(session, player, match, participant, roleVisible, alive, secondsRemaining)
+            updateScoreboard(player, match, participant, roleVisible, alive, secondsRemaining)
             updateBossBar(session, player, match, participant, roleVisible, alive, secondsRemaining, totalSeconds)
             updateActionBar(player, match, participant, roleVisible, alive, secondsRemaining, totalSeconds)
         }
@@ -56,24 +52,10 @@ class TttHud(
     /** Rebuilds scoreboard and boss-bar sessions so live UI toggles/locales take effect immediately. */
     fun reconfigure(match: TttMatch?, secondsRemaining: Int, totalSeconds: Int) {
         if (match == null) {
-            sessions.keys.toList().forEach(::closeSession)
-            sessions.clear()
-            nameplates.clear()
+            close()
             return
         }
-        val staged = match.participants.values.mapNotNull { participant ->
-            val player = plugin.server.getPlayer(participant.playerId) ?: return@mapNotNull null
-            val previous = sessions[player.uniqueId]?.previousScoreboard ?: player.scoreboard
-            player.uniqueId to createSession(player, match, previous)
-        }.toMap(linkedMapOf())
-        sessions.keys.toList().forEach(::closeSession)
-        sessions.clear()
-        staged.forEach { (playerId, session) ->
-            val player = plugin.server.getPlayer(playerId) ?: return@forEach
-            session.bossBar?.let(player::showBossBar)
-            session.scoreboard?.let { player.scoreboard = it }
-            sessions[playerId] = session
-        }
+        open(match)
         update(match, secondsRemaining, totalSeconds)
     }
 
@@ -84,11 +66,9 @@ class TttHud(
 
     private fun closeSession(playerId: UUID) {
         val session = sessions.remove(playerId) ?: return
+        sidebar.hide(playerId)
         val player = plugin.server.getPlayer(playerId) ?: return
         session.bossBar?.let(player::hideBossBar)
-        if (session.scoreboard != null && player.scoreboard === session.scoreboard) {
-            player.scoreboard = session.previousScoreboard
-        }
     }
 
     override fun close() {
@@ -98,52 +78,30 @@ class TttHud(
     }
 
     private fun open(player: Player, match: TttMatch): Session {
-        val session = createSession(player, match, player.scoreboard)
+        val session = createSession()
         session.bossBar?.let(player::showBossBar)
-        session.scoreboard?.let { player.scoreboard = it }
+        sidebar.show(
+            player,
+            ArcSidebarFrame(
+                title = locale.render("hud.scoreboard-title", player),
+                rows = emptyList(),
+                hiddenNameEntries = match.participants.values.mapTo(linkedSetOf(), TttParticipant::playerName),
+            ),
+        )
         sessions[player.uniqueId] = session
         return session
     }
 
-    private fun createSession(player: Player, match: TttMatch, previousScoreboard: Scoreboard): Session {
-        val scoreboard = createScoreboard(player, match, settings().ui.scoreboard)
+    private fun createSession(): Session {
         val bossBar = if (settings().ui.bossBar) {
             BossBar.bossBar(Component.empty(), 1f, BossBar.Color.YELLOW, BossBar.Overlay.PROGRESS)
         } else {
             null
         }
-        return Session(
-            previousScoreboard = previousScoreboard,
-            scoreboard = scoreboard.first,
-            lines = scoreboard.second,
-            bossBar = bossBar,
-        )
-    }
-
-    private fun createScoreboard(player: Player, match: TttMatch, showSidebar: Boolean): Pair<Scoreboard, List<Team>> {
-        val scoreboard = plugin.server.scoreboardManager.newScoreboard
-        scoreboard.registerNewTeam(HIDDEN_NAMES_TEAM).also { hiddenNames ->
-            hiddenNames.setOption(Team.Option.NAME_TAG_VISIBILITY, Team.OptionStatus.NEVER)
-            match.participants.values.forEach { participant -> hiddenNames.addEntry(participant.playerName) }
-        }
-        if (!showSidebar) return scoreboard to emptyList()
-        val objective = scoreboard.registerNewObjective(
-            OBJECTIVE_NAME,
-            Criteria.DUMMY,
-            locale.render("hud.scoreboard-title", player),
-        )
-        objective.displaySlot = DisplaySlot.SIDEBAR
-        val lines = SCOREBOARD_ENTRIES.mapIndexed { index, entry ->
-            scoreboard.registerNewTeam("ae_line_$index").also { team ->
-                team.addEntry(entry)
-                objective.getScore(entry).score = SCOREBOARD_ENTRIES.size - index
-            }
-        }
-        return scoreboard to lines
+        return Session(bossBar)
     }
 
     private fun updateScoreboard(
-        session: Session,
         player: Player,
         match: TttMatch,
         participant: TttParticipant,
@@ -151,7 +109,6 @@ class TttHud(
         alive: Int,
         secondsRemaining: Int,
     ) {
-        if (session.scoreboard == null) return
         val role = if (roleVisible) roleLabel(participant.role, player) else locale.render("hud.role-hidden", player)
         val objective = when {
             !roleVisible -> locale.render("hud.objective-preparing", player)
@@ -164,7 +121,7 @@ class TttHud(
         } else {
             Component.empty()
         }
-        val components = listOf(
+        val components = if (settings().ui.scoreboard) listOf(
             locale.render("hud.phase-line", player, mapOf("phase" to phaseName(match.phase, player))),
             locale.render("hud.time-line", player, mapOf("time" to locale.text(formatTime(secondsRemaining)))),
             locale.render("hud.alive-line", player, mapOf(
@@ -175,8 +132,15 @@ class TttHud(
             locale.render("hud.role-line", player, mapOf("role" to role)),
             credits,
             locale.render("hud.objective-line", player, mapOf("objective" to objective)),
+        ) else emptyList()
+        sidebar.show(
+            player,
+            ArcSidebarFrame(
+                title = locale.render("hud.scoreboard-title", player),
+                rows = components,
+                hiddenNameEntries = match.participants.values.mapTo(linkedSetOf(), TttParticipant::playerName),
+            ),
         )
-        session.lines.zip(components).forEach { (team, component) -> team.prefix(component) }
     }
 
     private fun updateBossBar(
@@ -265,9 +229,4 @@ class TttHud(
         return "%d:%02d".format(safe / 60, safe % 60)
     }
 
-    companion object {
-        private const val HIDDEN_NAMES_TEAM = "ae_hidden_names"
-        private const val OBJECTIVE_NAME = "arcevents_ttt"
-        private val SCOREBOARD_ENTRIES = listOf("§0", "§1", "§2", "§3", "§4", "§5", "§6")
-    }
 }
