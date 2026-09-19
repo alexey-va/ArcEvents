@@ -1,0 +1,4 @@
+# Disposable ARC override for ArcEvents E2E.
+# Gun Game owns its own match protection and must accept the first shot after start.
+join:
+  invulnerable-enabled: false

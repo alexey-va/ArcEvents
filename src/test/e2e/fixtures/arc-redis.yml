@@ -1,0 +1,9 @@
+# Disposable ARC Redis connection for ArcEvents E2E.
+# The workflow enables this password before either Paper fixture starts.
+enabled: true
+host: 127.0.0.1
+port: 6379
+username: default
+password: e2e-secret
+server-name: arc-events-e2e
+main-server: false

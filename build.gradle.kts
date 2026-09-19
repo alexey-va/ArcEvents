@@ -130,6 +130,8 @@ plugwright {
     writeFiles {
         e2eArcJar.orNull?.let { file("plugins/ARC.jar", it) }
         file("plugins/RedisEconomy/config.yml", projectDir.resolve("src/test/e2e/fixtures/rediseconomy.yml"))
+        file("plugins/ARC/modules/misc.yml", projectDir.resolve("src/test/e2e/fixtures/arc-misc.yml"))
+        file("plugins/ARC/modules/redis.yml", projectDir.resolve("src/test/e2e/fixtures/arc-redis.yml"))
         file("server.properties", projectDir.resolve("src/test/e2e/fixtures/server.properties"))
         file(
             "plugins/ArcEvents/modules/redis.yml",
