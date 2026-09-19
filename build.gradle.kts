@@ -105,6 +105,11 @@ tasks {
 
 dependencyLocking { lockAllConfigurations() }
 
+// Real Paper tests need the shared ARC plugin, not only its compile-time API.
+// CI supplies a matching ARC shadow jar; local unit/integration tasks remain
+// independent of an ARC checkout.
+val e2eArcJar = providers.gradleProperty("e2eArcJar").map { file(it) }
+
 plugwright {
     minecraftVersion.set("1.21.11")
     val hostE2e = providers.environmentVariable("ARC_EVENTS_E2E_HOST").orNull == "1"
@@ -119,8 +124,12 @@ plugwright {
     )
     downloadPlugins {
         url("https://cdn.modrinth.com/data/Vebnzrzj/versions/OrIs0S6b/LuckPerms-Bukkit-5.5.17.jar")
+        url("https://github.com/MilkBowl/Vault/releases/download/1.7.3/Vault.jar")
+        url("https://repo.rus-crafting.ru/grocermc/ru/ruscrafting/thirdparty/rediseconomy/4.5.12/rediseconomy-4.5.12.jar")
     }
     writeFiles {
+        e2eArcJar.orNull?.let { file("plugins/ARC.jar", it) }
+        file("plugins/RedisEconomy/config.yml", projectDir.resolve("src/test/e2e/fixtures/rediseconomy.yml"))
         file("server.properties", projectDir.resolve("src/test/e2e/fixtures/server.properties"))
         file(
             "plugins/ArcEvents/modules/redis.yml",

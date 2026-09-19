@@ -61,11 +61,20 @@ jobs:
           --health-retries 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Check out ARC runtime
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: alexey-va/ARC
+          ref: ae2786f787b260d9a2c4db1407bf1332a4538dd6
+          path: e2e-arc
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           java-version: "25"
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+      - name: Build ARC runtime
+        working-directory: e2e-arc
+        run: ./gradlew --no-daemon shadowJar
       - name: Configure disposable Redis credentials
         run: docker exec "${{ job.services.redis.id }}" redis-cli CONFIG SET requirepass e2e-secret
       - name: Test ArcEvents on real Paper
@@ -73,14 +82,18 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p build
-          ./gradlew --no-daemon plugwrightTest 2>&1 | tee build/plugwright-e2e.log
+          arc_jar="$(find "$GITHUB_WORKSPACE/e2e-arc/build/libs" -maxdepth 1 -type f -name 'ARC-*.jar' ! -name '*-plain.jar' -print -quit)"
+          test -n "$arc_jar"
+          ./gradlew --no-daemon plugwrightTest -Pe2eArcJar="$arc_jar" 2>&1 | tee build/plugwright-e2e.log
           git diff --exit-code -- src/test/e2e/package-lock.json
       - name: Test hosted GunGame and TTT on real Paper
         shell: bash
         run: |
           set -o pipefail
           sed -i 's/16379/6379/g' src/test/e2e/fixtures/host-redis.yml
-          ARC_EVENTS_E2E_HOST=1 ./gradlew --no-daemon plugwrightTest 2>&1 | tee build/plugwright-host-e2e.log
+          arc_jar="$(find "$GITHUB_WORKSPACE/e2e-arc/build/libs" -maxdepth 1 -type f -name 'ARC-*.jar' ! -name '*-plain.jar' -print -quit)"
+          test -n "$arc_jar"
+          ARC_EVENTS_E2E_HOST=1 ./gradlew --no-daemon plugwrightTest -Pe2eArcJar="$arc_jar" 2>&1 | tee build/plugwright-host-e2e.log
           git diff --exit-code -- src/test/e2e-host/package-lock.json
       - name: Upload E2E results and Paper logs
         if: always()

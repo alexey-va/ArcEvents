@@ -1,0 +1,30 @@
+# Disposable, zero-balance test economy. Never use with a shared Redis instance.
+lang: en-US
+migrationEnabled: false
+redis:
+  host: 127.0.0.1
+  port: 6379
+  user: default
+  password: e2e-secret
+  database: 0
+  timeout: 300
+  clientName: arcevents-e2e
+  ssl: false
+  poolSize: 2
+  tryAgainCount: 3
+clusterId: arcevents-e2e
+defaultCurrencyName: vault
+currencies:
+  - currencyName: vault
+    currencySingle: coin
+    currencyPlural: coins
+    decimalFormat: '#0.00'
+    languageTag: en-US
+    startingBalance: 0.0
+    maxBalance: 1000000.0
+    payTax: 0.0
+    saveTransactions: false
+    transactionsTTL: 0
+    bankEnabled: false
+    taxOnlyPay: false
+    executorThreads: 1
