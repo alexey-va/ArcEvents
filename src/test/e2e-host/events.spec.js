@@ -277,6 +277,10 @@ test('Gun Game disconnect removes one participant while the two-player match sta
     players[2].chat('/arcevents leave');
     await expect(players[0]).toHaveReceivedMessage(/Your pre-event state was restored\./, { timeout: 15000 });
     await expect(players[2]).toHaveReceivedMessage(/Your pre-event state was restored\./, { timeout: 15000 });
+    await Promise.all([
+      waitForRestored(players[0], before[0]),
+      waitForRestored(players[2], before[2]),
+    ]);
     assertRestored(players[0], before[0]);
     assertRestored(players[2], before[2]);
     rejoined = await createPlayer({ username: leaver.username });
