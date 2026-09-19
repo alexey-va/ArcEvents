@@ -274,7 +274,7 @@ translation profile:
 ../ruscrafting-ops/scripts/mc translate arcevents render-check
 ```
 
-Native menus use ArcCore 2.7.4 shared history and the server's Escape preference.
+Native menus use ArcCore 2.7.9 shared history and the server's Escape preference.
 Direct `/arcevents` entry starts a new flow. Informational and loading screens
 use one muted footer; the TTT loading result replaces its current visit and
 late replies cannot reopen a dismissed menu. Unsupported clients and tactical
