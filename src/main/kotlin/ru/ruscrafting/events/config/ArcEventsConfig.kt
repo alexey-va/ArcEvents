@@ -9,6 +9,7 @@ import ru.arc.redis.RedisModuleConfig
 import ru.ruscrafting.events.domain.ArcadeRules
 import ru.ruscrafting.events.domain.EventMode
 import ru.ruscrafting.events.domain.FishingRules
+import ru.ruscrafting.events.domain.FishingOffer
 import ru.ruscrafting.events.domain.FirearmId
 import ru.ruscrafting.events.domain.FirearmRarity
 import ru.ruscrafting.events.domain.FirearmSpec
@@ -249,7 +250,7 @@ data class DebugSettings(
 data class ArcadeSettings(
     val gunGame: ArcadeRules,
     val disasters: ArcadeRules,
-    val fishing: ArcadeRules = ArcadeRules(minimumPlayers = 1, maximumPlayers = 1, preparationSeconds = 3, countdownSeconds = 3, roundSeconds = 900),
+    val fishing: ArcadeRules = ArcadeRules(minimumPlayers = 1, maximumPlayers = 1, preparationSeconds = 3, countdownSeconds = 3, roundSeconds = 1800),
 ) {
     fun rules(mode: EventMode): ArcadeRules = when (mode) {
         EventMode.GUN_GAME -> gunGame
@@ -271,6 +272,16 @@ class ArcEventsConfig(private val config: Config) {
         attackIntervalTicks = config.int("arcade.fishing.attack-interval-ticks", 60),
         stageTravelRadius = config.double("arcade.fishing.travel-radius", 3.0),
         fishingRadius = config.double("arcade.fishing.fishing-radius", 6.0),
+        prices = FishingOffer.entries.associateWith { offer ->
+            config.int("arcade.fishing.prices.${offer.name.lowercase().replace('_', '-')}", offer.price)
+        },
+        saleBase = config.int("arcade.fishing.sale-base", 10),
+        salePerStage = config.int("arcade.fishing.sale-per-stage", 6),
+        rareEvery = config.int("arcade.fishing.rare-every", 7),
+        rareMultiplier = config.int("arcade.fishing.rare-multiplier", 3),
+        bossRewardBase = config.int("arcade.fishing.boss-reward-base", 50),
+        bossRewardPerStage = config.int("arcade.fishing.boss-reward-per-stage", 30),
+        dynamiteDamage = config.double("arcade.fishing.dynamite-damage", 45.0),
     )
 
     private fun arcadeRules(id: String, maximum: Int): ArcadeRules {
@@ -280,7 +291,7 @@ class ArcEventsConfig(private val config: Config) {
             maximumPlayers = config.int("$path.maximum-players", maximum),
             preparationSeconds = config.int("$path.preparation-seconds", if (id == "fishing") 3 else 15),
             countdownSeconds = config.int("$path.countdown-seconds", if (id == "fishing") 3 else 5),
-            roundSeconds = config.int("$path.round-seconds", if (id == "fishing") 900 else 360),
+            roundSeconds = config.int("$path.round-seconds", if (id == "fishing") 1800 else 360),
             postRoundSeconds = config.int("$path.post-round-seconds", 8),
             respawnSeconds = config.int("$path.respawn-seconds", 3),
             spawnProtectionSeconds = config.int("$path.spawn-protection-seconds", 2),
@@ -484,10 +495,10 @@ class ArcEventsConfig(private val config: Config) {
             }
 
     private fun fishingArena(): ArenaSettings {
-        val world = config.string("arcade.fishing.arena.world", "arcevents_fishing")
+        val world = config.string("arcade.fishing.arena.world", "arcevents_fishing_v2")
         val spawn = EventLocation(world, 0.5, 65.0, 0.5)
-        return ArenaSettings("fishing", true, world, "fishing-v1", spawn, spawn,
-            EventBounds(EventLocation(world, -24.0, 54.0, -24.0), EventLocation(world, 121.0, 100.0, 29.0)),
+        return ArenaSettings("fishing", true, world, "fishing-v2", spawn, spawn,
+            EventBounds(EventLocation(world, -24.0, 54.0, -24.0), EventLocation(world, 217.0, 100.0, 29.0)),
             listOf(spawn), emptyList())
     }
 
@@ -681,7 +692,7 @@ class ArcEventsConfig(private val config: Config) {
             }
             require(arena.spawns.size <= 1) { "Arena ${arena.id} must use one common player spawn" }
             require(arena.lootSpawns.size <= 128) { "Arena ${arena.id} has too many loot spawns" }
-            if (arena.enabled && weapons.enabled && arena.template !in setOf("", "citadel-v1", "disasters-v1", "fishing-v1")) {
+            if (arena.enabled && weapons.enabled && arena.template !in setOf("", "citadel-v1", "disasters-v1", "fishing-v2")) {
                 require(arena.lootSpawns.size >= ttt.maximumPlayers) {
                     "Imported arena ${arena.id} requires at least ${ttt.maximumPlayers} loot spawns"
                 }
@@ -703,7 +714,7 @@ class ArcEventsConfig(private val config: Config) {
             "",
             "citadel-v1",
             "disasters-v1",
-            "fishing-v1",
+            "fishing-v2",
             "ttt-minecraft-b5-v1",
             "cs2-inferno-v1",
             "cs2-mirage-v1",
@@ -839,6 +850,9 @@ object ArcEventsReloadPolicy {
                 "weapons.catalog can reload only while idle"
             }
             val arenaId = requireNotNull(activeArenaId) { "active arena identity is unavailable" }
+            require(arenaId != "fishing" || candidate.ui.dialogsEnabled) {
+                "Fishing requires dialogs until the expedition is restored"
+            }
             val activeCurrent = current.arenas.firstOrNull { it.id == arenaId }
             val activeCandidate = candidate.arenas.firstOrNull { it.id == arenaId }
             require(activeCurrent != null && activeCandidate == activeCurrent) {

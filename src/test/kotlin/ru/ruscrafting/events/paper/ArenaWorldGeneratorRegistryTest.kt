@@ -36,10 +36,18 @@ class ArenaWorldGeneratorRegistryTest : StringSpec({
 
     "fishing archipelago restores its deterministic generator" {
         val container = Files.createTempDirectory("arcevents-fishing-generator-")
-        val arena = Files.createDirectory(container.resolve("fishing-v1"))
+        val arena = Files.createDirectory(container.resolve("fishing-v2"))
         Files.writeString(arena.resolve(ARENA_TEMPLATE_MARKER), FishingArenaGenerator.TEMPLATE + "\n")
 
         (ArenaWorldGeneratorRegistry.generatorFor(container, arena.fileName.toString()) is FishingArenaGenerator) shouldBe true
+    }
+
+    "retired fishing worlds keep their existing chunks without acquiring the new map" {
+        val container = Files.createTempDirectory("arcevents-retired-fishing-")
+        val arena = Files.createDirectory(container.resolve("old_fishing"))
+        Files.writeString(arena.resolve(ARENA_TEMPLATE_MARKER), "fishing-v1\n")
+        (ArenaWorldGeneratorRegistry.generatorFor(container, "old_fishing") is EmptyArenaChunkGenerator) shouldBe true
+        Files.readString(arena.resolve(ARENA_TEMPLATE_MARKER)) shouldBe "fishing-v1\n"
     }
 
     "unowned worlds get no generator and corrupt owned markers fail closed" {

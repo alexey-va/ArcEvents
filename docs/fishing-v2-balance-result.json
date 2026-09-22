@@ -1,0 +1,652 @@
+{
+  "title": "ArcEvents fishing expedition v2 session-credit balance",
+  "assumptions": [
+    "The before state has no fishing-session currency or shop. The after state is the new v2 temporary match economy; its integer credits are scoped to one match and are discarded at match end, with no Vault, premium-token, EMC, item-export or XP redemption.",
+    "A completed run defeats 3 normal creatures on each of 5 islands (15 total), sells all normal catches, defeats each boss once, and buys one standard progression kit. All actions are successful; no deaths, skipped encounters, external rewards, refunds or coin-cap effects are modeled.",
+    "Normal catch values use saleBase=10, salePerStage=6, rareEvery=7 and rareMultiplier=3. The 15 catches sell for 442 credits because catches 7 and 14 are rare. The five boss rewards total 550 credits. Each completed run therefore emits 992 credits and the modeled standard kit consumes 958, leaving 34 within that run.",
+    "Low/base/high activity is 0.25/1/2 completed runs per active participant-day. Participants [1,10,50] are hypothetical eligible players, not observed telemetry. No shared network pool or durable savings is assumed.",
+    "Standard progression kit: knife 25, pistol 80, shotgun 140, burst rifle 220, assault rifle 300, two 32-round ammo purchases at 8 each, one two-stick dynamite pack at 12, and rod upgrades 45 and 120; total 958. Full purchasable armory plus the same consumables costs 1,433. It is a choice comparison, not an additional simultaneous burn flow.",
+    "After reaching the Volcano quest target, normal catches repeat before the final boss-bait claim and trophy. Eleven additional kills sell for 442 credits under the deterministic rare cadence, enough to cover the 441-credit difference between one complete run's 992 credits and the 1,433-credit full package.",
+    "Disposable carry-over savings are zero because credits do not persist across matches. Evaluator days-to-save values are consequently null; affordability is assessed within a run, not by accumulating a durable balance across days."
+  ],
+  "scenario_order": [
+    "low",
+    "base",
+    "high"
+  ],
+  "currencies": {
+    "fishing_session_credits": {
+      "before": {
+        "totals": {
+          "mint_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "0",
+            "0",
+            "0"
+          ],
+          "player_daily_potential_net": [
+            "0",
+            "0",
+            "0"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "id": "normal_catch_sales",
+            "kind": "mint",
+            "player_daily_potential": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly_after_cap": [
+              "0",
+              "0",
+              "0"
+            ],
+            "basis": "The run sells all 15 normal catches at the configured base and rare values; 442 credits per full run under the default rules."
+          },
+          {
+            "id": "island_boss_rewards",
+            "kind": "mint",
+            "player_daily_potential": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly_after_cap": [
+              "0",
+              "0",
+              "0"
+            ],
+            "basis": "One reward for each of the five defeated island bosses; 50+80+110+140+170=550 credits per full run."
+          },
+          {
+            "id": "standard_progression_kit",
+            "kind": "burn",
+            "player_daily_potential": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly_after_cap": [
+              "0",
+              "0",
+              "0"
+            ],
+            "basis": "One modeled in-match standard progression choice per full run; its 958-credit total is listed in the assumptions."
+          },
+          {
+            "id": "end_of_run_credit_reset",
+            "kind": "burn",
+            "player_daily_potential": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly_after_cap": [
+              "0",
+              "0",
+              "0"
+            ],
+            "basis": "After the modeled standard kit, the remaining 34 credits are temporary match state and are discarded when the owner releases/closes the adventure; no balance persists to the next run."
+          }
+        ]
+      },
+      "after": {
+        "totals": {
+          "mint_per_player_day": [
+            "248.00",
+            "992",
+            "1984"
+          ],
+          "burn_per_player_day": [
+            "248.00",
+            "992",
+            "1984"
+          ],
+          "network_weekly_mint": [
+            "1736.00",
+            "69440",
+            "694400"
+          ],
+          "network_weekly_burn": [
+            "1736.00",
+            "69440",
+            "694400"
+          ],
+          "network_weekly_net": [
+            "0.00",
+            "0",
+            "0"
+          ],
+          "player_daily_potential_net": [
+            "0.00",
+            "0",
+            "0"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "248.00",
+              "992",
+              "1984"
+            ],
+            "network_weekly": [
+              "1736.00",
+              "69440",
+              "694400"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "248.00",
+              "992",
+              "1984"
+            ],
+            "network_weekly": [
+              "1736.00",
+              "69440",
+              "694400"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "id": "normal_catch_sales",
+            "kind": "mint",
+            "player_daily_potential": [
+              "110.50",
+              "442",
+              "884"
+            ],
+            "network_weekly_after_cap": [
+              "773.50",
+              "30940",
+              "309400"
+            ],
+            "basis": "The run sells all 15 normal catches at the configured base and rare values; 442 credits per full run under the default rules."
+          },
+          {
+            "id": "island_boss_rewards",
+            "kind": "mint",
+            "player_daily_potential": [
+              "137.50",
+              "550",
+              "1100"
+            ],
+            "network_weekly_after_cap": [
+              "962.50",
+              "38500",
+              "385000"
+            ],
+            "basis": "One reward for each of the five defeated island bosses; 50+80+110+140+170=550 credits per full run."
+          },
+          {
+            "id": "standard_progression_kit",
+            "kind": "burn",
+            "player_daily_potential": [
+              "239.50",
+              "958",
+              "1916"
+            ],
+            "network_weekly_after_cap": [
+              "1676.50",
+              "67060",
+              "670600"
+            ],
+            "basis": "One modeled in-match standard progression choice per full run; its 958-credit total is listed in the assumptions."
+          },
+          {
+            "id": "end_of_run_credit_reset",
+            "kind": "burn",
+            "player_daily_potential": [
+              "8.50",
+              "34",
+              "68"
+            ],
+            "network_weekly_after_cap": [
+              "59.50",
+              "2380",
+              "23800"
+            ],
+            "basis": "After the modeled standard kit, the remaining 34 credits are temporary match state and are discarded when the owner releases/closes the adventure; no balance persists to the next run."
+          }
+        ]
+      },
+      "weekly_net_delta": [
+        "0.00",
+        "0",
+        "0"
+      ]
+    }
+  },
+  "prices": [
+    {
+      "id": "knife",
+      "currency": "fishing_session_credits",
+      "before": {
+        "price": null,
+        "days_to_save": [
+          null,
+          null,
+          null
+        ]
+      },
+      "after": {
+        "price": "25",
+        "days_to_save": [
+          null,
+          null,
+          null
+        ]
+      }
+    },
+    {
+      "id": "machete",
+      "currency": "fishing_session_credits",
+      "before": {
+        "price": null,
+        "days_to_save": [
+          null,
+          null,
+          null
+        ]
+      },
+      "after": {
+        "price": "55",
+        "days_to_save": [
+          null,
+          null,
+          null
+        ]
+      }
+    },
+    {
+      "id": "pistol",
+      "currency": "fishing_session_credits",
+      "before": {
+        "price": null,
+        "days_to_save": [
+          null,
+          null,
+          null
+        ]
+      },
+      "after": {
+        "price": "80",
+        "days_to_save": [
+          null,
+          null,
+          null
+        ]
+      }
+    },
+    {
+      "id": "shotgun",
+      "currency": "fishing_session_credits",
+      "before": {
+        "price": null,
+        "days_to_save": [
+          null,
+          null,
+          null
+        ]
+      },
+      "after": {
+        "price": "140",
+        "days_to_save": [
+          null,
+          null,
+          null
+        ]
+      }
+    },
+    {
+      "id": "burst_rifle",
+      "currency": "fishing_session_credits",
+      "before": {
+        "price": null,
+        "days_to_save": [
+          null,
+          null,
+          null
+        ]
+      },
+      "after": {
+        "price": "220",
+        "days_to_save": [
+          null,
+          null,
+          null
+        ]
+      }
+    },
+    {
+      "id": "assault_rifle",
+      "currency": "fishing_session_credits",
+      "before": {
+        "price": null,
+        "days_to_save": [
+          null,
+          null,
+          null
+        ]
+      },
+      "after": {
+        "price": "300",
+        "days_to_save": [
+          null,
+          null,
+          null
+        ]
+      }
+    },
+    {
+      "id": "sniper",
+      "currency": "fishing_session_credits",
+      "before": {
+        "price": null,
+        "days_to_save": [
+          null,
+          null,
+          null
+        ]
+      },
+      "after": {
+        "price": "420",
+        "days_to_save": [
+          null,
+          null,
+          null
+        ]
+      }
+    },
+    {
+      "id": "ammo_32_rounds",
+      "currency": "fishing_session_credits",
+      "before": {
+        "price": null,
+        "days_to_save": [
+          null,
+          null,
+          null
+        ]
+      },
+      "after": {
+        "price": "8",
+        "days_to_save": [
+          null,
+          null,
+          null
+        ]
+      }
+    },
+    {
+      "id": "dynamite_2_sticks",
+      "currency": "fishing_session_credits",
+      "before": {
+        "price": null,
+        "days_to_save": [
+          null,
+          null,
+          null
+        ]
+      },
+      "after": {
+        "price": "12",
+        "days_to_save": [
+          null,
+          null,
+          null
+        ]
+      }
+    },
+    {
+      "id": "rod_one",
+      "currency": "fishing_session_credits",
+      "before": {
+        "price": null,
+        "days_to_save": [
+          null,
+          null,
+          null
+        ]
+      },
+      "after": {
+        "price": "45",
+        "days_to_save": [
+          null,
+          null,
+          null
+        ]
+      }
+    },
+    {
+      "id": "rod_two",
+      "currency": "fishing_session_credits",
+      "before": {
+        "price": null,
+        "days_to_save": [
+          null,
+          null,
+          null
+        ]
+      },
+      "after": {
+        "price": "120",
+        "days_to_save": [
+          null,
+          null,
+          null
+        ]
+      }
+    },
+    {
+      "id": "standard_progression_kit",
+      "currency": "fishing_session_credits",
+      "before": {
+        "price": null,
+        "days_to_save": [
+          null,
+          null,
+          null
+        ]
+      },
+      "after": {
+        "price": "958",
+        "days_to_save": [
+          null,
+          null,
+          null
+        ]
+      }
+    },
+    {
+      "id": "full_armory_plus_consumables",
+      "currency": "fishing_session_credits",
+      "before": {
+        "price": null,
+        "days_to_save": [
+          null,
+          null,
+          null
+        ]
+      },
+      "after": {
+        "price": "1433",
+        "days_to_save": [
+          null,
+          null,
+          null
+        ]
+      }
+    }
+  ]
+}

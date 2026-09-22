@@ -431,6 +431,7 @@ phase:
   cancelled: '<#d84a4a>cancelled'
 
 queue:
+  start-client-unsupported: '<#e3b341>This expedition requires enabled dialogs and Java 1.21.6 or newer.'
   joined: |-
     <prefix> <#55ff88>Your queue place is confirmed.
     <#8c8c8c>   Roster: <#ffcc33><queue>/<minimum>
@@ -803,13 +804,13 @@ arcade:
   fishing-name: '<#67d7ff><bold>Islands of the Deep'
   fishing-lore:
     - '<#f2f0e6>Start solo and land a dangerous catch.'
-    - '<#f2f0e6>Survive the fight, cross three islands, and defeat the final boss.'
+    - '<#f2f0e6>Sell catches, upgrade your weapons and unlock five islands.'
     - ''
     - '<#8c8c8c>[<#67d7ff>▶<#8c8c8c>] <#67d7ff>Click<#f2f0e6> — open mode'
   fishing-guide-name: '<#67d7ff><bold>Islands of the Deep rules'
   fishing-guide:
     - '<#f2f0e6>Land a dangerous catch and survive the fight.'
-    - '<#f2f0e6>Cross three islands and defeat the final boss.'
+    - '<#f2f0e6>Cross five islands and defeat the final boss.'
     - '<#8c8c8c>Status: <phase> | <seconds>s.'
     - '<#8c8c8c>Expedition limit: <maximum>s.'
     - '<#8c8c8c>Arena: <arena>.'
@@ -871,42 +872,163 @@ arcade:
   status-lore: '<#8c8c8c>Status: <queue_state>'
 
 fishing:
-  start: '<#7bd88f>The expedition begins. Cast into the marked water.'
-  catch: '<#67d7ff>Catch <catches>. Prepare for a dangerous fight.'
-  complete: '<#7bd88f>The deepwater boss is defeated.'
-  travel-unlocked: '<#7bd88f>The next island is unlocked. Follow the marked path.'
-  creature-defeated: '<#7bd88f>The catch is defeated. Cast again.'
-  creature-hit: '<#7bd88f>Hit. Health remaining: <health>.'
-  hud: '<#67d7ff>Islands of the Deep <#8c8c8c>| Island: <#e3b341><stage>/<total> <#8c8c8c>| Catch: <#f2f0e6><catches>/<needed> <#8c8c8c>| Phase: <#92bed8><phase>'
-  creature-name: '<#ff9f0f>Dangerous Catch <#8c8c8c>(island <stage>)'
-  boss-name: '<#d6a8ff>Abyssal Guardian <#8c8c8c>(island <stage>)'
-  boss-summoned: '<#d84a4a>The abyssal guardian rises.'
-  creature-summoned: '<#ff9f0f>A dangerous catch attacks.'
-  creature-missing: '<#e3b341>Encounter restored. Continue the fight.'
-  boss-warning: '<#d84a4a>Danger. An attack is coming — move away from the marker.'
-  travel-started: '<#67d7ff>Island <stage> unlocked. Your weapon improves.'
-  travel-marker: '<#67d7ff>Next island'
-  invalid-catch: '<#e3b341>Invalid catch. Cast into the marked water.'
-  encounter-restored: '<#7bd88f>Encounter restored.'
-  telegraph: '<#d84a4a>Attack incoming. Move beyond <radius> blocks.'
+  start: "<#7bd88f>You are ashore. Rod in slot one, knuckles in slot two. Catch and subdue your prey; the trader waits under the canopy."
+  catch: "<#67d7ff>Catch <catches>. Your prey is still alive — get ready to fight."
+  complete: "<newline>  <#7bd88f>Expedition complete. All five trophies delivered.<newline>"
+  creature-defeated: "<#7bd88f>Catch stored. Sell it at the trader or eat it to recover."
+  creature-hit: "<#7bd88f>Prey health: <health>."
+  creature-name: "<#ff9f0f>Dangerous catch"
+  boss-name: "<#d6a8ff>Island boss"
+  boss-summoned: "<#d84a4a>The boss took the bait. Watch its attack warnings."
+  creature-summoned: "<#ff9f0f>Your catch is attacking. Strike up close or use a firearm."
+  creature-missing: "<#e3b341>Encounter restored. Keep fighting."
+  boss-warning: "<#d84a4a>Leave the marker: the boss is preparing an attack."
+  braced: "<#e3b341>The boss is stunned — attack now."
+  boss-defeated: "<#7bd88f>Trophy secured. Return to the trader to hand it in."
+  bait-ready: "<#67d7ff>Special bait ready. Your next catch will summon the boss."
+  bag-full: "<#e3b341>Your bag is full. Sell or eat some of your catch."
+  dynamite-thrown: "<#ffb277>The fuse is burning. Move away from the dynamite!"
+  dynamite-empty: "<#e3b341>Buy dynamite from the trader."
+  dynamite-busy: "<#e3b341>Wait for the dynamite already thrown to explode."
+  dynamite-warning: "<#ffb277>Dynamite: stay more than four blocks away."
+  rare-prefix: "<#c4abff>Rare catch: "
+  near-trader: "<#e3b341>Approach the stall under the canopy."
+  food-full: "<#e3b341>Your health and hunger are already full."
+  inventory-full: "<#e3b341>Make room for your purchase."
+  purchase-failed: "<#e3b341>Purchase unavailable. Check your expedition credits and unlocked island."
+  hud: "<#67d7ff>Island <stage>/<total> <#e8dfd2>| <phase> | Catch <catches>/<needed> | <coins> credits | Bag <bag>"
+  quest-ready: "<#7bd88f>Task complete. Collect special bait from the trader."
+  quest-bait: "<#67d7ff>Special bait is on the hook: catch the boss."
+  travel-unlocked: "<newline>  <#7bd88f>Trophy accepted. The next island is open.<newline>"
+  travel-started: "<#67d7ff>Island <stage> unlocked. New gear is available at the trader."
+  travel-marker: "<#67d7ff>Next island"
+  trader-marker: "<#f4d87a>Trader | Right-click the barrel"
+  invalid-catch: "<#e3b341>Cast into the marked water beside the dock."
+  encounter-restored: "<#7bd88f>Encounter restored."
+  telegraph: "<#d84a4a>Incoming attack! Move more than <radius> blocks away from the marker."
   phase:
-    casting: 'casting'
-    bite: 'bite'
-    creature: 'fight'
-    travel: 'travel'
-    boss: 'final boss'
-    complete: 'complete'
-    closed: 'closed'
-  rod-name: '<#67d7ff><bold>Deepwater Rod'
+    casting: "fishing"
+    bite: "bite"
+    creature: "fight"
+    travel: "next island"
+    boss: "boss fight"
+    trophy: "deliver trophy"
+    complete: "complete"
+    closed: "closed"
+  rod-name: "<#67d7ff>Expedition rod"
   rod-lore:
-    - '<#f2f0e6>Cast into marked waters and wait for a dangerous catch.'
-    - '<#8c8c8c>Be ready for the fight after the catch.'
-  weapon-0-name: '<#e3b341>Tide Hook'
-  weapon-1-name: '<#e3b341>Reef Blade'
-  weapon-2-name: '<#d6a8ff>Deepwater Blade'
+    - ""
+    - "<#e8dfd2>Level <rod-level>. Cast into the marked water beside the dock."
+    - ""
+    - "<#e8dfd2>Subdue your catch before selling or eating it."
+    - ""
+  melee-lore:
+    - ""
+    - "<#e8dfd2>Damage: <damage> | Hit interval: <cooldown>s."
+    - ""
+    - "<#e8dfd2>Left-click to strike your prey."
+    - ""
+  dynamite-name: "<#ffb277>Dynamite"
+  dynamite-lore:
+    - ""
+    - "<#e8dfd2>Right-click to throw. Explodes after 2.5 seconds."
+    - ""
+    - "<#e8dfd2>Hurts prey and you within four blocks."
+    - "<#e8dfd2>Throw into the marked water to lure one catch."
+    - ""
+  ledger-name: "<#f4d87a>Expedition stall"
+  ledger-lore:
+    - ""
+    - "<#e8dfd2>Approach the trader under the canopy."
+    - ""
+    - "<#e8dfd2>Right-click to sell, buy supplies or deliver a trophy."
+    - ""
+  weapon-0-name: "<#e3b341>Knuckles"
+  weapon-1-name: "<#e3b341>Knife"
+  weapon-2-name: "<#e3b341>Machete"
   weapon-lore:
-    - '<#f2f0e6>Expedition weapon for fighting the catch.'
-    - '<#8c8c8c>Use it only during the dangerous catch.'
-  result-success: '<#7bd88f>You crossed the Islands of the Deep and defeated the final boss.'
-  result-timeout: '<#e3b341>The expedition timer expired. The Islands of the Deep remain unconquered.'
-  result-defeat: '<#d84a4a>The dangerous catch won the fight. Try again.'
+    - ""
+    - "<#e8dfd2>Melee gear for hunting dangerous catches."
+    - ""
+  result-success: "<#7bd88f>All five islands cleared. Expedition complete!"
+  result-timeout: "<#e3b341>Your expedition ran out of time. Try a different gear progression next time."
+  result-defeat: "<#d84a4a>Your catch won this time. Food and better weapons can help on your next run."
+  gear:
+    knuckles-name: "<#e3b341>Knuckles"
+    knuckles-description: "Fast close-range strikes. Always available."
+    knife-name: "<#e3b341>Knife"
+    knife-description: "A quick blade for early encounters."
+    machete-name: "<#e3b341>Machete"
+    machete-description: "Hits harder than a knife, with a slower swing."
+    pistol-name: "<#e3b341>Five-Seven pistol"
+    pistol-description: "Single shots and a generous magazine."
+    shotgun-name: "<#e3b341>Double-barrel shotgun"
+    shotgun-description: "Strong up close; reload after two shots."
+    burst_rifle-name: "<#e3b341>G36 burst rifle"
+    burst_rifle-description: "Short bursts consume three rounds per click."
+    assault_rifle-name: "<#e3b341>AEK-971 rifle"
+    assault_rifle-description: "Faster, tighter bursts for the later islands."
+    sniper-name: "<#e3b341>McMillan sniper rifle"
+    sniper-description: "Accurate long-range shots with a long firing interval."
+  species:
+    clam: "Clam"
+    shore_crab: "Shore crab"
+    shrimp: "Shrimp"
+    reef_perch: "Reef perch"
+    reef_eel: "Reef eel"
+    reef_piranha: "Reef piranha"
+    needlefish: "Needlefish"
+    bowlfish: "Bowlfish"
+    seahorse: "Seahorse"
+    tuna: "Tuna"
+    mackerel: "Mackerel"
+    rockfish: "Rockfish"
+    ash_carp: "Ash carp"
+    lava_salmon: "Volcanic salmon"
+    ember_trout: "Ember trout"
+    spider_crab: "Spider crab"
+    giant_piranha: "Giant piranha"
+    pufferfish: "Giant pufferfish"
+    albatross: "Albatross"
+    lava_whale: "Volcanic whale"
+  island:
+    camp: "Shipwreck shore"
+    reef: "Overgrown reef"
+    shrine: "Sunken shrine"
+    cliffs: "Bird cliffs"
+    volcano: "Volcano island"
+  trader:
+    title: "Expedition supplies"
+    armory-title: "Expedition weapons"
+    armory: "Weapons ›"
+    armory-help: "Progress from knuckles and blades to pistols, a shotgun and rifles."
+    status: "Island <stage>/5 | Expedition credits: <coins>\nCatch in bag: <bag> | Sale value: <value>\nRod: level <rod>"
+    session-only: "Credits, catches and gear last for this expedition only."
+    nearby: "Approach the trader under the canopy after the fight."
+    client-required: "Trading requires a Java 1.21.6+ client with native dialogs."
+    done: "Done. Your balance and gear are up to date."
+    changed: "Action unavailable: your state or inventory space has changed."
+    sell: "Sell catch for <value>"
+    sell-help: "Exchange the entire bag for credits within this expedition."
+    eat: "Eat one catch"
+    eat-help: "Restore 4 health and 4 hunger. An eaten catch cannot be sold."
+    bait: "Collect boss bait"
+    bait-help: "Defeat <needed> ordinary catches on this island to earn special bait for your next cast."
+    trophy: "Deliver trophy"
+    trophy-help: "Unlock the next island. Delivering the final trophy completes the expedition."
+    quest-catches: "Island task: defeat catches <catches>/<needed>. Then collect special bait."
+    quest-ready: "Task complete. Collect the bait and fish up the island boss."
+    quest-cast: "Bait collected. Your next cast into the marked water will summon the boss."
+    quest-trophy: "Boss defeated. Deliver the trophy to continue your journey."
+    purchase: "<item>: <price>"
+    gear-help: "Price: <price> credits. Available on island <island>.\nA new firearm includes one full magazine."
+    equip-help: "Equip owned gear. Switching does not refill ammunition."
+    ammo: "32 rounds: <price>"
+    ammo-help: "Reserve ammunition for an owned firearm. Press the swap-hands key F to reload."
+    dynamite: "2 dynamite: <price>"
+    dynamite-help: "Right-click to throw. Hurts you too; marked water lures a catch."
+    rod_one: "Rod II: <price>"
+    rod_one-help: "Shortens the wait for a bite. Buy this upgrade first."
+    rod_two: "Rod III: <price>"
+    rod_two-help: "Attracts catches even faster. Requires rod II and the third island."
+  dynamite-cap: "<#e3b341>Wait for the dynamite already thrown to explode."

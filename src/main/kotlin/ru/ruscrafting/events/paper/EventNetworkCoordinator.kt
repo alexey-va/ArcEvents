@@ -44,6 +44,7 @@ enum class ReservationStartResult {
     RECOVERY_PENDING,
     NETWORK_FAILURE,
     NOT_OWNER,
+    CLIENT_UNSUPPORTED,
 }
 
 data class QueueControlSnapshot(

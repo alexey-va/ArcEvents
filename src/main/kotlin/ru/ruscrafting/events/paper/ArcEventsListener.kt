@@ -2,6 +2,7 @@ package ru.ruscrafting.events.paper
 
 import io.papermc.paper.event.player.AsyncChatEvent
 import net.kyori.adventure.text.Component
+import org.bukkit.Material
 import org.bukkit.Location
 import org.bukkit.entity.Entity
 import org.bukkit.entity.Player
@@ -76,6 +77,8 @@ interface ArcEventsGameplayBoundary {
     fun readBodyId(entity: Entity): UUID?
     fun inspectBody(player: Player, bodyId: UUID)
     fun isInternalTeleport(playerId: UUID, destination: Location?): Boolean
+    fun isFishingParticipant(playerId: UUID): Boolean = false
+    fun fishingAdventure(player: Player): FishingAdventure? = null
     fun handleFishing(event: PlayerFishEvent) = Unit
     fun handleFishingDamage(event: EntityDamageEvent): Boolean = false
     fun handleFishingInteract(event: PlayerInteractEvent): Boolean = false
@@ -108,7 +111,9 @@ class ArcEventsListener(
         val projectile = damager as? Projectile
         val attacker = damager?.let(::attacker)
         val victimParticipates = service.isParticipant(victim.uniqueId)
-        if (!victimParticipates && (victim.bypassesEventProtection() || attacker?.bypassesEventProtection() == true)) return
+        if (!victimParticipates && attacker?.let { service.isFishingParticipant(it.uniqueId) } != true &&
+            (victim.bypassesEventProtection() || attacker?.bypassesEventProtection() == true)
+        ) return
         if (service.withinProtectedArena(victim.location) && !victimParticipates) {
             event.isCancelled = true
             return
@@ -196,6 +201,14 @@ class ArcEventsListener(
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     fun onInteract(event: PlayerInteractEvent) {
         val player = event.player
+        val clicked = event.clickedBlock
+        if (event.hand == EquipmentSlot.HAND && event.action == Action.RIGHT_CLICK_BLOCK &&
+            clicked?.type == Material.BARREL && service.fishingAdventure(player) != null
+        ) {
+            event.isCancelled = true
+            menu.openFishingTraderRoot(player)
+            return
+        }
         if (service.handleFishingInteract(event)) return
         val kind = itemResolver.kind(event.item) ?: return
         if (!service.belongsToCurrentMatch(player.uniqueId, event.item)) {
@@ -211,7 +224,11 @@ class ArcEventsListener(
             }
             EventItemKind.SHOP -> {
                 event.isCancelled = true
-                menu.open(player, EventsView.Shop)
+                if (service.isFishingParticipant(player.uniqueId)) {
+                    if (event.hand == EquipmentSlot.HAND && event.action in setOf(Action.RIGHT_CLICK_AIR, Action.RIGHT_CLICK_BLOCK)) {
+                        menu.openFishingTraderRoot(player)
+                    }
+                } else menu.open(player, EventsView.Shop)
             }
             EventItemKind.TRAITOR_RADAR, EventItemKind.TRAITOR_SMOKE, EventItemKind.DETECTIVE_MEDKIT -> {
                 event.isCancelled = true
@@ -229,7 +246,7 @@ class ArcEventsListener(
                 event.isCancelled = true
                 if (event.hand == EquipmentSlot.HAND) menu.open(player, EventsView.Report)
             }
-            EventItemKind.AMMUNITION -> event.isCancelled = true
+            EventItemKind.AMMUNITION, EventItemKind.FISHING_DYNAMITE -> event.isCancelled = true
             else -> Unit
         }
     }
@@ -378,7 +395,8 @@ class ArcEventsListener(
         else -> null
     }
 
-    private fun Player.bypassesEventProtection(): Boolean = hasPermission(ADMIN_BYPASS_PERMISSION)
+    private fun Player.bypassesEventProtection(): Boolean = hasPermission(ADMIN_BYPASS_PERMISSION) &&
+        !service.isFishingParticipant(uniqueId)
 
     companion object {
         internal const val ADMIN_BYPASS_PERMISSION = "arcevents.admin"

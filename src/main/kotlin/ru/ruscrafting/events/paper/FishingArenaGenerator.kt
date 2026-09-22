@@ -14,6 +14,8 @@ enum class FishingArenaStage(
     CAMP(0),
     REEF(48),
     SHRINE(96),
+    CLIFFS(144),
+    VOLCANO(192),
 }
 
 data class FishingArenaPoint(
@@ -34,7 +36,7 @@ data class FishingArenaZone(
     val minimumDepth: Int,
 )
 
-/** Deterministic three-island fishing map; generation is the only block mutation. */
+/** Deterministic five-island fishing map; generation is the only block mutation. */
 class FishingArenaGenerator : ChunkGenerator() {
     override fun generateSurface(
         worldInfo: WorldInfo,
@@ -71,10 +73,10 @@ class FishingArenaGenerator : ChunkGenerator() {
     override fun shouldGenerateStructures(worldInfo: WorldInfo, random: Random, chunkX: Int, chunkZ: Int): Boolean = false
 
     companion object {
-        const val TEMPLATE = "fishing-v1"
+        const val TEMPLATE = "fishing-v2"
         const val SEED = 0x415243464953484CL
         const val MIN_X = -24
-        const val MAX_X = 120
+        const val MAX_X = 216
         const val MIN_Z = -24
         const val MAX_Z = 28
         const val MIN_Y = 54
@@ -101,6 +103,10 @@ class FishingArenaGenerator : ChunkGenerator() {
 
         fun fightCenter(stage: FishingArenaStage): FishingArenaPoint =
             point(stage, -4.0, SPAWN_Y.toDouble(), 0f)
+
+        /** Center of the stage's clickable merchant barrel block. */
+        fun trader(stage: FishingArenaStage): FishingArenaPoint =
+            FishingArenaPoint(stage.centerX + 8.5, SPAWN_Y.toDouble(), 0.5)
 
         fun exit(stage: FishingArenaStage): FishingArenaPoint =
             point(stage, -9.0, SPAWN_Y.toDouble(), 180f)
@@ -153,28 +159,51 @@ class FishingArenaGenerator : ChunkGenerator() {
 
         private fun StagePalette.decoration(x: Int, y: Int, z: Int): Material? {
             val dx = x - stage.centerX
+            tradingStallDecoration(dx, y, z)?.let { return it }
+            exitDecoration(dx, y, z)?.let { return it }
+            if (abs(dx) == 5 && z in 8..12 && y in 65..66) return dockRail
             return when (stage) {
                 FishingArenaStage.CAMP -> campDecoration(dx, y, z)
                 FishingArenaStage.REEF -> reefDecoration(dx, y, z)
                 FishingArenaStage.SHRINE -> shrineDecoration(dx, y, z)
+                FishingArenaStage.CLIFFS -> cliffsDecoration(dx, y, z)
+                FishingArenaStage.VOLCANO -> volcanoDecoration(dx, y, z)
             }
         }
+
+        private fun StagePalette.tradingStallDecoration(dx: Int, y: Int, z: Int): Material? = when {
+            dx == 8 && y == 65 && z == 0 -> Material.BARREL
+            dx == 9 && y == 65 && z == 0 -> stallCounter
+            dx == 10 && y == 65 && z == 0 -> Material.SMOKER
+            dx == 10 && y == 66 && z == 0 -> Material.CHISELED_BOOKSHELF
+            dx in 10..11 && abs(z) == 2 && y in 65..68 -> stallFrame
+            dx in 7..11 && z in -2..2 && y == 69 ->
+                if ((dx + z).mod(2) == 0) awning else awningAccent
+            dx == 9 && y == 70 && z == 0 -> Material.LANTERN
+            else -> null
+        }
+
+        private fun StagePalette.exitDecoration(dx: Int, y: Int, z: Int): Material? = when {
+            z == -9 && abs(dx) == 2 && y in 65..67 -> stallFrame
+            z == -9 && abs(dx) <= 2 && y == 68 -> exitAccent
+            else -> null
+        }
+
+        private fun isPath(dx: Int, z: Int): Boolean =
+            (abs(dx) <= 1 && z in -10..6) || (dx in 1..8 && z in -1..1)
 
         private fun campDecoration(dx: Int, y: Int, z: Int): Material? {
             if (dx in -8..-4 && z in -4..0) {
                 if (y in 65..67 && (dx == -8 || dx == -4 || z == -4 || z == 0)) return Material.OAK_LOG
                 if (y == 68 && dx in -9..-3 && z in -5..1) return Material.ORANGE_WOOL
             }
-            if (dx == 0 && z == -1 && y == 65) return Material.CAMPFIRE
-            if (y == 65 && (dx == -2 || dx == 2) && z == -1) return Material.COBBLESTONE
-            if (y == 69 && dx == 0 && z == -1) return Material.LANTERN
-            if (y == 65 && dx in -4..4 && z == 10 && dx % 2 == 0) return Material.OAK_FENCE
-            if (y == 66 && abs(dx) == 5 && z in 8..12) return Material.OAK_FENCE
+            if (dx == -6 && z == -2 && y == 65) return Material.SMOKER
+            if (dx == -6 && z == -2 && y == 67) return Material.LANTERN
             return null
         }
 
         private fun reefDecoration(dx: Int, y: Int, z: Int): Material? {
-            if (y == 65 && z in -6..5 && dx in -14..14 && (dx + z).mod(7) == 0) {
+            if (y == 65 && z in -6..5 && dx in -14..14 && !isPath(dx, z) && (dx + z).mod(7) == 0) {
                 return when (abs(dx + z) % 3) {
                     0 -> Material.TUBE_CORAL_BLOCK
                     1 -> Material.BRAIN_CORAL_BLOCK
@@ -183,20 +212,41 @@ class FishingArenaGenerator : ChunkGenerator() {
             }
             val ruin = (dx == -11 && z == -4) || (dx == 11 && z == 3) || (dx == -6 && z == 5)
             if (ruin && y in 65..71 && (y < 69 || (y + dx + z) % 3 != 0)) return Material.MOSSY_COBBLESTONE
-            if (y == 65 && dx in -4..4 && z == 10 && dx % 2 == 0) return Material.PRISMARINE_WALL
-            if (y == 66 && abs(dx) == 5 && z in 8..12) return Material.COBBLESTONE_WALL
             return null
         }
 
         private fun shrineDecoration(dx: Int, y: Int, z: Int): Material? {
             val pillar = (dx == -7 && z == -4) || (dx == 7 && z == -4) || (dx == -7 && z == 4) || (dx == 7 && z == 4)
             if (pillar && y in 65..74) return if (y >= 71) Material.AMETHYST_BLOCK else Material.BASALT
-            if (y in 65..68 && dx in -3..3 && z == -4) return Material.POLISHED_BLACKSTONE_BRICKS
-            if (y == 69 && dx in -2..2 && z == -4) return Material.PURPLE_STAINED_GLASS
-            if (y == 70 && abs(dx) == 2 && z == -4) return Material.AMETHYST_BLOCK
-            if (y == 65 && dx in -4..4 && z == 10 && dx % 2 == 0) return Material.POLISHED_BLACKSTONE_WALL
-            if (y == 66 && abs(dx) == 5 && z in 8..12) return Material.BASALT
+            if (y in 65..68 && abs(dx) in 2..4 && z == -4) return Material.POLISHED_BLACKSTONE_BRICKS
+            if (y == 69 && abs(dx) in 2..4 && z == -4) return Material.PURPLE_STAINED_GLASS
+            if (y == 70 && abs(dx) == 3 && z == -4) return Material.AMETHYST_BLOCK
             if (y == 69 && dx == 0 && z == -8) return Material.AMETHYST_BLOCK
+            return null
+        }
+
+        private fun cliffsDecoration(dx: Int, y: Int, z: Int): Material? {
+            if (abs(dx) !in 12..15 || z !in -6..6) return null
+            val cliffTop = 67 + (abs(dx) * 3 + (z + 12) * 5).mod(6)
+            if (y !in 65..cliffTop) return null
+            if (y == cliffTop) return Material.MOSS_BLOCK
+            if (y == 66 && (dx + z).mod(6) == 0) return Material.SEA_LANTERN
+            return if ((y + z).mod(3) == 0) Material.COBBLED_DEEPSLATE else Material.STONE
+        }
+
+        private fun volcanoDecoration(dx: Int, y: Int, z: Int): Material? {
+            val craterDx = dx + 12
+            val craterDz = z + 3
+            val radiusSquared = craterDx * craterDx + craterDz * craterDz
+            if (radiusSquared in 8..20) {
+                val rimTop = 66 + (abs(dx) + abs(z)).mod(3)
+                if (y in 65..rimTop) {
+                    if (radiusSquared in 13..15 && y == 66) return Material.GLOWSTONE
+                    return if (y == rimTop) Material.POLISHED_BASALT else Material.BASALT
+                }
+            }
+            if (radiusSquared in 4..7 && y == 65) return Material.BLACKSTONE
+            if (radiusSquared <= 3 && y == 65) return Material.ORANGE_GLAZED_TERRACOTTA
             return null
         }
 
@@ -206,10 +256,40 @@ class FishingArenaGenerator : ChunkGenerator() {
             val surface: Material,
             val dock: Material,
             val dockSupport: Material,
+            val path: Material,
+            val dockRail: Material,
+            val stallFrame: Material,
+            val stallCounter: Material,
+            val awning: Material,
+            val awningAccent: Material,
+            val exitAccent: Material,
         ) {
-            CAMP(FishingArenaStage.CAMP, Material.SANDSTONE, Material.SAND, Material.OAK_PLANKS, Material.OAK_LOG),
-            REEF(FishingArenaStage.REEF, Material.STONE, Material.PRISMARINE_BRICKS, Material.DARK_OAK_PLANKS, Material.DARK_OAK_LOG),
-            SHRINE(FishingArenaStage.SHRINE, Material.BASALT, Material.POLISHED_BLACKSTONE, Material.POLISHED_BASALT, Material.BASALT);
+            CAMP(
+                FishingArenaStage.CAMP, Material.SANDSTONE, Material.SAND, Material.OAK_PLANKS, Material.OAK_LOG,
+                Material.CUT_SANDSTONE, Material.OAK_FENCE, Material.OAK_LOG, Material.OAK_PLANKS,
+                Material.ORANGE_WOOL, Material.WHITE_WOOL, Material.ORANGE_WOOL,
+            ),
+            REEF(
+                FishingArenaStage.REEF, Material.STONE, Material.PRISMARINE_BRICKS, Material.DARK_OAK_PLANKS, Material.DARK_OAK_LOG,
+                Material.PRISMARINE, Material.PRISMARINE_WALL, Material.DARK_OAK_LOG, Material.PRISMARINE_BRICKS,
+                Material.CYAN_WOOL, Material.LIGHT_BLUE_WOOL, Material.SEA_LANTERN,
+            ),
+            SHRINE(
+                FishingArenaStage.SHRINE, Material.BASALT, Material.POLISHED_BLACKSTONE, Material.POLISHED_BASALT, Material.BASALT,
+                Material.POLISHED_BLACKSTONE_BRICKS, Material.POLISHED_BLACKSTONE_WALL, Material.POLISHED_BLACKSTONE,
+                Material.POLISHED_BLACKSTONE_BRICKS, Material.PURPLE_WOOL, Material.BLACK_WOOL, Material.AMETHYST_BLOCK,
+            ),
+            CLIFFS(
+                FishingArenaStage.CLIFFS, Material.COBBLED_DEEPSLATE, Material.MOSSY_STONE_BRICKS,
+                Material.SPRUCE_PLANKS, Material.SPRUCE_LOG, Material.MOSSY_STONE_BRICKS,
+                Material.STONE_BRICK_WALL, Material.SPRUCE_LOG, Material.SPRUCE_PLANKS,
+                Material.LIGHT_BLUE_WOOL, Material.WHITE_WOOL, Material.SEA_LANTERN,
+            ),
+            VOLCANO(
+                FishingArenaStage.VOLCANO, Material.BASALT, Material.BLACKSTONE, Material.POLISHED_BLACKSTONE,
+                Material.BASALT, Material.POLISHED_BASALT, Material.BLACKSTONE_WALL, Material.POLISHED_BASALT,
+                Material.BLACKSTONE, Material.RED_WOOL, Material.BLACK_WOOL, Material.GLOWSTONE,
+            );
 
             companion object {
                 fun forStage(stage: FishingArenaStage): StagePalette = entries.first { it.stage == stage }
@@ -220,9 +300,11 @@ class FishingArenaGenerator : ChunkGenerator() {
             get() = StagePalette.forStage(this)
 
         private fun StagePalette.surface(x: Int, z: Int): Material = when {
+            isPath(x - stage.centerX, z) -> path
             stage == FishingArenaStage.CAMP && (x + z) % 7 == 0 -> Material.CUT_SANDSTONE
             stage == FishingArenaStage.REEF && (x + z) % 5 == 0 -> Material.MOSSY_COBBLESTONE
             stage == FishingArenaStage.SHRINE && (x - z) % 5 == 0 -> Material.BLACKSTONE
+            stage == FishingArenaStage.VOLCANO && (x + z).mod(5) == 0 -> Material.POLISHED_BASALT
             else -> surface
         }
     }

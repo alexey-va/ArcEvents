@@ -27,11 +27,44 @@ class ArcEventsConfigTest : StringSpec({
             Files.writeString(root.resolve("config.yml"), original.replace("node-mode: RELAY", "node-mode: HOST"))
             val host = ArcEventsConfig.inspect(root)
             host.arenas.single { it.id == "fishing" }.let { arena ->
-                arena.world shouldBe "arcevents_fishing"
-                arena.template shouldBe "fishing-v1"
+                arena.world shouldBe "arcevents_fishing_v2"
+                arena.template shouldBe "fishing-v2"
                 arena.operational(1) shouldBe true
             }
             current.arenas.none { it.id == "fishing" } shouldBe true
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    "fishing prices are configurable positive session credits and reject active reloads" {
+        val root = Files.createTempDirectory("arcevents-fishing-prices-")
+        try {
+            val current = ArcEventsConfig.load(root)
+            current.fishing.islands shouldBe 5
+            current.arcade.fishing.roundSeconds shouldBe 1800
+            val original = Files.readString(root.resolve("config.yml"))
+            Files.writeString(root.resolve("config.yml"), original.replace("      knife: 25", "      knife: 30"))
+            val candidate = ArcEventsConfig.inspect(root)
+            candidate.fishing.prices.getValue(ru.ruscrafting.events.domain.FishingOffer.KNIFE) shouldBe 30
+            shouldNotThrowAny { ArcEventsReloadPolicy.validate(current, candidate, false) }
+            shouldThrow<IllegalArgumentException> { ArcEventsReloadPolicy.validate(current, candidate, true, "default") }
+            Files.writeString(root.resolve("config.yml"), original.replace("      ammo: 8", "      ammo: 0"))
+            shouldThrow<IllegalArgumentException> { ArcEventsConfig.inspect(root) }
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    "native trader cannot be disabled during an active fishing expedition" {
+        val root = Files.createTempDirectory("arcevents-fishing-dialogs-")
+        try {
+            ArcEventsConfig.load(root)
+            val configFile = root.resolve("config.yml")
+            val original = Files.readString(configFile).replace("node-mode: RELAY", "node-mode: HOST")
+                .replace("dialogs-enabled: false", "dialogs-enabled: true")
+            Files.writeString(configFile, original)
+            val current = ArcEventsConfig.inspect(root)
+            Files.writeString(configFile, original.replace("dialogs-enabled: true", "dialogs-enabled: false"))
+            val candidate = ArcEventsConfig.inspect(root)
+            shouldNotThrowAny { ArcEventsReloadPolicy.validate(current, candidate, false) }
+            shouldThrow<IllegalArgumentException> { ArcEventsReloadPolicy.validate(current, candidate, true, "fishing") }
         } finally { root.toFile().deleteRecursively() }
     }
 

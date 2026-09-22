@@ -2,75 +2,273 @@ package ru.ruscrafting.events.domain
 
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.assertions.throwables.shouldThrow
 
 class FishingProgressTest : StringSpec({
-    "a cast, catch and creature defeat advance one island without duplicate progress" {
+    "a full five-island run gates each boss on defeated normal catches and trophy hand-in" {
         val rules = FishingRules(catchesPerIsland = 2)
-        var progress = FishingProgress(rules = rules)
-
-        progress = progress.beginCast()
-        progress.phase shouldBe FishingPhase.BITE
-        progress = progress.recordCatch()
-        progress.phase shouldBe FishingPhase.CREATURE
-        progress.totalCatches shouldBe 1
-        progress.recordCatch() shouldBe progress
-
-        progress = progress.damageCreature(rules.creatureHealth)
-        progress.phase shouldBe FishingPhase.CASTING
-        progress = progress.beginCast().recordCatch().damageCreature(rules.creatureHealth)
-        progress.phase shouldBe FishingPhase.TRAVEL
-        progress.catchesOnStage shouldBe rules.catchesPerIsland
-
-        progress = progress.travelToNextStage()
-        progress.stage shouldBe 1
-        progress.catchesOnStage shouldBe 0
-        progress.totalCatches shouldBe rules.catchesPerIsland
-        progress.travelToNextStage() shouldBe progress
-    }
-
-    "the last catch summons a boss and only its defeat completes" {
-        val rules = FishingRules(catchesPerIsland = 2)
-        var progress = FishingProgress(rules = rules)
-
-        repeat(rules.catchesPerIsland) {
-            progress = progress.beginCast().recordCatch().damageCreature(rules.creatureHealth)
-        }
-        progress.phase shouldBe FishingPhase.TRAVEL
-        progress = progress.travelToNextStage()
-
-        repeat(rules.catchesPerIsland) {
-            progress = progress.beginCast().recordCatch().damageCreature(rules.creatureHealth)
-        }
-        progress.phase shouldBe FishingPhase.TRAVEL
-        progress = progress.travelToNextStage()
-
-        repeat(rules.catchesPerIsland - 1) {
-            progress = progress.beginCast().recordCatch().damageCreature(rules.creatureHealth)
-        }
-        progress = progress.beginCast().recordCatch()
-        progress.phase shouldBe FishingPhase.BOSS
-        progress.totalCatches shouldBe rules.islands * rules.catchesPerIsland
-        progress.damageCreature(1.0).phase shouldBe FishingPhase.BOSS
-        progress.damageCreature(rules.bossHealth).phase shouldBe FishingPhase.COMPLETE
-    }
-
-    "an unresolved final catch remains pending when no damage is applied" {
-        val rules = FishingRules(catchesPerIsland = 1)
         var progress = FishingProgress(rules)
-        repeat(rules.islands - 1) {
-            progress = progress.beginCast().recordCatch().damageCreature(rules.creatureHealth).travelToNextStage()
+
+        repeat(rules.islands) { stage ->
+            repeat(rules.catchesPerIsland) { catchIndex ->
+                val landed = progress.beginCast().recordCatch()
+                landed.phase shouldBe FishingPhase.CREATURE
+                landed.catchesOnStage shouldBe catchIndex
+                landed.totalCatches shouldBe stage * rules.catchesPerIsland + catchIndex
+                landed.bag.size shouldBe progress.bag.size
+
+                progress = landed.damageCreature(landed.creatureHealth)
+                progress.phase shouldBe FishingPhase.CASTING
+                progress.catchesOnStage shouldBe catchIndex + 1
+                progress.totalCatches shouldBe stage * rules.catchesPerIsland + catchIndex + 1
+                progress.bag.size shouldBe landed.bag.size + 1
+            }
+
+            progress = progress.claimBossBait()
+            progress.bossBait shouldBe true
+            val boss = progress.beginCast().recordCatch()
+            boss.phase shouldBe FishingPhase.BOSS
+            boss.encounter?.boss shouldBe true
+            boss.catchesOnStage shouldBe rules.catchesPerIsland
+            boss.totalCatches shouldBe progress.totalCatches
+
+            progress = boss.damageCreature(boss.creatureHealth)
+            progress.phase shouldBe FishingPhase.TROPHY
+            progress.coins shouldBe (50 * (stage + 1) + 30 * stage * (stage + 1) / 2)
+            progress.damageCreature(10_000.0) shouldBe progress
+            progress.handInTrophy().phase shouldBe if (stage == rules.islands - 1) {
+                FishingPhase.COMPLETE
+            } else {
+                FishingPhase.TRAVEL
+            }
+
+            progress = progress.handInTrophy()
+            if (stage < rules.islands - 1) {
+                progress = progress.travelToNextStage()
+                progress.stage shouldBe stage + 1
+                progress.catchesOnStage shouldBe 0
+                progress.totalCatches shouldBe (stage + 1) * rules.catchesPerIsland
+                progress.phase shouldBe FishingPhase.CASTING
+            } else {
+                progress.phase shouldBe FishingPhase.COMPLETE
+            }
         }
-        progress = progress.beginCast().recordCatch()
-        progress.phase shouldBe FishingPhase.BOSS
-        progress.damageCreature(0.0) shouldBe progress
-        progress.damageCreature(Double.NaN) shouldBe progress
     }
 
-    "stale damage, travel, close and duplicate catches are inert" {
-        val progress = FishingProgress()
-        progress.damageCreature(2.0) shouldBe progress
-        progress.travelToNextStage() shouldBe progress
-        progress.close().close().phase shouldBe FishingPhase.CLOSED
-        progress.close().recordCatch() shouldBe progress.close()
+    "catches can be farmed after quest progress clamps and only kills advance species or rare rolls" {
+        val rules = FishingRules(catchesPerIsland = 1, rareEvery = 3)
+        var progress = FishingProgress(rules)
+        repeat(6) {
+            progress = progress.beginCast().reelIn()
+        }
+        val firstLanded = progress.beginCast().recordCatch()
+        firstLanded.encounter?.species shouldBe "clam"
+        firstLanded.encounter?.rare shouldBe false
+        firstLanded.catchesOnStage shouldBe 0
+        firstLanded.totalCatches shouldBe 0
+        firstLanded.bag shouldBe emptyList()
+        firstLanded.castNonce shouldBe 7L
+        progress = firstLanded.damageCreature(firstLanded.creatureHealth)
+        progress.totalCatches shouldBe 1
+        progress.catchesOnStage shouldBe 1
+
+        progress = progress.beginCast().recordCatch().damageCreature(10_000.0)
+        progress.catchesOnStage shouldBe 1
+        progress.totalCatches shouldBe 2
+        progress = progress.beginCast().recordCatch()
+        progress.encounter?.species shouldBe "shrimp"
+        progress.encounter?.rare shouldBe true
+        progress = progress.damageCreature(progress.creatureHealth)
+        progress.catchesOnStage shouldBe 1
+        progress.totalCatches shouldBe 3
+        progress.bag.size shouldBe 3
+    }
+
+    "merchant purchases debit coins, unlock by stage and refuse duplicate or invalid offers" {
+        val start = FishingProgress(coins = 500)
+        val knife = start.buy(FishingOffer.KNIFE)
+        knife.coins shouldBe 475
+        knife.ownedGear.contains(FishingGear.KNIFE) shouldBe true
+        knife.equippedGear shouldBe FishingGear.KNIFE
+        knife.buy(FishingOffer.KNIFE) shouldBe knife
+        start.buy(FishingOffer.PISTOL) shouldBe start
+        FishingProgress(coins = 1).buy(FishingOffer.KNIFE).coins shouldBe 1
+
+        val islandTwo = FishingProgress(stage = 1, totalCatches = 3, coins = 200)
+        islandTwo.buy(FishingOffer.AMMO) shouldBe islandTwo
+        val pistol = islandTwo.buy(FishingOffer.PISTOL)
+        pistol.coins shouldBe 120
+        val ammo = pistol.buy(FishingOffer.AMMO)
+        ammo.coins shouldBe 112
+        ammo.buy(FishingOffer.AMMO).coins shouldBe 104
+
+        val rodOne = islandTwo.buy(FishingOffer.ROD_ONE)
+        rodOne.rodLevel shouldBe 1
+        rodOne.buy(FishingOffer.ROD_ONE) shouldBe rodOne
+        rodOne.buy(FishingOffer.ROD_TWO) shouldBe rodOne
+        rodOne.copy(stage = 1, coins = 200).buy(FishingOffer.ROD_TWO).rodLevel shouldBe 1
+        val rodTwo = rodOne.copy(stage = 2, totalCatches = 6, coins = 200).buy(FishingOffer.ROD_TWO)
+        rodTwo.rodLevel shouldBe 2
+
+        val fullDynamite = islandTwo.copy(dynamite = FishingRules.MAX_DYNAMITE)
+        fullDynamite.buy(FishingOffer.DYNAMITE) shouldBe fullDynamite
+        islandTwo.copy(dynamite = 14).buy(FishingOffer.DYNAMITE).dynamite shouldBe 16
+    }
+
+    "shop actions are blocked during bites and live creature combat but allowed at trophy hand-in" {
+        val stocked = FishingProgress(coins = 100, bag = listOf(FishingCatch("clam", 10, false, 18.0)))
+        val biting = stocked.beginCast()
+        biting.buy(FishingOffer.KNIFE) shouldBe biting
+        biting.sellCatch() shouldBe biting
+        biting.eatCatch() shouldBe biting
+
+        val fighting = biting.recordCatch()
+        fighting.buy(FishingOffer.KNIFE) shouldBe fighting
+        fighting.sellCatch() shouldBe fighting
+        fighting.eatCatch() shouldBe fighting
+
+        var trophy = FishingProgress(FishingRules(catchesPerIsland = 1), coins = 100)
+        trophy = trophy.beginCast().recordCatch().damageCreature(10_000.0).claimBossBait()
+        trophy = trophy.beginCast().recordCatch().damageCreature(10_000.0)
+        trophy.phase shouldBe FishingPhase.TROPHY
+        trophy.buy(FishingOffer.KNIFE).coins shouldBe 125
+        trophy.sellCatch().bag shouldBe emptyList()
+    }
+
+    "selling is all-or-nothing at the coin cap and eating removes the oldest catch" {
+        val old = FishingCatch("clam", 10, false, 18.0)
+        val newer = FishingCatch("shrimp", 16, false, 18.0)
+        val stocked = FishingProgress(coins = 5, bag = listOf(old, newer))
+        stocked.bagValue shouldBe 26L
+        stocked.eatCatch().bag shouldBe listOf(newer)
+        val sold = stocked.sellCatch()
+        sold.coins shouldBe 31
+        sold.bag shouldBe emptyList()
+
+        val capBlocked = stocked.copy(coins = FishingRules.MAX_COINS - 20)
+        capBlocked.sellCatch() shouldBe capBlocked
+        capBlocked.bag shouldBe listOf(old, newer)
+    }
+
+    "dynamite only consumes stock and leaves water, encounter and damage outcomes to the arena" {
+        val water = FishingProgress(dynamite = 1)
+        val thrownAtWater = water.consumeDynamite()
+        thrownAtWater.phase shouldBe FishingPhase.CASTING
+        thrownAtWater.dynamite shouldBe 0
+        thrownAtWater.encounter shouldBe null
+        thrownAtWater.creatureHealth shouldBe 0.0
+        thrownAtWater.catchesOnStage shouldBe 0
+        thrownAtWater.totalCatches shouldBe 0
+        thrownAtWater.bag shouldBe emptyList()
+        thrownAtWater.consumeDynamite() shouldBe thrownAtWater
+
+        val fighting = FishingProgress(dynamite = 2).beginCast().recordCatch()
+        val blast = fighting.consumeDynamite()
+        blast.phase shouldBe FishingPhase.CREATURE
+        blast.dynamite shouldBe 1
+        blast.creatureHealth shouldBe fighting.creatureHealth
+        blast.encounter shouldBe fighting.encounter
+        blast.totalCatches shouldBe fighting.totalCatches
+
+        val biting = water.beginCast()
+        biting.consumeDynamite() shouldBe biting
+        val withBait = FishingProgress(FishingRules(catchesPerIsland = 1), dynamite = 2)
+            .beginCast().recordCatch().damageCreature(10_000.0).claimBossBait()
+        val boss = withBait.beginCast().recordCatch()
+        val bossBlast = boss.consumeDynamite()
+        bossBlast.phase shouldBe FishingPhase.BOSS
+        bossBlast.dynamite shouldBe 1
+        bossBlast.creatureHealth shouldBe boss.creatureHealth
+        bossBlast.coins shouldBe 0
+        val trophy = bossBlast.damageCreature(bossBlast.creatureHealth)
+        trophy.phase shouldBe FishingPhase.TROPHY
+        trophy.coins shouldBe 50
+        trophy.consumeDynamite() shouldBe trophy
+    }
+
+    "claimed boss bait survives bites and a reel-in until the next catch lands" {
+        val required = FishingProgress(FishingRules(catchesPerIsland = 1))
+            .beginCast().recordCatch().damageCreature(10_000.0)
+        val baited = required.claimBossBait()
+        val biting = baited.beginCast()
+        biting.phase shouldBe FishingPhase.BITE
+        biting.bossBait shouldBe true
+
+        val reeled = biting.reelIn()
+        reeled.phase shouldBe FishingPhase.CASTING
+        reeled.bossBait shouldBe true
+        val landed = reeled.beginCast().recordCatch()
+        landed.phase shouldBe FishingPhase.BOSS
+        landed.bossBait shouldBe false
+        landed.encounter?.boss shouldBe true
+    }
+
+    "gear switching is free only for owned gear and never grants an unlock" {
+        val start = FishingProgress(coins = 25)
+        start.equip(FishingGear.KNIFE) shouldBe start
+        val owner = start.buy(FishingOffer.KNIFE)
+        owner.equip(FishingGear.KNIFE).equippedGear shouldBe FishingGear.KNIFE
+        owner.equip(FishingGear.KNUCKLES).equippedGear shouldBe FishingGear.KNUCKLES
+        val biting = owner.beginCast()
+        biting.equip(FishingGear.KNIFE) shouldBe biting
+        val fighting = owner.beginCast().recordCatch()
+        fighting.equip(FishingGear.KNIFE) shouldBe fighting
+        val trophy = FishingProgress(FishingRules(catchesPerIsland = 1), ownedGear = setOf(FishingGear.KNUCKLES, FishingGear.KNIFE))
+            .beginCast().recordCatch().damageCreature(10_000.0).claimBossBait().beginCast().recordCatch().damageCreature(10_000.0)
+        trophy.equip(FishingGear.KNIFE).equippedGear shouldBe FishingGear.KNIFE
+        val travel = trophy.handInTrophy()
+        travel.equip(FishingGear.KNIFE) shouldBe travel
+        owner.copy(phase = FishingPhase.CLOSED).equip(FishingGear.KNIFE).phase shouldBe FishingPhase.CLOSED
+    }
+
+    "close clears the live encounter and makes stale transitions inert" {
+        val live = FishingProgress(coins = 10, bag = listOf(FishingCatch("clam", 10, false, 18.0)), dynamite = 2)
+            .beginCast().recordCatch()
+        val closed = live.close()
+        closed.phase shouldBe FishingPhase.CLOSED
+        closed.encounter shouldBe null
+        closed.coins shouldBe 0
+        closed.bag shouldBe emptyList()
+        closed.dynamite shouldBe 0
+        closed.ownedGear shouldBe setOf(FishingGear.KNUCKLES)
+        closed.lastCatch shouldBe null
+        closed.beginCast() shouldBe closed
+        closed.recordCatch() shouldBe closed
+        closed.damageCreature(10_000.0) shouldBe closed
+        closed.buy(FishingOffer.KNIFE) shouldBe closed
+        closed.sellCatch() shouldBe closed
+        closed.eatCatch() shouldBe closed
+        closed.claimBossBait() shouldBe closed
+        closed.handInTrophy() shouldBe closed
+        closed.consumeDynamite() shouldBe closed
+        closed.travelToNextStage() shouldBe closed
+        closed.close() shouldBe closed
+    }
+
+    "catalog rules validate bounds and scale creature value and health by island" {
+        shouldThrow<IllegalArgumentException> { FishingRules(islands = 4) }
+        shouldThrow<IllegalArgumentException> { FishingRules(catchesPerIsland = 0) }
+        shouldThrow<IllegalArgumentException> { FishingRules(prices = FishingCatalog.defaultPrices + (FishingOffer.KNIFE to 0)) }
+        shouldThrow<IllegalArgumentException> { FishingRules(rareEvery = 0) }
+        shouldThrow<IllegalArgumentException> { FishingRules(rareMultiplier = 101) }
+        shouldThrow<IllegalArgumentException> { FishingRules(saleBase = 100_000, rareMultiplier = 2) }
+        shouldThrow<IllegalArgumentException> { FishingRules(bossRewardBase = 100_000, bossRewardPerStage = 1) }
+        shouldThrow<IllegalArgumentException> { FishingRules(dynamiteDamage = Double.NaN) }
+        shouldThrow<IllegalArgumentException> { FishingCatalog.island(5) }
+
+        val rules = FishingRules()
+        val normal = FishingCatalog.catchFor(4, 0, rules)
+        normal.species shouldBe "ash_carp"
+        normal.value shouldBe 34
+        normal.maxHealth shouldBe 18.0 * (1.0 + 4 * 0.45)
+        val rare = FishingCatalog.catchFor(4, 6, rules)
+        rare.rare shouldBe true
+        rare.value shouldBe 102
+        rare.maxHealth shouldBe 18.0 * (1.0 + 4 * 0.45) * 1.4
+        val boss = FishingCatalog.bossFor(4, rules)
+        boss.species shouldBe "lava_whale"
+        boss.value shouldBe 170
+        boss.maxHealth shouldBe 240.0
+        boss.boss shouldBe true
     }
 })

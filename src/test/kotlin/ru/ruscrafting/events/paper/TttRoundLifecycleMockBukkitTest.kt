@@ -395,6 +395,7 @@ class TttRoundLifecycleMockBukkitTest : FunSpec({
 
 internal class TttRoundFixture : AutoCloseable {
     var rejectRecovery = false
+    var clientProtocolVersion = MIN_DIALOG_PROTOCOL
     val paper = MockBukkitTestRuntime.open()
     private val plugin = paper.createSimplePlugin("ArcEventsTttRoundTest")
     private val dataRoot = Files.createTempDirectory("arcevents-ttt-round-")
@@ -431,7 +432,7 @@ internal class TttRoundFixture : AutoCloseable {
             disastersWorld.getBlockAt(x, 63, z).type = Material.STONE
             disastersWorld.getBlockAt(x, 64, z).type = Material.MOSS_BLOCK
         }
-        for (center in listOf(0, 48, 96)) for (x in center - 4..center + 4) for (z in -10..13) {
+        for (center in FishingArenaStage.entries.map(FishingArenaStage::centerX)) for (x in center - 4..center + 4) for (z in -10..13) {
             fishingWorld.getBlockAt(x, 64, z).type = Material.OAK_PLANKS
         }
         ConfigManager.clear()
@@ -459,6 +460,7 @@ internal class TttRoundFixture : AutoCloseable {
             weaponPoints = mockk(relaxed = true),
             lootSpawner = mockk(relaxed = true),
             clock = { nowMs },
+            clientProtocol = { clientProtocolVersion },
         )
         paper.server.pluginManager.registerEvents(
             ArcEventsListener(service, mockk(relaxed = true), items),
@@ -512,6 +514,10 @@ internal class TttRoundFixture : AutoCloseable {
     fun startActiveArcade(mode: EventMode) {
         check(mode != EventMode.TTT)
         check(!started) { "The fixture owns one event round" }
+        if (mode == EventMode.FISHING) {
+            reloadRuntime { raw -> raw.replace("weapons:\n  enabled: false", "weapons:\n  enabled: true") }
+            firearms.enabled shouldBe true
+        }
         started = true
         service.start()
         paper.performTicks(1)
@@ -731,6 +737,9 @@ private val TTT_FIXTURE_CONFIG = """
       fishing:
         preparation-seconds: 0
         countdown-seconds: 0
+        creature-health: 4.0
+        boss-health: 4.0
+        attack-interval-ticks: 1200
       gungame:
         minimum-players: 3
         maximum-players: 4
@@ -755,6 +764,7 @@ private val TTT_FIXTURE_CONFIG = """
       bossbar: false
       scoreboard: false
       loot-displays: false
+      dialogs-enabled: true
     weapons:
       enabled: false
       dna-seconds: 90

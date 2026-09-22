@@ -126,7 +126,7 @@ class ArcadeSession(
                     if (match.mode == EventMode.DISASTERS) prepareHazard()
                     if (match.mode == EventMode.FISHING) {
                         val player = online().single()
-                        val adventure = FishingAdventure(plugin, locale, items, settings().fishing, match.matchId,
+                        val adventure = FishingAdventure(plugin, locale, items, firearms, settings().fishing, match.matchId,
                             player, player.world, teleport, ::hurt, {
                                 if (current?.matchId == match.matchId && current?.phase == MatchPhase.ACTIVE && isAlive(player.uniqueId)) {
                                     runtime.completeFishing(player.uniqueId)
@@ -466,6 +466,11 @@ class ArcadeSession(
     }
     fun handleFishingDamage(event: EntityDamageEvent): Boolean = fishing?.handleDamage(event) == true
     fun handleFishingInteract(event: PlayerInteractEvent): Boolean = fishing?.handleInteract(event) == true
+    fun fishingAdventure(player: Player): FishingAdventure? {
+        val match = current ?: return null
+        if (match.mode != EventMode.FISHING || match.phase != MatchPhase.ACTIVE || !isAlive(player.uniqueId)) return null
+        return fishing?.takeIf { it.belongsTo(player) }
+    }
     private fun closeFishing() {
         val owned = fishing
         fishing = null

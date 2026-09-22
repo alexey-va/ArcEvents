@@ -101,6 +101,50 @@ class SafetyContractTest : StringSpec({
         verify(exactly = 1) { service.reloadFirearm(player) }
     }
 
+    "fishing administrators cannot export or import expedition items even during restoration" {
+        val service = mockk<ArcEventsGameplayBoundary>(relaxed = true)
+        val player = mockk<Player>(relaxed = true)
+        val playerId = UUID.randomUUID()
+        every { player.uniqueId } returns playerId
+        every { player.hasPermission(ArcEventsListener.ADMIN_BYPASS_PERMISSION) } returns true
+        every { service.isFishingParticipant(playerId) } returns true
+        every { service.isParticipant(playerId) } returns true
+        every { service.phase() } returns MatchPhase.RESTORING
+        every { service.canDropLoot(any(), any()) } returns false
+        every { service.canPickupLoot(any(), any()) } returns false
+        val drop = mockk<org.bukkit.event.player.PlayerDropItemEvent>(relaxed = true)
+        every { drop.player } returns player
+        val pickup = mockk<org.bukkit.event.entity.EntityPickupItemEvent>(relaxed = true)
+        every { pickup.entity } returns player
+        val listener = ArcEventsListener(service, mockk(), mockk())
+        listener.onDrop(drop)
+        listener.onPickup(pickup)
+        verify(exactly = 1) { drop.isCancelled = true }
+        verify(exactly = 1) { pickup.isCancelled = true }
+        verify(exactly = 0) { service.registerDroppedLoot(any()) }
+    }
+
+    "fishing melee cannot bypass isolation by targeting an outside administrator" {
+        val service = mockk<ArcEventsGameplayBoundary>(relaxed = true)
+        val attacker = mockk<Player>(relaxed = true)
+        val victim = mockk<Player>(relaxed = true)
+        val attackerId = UUID.randomUUID()
+        val victimId = UUID.randomUUID()
+        every { attacker.uniqueId } returns attackerId
+        every { victim.uniqueId } returns victimId
+        every { victim.hasPermission(ArcEventsListener.ADMIN_BYPASS_PERMISSION) } returns true
+        every { service.isFishingParticipant(attackerId) } returns true
+        every { service.shouldCancelDamage(victimId, attackerId, false, null) } returns true
+        val event = mockk<EntityDamageByEntityEvent>(relaxed = true)
+        every { event.entity } returns victim
+        every { event.damager } returns attacker
+
+        ArcEventsListener(service, mockk(), mockk()).onDamage(event)
+
+        verify(exactly = 1) { event.isCancelled = true }
+        verify(exactly = 1) { service.shouldCancelDamage(victimId, attackerId, false, null) }
+    }
+
     "admin participants still use match damage rules" {
         val service = mockk<ArcEventsGameplayBoundary>(relaxed = true)
         val player = mockk<Player>()

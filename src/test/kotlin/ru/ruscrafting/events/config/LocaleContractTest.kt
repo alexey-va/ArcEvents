@@ -151,7 +151,7 @@ class LocaleContractTest : StringSpec({
                 val config = Config(root, "lang/$language.yml")
                 val guide = config.stringList("arcade.fishing-guide").joinToString(" ")
                 val entry = config.stringList("arcade.fishing-lore").joinToString(" ")
-                guide.contains(if (language == "ru") "три острова" else "three islands") shouldBe true
+                guide.contains(if (language == "ru") "пять островов" else "five islands") shouldBe true
                 guide.contains(if (language == "ru") "финального босса" else "final boss") shouldBe true
                 entry.contains(if (language == "ru") "одиночку" else "solo") shouldBe true
                 config.string("fishing.result-success").isNotBlank() shouldBe true
@@ -168,14 +168,17 @@ class LocaleContractTest : StringSpec({
                     "creature-name", "boss-name", "boss-summoned", "creature-summoned", "creature-missing",
                     "boss-warning", "travel-started", "travel-marker", "invalid-catch", "encounter-restored", "telegraph",
                 ).forEach { key -> config.string("fishing.$key").isNotBlank() shouldBe true }
-                listOf("casting", "bite", "creature", "travel", "boss", "complete", "closed").forEach { phase ->
+                listOf("casting", "bite", "creature", "travel", "boss", "trophy", "complete", "closed").forEach { phase ->
                     config.string("fishing.phase.$phase").isNotBlank() shouldBe true
                 }
                 config.string("fishing.catch").contains("<catches>") shouldBe true
                 config.string("fishing.hud").contains("<stage>") shouldBe true
                 config.string("fishing.hud").contains("<phase>") shouldBe true
-                config.string("fishing.creature-name").contains("<stage>") shouldBe true
-                config.string("fishing.boss-name").contains("<stage>") shouldBe true
+                ru.ruscrafting.events.domain.FishingIsland.entries.forEach { island ->
+                    (island.catchSpecies + island.bossSpecies).forEach { species ->
+                        config.string("fishing.species.$species").isNotBlank() shouldBe true
+                    }
+                }
                 config.string("fishing.travel-started").contains("<stage>") shouldBe true
                 config.string("fishing.telegraph").contains("<radius>") shouldBe true
             }

@@ -64,6 +64,7 @@ class ArcEventsMenu(
         { player, view, slot -> dispatchClick(player, view, slot, nativePresentation = true) },
         escapeCloses = escapeCloses,
     )
+    private val fishingTrader = FishingTraderDialog(dialogRuntime, service, locale, settings, escapeCloses)
     private val menuRuntime = PaperMenuRuntime(plugin, Tasks.scheduler, layouts.current())
     private val activeFrames = mutableMapOf<UUID, ActiveFrame>()
 
@@ -90,7 +91,16 @@ class ArcEventsMenu(
         open(player, requestedView)
     }
 
+    fun openFishingTraderRoot(player: Player) {
+        dialogRuntime.beginFlow(player)
+        fishingTrader.open(player)
+    }
+
     fun open(player: Player, view: EventsView = EventsView.Main) {
+        if (view == EventsView.Shop && service.fishingAdventure(player) != null) {
+            fishingTrader.open(player)
+            return
+        }
         if (view != EventsView.Ttt) pendingDialogLoads.remove(player.uniqueId)
         if (view != EventsView.Fishing) pendingFishingActions.remove(player.uniqueId)
         if (view !in nativeDialogViews) dialogRuntime.close(player)

@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "title": "ArcEvents fishing expedition v2 session-credit balance",
+  "assumptions": [
+    "The before state has no fishing-session currency or shop. The after state is the new v2 temporary match economy; its integer credits are scoped to one match and are discarded at match end, with no Vault, premium-token, EMC, item-export or XP redemption.",
+    "A completed run defeats 3 normal creatures on each of 5 islands (15 total), sells all normal catches, defeats each boss once, and buys one standard progression kit. All actions are successful; no deaths, skipped encounters, external rewards, refunds or coin-cap effects are modeled.",
+    "Normal catch values use saleBase=10, salePerStage=6, rareEvery=7 and rareMultiplier=3. The 15 catches sell for 442 credits because catches 7 and 14 are rare. The five boss rewards total 550 credits. Each completed run therefore emits 992 credits and the modeled standard kit consumes 958, leaving 34 within that run.",
+    "Low/base/high activity is 0.25/1/2 completed runs per active participant-day. Participants [1,10,50] are hypothetical eligible players, not observed telemetry. No shared network pool or durable savings is assumed.",
+    "Standard progression kit: knife 25, pistol 80, shotgun 140, burst rifle 220, assault rifle 300, two 32-round ammo purchases at 8 each, one two-stick dynamite pack at 12, and rod upgrades 45 and 120; total 958. Full purchasable armory plus the same consumables costs 1,433. It is a choice comparison, not an additional simultaneous burn flow.",
+    "After reaching the Volcano quest target, normal catches repeat before the final boss-bait claim and trophy. Eleven additional kills sell for 442 credits under the deterministic rare cadence, enough to cover the 441-credit difference between one complete run's 992 credits and the 1,433-credit full package.",
+    "Disposable carry-over savings are zero because credits do not persist across matches. Evaluator days-to-save values are consequently null; affordability is assessed within a run, not by accumulating a durable balance across days."
+  ],
+  "participants": [1, 10, 50],
+  "currencies": {
+    "fishing_session_credits": {
+      "minor_per_unit": 1,
+      "disposable_per_player_day": {
+        "before": ["0", "0", "0"],
+        "after": ["0", "0", "0"]
+      },
+      "flows": [
+        {
+          "id": "normal_catch_sales",
+          "kind": "mint",
+          "source": "ArcEvents/src/main/kotlin/ru/ruscrafting/events/domain/FishingCatalog.kt:catchFor",
+          "basis": "The run sells all 15 normal catches at the configured base and rare values; 442 credits per full run under the default rules.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {"value": "0", "unit": "major"},
+            "events_per_player_day": ["0", "0", "0"]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {"value": "442", "unit": "major"},
+            "events_per_player_day": ["0.25", "1", "2"]
+          }
+        },
+        {
+          "id": "island_boss_rewards",
+          "kind": "mint",
+          "source": "ArcEvents/src/main/kotlin/ru/ruscrafting/events/domain/FishingCatalog.kt:bossFor",
+          "basis": "One reward for each of the five defeated island bosses; 50+80+110+140+170=550 credits per full run.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {"value": "0", "unit": "major"},
+            "events_per_player_day": ["0", "0", "0"]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {"value": "550", "unit": "major"},
+            "events_per_player_day": ["0.25", "1", "2"]
+          }
+        },
+        {
+          "id": "standard_progression_kit",
+          "kind": "burn",
+          "source": "ArcEvents/src/main/kotlin/ru/ruscrafting/events/domain/FishingCatalog.kt:FishingOffer",
+          "basis": "One modeled in-match standard progression choice per full run; its 958-credit total is listed in the assumptions.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {"value": "0", "unit": "major"},
+            "events_per_player_day": ["0", "0", "0"]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {"value": "958", "unit": "major"},
+            "events_per_player_day": ["0.25", "1", "2"]
+          }
+        },
+        {
+          "id": "end_of_run_credit_reset",
+          "kind": "burn",
+          "source": "ArcEvents/src/main/kotlin/ru/ruscrafting/events/domain/FishingProgress.kt:close and ArcEvents/src/main/kotlin/ru/ruscrafting/events/paper/FishingAdventure.kt:close",
+          "basis": "After the modeled standard kit, the remaining 34 credits are temporary match state and are discarded when the owner releases/closes the adventure; no balance persists to the next run.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {"value": "0", "unit": "major"},
+            "events_per_player_day": ["0", "0", "0"]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {"value": "34", "unit": "major"},
+            "events_per_player_day": ["0.25", "1", "2"]
+          }
+        }
+      ]
+    }
+  },
+  "prices": [
+    {"id": "knife", "currency": "fishing_session_credits", "before": null, "after": {"value": "25", "unit": "major"}},
+    {"id": "machete", "currency": "fishing_session_credits", "before": null, "after": {"value": "55", "unit": "major"}},
+    {"id": "pistol", "currency": "fishing_session_credits", "before": null, "after": {"value": "80", "unit": "major"}},
+    {"id": "shotgun", "currency": "fishing_session_credits", "before": null, "after": {"value": "140", "unit": "major"}},
+    {"id": "burst_rifle", "currency": "fishing_session_credits", "before": null, "after": {"value": "220", "unit": "major"}},
+    {"id": "assault_rifle", "currency": "fishing_session_credits", "before": null, "after": {"value": "300", "unit": "major"}},
+    {"id": "sniper", "currency": "fishing_session_credits", "before": null, "after": {"value": "420", "unit": "major"}},
+    {"id": "ammo_32_rounds", "currency": "fishing_session_credits", "before": null, "after": {"value": "8", "unit": "major"}},
+    {"id": "dynamite_2_sticks", "currency": "fishing_session_credits", "before": null, "after": {"value": "12", "unit": "major"}},
+    {"id": "rod_one", "currency": "fishing_session_credits", "before": null, "after": {"value": "45", "unit": "major"}},
+    {"id": "rod_two", "currency": "fishing_session_credits", "before": null, "after": {"value": "120", "unit": "major"}},
+    {"id": "standard_progression_kit", "currency": "fishing_session_credits", "before": null, "after": {"value": "958", "unit": "major"}},
+    {"id": "full_armory_plus_consumables", "currency": "fishing_session_credits", "before": null, "after": {"value": "1433", "unit": "major"}}
+  ]
+}

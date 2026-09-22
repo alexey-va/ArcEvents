@@ -25,6 +25,8 @@ internal object ArenaWorldGeneratorRegistry {
         val template = Files.readString(marker, StandardCharsets.UTF_8).trim()
         return when {
             template == FishingArenaGenerator.TEMPLATE -> FishingArenaGenerator()
+            // Retired v1 chunks remain untouched; v2 must use a new configured world.
+            template == "fishing-v1" -> EmptyArenaChunkGenerator()
             template == DisasterArenaGenerator.TEMPLATE -> DisasterArenaGenerator()
             template == TttCitadelBlueprint.TEMPLATE -> TttCitadelChunkGenerator()
             PackagedArenaTemplates.find(template) != null -> EmptyArenaChunkGenerator()

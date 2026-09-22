@@ -6,6 +6,7 @@ internal fun reservationStartMessage(
     result: ReservationStartResult,
     audience: StartMessageAudience,
 ): String = when (result) {
+    ReservationStartResult.CLIENT_UNSUPPORTED -> "queue.start-client-unsupported"
     ReservationStartResult.STARTED -> when (audience) {
         StartMessageAudience.PLAYER -> "queue.start-requested"
         StartMessageAudience.ADMIN -> "admin.started"

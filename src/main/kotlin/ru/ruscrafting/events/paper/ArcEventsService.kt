@@ -119,6 +119,7 @@ class ArcEventsService(
     private val weaponPoints: ArenaWeaponPointEditor,
     private val lootSpawner: TttLootSpawner,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val clientProtocol: (Player) -> Int = ClientProtocolResolver()::resolve,
 ) : ArcEventsGameplayBoundary, AutoCloseable {
     private val localChat = TttLocalChat(plugin.server, settings, locale)
     private data class MapSpawnReturn(
@@ -508,6 +509,9 @@ class ArcEventsService(
         preferredArenaId: String? = null,
         mode: EventMode = EventMode.TTT,
     ): CompletableFuture<ReservationStartResult> {
+        if (mode == EventMode.FISHING && (requester == null || !supportsFishingClient(requester))) {
+            return CompletableFuture.completedFuture(ReservationStartResult.CLIENT_UNSUPPORTED)
+        }
         if (requester != null && hasPendingRecovery(requester.uniqueId)) {
             return CompletableFuture.completedFuture(ReservationStartResult.RECOVERY_PENDING)
         }
@@ -517,11 +521,17 @@ class ArcEventsService(
     fun startFishing(player: Player): CompletableFuture<ReservationStartResult> =
         startFromQueue(player, "fishing", EventMode.FISHING)
 
+    private fun supportsFishingClient(player: Player): Boolean =
+        dialogFrontendSupported(settings().ui.dialogsEnabled, clientProtocol(player), EventsView.Fishing)
+
     fun modeAvailable(mode: EventMode): Boolean = network.hostAvailable(mode)
 
     override fun handleFishing(event: org.bukkit.event.player.PlayerFishEvent) = arcade.handleFish(event)
     override fun handleFishingDamage(event: org.bukkit.event.entity.EntityDamageEvent): Boolean = arcade.handleFishingDamage(event)
     override fun handleFishingInteract(event: org.bukkit.event.player.PlayerInteractEvent): Boolean = arcade.handleFishingInteract(event)
+    override fun fishingAdventure(player: Player): FishingAdventure? = arcade.fishingAdventure(player)
+    override fun isFishingParticipant(playerId: UUID): Boolean =
+        currentMode() == EventMode.FISHING && isParticipant(playerId)
 
     /** Reconciles every live consumer after the plugin atomically swaps its settings snapshot. */
     fun reconfigureRuntime() {
@@ -896,7 +906,7 @@ class ArcEventsService(
             EventItemKind.DETECTIVE_MEDKIT -> activateMedkit(player)
             EventItemKind.GUIDE, EventItemKind.SHOP, EventItemKind.FIREARM, EventItemKind.AMMUNITION, EventItemKind.ROUND_REPORT,
             EventItemKind.ARCADE_KNIFE, EventItemKind.DETECTIVE_SCANNER, EventItemKind.TRAITOR_BLADE, EventItemKind.DETECTIVE_ARMOR,
-            EventItemKind.FISHING_ROD, EventItemKind.FISHING_WEAPON -> false
+            EventItemKind.FISHING_ROD, EventItemKind.FISHING_WEAPON, EventItemKind.FISHING_DYNAMITE -> false
         }
     }
 
@@ -906,7 +916,7 @@ class ArcEventsService(
         val held = player.inventory.itemInMainHand
         val state = firearms.state(held) ?: return false
         if (!settings().weapons.enabled || phase() != MatchPhase.ACTIVE || !isAlive(player.uniqueId) ||
-            state.matchId != matchId
+            state.matchId != matchId || !hasSelectedFishingFirearm(player, state.id, matchId)
         ) return false
         if (reloadTasks.containsKey(player.uniqueId)) {
             player.sendEventActionBar(locale.render("weapon.reloading-actionbar", player))
@@ -963,7 +973,9 @@ class ArcEventsService(
         val matchId = activeMatchId() ?: return false
         if (!isAlive(player.uniqueId) || phase() != MatchPhase.ACTIVE || currentMode() == EventMode.DISASTERS) return false
         val state = firearms.state(player.inventory.itemInMainHand) ?: return false
-        if (phase() != MatchPhase.ACTIVE || !isAlive(player.uniqueId) || state.matchId != matchId) return false
+        if (phase() != MatchPhase.ACTIVE || !isAlive(player.uniqueId) || state.matchId != matchId ||
+            !hasSelectedFishingFirearm(player, state.id, matchId)
+        ) return false
         val spec = firearms.spec(state.id)
         if (state.loaded >= spec.magazineSize) {
             player.sendEventActionBar(locale.render("weapon.magazine-full-actionbar", player))
@@ -982,7 +994,8 @@ class ArcEventsService(
             val held = player.inventory.itemInMainHand
             val latest = firearms.state(held)
             if (!player.isOnline || liveId != matchId || phase() != MatchPhase.ACTIVE || !isAlive(player.uniqueId) ||
-                latest?.id != state.id || latest.matchId != state.matchId
+                latest?.id != state.id || latest.matchId != state.matchId ||
+                !hasSelectedFishingFirearm(player, state.id, matchId)
             ) return@runLater
             val needed = spec.magazineSize - latest.loaded
             val consumed = firearms.consumeReserve(player, latest.matchId, needed)
@@ -999,24 +1012,28 @@ class ArcEventsService(
     }
 
     override fun canDropLoot(player: Player, item: ItemStack?): Boolean {
+        if (arcade.current?.mode == EventMode.FISHING && arcade.isParticipant(player.uniqueId)) return false
         val current = match ?: return false
         return lootAccessible(current.phase, current.participant(player.uniqueId)?.status) &&
             firearms.isLoot(item, current.matchId.toString())
     }
 
     override fun registerDroppedLoot(item: Item) {
+        if (arcade.current?.mode == EventMode.FISHING) return item.remove()
         val current = match ?: return item.remove()
         if (!firearms.isLoot(item.itemStack, current.matchId.toString())) return item.remove()
         lootScene.register(item)
     }
 
     override fun canPickupLoot(player: Player, item: Item): Boolean {
+        if (arcade.current?.mode == EventMode.FISHING && arcade.isParticipant(player.uniqueId)) return false
         val current = match ?: return false
         return lootAccessible(current.phase, current.participant(player.uniqueId)?.status) &&
             firearms.isLoot(item.itemStack, current.matchId.toString())
     }
 
     override fun handleLootPickup(player: Player, item: Item) {
+        if (arcade.current?.mode == EventMode.FISHING) return
         val firearm = firearms.state(item.itemStack)
         lootScene.consume(item.uniqueId)
         val current = match ?: return
@@ -1476,7 +1493,9 @@ class ArcEventsService(
     private fun startReservedArcade(batch: ReservationBatch, online: List<Player>) {
         val rules = arcadeRules ?: settings().arcade.rules(batch.mode)
         val entries = batch.entries.filter { entry -> online.any { it.uniqueId.toString() == entry.playerId } }
-        if (online.size < rules.minimumPlayers) {
+        val unsupportedFishing = batch.mode == EventMode.FISHING && online.any { !supportsFishingClient(it) }
+        if (online.size < rules.minimumPlayers || unsupportedFishing) {
+            if (unsupportedFishing) online.forEach { it.sendEventMessage(locale.render("queue.start-client-unsupported", it)) }
             restoreReservationArrivals(batch, online)
             arenaPool.release(batch.matchId)
             releaseRestoredReservation(batch)
@@ -1515,6 +1534,7 @@ class ArcEventsService(
         val rules = config.arcade.rules(mode)
         if (online.size !in rules.minimumPlayers..rules.maximumPlayers) return DebugMutationResult.INSUFFICIENT_PLAYERS
         if (online.any { hasPendingRecovery(it.uniqueId) }) return DebugMutationResult.PRECONDITION_FAILED
+        if (mode == EventMode.FISHING && online.any { !supportsFishingClient(it) }) return DebugMutationResult.PRECONDITION_FAILED
         val id = UUID.randomUUID()
         val arena = arenaPool.reserve(id, when (mode) {
             EventMode.DISASTERS -> "disasters"
@@ -2034,6 +2054,12 @@ class ArcEventsService(
         shotCooldownUntil.clear()
     }
 
+    private fun hasSelectedFishingFirearm(player: Player, firearmId: FirearmId, expectedMatchId: String): Boolean {
+        if (arcade.current?.mode != EventMode.FISHING) return true
+        if (activeMatchId() != expectedMatchId) return false
+        return fishingAdventure(player)?.snapshot()?.equippedGear?.firearmId == firearmId
+    }
+
     private fun fireRay(
         shooter: Player,
         firearmId: String,
@@ -2043,6 +2069,8 @@ class ArcEventsService(
         baseDamage: Double,
     ) {
         val matchId = activeMatchId() ?: return
+        val fishingMode = currentMode() == EventMode.FISHING
+        val fishingAdventure = if (fishingMode) fishingAdventure(shooter) else null
         val result = shooter.world.rayTrace(
             origin,
             direction,
@@ -2051,8 +2079,12 @@ class ArcEventsService(
             true,
             0.12,
         ) { entity ->
-            entity is Player && entity.uniqueId != shooter.uniqueId &&
-                isAlive(entity.uniqueId) && activeMatchId() == matchId
+            if (fishingMode) {
+                activeMatchId() == matchId && fishingAdventure?.isFirearmTarget(shooter, entity, matchId) == true
+            } else {
+                entity is Player && entity.uniqueId != shooter.uniqueId &&
+                    isAlive(entity.uniqueId) && activeMatchId() == matchId
+            }
         }
         val endpoint = result?.hitPosition ?: origin.toVector().add(direction.clone().multiply(range))
         if (settings().ui.particles) {
@@ -2064,7 +2096,12 @@ class ArcEventsService(
                 travelled += 1.5
             }
         }
-        val target = result?.hitEntity as? Player ?: return
+        val hitEntity = result?.hitEntity ?: return
+        if (fishingMode) {
+            if (activeMatchId() == matchId) fishingAdventure?.hitByFirearm(shooter, hitEntity, baseDamage, matchId)
+            return
+        }
+        val target = hitEntity as? Player ?: return
         val headshot = result.hitPosition.y >= target.eyeLocation.y - 0.38
         pendingHit = PendingHitContext(shooter.uniqueId, target.uniqueId, "firearm.$firearmId", headshot)
         try {

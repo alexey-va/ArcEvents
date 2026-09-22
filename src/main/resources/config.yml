@@ -336,7 +336,7 @@ arcade:
     maximum-players: 1
     preparation-seconds: 3
     countdown-seconds: 3
-    round-seconds: 900
+    round-seconds: 1800
     post-round-seconds: 8
     # Rules reload while the host is idle; an active expedition keeps its contract.
     catches-per-island: 3
@@ -348,9 +348,29 @@ arcade:
     attack-interval-ticks: 60
     travel-radius: 3.0
     fishing-radius: 6.0
+    # Session-only credits and gear. No Vault, tokens, XP or take-home drops.
+    sale-base: 10
+    sale-per-stage: 6
+    rare-every: 7
+    rare-multiplier: 3
+    boss-reward-base: 50
+    boss-reward-per-stage: 30
+    dynamite-damage: 45.0
+    prices:
+      knife: 25
+      machete: 55
+      pistol: 80
+      shotgun: 140
+      burst-rifle: 220
+      assault-rifle: 300
+      sniper: 420
+      ammo: 8
+      dynamite: 12
+      rod-one: 45
+      rod-two: 120
     arena:
       # Dedicated generated world; changing its identity requires a restart.
-      world: arcevents_fishing
+      world: arcevents_fishing_v2
   gungame:
     minimum-players: 3
     maximum-players: 12

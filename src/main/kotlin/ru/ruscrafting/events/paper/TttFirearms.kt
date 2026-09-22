@@ -22,6 +22,8 @@ class TttFirearms(
     private val locale: ArcEventsLocale,
     private val settings: () -> ArcEventsConfig,
 ) {
+    val enabled: Boolean get() = settings().weapons.enabled
+
     private val itemKindKey = NamespacedKey(plugin, "event_item")
     private val matchIdKey = NamespacedKey(plugin, "match_id")
     private val firearmKey = NamespacedKey(plugin, "firearm")
