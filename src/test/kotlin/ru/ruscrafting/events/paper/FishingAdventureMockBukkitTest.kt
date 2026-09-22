@@ -93,6 +93,10 @@ class FishingAdventureMockBukkitTest : FunSpec({
         failOnUnsupportedMockBukkitOperation { TttRoundFixture().use { fixture ->
             fixture.startActiveArcade(EventMode.FISHING)
             val player = fixture.players.first() as PlayerMock
+            val briefing = fixture.drainMessages(player).joinToString(" ")
+            listOf("<phase>", "<seconds>", "<maximum>", "<arena>").forEach { placeholder ->
+                (placeholder in briefing) shouldBe false
+            }
             val adventure = requireNotNull(fixture.service.fishingAdventure(player))
             val world = player.world
             val matchId = requireNotNull(fixture.service.arcadeSnapshot()).matchId.toString()
@@ -230,6 +234,21 @@ class FishingAdventureMockBukkitTest : FunSpec({
             player.location.x shouldBe FishingArenaGenerator.spawn(FishingArenaStage.CAMP).x
             fixture.service.arcadeSnapshot()?.phase shouldBe MatchPhase.ACTIVE
             fixture.escrow.pendingCount() shouldBe 1
+        } }
+    }
+
+    test("swimmer at the water surface also returns to the island") {
+        failOnUnsupportedMockBukkitOperation { TttRoundFixture().use { fixture ->
+            fixture.startActiveArcade(EventMode.FISHING)
+            val player = fixture.players.first() as PlayerMock
+            val surface = Location(player.world, 22.5, 64.2, 0.5)
+            surface.block.getRelative(0, -1, 0).type = Material.WATER
+            player.simulatePlayerMove(surface)
+            fixture.advanceTime(1_000)
+            player.location.x shouldBe 22.5
+            fixture.advanceTime(4_100)
+            player.location.x shouldBe FishingArenaGenerator.spawn(FishingArenaStage.CAMP).x
+            fixture.service.arcadeSnapshot()?.phase shouldBe MatchPhase.ACTIVE
         } }
     }
 })

@@ -823,7 +823,8 @@ class FishingAdventure(
             teleportTo(stage())
             return
         }
-        if (player.location.block.type != Material.WATER || player.location.y >= FishingArenaGenerator.WATER_SURFACE_Y) {
+        val feet = player.location.block
+        if (feet.type != Material.WATER && feet.getRelative(0, -1, 0).type != Material.WATER) {
             submergedSinceMs = 0L
             return
         }

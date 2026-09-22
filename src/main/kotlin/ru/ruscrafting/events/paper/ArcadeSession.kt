@@ -77,7 +77,13 @@ class ArcadeSession(
                     player.inventory.setItemInOffHand(null)
                     teleport(player, requireNotNull(arenaPool.active()).playerSpawn)
                     player.sendEventMessage(locale.render("arcade.preparing", player, mapOf("mode" to modeName(player))))
-                    locale.lore("arcade.${mode.id}-guide", player).forEach(player::sendEventMessage)
+                    val guideValues = if (mode == EventMode.FISHING) mapOf(
+                        "phase" to locale.render("phase.${match.phase.name.lowercase()}", player),
+                        "seconds" to locale.text(secondsRemaining()),
+                        "maximum" to locale.text(rules.roundSeconds),
+                        "arena" to locale.render("arena.fishing.name", player),
+                    ) else emptyMap()
+                    locale.lore("arcade.${mode.id}-guide", player, guideValues).forEach(player::sendEventMessage)
                     player.saveData()
                 }
             }

@@ -48,3 +48,15 @@ that difficulty, leaving the fight active with no visible target. Version
 override before adding them to the world. Arena difficulty and natural mob
 spawning remain unchanged. The generator test also checks the dock landing's
 support and headroom on all five islands.
+
+After the 0.5.2 restart, an allowlisted public-proxy QA client caught a Clam,
+observed the glowing Silverfish at the dock, defeated it with five event-weapon
+hits, received the tagged catch in slot five, and right-clicked the NPC with
+that item. The bag decreased from one to zero and temporary credits rose from
+zero to ten; leaving restored the client's original survival state and location.
+
+Version 0.5.3 extends the four-second water rescue to players bobbing at the
+surface, where their feet can be in air above a water block. Previously that
+position reset the rescue timer indefinitely. It also renders phase, remaining
+time, round limit and arena name in the pre-match guide, which previously sent
+their placeholder tokens literally to chat.
