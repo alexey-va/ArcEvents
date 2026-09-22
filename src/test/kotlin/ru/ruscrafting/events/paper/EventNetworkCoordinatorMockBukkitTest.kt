@@ -34,6 +34,47 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 
 class EventNetworkCoordinatorMockBukkitTest : FunSpec({
+    test("solo start on a relay resumes an old matched route without replacing escrow ownership") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture(relay = true).use { fixture ->
+                fixture.start()
+                val player = fixture.addPlayer("ReturningFisher")
+                fixture.seedMatched(player, UUID.randomUUID())
+                val before = fixture.queueEntry(player)
+                every { fixture.transfer.connect(player, BackendServerId.of("parkour")) } returns BackendTransferResult.SENT
+
+                repeat(2) {
+                    fixture.await(fixture.coordinator.reserveNow(player, mode = EventMode.FISHING)) shouldBe ReservationStartResult.RECOVERY_PENDING
+                }
+
+                verify(exactly = 1) { fixture.transfer.connect(player, BackendServerId.of("parkour")) }
+                fixture.queueEntry(player) shouldBe before
+                fixture.reservations shouldBe emptyList()
+            }
+        }
+    }
+
+    test("a failed recovery transfer preserves the old route and lets the solo player retry") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture(relay = true).use { fixture ->
+                fixture.start()
+                val player = fixture.addPlayer("RecoveryRetry")
+                fixture.seedMatched(player, UUID.randomUUID())
+                val before = fixture.queueEntry(player)
+                every { fixture.transfer.connect(any(), any()) } returnsMany listOf(
+                    BackendTransferResult.SEND_FAILED, BackendTransferResult.SENT,
+                )
+
+                fixture.await(fixture.coordinator.reserveNow(player, mode = EventMode.FISHING)) shouldBe ReservationStartResult.NETWORK_FAILURE
+                fixture.queueEntry(player) shouldBe before
+                fixture.await(fixture.coordinator.reserveNow(player, mode = EventMode.FISHING)) shouldBe ReservationStartResult.RECOVERY_PENDING
+                fixture.queueEntry(player) shouldBe before
+                verify(exactly = 2) { fixture.transfer.connect(player, BackendServerId.of("parkour")) }
+                fixture.reservations shouldBe emptyList()
+            }
+        }
+    }
+
     test("fishing is restricted to its dedicated arena and never starts ownerless") {
         failOnUnsupportedMockBukkitOperation {
             EventNetworkCoordinatorFixture().use { fixture ->
@@ -195,7 +236,10 @@ class EventNetworkCoordinatorMockBukkitTest : FunSpec({
     }
 })
 
-private class EventNetworkCoordinatorFixture(private val includeCombatArena: Boolean = true) : AutoCloseable {
+private class EventNetworkCoordinatorFixture(
+    private val includeCombatArena: Boolean = true,
+    private val relay: Boolean = false,
+) : AutoCloseable {
     private val paper = MockBukkitTestRuntime.open()
     private val plugin = paper.createSimplePlugin("ArcEventsNetworkCoordinatorTest")
     private val dataRoot = Files.createTempDirectory("arcevents-network-coordinator-")
@@ -213,7 +257,8 @@ private class EventNetworkCoordinatorFixture(private val includeCombatArena: Boo
         ConfigManager.clear()
         ArcEventsConfig.mergeMissing(dataRoot)
         val configPath = dataRoot.resolve("config.yml")
-        Files.writeString(configPath, Files.readString(configPath).replace("node-mode: RELAY", "node-mode: HOST"))
+        Files.writeString(configPath, if (relay) Files.readString(configPath).replace("server-id: parkour", "server-id: spawn")
+            else Files.readString(configPath).replace("node-mode: RELAY", "node-mode: HOST"))
         copyResource("lang/ru.yml")
         copyResource("lang/en.yml")
         settings = ArcEventsConfig.inspect(dataRoot)
@@ -241,7 +286,16 @@ private class EventNetworkCoordinatorFixture(private val includeCombatArena: Boo
         )
     }
 
-    fun start() = coordinator.start()
+    fun start() {
+        if (relay) {
+            repository.openNodes({ true }, { true }, 60_000L, { nowMs }).use { presence ->
+                presence.publish(HostNode("parkour", "HOST", true, true, null, null, 0, 16, nowMs,
+                    listOf("fishing"), listOf(EventMode.FISHING.id))).join()
+            }
+        }
+        coordinator.start()
+        tick(3)
+    }
 
     fun addPlayer(name: String) = paper.addPlayer(name)
 
@@ -258,8 +312,8 @@ private class EventNetworkCoordinatorFixture(private val includeCombatArena: Boo
 
     fun seedMatched(player: org.bukkit.entity.Player, matchId: UUID) {
         repository.joinQueue(player.uniqueId, player.name, "spawn", nowMs, 60_000L).get(5, TimeUnit.SECONDS)
-        repository.reserve(matchId, settings.serverId, 1, 1, nowMs, 30_000L).get(5, TimeUnit.SECONDS)
-        repository.claimReservation(player.uniqueId, settings.serverId, nowMs + 1).get(5, TimeUnit.SECONDS)
+        repository.reserveForRequester(matchId, "parkour", player.uniqueId, "spawn", nowMs, 30_000L, EventMode.FISHING.id).get(5, TimeUnit.SECONDS)
+        repository.claimReservation(player.uniqueId, "parkour", nowMs + 1).get(5, TimeUnit.SECONDS)
         repository.completeReservation(matchId, listOf(player.uniqueId)).get(5, TimeUnit.SECONDS)
     }
 

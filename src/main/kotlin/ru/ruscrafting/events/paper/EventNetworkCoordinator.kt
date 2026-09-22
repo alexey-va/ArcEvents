@@ -244,6 +244,10 @@ class EventNetworkCoordinator(
                     } else result.complete(ReservationStartResult.NETWORK_FAILURE)
                     return@runSync
                 }
+                if (joinResult is QueueJoinResult.Existing && joinResult.entry.state != QueueState.QUEUED) {
+                    result.complete(resumeExistingRoute(requester, joinResult.entry))
+                    return@runSync
+                }
                 refresh()
                 val controls = current.eventControls
                 val bypassOwner = controls.adminOverrideEnabled &&
@@ -273,6 +277,41 @@ class EventNetworkCoordinator(
             }
         }
         return result
+    }
+
+    /** A durable previous route must finish before this player can reserve another match. */
+    private fun resumeExistingRoute(player: Player, entry: QueueEntry): ReservationStartResult {
+        if (!player.isOnline || entry.playerId != player.uniqueId.toString()) return ReservationStartResult.NETWORK_FAILURE
+        val current = settings()
+        when (entry.state) {
+            QueueState.ARRIVED, QueueState.MATCHED -> {
+                val destination = entry.destinationServer ?: return ReservationStartResult.NETWORK_FAILURE
+                if (destination != current.serverId) {
+                    if (!current.network.transferOnReservation || destination != current.hostServer ||
+                        destination !in current.network.allowedOrigins) {
+                        return ReservationStartResult.NETWORK_FAILURE
+                    }
+                    // Keep the row and the host's escrow intact. The service restores escrow on join
+                    // before the network coordinator may acknowledge the return route.
+                    if (player.uniqueId !in pendingTransfers) {
+                        val sent = runCatching { transferSent(player, destination) }
+                            .onFailure { plugin.logger.log(Level.WARNING, "ArcEvents recovery transfer failed for ${player.uniqueId}", it) }
+                            .getOrDefault(false)
+                        if (!sent) return ReservationStartResult.NETWORK_FAILURE
+                        pendingTransfers += player.uniqueId
+                    }
+                }
+            }
+            QueueState.RESERVED -> route(EventNetworkMessage.create(
+                signal = EventNetworkSignal.ROUTE_PLAYER,
+                matchId = UUID.fromString(requireNotNull(entry.matchId)),
+                playerId = player.uniqueId,
+                destinationServer = requireNotNull(entry.destinationServer),
+            ))
+            QueueState.RETURN_PENDING -> if (current.serverId != entry.destinationServer) handleJoin(player)
+            QueueState.QUEUED -> error("Queued entries require a new reservation")
+        }
+        return ReservationStartResult.RECOVERY_PENDING
     }
 
     private fun requestHostStart(
@@ -424,7 +463,8 @@ class EventNetworkCoordinator(
                     return@runSync
                 }
                 if (batch == null) {
-                    result.complete(ReservationStartResult.INSUFFICIENT_PLAYERS)
+                    result.complete(if (mode == EventMode.FISHING) ReservationStartResult.NETWORK_FAILURE
+                        else ReservationStartResult.INSUFFICIENT_PLAYERS)
                     return@runSync
                 }
                 val ownedBatch = batch.copy(requesterId = requesterId, preferredArenaId = preferredArenaId, mode = mode)
