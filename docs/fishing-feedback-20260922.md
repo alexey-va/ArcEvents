@@ -39,3 +39,12 @@ Focused tests cover the five-island run, NPC feeding, visible inventory states,
 shore geometry, water rescue, departure escrow, configuration profiles and
 RU/EN locales. Native client rendering, physical shore climbing and actual
 player-return behavior require live acceptance after activation.
+
+The first 0.5.1 live QA found that the catch icon appeared but the living
+creature vanished immediately. The arena provisioner intentionally sets every
+arena world to Peaceful; hostile catch species such as Silverfish despawn in
+that difficulty, leaving the fight active with no visible target. Version
+0.5.2 gives only scripted fishing creatures Paper's per-mob Peaceful-despawn
+override before adding them to the world. Arena difficulty and natural mob
+spawning remain unchanged. The generator test also checks the dock landing's
+support and headroom on all five islands.

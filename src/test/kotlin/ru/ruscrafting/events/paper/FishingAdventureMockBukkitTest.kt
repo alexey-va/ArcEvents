@@ -13,6 +13,7 @@ import org.bukkit.damage.DamageType
 import org.bukkit.entity.FishHook
 import org.bukkit.entity.Item
 import org.bukkit.entity.LivingEntity
+import org.bukkit.entity.Mob
 import org.bukkit.entity.Player
 import org.bukkit.entity.Villager
 import org.bukkit.event.block.Action
@@ -67,6 +68,9 @@ internal class FishingTestWorld(private val server: org.mockbukkit.mockbukkit.Se
             function?.accept(display)
             return display
         }
+        // MockBukkit 4.116.3 does not implement Mob.setDespawnInPeacefulOverride.
+        // Keep the encounter simulation; the real Paper override is checked in live QA.
+        if (Mob::class.java.isAssignableFrom(type)) return super.spawn(location, type, null, reason)
         return super.spawn(location, type, function, reason)
     }
 

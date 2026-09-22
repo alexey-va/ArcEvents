@@ -1,6 +1,7 @@
 package ru.ruscrafting.events.paper
 
 import net.kyori.adventure.text.Component
+import net.kyori.adventure.util.TriState
 import org.bukkit.GameMode
 import org.bukkit.Location
 import org.bukkit.Material
@@ -444,19 +445,23 @@ class FishingAdventure(
 
     private fun spawnCreature(catch: FishingCatch, announce: Boolean = true) {
         val spawn = point(FishingArenaGenerator.catchLanding(stage()))
-        val entity = when (catch.species) {
-            "clam", "rockfish" -> world.spawn(spawn, Silverfish::class.java)
-            "ash_carp" -> world.spawn(spawn, Cod::class.java)
-            "shore_crab", "spider_crab" -> world.spawn(spawn, Spider::class.java)
-            "shrimp", "tuna", "lava_salmon" -> world.spawn(spawn, Salmon::class.java)
-            "reef_perch", "needlefish", "mackerel" -> world.spawn(spawn, Cod::class.java)
-            "reef_eel" -> world.spawn(spawn, Drowned::class.java)
-            "reef_piranha", "bowlfish", "pufferfish" -> world.spawn(spawn, PufferFish::class.java)
-            "seahorse", "ember_trout" -> world.spawn(spawn, TropicalFish::class.java)
-            "giant_piranha" -> world.spawn(spawn, Guardian::class.java)
-            "albatross" -> world.spawn(spawn, Phantom::class.java)
-            "lava_whale" -> world.spawn(spawn, ElderGuardian::class.java)
-            else -> world.spawn(spawn, Cod::class.java)
+        val type: Class<out Mob> = when (catch.species) {
+            "clam", "rockfish" -> Silverfish::class.java
+            "ash_carp" -> Cod::class.java
+            "shore_crab", "spider_crab" -> Spider::class.java
+            "shrimp", "tuna", "lava_salmon" -> Salmon::class.java
+            "reef_perch", "needlefish", "mackerel" -> Cod::class.java
+            "reef_eel" -> Drowned::class.java
+            "reef_piranha", "bowlfish", "pufferfish" -> PufferFish::class.java
+            "seahorse", "ember_trout" -> TropicalFish::class.java
+            "giant_piranha" -> Guardian::class.java
+            "albatross" -> Phantom::class.java
+            "lava_whale" -> ElderGuardian::class.java
+            else -> Cod::class.java
+        }
+        val entity = world.spawn(spawn, type) { mob ->
+            // Arena worlds stay peaceful; only this explicitly spawned encounter may persist.
+            mob.setDespawnInPeacefulOverride(TriState.FALSE)
         }
         entity.isPersistent = true
         entity.isSilent = true
@@ -467,7 +472,7 @@ class FishingAdventure(
             if (catch.rare) Component.empty().append(localized("fishing.rare-prefix")).append(speciesName)
             else speciesName,
         )
-        (entity as? Mob)?.apply { setAI(false); isAware = false }
+        entity.apply { setAI(false); isAware = false }
         entity.setGravity(false)
         entity.persistentDataContainer.set(ownerKey, PersistentDataType.STRING, ownerTag)
         entity.persistentDataContainer.set(matchKey, PersistentDataType.STRING, matchIdString)

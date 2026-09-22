@@ -130,7 +130,11 @@ class FishingArenaGeneratorTest : StringSpec({
             FishingArenaGenerator.materialAt(center + 21, FishingArenaGenerator.WATER_SURFACE_Y, 0) shouldBe org.bukkit.Material.WATER
             FishingArenaGenerator.materialAt(center + 21, FishingArenaGenerator.WALK_Y, 0) shouldBe null
             val landing = FishingArenaGenerator.catchLanding(stage)
+            landing.x shouldBe stage.centerX + 0.5
+            landing.z shouldBe 10.5
             FishingArenaGenerator.materialAt(landing.x.toInt(), FishingArenaGenerator.WALK_Y, landing.z.toInt())?.isSolid shouldBe true
+            FishingArenaGenerator.materialAt(landing.x.toInt(), FishingArenaGenerator.SPAWN_Y, landing.z.toInt()) shouldBe null
+            FishingArenaGenerator.materialAt(landing.x.toInt(), FishingArenaGenerator.SPAWN_Y + 1, landing.z.toInt()) shouldBe null
         }
     }
 })
