@@ -24,6 +24,7 @@ import org.bukkit.entity.Silverfish
 import org.bukkit.entity.Spider
 import org.bukkit.entity.TextDisplay
 import org.bukkit.entity.TropicalFish
+import org.bukkit.entity.Villager
 import org.bukkit.event.block.Action
 import org.bukkit.event.entity.EntityDamageByEntityEvent
 import org.bukkit.event.entity.EntityDamageEvent
@@ -91,7 +92,9 @@ class FishingAdventure(
     private var appliedGear: FishingGear? = null
     private var travelMarker: TextDisplay? = null
     private var traderMarker: TextDisplay? = null
+    private var traderNpc: Villager? = null
     private var hookId: UUID? = null
+    private var submergedSinceMs = 0L
     private var telegraph: Telegraph? = null
     private var combatTask: ScheduledTask? = null
     private var nextAttackAtMs = 0L
@@ -134,6 +137,7 @@ class FishingAdventure(
             return
         }
         enforceStageBounds()
+        showTraderNpc()
         if (!firearms.enabled && progress.equippedGear.firearmId != null && player.inventory.getItem(2)?.isEmpty == false) {
             syncLoadout()
         }
@@ -176,6 +180,7 @@ class FishingAdventure(
         telegraph = null
         travelMarker = null
         traderMarker = null
+        traderNpc = null
     }
 
     fun handleFish(event: PlayerFishEvent) {
@@ -224,14 +229,13 @@ class FishingAdventure(
             }
             PlayerFishEvent.State.CAUGHT_FISH -> {
                 val validWater = inCurrentFishingWater(hook.location)
-                val catchLocation = hook.location.clone()
                 cancelFishEvent(event)
                 if (!validWater) {
                     progress = progress.reelIn()
                     sendActionBar("fishing.invalid-catch")
                     return
                 }
-                landCatch(catchLocation)
+                landCatch()
             }
             PlayerFishEvent.State.REEL_IN,
             PlayerFishEvent.State.FAILED_ATTEMPT,
@@ -331,13 +335,25 @@ class FishingAdventure(
         return true
     }
 
+    fun isTraderNpc(entity: Entity): Boolean =
+        traderNpc === entity && isCurrentEntity(entity)
+
+    fun feedHeldCatch(candidate: Player, entity: Entity): Boolean {
+        if (!isTraderNpc(entity) || !canTrade(candidate) || candidate.inventory.heldItemSlot != 4) return false
+        val item = candidate.inventory.getItem(4)
+        if (items.kind(item) != EventItemKind.FISHING_CATCH_BAG || !items.belongsTo(item, matchIdString) ||
+            item?.amount != progress.bag.size
+        ) return false
+        return trade(candidate, progress, "feed")
+    }
+
     /** Snapshot-checked atomic transactions used by the native merchant dialog. */
     fun trade(candidate: Player, expected: FishingProgress, action: String): Boolean {
         if (!canTrade(candidate) || progress !== expected) return false
         val before = progress
         val next: FishingProgress
         when {
-            action == "sell" -> next = before.sellCatch()
+            action == "feed" -> next = before.feedCatch()
             action == "eat" -> {
                 val maxHealth = player.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20.0
                 if (player.health >= maxHealth && player.foodLevel >= 20) {
@@ -383,6 +399,7 @@ class FishingAdventure(
         if (next === before) return false
         progress = next
         syncLoadout()
+        if (action == "feed") sendActionBar("fishing.fed", mapOf("value" to locale.text(next.coins - before.coins)))
         if (action == "bait") sendActionBar("fishing.bait-ready")
         if (action == "trophy") {
             if (progress.phase == FishingPhase.COMPLETE) {
@@ -409,7 +426,7 @@ class FishingAdventure(
         ),
     )
 
-    private fun landCatch(location: Location) {
+    private fun landCatch() {
         val next = progress.recordCatch()
         if (next === progress) {
             sendActionBar(if (progress.bag.size >= FishingRules.MAX_BAG) "fishing.bag-full" else "fishing.invalid-catch")
@@ -420,13 +437,13 @@ class FishingAdventure(
         val name = localized("fishing.species.${catch.species}")
         val shownName = if (catch.rare) Component.empty().append(localized("fishing.rare-prefix")).append(name) else name
         sendActionBar("fishing.catch", mapOf("catches" to shownName))
-        spawnCreature(catch, location, announce = false)
+        syncLoadout()
+        spawnCreature(catch, announce = false)
         if (catch.boss) message("fishing.boss-summoned")
     }
 
-    private fun spawnCreature(catch: FishingCatch, at: Location? = null, announce: Boolean = true) {
-        val spawn = (at?.clone() ?: point(FishingArenaGenerator.fishingZone(stage()).center))
-            .apply { y = maxOf(y, FishingArenaGenerator.WATER_SURFACE_Y + 1.0) }
+    private fun spawnCreature(catch: FishingCatch, announce: Boolean = true) {
+        val spawn = point(FishingArenaGenerator.catchLanding(stage()))
         val entity = when (catch.species) {
             "clam", "rockfish" -> world.spawn(spawn, Silverfish::class.java)
             "ash_carp" -> world.spawn(spawn, Cod::class.java)
@@ -441,9 +458,10 @@ class FishingAdventure(
             "lava_whale" -> world.spawn(spawn, ElderGuardian::class.java)
             else -> world.spawn(spawn, Cod::class.java)
         }
-        entity.isPersistent = false
+        entity.isPersistent = true
         entity.isSilent = true
         entity.isCustomNameVisible = true
+        entity.isGlowing = true
         val speciesName = localized("fishing.species.${catch.species}")
         entity.customName(
             if (catch.rare) Component.empty().append(localized("fishing.rare-prefix")).append(speciesName)
@@ -479,7 +497,7 @@ class FishingAdventure(
         telegraph = null
         val catch = progress.encounter ?: return
         spawnCreature(catch, announce = false)
-        sendActionBar("fishing.encounter-restored")
+        // Restoration is automatic. Repeating a notice every tick hid the combat instructions.
     }
 
     private fun tickCombat() {
@@ -494,7 +512,6 @@ class FishingAdventure(
             movementEndsAtMs > 0L && now >= movementEndsAtMs
         ) settleCreature(creature)
         if (now < stunnedUntilMs) return
-        if (creature.isGlowing) creature.isGlowing = false
         val active = telegraph
         if (active == null && now >= nextAttackAtMs) {
             telegraph = buildTelegraph(creature, now)
@@ -597,7 +614,6 @@ class FishingAdventure(
         creature.velocity = Vector()
         creature.setGravity(false)
         creature.teleport(landing)
-        creature.isGlowing = false
         movementEndsAtMs = 0L
     }
 
@@ -620,8 +636,10 @@ class FishingAdventure(
                     progress = bite
                     val catch = requireNotNull(progress.encounter)
                     sendActionBar("fishing.catch", mapOf("catches" to localized("fishing.species.${catch.species}")))
-                    spawnCreature(catch, location.clone().add(0.0, 0.8, 0.0), announce = false)
+                    syncLoadout()
+                    spawnCreature(catch, announce = false)
                     if (catch.boss) message("fishing.boss-summoned")
+                    creatures.values.firstOrNull()?.let { damageEncounter(rules.dynamiteDamage, it) }
                 }
             }
             val target = creatures.values.firstOrNull()
@@ -640,6 +658,7 @@ class FishingAdventure(
         if (next === progress) return
         val previousPhase = progress.phase
         progress = next
+        syncLoadout()
         if (progress.phase == FishingPhase.CASTING || progress.phase == FishingPhase.TROPHY ||
             progress.phase == FishingPhase.TRAVEL || progress.phase == FishingPhase.COMPLETE
         ) {
@@ -675,6 +694,7 @@ class FishingAdventure(
         fuses.clear()
         travelMarker = null
         traderMarker = null
+        traderNpc = null
         telegraph = null
         nextAttackAtMs = 0L
         stunnedUntilMs = 0L
@@ -713,6 +733,14 @@ class FishingAdventure(
         }
         appliedGear = equipped
         player.inventory.setItem(3, if (progress.dynamite > 0) items.fishingDynamite(player, matchIdString, progress.dynamite) else ItemStack.empty())
+        player.inventory.setItem(4, when {
+            progress.encounter != null && progress.phase in setOf(FishingPhase.CREATURE, FishingPhase.BOSS) ->
+                items.fishingLiveCatch(player, matchIdString, localized("fishing.species.${progress.encounter!!.species}"))
+            progress.bag.isNotEmpty() ->
+                items.fishingCatchBag(player, matchIdString, progress.bag.size,
+                    localized("fishing.species.${progress.bag.first().species}"), progress.bag.first().value)
+            else -> ItemStack.empty()
+        })
         player.inventory.setItem(8, items.fishingLedger(player, matchIdString))
         player.updateInventory()
     }
@@ -763,6 +791,19 @@ class FishingAdventure(
         traderMarker = spawnMarker(location, "fishing.trader-marker")
     }
 
+    private fun showTraderNpc() {
+        if (traderNpc?.isValid == true) return
+        traderNpc = world.spawn(point(FishingArenaGenerator.trader(stage())).add(0.0, 0.0, -2.0), Villager::class.java).also { npc ->
+            npc.isPersistent = false
+            npc.setAI(false)
+            npc.isAware = false
+            npc.isCollidable = false
+            npc.customName(localized("fishing.trader-npc"))
+            npc.isCustomNameVisible = true
+            tag(npc)
+        }
+    }
+
     private fun spawnMarker(location: Location, key: String): TextDisplay = world.spawn(location, TextDisplay::class.java) { display ->
         display.text(localized(key))
         display.isPersistent = false
@@ -772,12 +813,26 @@ class FishingAdventure(
     }
 
     private fun enforceStageBounds() {
-        if (!inStageBounds(player.location)) teleportTo(stage())
+        if (!inStageBounds(player.location)) {
+            submergedSinceMs = 0L
+            teleportTo(stage())
+            return
+        }
+        if (player.location.block.type != Material.WATER || player.location.y >= FishingArenaGenerator.WATER_SURFACE_Y) {
+            submergedSinceMs = 0L
+            return
+        }
+        if (submergedSinceMs == 0L) submergedSinceMs = clock()
+        if (clock() - submergedSinceMs >= 4_000L) {
+            submergedSinceMs = 0L
+            teleportTo(stage())
+            sendActionBar("fishing.water-rescue")
+        }
     }
 
     private fun inStageBounds(location: Location): Boolean =
-        location.world.uid == world.uid && location.x in (stage().centerX - 19.0)..(stage().centerX + 19.0) &&
-            location.z in -14.0..21.0 && location.y in 53.0..101.0
+        location.world.uid == world.uid && location.x in (stage().centerX - 29.0)..(stage().centerX + 29.0) &&
+            location.z in -24.0..30.0 && location.y in 53.0..101.0
 
     private fun playerInCurrentStage(): Boolean = player.world.uid == world.uid && inStageBounds(player.location)
 
@@ -840,6 +895,7 @@ class FishingAdventure(
         fuses.keys.toList().forEach { plugin.server.getEntity(it)?.remove() }
         travelMarker?.remove()
         traderMarker?.remove()
+        traderNpc?.remove()
         creatures.values.toList().forEach { it.remove() }
         FishingArenaStage.entries.forEach { arenaStage ->
             val center = Location(world, arenaStage.centerX + 0.5, FishingArenaGenerator.SPAWN_Y.toDouble(), 0.5)

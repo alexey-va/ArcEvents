@@ -246,16 +246,30 @@ class ArcEventsListener(
                 event.isCancelled = true
                 if (event.hand == EquipmentSlot.HAND) menu.open(player, EventsView.Report)
             }
-            EventItemKind.AMMUNITION, EventItemKind.FISHING_DYNAMITE -> event.isCancelled = true
+            EventItemKind.AMMUNITION, EventItemKind.FISHING_DYNAMITE,
+            EventItemKind.FISHING_LIVE_CATCH, EventItemKind.FISHING_CATCH_BAG -> event.isCancelled = true
             else -> Unit
         }
     }
 
     @EventHandler(ignoreCancelled = true)
-    fun onInteractEntity(event: PlayerInteractEntityEvent) = inspect(event.player, event.rightClicked) { event.isCancelled = true }
+    fun onInteractEntity(event: PlayerInteractEntityEvent) {
+        interactEntity(event.player, event.rightClicked, event.hand) { event.isCancelled = true }
+    }
 
     @EventHandler(ignoreCancelled = true)
-    fun onInteractAtEntity(event: PlayerInteractAtEntityEvent) = inspect(event.player, event.rightClicked) { event.isCancelled = true }
+    fun onInteractAtEntity(event: PlayerInteractAtEntityEvent) =
+        interactEntity(event.player, event.rightClicked, event.hand) { event.isCancelled = true }
+
+    private fun interactEntity(player: Player, entity: Entity, hand: EquipmentSlot, cancel: () -> Unit) {
+        val adventure = service.fishingAdventure(player)
+        if (adventure?.isTraderNpc(entity) == true) {
+            cancel()
+            if (hand == EquipmentSlot.HAND && !adventure.feedHeldCatch(player, entity)) menu.openFishingTraderRoot(player)
+            return
+        }
+        inspect(player, entity, cancel)
+    }
 
     private fun inspect(player: Player, entity: Entity, cancel: () -> Unit) {
         val bodyId = service.readBodyId(entity) ?: return
@@ -266,7 +280,7 @@ class ArcEventsListener(
 
     @EventHandler fun onMenuClick(event: InventoryClickEvent) {
         val player = event.whoClicked as? Player ?: return
-        if (player.bypassesEventProtection()) return
+        if (player.bypassesEventProtection() && !service.isFishingParticipant(player.uniqueId)) return
         if (event.view.topInventory.location?.let(service::withinProtectedArena) == true ||
             service.isParticipant(player.uniqueId) && service.phase() in CONTROLLED_PHASES
         ) event.isCancelled = true
@@ -274,14 +288,14 @@ class ArcEventsListener(
 
     @EventHandler fun onMenuDrag(event: InventoryDragEvent) {
         val player = event.whoClicked as? Player ?: return
-        if (player.bypassesEventProtection()) return
+        if (player.bypassesEventProtection() && !service.isFishingParticipant(player.uniqueId)) return
         if (event.view.topInventory.location?.let(service::withinProtectedArena) == true ||
             service.isParticipant(player.uniqueId) && service.phase() in CONTROLLED_PHASES
         ) event.isCancelled = true
     }
 
     @EventHandler(ignoreCancelled = true) fun onDrop(event: PlayerDropItemEvent) {
-        if (event.player.bypassesEventProtection()) return
+        if (event.player.bypassesEventProtection() && !service.isFishingParticipant(event.player.uniqueId)) return
         if (service.canDropLoot(event.player, event.itemDrop.itemStack)) {
             service.registerDroppedLoot(event.itemDrop)
             return
@@ -292,7 +306,7 @@ class ArcEventsListener(
     }
     @EventHandler(ignoreCancelled = true) fun onPickup(event: EntityPickupItemEvent) {
         val player = event.entity as? Player ?: return
-        if (player.bypassesEventProtection()) return
+        if (player.bypassesEventProtection() && !service.isFishingParticipant(player.uniqueId)) return
         if (service.canPickupLoot(player, event.item)) return
         if (service.withinProtectedArena(player.location) || service.isParticipant(player.uniqueId) && service.phase() in CONTROLLED_PHASES) {
             event.isCancelled = true

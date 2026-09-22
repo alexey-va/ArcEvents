@@ -119,12 +119,12 @@ class FishingProgressTest : StringSpec({
         val stocked = FishingProgress(coins = 100, bag = listOf(FishingCatch("clam", 10, false, 18.0)))
         val biting = stocked.beginCast()
         biting.buy(FishingOffer.KNIFE) shouldBe biting
-        biting.sellCatch() shouldBe biting
+        biting.feedCatch() shouldBe biting
         biting.eatCatch() shouldBe biting
 
         val fighting = biting.recordCatch()
         fighting.buy(FishingOffer.KNIFE) shouldBe fighting
-        fighting.sellCatch() shouldBe fighting
+        fighting.feedCatch() shouldBe fighting
         fighting.eatCatch() shouldBe fighting
 
         var trophy = FishingProgress(FishingRules(catchesPerIsland = 1), coins = 100)
@@ -132,21 +132,23 @@ class FishingProgressTest : StringSpec({
         trophy = trophy.beginCast().recordCatch().damageCreature(10_000.0)
         trophy.phase shouldBe FishingPhase.TROPHY
         trophy.buy(FishingOffer.KNIFE).coins shouldBe 125
-        trophy.sellCatch().bag shouldBe emptyList()
+        trophy.feedCatch().bag shouldBe emptyList()
     }
 
-    "selling is all-or-nothing at the coin cap and eating removes the oldest catch" {
+    "feeding spends one catch at a time and eating removes the oldest catch" {
         val old = FishingCatch("clam", 10, false, 18.0)
         val newer = FishingCatch("shrimp", 16, false, 18.0)
         val stocked = FishingProgress(coins = 5, bag = listOf(old, newer))
         stocked.bagValue shouldBe 26L
         stocked.eatCatch().bag shouldBe listOf(newer)
-        val sold = stocked.sellCatch()
-        sold.coins shouldBe 31
-        sold.bag shouldBe emptyList()
+        val fed = stocked.feedCatch()
+        fed.coins shouldBe 15
+        fed.bag shouldBe listOf(newer)
+        fed.feedCatch().coins shouldBe 31
+        fed.feedCatch().bag shouldBe emptyList()
 
-        val capBlocked = stocked.copy(coins = FishingRules.MAX_COINS - 20)
-        capBlocked.sellCatch() shouldBe capBlocked
+        val capBlocked = stocked.copy(coins = FishingRules.MAX_COINS - 5)
+        capBlocked.feedCatch() shouldBe capBlocked
         capBlocked.bag shouldBe listOf(old, newer)
     }
 
@@ -236,7 +238,7 @@ class FishingProgressTest : StringSpec({
         closed.recordCatch() shouldBe closed
         closed.damageCreature(10_000.0) shouldBe closed
         closed.buy(FishingOffer.KNIFE) shouldBe closed
-        closed.sellCatch() shouldBe closed
+        closed.feedCatch() shouldBe closed
         closed.eatCatch() shouldBe closed
         closed.claimBossBait() shouldBe closed
         closed.handInTrophy() shouldBe closed

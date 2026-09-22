@@ -495,10 +495,10 @@ class ArcEventsConfig(private val config: Config) {
             }
 
     private fun fishingArena(): ArenaSettings {
-        val world = config.string("arcade.fishing.arena.world", "arcevents_fishing_v2")
+        val world = config.string("arcade.fishing.arena.world", "arcevents_fishing_v3")
         val spawn = EventLocation(world, 0.5, 65.0, 0.5)
-        return ArenaSettings("fishing", true, world, "fishing-v2", spawn, spawn,
-            EventBounds(EventLocation(world, -24.0, 54.0, -24.0), EventLocation(world, 217.0, 100.0, 29.0)),
+        return ArenaSettings("fishing", true, world, "fishing-v3", spawn, spawn,
+            EventBounds(EventLocation(world, -32.0, 54.0, -32.0), EventLocation(world, 289.0, 100.0, 33.0)),
             listOf(spawn), emptyList())
     }
 
@@ -692,7 +692,7 @@ class ArcEventsConfig(private val config: Config) {
             }
             require(arena.spawns.size <= 1) { "Arena ${arena.id} must use one common player spawn" }
             require(arena.lootSpawns.size <= 128) { "Arena ${arena.id} has too many loot spawns" }
-            if (arena.enabled && weapons.enabled && arena.template !in setOf("", "citadel-v1", "disasters-v1", "fishing-v2")) {
+            if (arena.enabled && weapons.enabled && arena.template !in setOf("", "citadel-v1", "disasters-v1", "fishing-v3")) {
                 require(arena.lootSpawns.size >= ttt.maximumPlayers) {
                     "Imported arena ${arena.id} requires at least ${ttt.maximumPlayers} loot spawns"
                 }
@@ -714,7 +714,7 @@ class ArcEventsConfig(private val config: Config) {
             "",
             "citadel-v1",
             "disasters-v1",
-            "fishing-v2",
+            "fishing-v3",
             "ttt-minecraft-b5-v1",
             "cs2-inferno-v1",
             "cs2-mirage-v1",

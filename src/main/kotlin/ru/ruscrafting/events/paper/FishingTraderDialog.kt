@@ -56,7 +56,7 @@ internal class FishingTraderDialog(
         val values = mapOf(
             "coins" to locale.text(state.coins),
             "bag" to locale.text(state.bag.size),
-            "value" to locale.text(state.bagValue),
+            "value" to locale.text(state.bag.firstOrNull()?.value ?: 0),
             "stage" to locale.text(state.stage + 1),
             "catches" to locale.text(state.catchesOnStage),
             "needed" to locale.text(state.rules.catchesPerIsland),
@@ -90,7 +90,7 @@ internal class FishingTraderDialog(
                 join(listOf(text(if (owned) "equip-help" else "gear-help", details),
                     locale.render("fishing.gear.${gear.name.lowercase()}-description", player))), available, selected, owned)
         } else buildList {
-            add(button("sell", text("sell"), text("sell-help"), state.sellCatch() != state))
+            add(button("feed", text("feed"), text("feed-help"), state.feedCatch() != state))
             add(button("eat", text("eat"), text("eat-help"), state.bag.isNotEmpty() &&
                 (player.health < (player.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH)?.value ?: 20.0) || player.foodLevel < 20)))
             val trophy = state.phase == FishingPhase.TROPHY

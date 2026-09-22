@@ -12,10 +12,10 @@ enum class FishingArenaStage(
     val centerX: Int,
 ) {
     CAMP(0),
-    REEF(48),
-    SHRINE(96),
-    CLIFFS(144),
-    VOLCANO(192),
+    REEF(64),
+    SHRINE(128),
+    CLIFFS(192),
+    VOLCANO(256),
 }
 
 data class FishingArenaPoint(
@@ -73,12 +73,12 @@ class FishingArenaGenerator : ChunkGenerator() {
     override fun shouldGenerateStructures(worldInfo: WorldInfo, random: Random, chunkX: Int, chunkZ: Int): Boolean = false
 
     companion object {
-        const val TEMPLATE = "fishing-v2"
+        const val TEMPLATE = "fishing-v3"
         const val SEED = 0x415243464953484CL
-        const val MIN_X = -24
-        const val MAX_X = 216
-        const val MIN_Z = -24
-        const val MAX_Z = 28
+        const val MIN_X = -32
+        const val MAX_X = 288
+        const val MIN_Z = -32
+        const val MAX_Z = 32
         const val MIN_Y = 54
         const val MAX_Y = 100
         const val OCEAN_FLOOR_Y = 61
@@ -92,17 +92,20 @@ class FishingArenaGenerator : ChunkGenerator() {
             point(stage, 0.0, SPAWN_Y.toDouble(), 0f)
 
         fun fishingZone(stage: FishingArenaStage): FishingArenaZone = FishingArenaZone(
-            center = point(stage, 15.0, WATER_SURFACE_Y.toDouble(), 0f),
+            center = point(stage, 20.0, WATER_SURFACE_Y.toDouble(), 0f),
             minX = stage.centerX - 4,
             maxX = stage.centerX + 4,
-            minZ = 14,
-            maxZ = 18,
+            minZ = 18,
+            maxZ = 22,
             waterSurfaceY = WATER_SURFACE_Y,
             minimumDepth = MIN_FISHING_DEPTH,
         )
 
         fun fightCenter(stage: FishingArenaStage): FishingArenaPoint =
             point(stage, -4.0, SPAWN_Y.toDouble(), 0f)
+
+        fun catchLanding(stage: FishingArenaStage): FishingArenaPoint =
+            point(stage, 10.0, SPAWN_Y.toDouble(), 0f)
 
         /** Center of the stage's clickable merchant barrel block. */
         fun trader(stage: FishingArenaStage): FishingArenaPoint =
@@ -121,7 +124,10 @@ class FishingArenaGenerator : ChunkGenerator() {
             if (stage != null) {
                 if (dockSupport(stage.stage, x, y, z)) return stage.dockSupport
                 if (y in (OCEAN_FLOOR_Y - 1)..WALK_Y && islandFootprint(stage.stage, x, z)) {
-                    return if (y == WALK_Y) stage.surface(x, z) else stage.foundation
+                    return if (y == WALK_Y) {
+                        if (shoreline(stage.stage, x, z) && !dockFootprint(stage.stage, x, z)) Material.STONE_SLAB
+                        else stage.surface(x, z)
+                    } else stage.foundation
                 }
                 if (dockDeck(stage.stage, x, y, z)) return stage.dock
                 stage.decoration(x, y, z)?.let { return it }
@@ -140,20 +146,22 @@ class FishingArenaGenerator : ChunkGenerator() {
 
         private fun islandFootprint(stage: FishingArenaStage, x: Int, z: Int): Boolean {
             val dx = abs(x - stage.centerX)
-            val dz = abs(z)
-            if (dx <= 15 && dz <= 7) return true
-            if (dz in 8..10 && dx <= 15 - (dz - 7) * 3) return true
-            return dz == 11 && dx <= 5
+            if (dx <= 20 && z in -15..8) return true
+            return z in 9..13 && dx <= 20 - (z - 8) * 3
         }
 
+        private fun shoreline(stage: FishingArenaStage, x: Int, z: Int): Boolean =
+            !islandFootprint(stage, x + 1, z) || !islandFootprint(stage, x - 1, z) ||
+                !islandFootprint(stage, x, z + 1) || !islandFootprint(stage, x, z - 1)
+
         private fun dockFootprint(stage: FishingArenaStage, x: Int, z: Int): Boolean =
-            x in (stage.centerX - 5)..(stage.centerX + 5) && z in 7..13
+            x in (stage.centerX - 5)..(stage.centerX + 5) && z in 7..17
 
         private fun dockDeck(stage: FishingArenaStage, x: Int, y: Int, z: Int): Boolean =
-            y == WALK_Y && x in (stage.centerX - 5)..(stage.centerX + 5) && z in 7..13
+            y == WALK_Y && x in (stage.centerX - 5)..(stage.centerX + 5) && z in 7..17
 
         private fun dockSupport(stage: FishingArenaStage, x: Int, y: Int, z: Int): Boolean {
-            if (y !in OCEAN_FLOOR_Y..(WATER_SURFACE_Y - 1) || z !in 8..13) return false
+            if (y !in OCEAN_FLOOR_Y..(WATER_SURFACE_Y - 1) || z !in 8..17) return false
             return x == stage.centerX - 5 || x == stage.centerX + 5
         }
 
@@ -161,7 +169,7 @@ class FishingArenaGenerator : ChunkGenerator() {
             val dx = x - stage.centerX
             tradingStallDecoration(dx, y, z)?.let { return it }
             exitDecoration(dx, y, z)?.let { return it }
-            if (abs(dx) == 5 && z in 8..12 && y in 65..66) return dockRail
+            if (abs(dx) == 5 && z in 8..16 && y in 65..66) return dockRail
             return when (stage) {
                 FishingArenaStage.CAMP -> campDecoration(dx, y, z)
                 FishingArenaStage.REEF -> reefDecoration(dx, y, z)

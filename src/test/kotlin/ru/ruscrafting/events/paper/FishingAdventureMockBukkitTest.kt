@@ -14,12 +14,14 @@ import org.bukkit.entity.FishHook
 import org.bukkit.entity.Item
 import org.bukkit.entity.LivingEntity
 import org.bukkit.entity.Player
+import org.bukkit.entity.Villager
 import org.bukkit.event.block.Action
 import org.bukkit.event.entity.EntityDamageByEntityEvent
 import org.bukkit.event.entity.EntityDamageEvent.DamageCause
 import org.bukkit.event.entity.CreatureSpawnEvent
 import org.bukkit.event.player.PlayerFishEvent
 import org.bukkit.event.player.PlayerInteractEvent
+import org.bukkit.event.player.PlayerInteractEntityEvent
 import org.bukkit.inventory.EquipmentSlot
 import org.mockbukkit.mockbukkit.entity.PlayerMock
 import ru.arc.paper.testing.failOnUnsupportedMockBukkitOperation
@@ -31,7 +33,7 @@ import java.util.UUID
 import java.util.function.Consumer
 
 internal class FishingTestWorld(private val server: org.mockbukkit.mockbukkit.ServerMock) : org.mockbukkit.mockbukkit.world.WorldMock() {
-    init { name = "arcevents_fishing_v2" }
+    init { name = "arcevents_fishing_v3" }
 
     override fun dropItem(location: Location, stack: org.bukkit.inventory.ItemStack): Item =
         object : org.mockbukkit.mockbukkit.entity.ItemMock(server, UUID.randomUUID(), stack) {
@@ -100,15 +102,25 @@ class FishingAdventureMockBukkitTest : FunSpec({
                 adventure.snapshot().phase shouldBe FishingPhase.CASTING
                 moveToTrader(player, stage)
                 adventure.snapshot().bag.size shouldBe (bagBeforeIsland + 3)
+                fixture.items.kind(player.inventory.getItem(4)) shouldBe EventItemKind.FISHING_CATCH_BAG
 
                 if (stage == 0) {
-                    trade(adventure, player, "sell") shouldBe true
+                    val npc = world.entities.filterIsInstance<Villager>().single()
+                    repeat(3) { remaining ->
+                        player.inventory.heldItemSlot = 4
+                        val fed = PlayerInteractEntityEvent(player, npc, EquipmentSlot.HAND)
+                        fixture.paper.callEvent(fed)
+                        fed.isCancelled shouldBe true
+                        adventure.snapshot().bag.size shouldBe 2 - remaining
+                    }
+                    adventure.snapshot().bag.isEmpty() shouldBe true
+                    fixture.items.kind(player.inventory.getItem(4)) shouldBe null
                     trade(adventure, player, "buy:KNIFE") shouldBe true
                     adventure.snapshot().equippedGear shouldBe FishingGear.KNIFE
                 }
 
                 if (stage == 1) {
-                    trade(adventure, player, "sell") shouldBe true
+                    repeat(3) { trade(adventure, player, "feed") shouldBe true }
                     trade(adventure, player, "buy:PISTOL") shouldBe true
                     adventure.snapshot().equippedGear shouldBe FishingGear.PISTOL
                     val pistol = requireNotNull(player.inventory.getItem(2))
@@ -158,7 +170,7 @@ class FishingAdventureMockBukkitTest : FunSpec({
                 trade(adventure, player, "bait") shouldBe true
                 adventure.snapshot().bossBait shouldBe true
                 castCatch(fixture, player, adventure)
-                val boss = world.entities.filterIsInstance<LivingEntity>().single { it !is Player }
+                    val boss = world.entities.filterIsInstance<LivingEntity>().single { it !is Player && it !is org.bukkit.entity.Villager }
                 if (stage == 3) {
                     boss.teleport(player.location.clone().add(0.0, 20.0, 0.0))
                     fixture.advanceTime(1_000)
@@ -200,18 +212,38 @@ class FishingAdventureMockBukkitTest : FunSpec({
             fixture.assertOriginalPlayerStateRestored(fixture.players.take(1))
         } }
     }
+
+    test("stranded swimmer returns to the current island without losing the run") {
+        failOnUnsupportedMockBukkitOperation { TttRoundFixture().use { fixture ->
+            fixture.startActiveArcade(EventMode.FISHING)
+            val player = fixture.players.first() as PlayerMock
+            val water = Location(player.world, 22.5, 62.5, 0.5)
+            water.block.type = Material.WATER
+            player.simulatePlayerMove(water)
+            fixture.advanceTime(1_000)
+            player.location.x shouldBe 22.5
+            fixture.advanceTime(4_100)
+            player.location.x shouldBe FishingArenaGenerator.spawn(FishingArenaStage.CAMP).x
+            fixture.service.arcadeSnapshot()?.phase shouldBe MatchPhase.ACTIVE
+            fixture.escrow.pendingCount() shouldBe 1
+        } }
+    }
 })
 
 private fun catchAndDefeat(fixture: TttRoundFixture, player: PlayerMock, adventure: FishingAdventure) {
     castCatch(fixture, player, adventure)
-    val creature = player.world.entities.filterIsInstance<LivingEntity>().single { it !is Player }
+    fixture.items.kind(player.inventory.getItem(4)) shouldBe EventItemKind.FISHING_LIVE_CATCH
+    val creature = player.world.entities.filterIsInstance<LivingEntity>().single { it !is Player && it !is org.bukkit.entity.Villager }
+    creature.location.z shouldBe FishingArenaGenerator.catchLanding(FishingArenaStage.entries[adventure.snapshot().stage]).z
+    creature.isGlowing shouldBe true
     strike(fixture, player, creature)
+    fixture.items.kind(player.inventory.getItem(4)) shouldBe EventItemKind.FISHING_CATCH_BAG
 }
 
 private fun castCatch(fixture: TttRoundFixture, player: PlayerMock, adventure: FishingAdventure) {
     val bossBait = adventure.snapshot().bossBait
     val stage = FishingArenaStage.entries[adventure.snapshot().stage]
-    player.simulatePlayerMove(Location(player.world, stage.centerX + 0.5, 65.0, 12.5))
+    player.simulatePlayerMove(Location(player.world, stage.centerX + 0.5, 65.0, 16.5))
     player.inventory.heldItemSlot = 0
     val zone = FishingArenaGenerator.fishingZone(stage)
     val water = Location(player.world, zone.center.x, zone.waterSurfaceY.toDouble(), zone.center.z)

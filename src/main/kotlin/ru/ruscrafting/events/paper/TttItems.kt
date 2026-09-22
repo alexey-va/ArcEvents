@@ -20,6 +20,8 @@ enum class EventItemKind {
     FISHING_ROD,
     FISHING_WEAPON,
     FISHING_DYNAMITE,
+    FISHING_LIVE_CATCH,
+    FISHING_CATCH_BAG,
     ARCADE_KNIFE,
     GUIDE,
     SHOP,
@@ -200,6 +202,22 @@ class TttItems(
         locale.render("fishing.dynamite-name", player),
         locale.lore("fishing.dynamite-lore", player),
     ).also { it.amount = amount.coerceIn(1, 64) }
+
+    fun fishingLiveCatch(player: Player, matchId: String, species: Component): ItemStack = tagged(
+        Material.TROPICAL_FISH,
+        EventItemKind.FISHING_LIVE_CATCH,
+        matchId,
+        locale.render("fishing.live-catch-name", player, mapOf("species" to species)),
+        locale.lore("fishing.live-catch-lore", player),
+    )
+
+    fun fishingCatchBag(player: Player, matchId: String, count: Int, species: Component, value: Int): ItemStack = tagged(
+        Material.COD,
+        EventItemKind.FISHING_CATCH_BAG,
+        matchId,
+        locale.render("fishing.catch-bag-name", player, mapOf("count" to locale.text(count), "species" to species)),
+        locale.lore("fishing.catch-bag-lore", player, mapOf("value" to locale.text(value))),
+    ).also { it.amount = count.coerceIn(1, 64) }
 
     fun fishingLedger(player: Player, matchId: String): ItemStack = tagged(
         Material.COMPASS,

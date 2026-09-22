@@ -39,6 +39,18 @@ class ArcadeRoundLifecycleMockBukkitTest : FunSpec({
         }
     }
 
+    test("solo disconnect retains escrow until departure completes") {
+        failOnUnsupportedMockBukkitOperation {
+            TttRoundFixture().use { fixture ->
+                fixture.startActiveArcade(EventMode.FISHING)
+                val player = fixture.players.first()
+                fixture.service.handleQuit(player)
+                fixture.escrow.pendingCount() shouldBe 1
+                fixture.service.arcadeSnapshot()?.phase shouldBe MatchPhase.CANCELLED
+            }
+        }
+    }
+
     test("GunGame debug bootstrap activates the real arcade session") {
         failOnUnsupportedMockBukkitOperation {
             TttRoundFixture().use { fixture ->

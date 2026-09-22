@@ -370,7 +370,7 @@ arcade:
       rod-two: 120
     arena:
       # Dedicated generated world; changing its identity requires a restart.
-      world: arcevents_fishing_v2
+      world: arcevents_fishing_v3
   gungame:
     minimum-players: 3
     maximum-players: 12

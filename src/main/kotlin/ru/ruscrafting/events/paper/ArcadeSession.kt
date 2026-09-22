@@ -16,6 +16,7 @@ import org.bukkit.plugin.Plugin
 import org.bukkit.potion.PotionEffect
 import org.bukkit.potion.PotionEffectType
 import org.bukkit.util.Vector
+import ru.arc.core.Tasks
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.config.EventLocation
@@ -173,7 +174,11 @@ class ArcadeSession(
         clearWeaponState(player.uniqueId)
         removeHud(player)
         runtime.disconnect(player.uniqueId)
-        if (current?.phase == MatchPhase.CANCELLED) beginRestoration()
+        // PlayerQuitEvent still exposes the departing player as online; restoring there rejects teleport.
+        val departingMatchId = current?.takeIf { it.phase == MatchPhase.CANCELLED }?.matchId
+        if (departingMatchId != null) Tasks.scheduler.runLater(1L) {
+            if (current?.matchId == departingMatchId && current?.phase == MatchPhase.CANCELLED) beginRestoration()
+        }
     }
 
     fun markRecovered(player: Player, recovery: PlayerRecovery) {

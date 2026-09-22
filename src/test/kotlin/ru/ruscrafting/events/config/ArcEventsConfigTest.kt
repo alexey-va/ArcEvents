@@ -27,8 +27,8 @@ class ArcEventsConfigTest : StringSpec({
             Files.writeString(root.resolve("config.yml"), original.replace("node-mode: RELAY", "node-mode: HOST"))
             val host = ArcEventsConfig.inspect(root)
             host.arenas.single { it.id == "fishing" }.let { arena ->
-                arena.world shouldBe "arcevents_fishing_v2"
-                arena.template shouldBe "fishing-v2"
+                arena.world shouldBe "arcevents_fishing_v3"
+                arena.template shouldBe "fishing-v3"
                 arena.operational(1) shouldBe true
             }
             current.arenas.none { it.id == "fishing" } shouldBe true

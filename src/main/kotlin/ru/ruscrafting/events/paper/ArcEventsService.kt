@@ -906,7 +906,8 @@ class ArcEventsService(
             EventItemKind.DETECTIVE_MEDKIT -> activateMedkit(player)
             EventItemKind.GUIDE, EventItemKind.SHOP, EventItemKind.FIREARM, EventItemKind.AMMUNITION, EventItemKind.ROUND_REPORT,
             EventItemKind.ARCADE_KNIFE, EventItemKind.DETECTIVE_SCANNER, EventItemKind.TRAITOR_BLADE, EventItemKind.DETECTIVE_ARMOR,
-            EventItemKind.FISHING_ROD, EventItemKind.FISHING_WEAPON, EventItemKind.FISHING_DYNAMITE -> false
+            EventItemKind.FISHING_ROD, EventItemKind.FISHING_WEAPON, EventItemKind.FISHING_DYNAMITE,
+            EventItemKind.FISHING_LIVE_CATCH, EventItemKind.FISHING_CATCH_BAG -> false
         }
     }
 

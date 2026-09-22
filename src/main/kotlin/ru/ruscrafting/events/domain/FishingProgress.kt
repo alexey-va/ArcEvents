@@ -218,12 +218,12 @@ data class FishingProgress(
             this
         }
 
-    /** Sells the entire bag or nothing when the coin cap would be exceeded. */
-    fun sellCatch(): FishingProgress {
+    /** Feeds the oldest catch to the trader for its unchanged expedition credit value. */
+    fun feedCatch(): FishingProgress {
         if (!canTrade() || bag.isEmpty()) return this
-        val totalValue = bag.sumOf { it.value.toLong() }
-        if (coins.toLong() + totalValue > FishingRules.MAX_COINS) return this
-        return copy(coins = coins + totalValue.toInt(), bag = emptyList())
+        val catch = bag.first()
+        if (coins.toLong() + catch.value > FishingRules.MAX_COINS) return this
+        return copy(coins = coins + catch.value, bag = bag.drop(1))
     }
 
     /** Eating consumes the oldest carried catch. */
