@@ -200,7 +200,8 @@ class RedisEventNetworkRepository(
                     RedisHashDecision.Write(entry.copy(state = QueueState.ARRIVED, expiresAtMs = Long.MAX_VALUE).validated())
                 } else RedisHashDecision.Reject
                 QueueState.ARRIVED -> if (entry.destinationServer == currentServer) RedisHashDecision.Write(entry) else RedisHashDecision.Reject
-                QueueState.MATCHED, QueueState.RETURN_PENDING -> if (
+                QueueState.MATCHED -> if (currentServer == entry.destinationServer) RedisHashDecision.Write(entry) else RedisHashDecision.Reject
+                QueueState.RETURN_PENDING -> if (
                     currentServer == entry.originServer || currentServer == entry.destinationServer
                 ) RedisHashDecision.Write(entry) else RedisHashDecision.Reject
                 QueueState.QUEUED, null -> RedisHashDecision.Reject
@@ -240,11 +241,40 @@ class RedisEventNetworkRepository(
             result is RedisHashUpdateResult.Changed || result is RedisHashUpdateResult.Rejected && result.current == null
         }
 
+    /**
+     * Converts expired reservations into durable return routes before cleanup can touch the queue.
+     * A reservation is never silently discarded: the origin stays bound to the entry until the
+     * normal RETURN_PENDING acknowledgement removes it.
+     */
+    fun expireReservations(nowMs: Long): CompletableFuture<List<QueueEntry>> = redis.loadMap(QUEUE_KEY).thenCompose { values ->
+        val expired = values.entries.mapNotNull { (field, raw) ->
+            field.takeIf {
+                val entry = queueCodec.decode(raw)
+                entry.state == QueueState.RESERVED && entry.expiresAtMs < nowMs
+            }
+        }.take(MAX_CLEANUP)
+        val conversions = expired.map { field ->
+            queue.update(field) { entry ->
+                if (entry?.state == QueueState.RESERVED && entry.expiresAtMs < nowMs) {
+                    RedisHashDecision.Write(entry.copy(state = QueueState.RETURN_PENDING, expiresAtMs = Long.MAX_VALUE).validated())
+                } else RedisHashDecision.Reject
+            }.thenApply { it.acceptedValue() }
+        }
+        CompletableFuture.allOf(*conversions.toTypedArray()).thenApply {
+            conversions.mapNotNull(CompletableFuture<QueueEntry?>::join)
+        }
+    }
+
     fun cleanup(nowMs: Long): CompletableFuture<Int> = redis.loadMap(QUEUE_KEY).thenCompose { values ->
         val expired = values.entries.mapNotNull { (field, raw) ->
-            field.takeIf { queueCodec.decode(raw).expiresAtMs < nowMs }
+            field.takeIf {
+                val entry = queueCodec.decode(raw)
+                entry.state == QueueState.QUEUED && entry.expiresAtMs < nowMs
+            }
         }.take(MAX_CLEANUP)
-        val removals = expired.map { field -> queue.consume(field) { it.expiresAtMs < nowMs } }
+        val removals = expired.map { field ->
+            queue.consume(field) { entry -> entry.state == QueueState.QUEUED && entry.expiresAtMs < nowMs }
+        }
         CompletableFuture.allOf(*removals.toTypedArray()).thenApply {
             removals.count { it.join() is RedisHashConsumeResult.Consumed }
         }

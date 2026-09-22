@@ -107,8 +107,33 @@ class ArcEventsMenuMockBukkitTest : FunSpec({
                     for ((slot, mode) in listOf(2 to EventMode.GUN_GAME, 6 to EventMode.DISASTERS)) {
                         paper.callEvent(InventoryClickEvent(player.openInventory, InventoryType.SlotType.CONTAINER, slot, ClickType.LEFT, InventoryAction.PICKUP_ALL)); paper.performTicks(2)
                         player.openInventory.topInventory.getItem(layouts.slot(EventsView.Arcade(mode), "overview"))?.type shouldBe if (mode == EventMode.GUN_GAME) Material.IRON_SWORD else Material.LIGHTNING_ROD
+                        val arcadeInventory = player.openInventory.topInventory
+                        paper.callEvent(InventoryClickEvent(player.openInventory, InventoryType.SlotType.CONTAINER, layouts.slot(EventsView.Arcade(mode), "help"), ClickType.LEFT, InventoryAction.PICKUP_ALL)); paper.performTicks(2)
+                        player.openInventory.topInventory shouldBe arcadeInventory
                         menu.open(player)
                     }
+                }
+            } finally { Tasks.reset(); root.toFile().deleteRecursively() }
+        } }
+    }
+
+    test("participant root opens the current arcade mode instead of TTT status") {
+        failOnUnsupportedMockBukkitOperation { MockBukkitTestRuntime.open().use { paper ->
+            val plugin = paper.createSimplePlugin("ArcEventsParticipantRootTest"); PaperArcRuntime.installScheduling(plugin)
+            val player = paper.addPlayer("ParticipantQA"); val root = Files.createTempDirectory("arcevents-participant-root-")
+            try {
+                Files.createDirectories(root.resolve("lang")); copyResource("config.yml", root.resolve("config.yml")); copyResource("lang/ru.yml", root.resolve("lang/ru.yml")); copyResource("lang/en.yml", root.resolve("lang/en.yml"))
+                val settings = ArcEventsConfig.load(root); val locale = ArcEventsLocale(root) { settings }; val layouts = ArcEventsMenuLayouts(root)
+                val service = mockk<ArcEventsService> {
+                    every { isParticipant(player.uniqueId) } returns true
+                    every { currentMode() } returns EventMode.DISASTERS
+                    every { snapshot() } returns testSnapshot(3)
+                    every { queueControl(player.uniqueId) } returns CompletableFuture.completedFuture(QueueControlSnapshot(null, null))
+                    every { arcadeSnapshot() } returns null
+                }
+                ArcEventsMenu(plugin, service, mockk<TttItems>(), locale, { settings }, { Result.success(Unit) }, layouts).use { menu ->
+                    menu.openRoot(player); paper.performTicks(2)
+                    player.openInventory.topInventory.getItem(layouts.slot(EventsView.Arcade(EventMode.DISASTERS), "overview"))?.type shouldBe Material.LIGHTNING_ROD
                 }
             } finally { Tasks.reset(); root.toFile().deleteRecursively() }
         } }

@@ -26,6 +26,7 @@ menu:
     title: '<#20252b>Events'
     main-body:
       - '<#e8dfd2>Queue with players and join network events.'
+      - '<#8c8c8c>Choose a mode to open its queue and rules.'
       - '<#aaa49a>Queue: <queue>/<minimum> | Arena: <arena_state>'
     ttt-name: '<#e3b341><bold>Hidden Roles'
     ttt-lore:
@@ -80,8 +81,8 @@ menu:
       - '<#8c8c8c>[<#7bd88f>▶<#8c8c8c>] <#7bd88f>Click<#f2f0e6> — join the queue'
     join-unavailable-name: '<#8c8c8c><bold>Queue unavailable'
     join-unavailable-lore:
-      - '<#f2f0e6>The event is not accepting players yet.'
-      - '<#969696>Open this menu again a little later.'
+      - '<#f2f0e6>You cannot join the queue right now.'
+      - '<#969696>Open the menu later and try again.'
     leave-name: '<#d84a4a><bold>Leave the queue'
     leave-lore:
       - '<#f2f0e6>Your place will be released immediately.'
@@ -164,6 +165,8 @@ menu:
       - '<#f2f0e6>Preparation: explore the map and collect weapons.'
       - '<#f2f0e6>Roles stay hidden and all damage is disabled.'
       - '<#f2f0e6>Your role is revealed before the combat countdown.'
+      - '<#8c8c8c>Normal chat reaches nearby players.'
+      - '<#8c8c8c>Eliminated players hear spectators only.'
     evidence-name: '<#e3b341><bold>Bodies and evidence'
     evidence-lore:
       - '<#f2f0e6>Right-click a body to reveal its role.'
@@ -178,7 +181,8 @@ menu:
     controls-name: '<#92bed8><bold>Commands'
     controls-lore:
       - '<#8c8c8c>/arcevents shop <#f2f0e6>— role shop'
-      - '<#8c8c8c>/arcevents team [text] <#f2f0e6>— team chat'
+      - '<#8c8c8c>/arcevents team [text]'
+      - '<#8c8c8c>   Own-role chat: living traitors and detectives.'
       - '<#8c8c8c>/arcevents status <#f2f0e6>— match status'
       - '<#8c8c8c>/arcevents leave <#f2f0e6>— leave the event immediately'
       - '<#8c8c8c>/arcevents spawn <#f2f0e6>— return to the map spawn'
@@ -200,23 +204,31 @@ menu:
       - '<#8c8c8c>Ready maps: <#f2f0e6><arenas>'
       - '<#8c8c8c>Current: <active>'
       - ''
-      - '<#92bed8>Click<#f2f0e6> to choose the next map'
+      - '<#8c8c8c>[<#92bed8>▶<#8c8c8c>] <#92bed8>Click<#f2f0e6> — choose the next map'
     start-name: '<#7bd88f><bold>Start from queue'
     start-lore:
       - '<#f2f0e6>Add you and start a ready roster.'
       - '<#8c8c8c>The request works from any network server.'
+      - ''
+      - '<#8c8c8c>[<#7bd88f>▶<#8c8c8c>] <#7bd88f>Click<#f2f0e6> — start'
     stop-name: '<#d84a4a><bold>Stop the match'
     stop-lore:
       - '<#f2f0e6>End the round and restore every player.'
       - '<#ff9f0f>An unfinished match is recorded as cancelled.'
+      - ''
+      - '<#8c8c8c>[<#d84a4a>▶<#8c8c8c>] <#d84a4a>Click<#f2f0e6> — stop the match'
     reload-name: '<#e3b341><bold>Reload configuration'
     reload-lore:
       - '<#f2f0e6>Validate and apply safe settings.'
       - '<#8c8c8c>Node identity requires a restart.'
+      - ''
+      - '<#8c8c8c>[<#e3b341>▶<#8c8c8c>] <#e3b341>Click<#f2f0e6> — reload'
     recover-name: '<#c58cff><bold>Retry recovery'
     recover-lore:
       - '<#f2f0e6>Restore every currently available player.'
       - '<#8c8c8c>A record is removed only after verification.'
+      - ''
+      - '<#8c8c8c>[<#c58cff>▶<#8c8c8c>] <#c58cff>Click<#f2f0e6> — retry'
   arenas:
     title: '<#20252b>Hidden Roles Maps'
     entry-name: '<arena>'
@@ -225,11 +237,13 @@ menu:
       - '<#8c8c8c>World: <#f2f0e6><world>'
       - '<#8c8c8c>Template: <#f2f0e6><template>'
       - ''
-      - '<#92bed8>Click<#f2f0e6> to make this the next map'
+      - '<#8c8c8c>[<#92bed8>▶<#8c8c8c>] <#92bed8>Click<#f2f0e6> — make this the next map'
     auto-name: '<#e3b341><bold>Automatic rotation'
     auto-lore:
       - '<#f2f0e6>Choose a ready map from the pool for every match.'
       - '<#8c8c8c>The match id makes the choice reproducible.'
+      - ''
+      - '<#8c8c8c>[<#e3b341>▶<#8c8c8c>] <#e3b341>Click<#f2f0e6> — enable rotation'
   event-arenas:
     title: '<#20252b>Next-Round Map'
     entry-name: '<arena>'
@@ -296,9 +310,13 @@ menu:
     previous-name: '<#92bed8><bold>Previous page'
     previous-lore:
       - '<#f2f0e6>Show newer records.'
+      - ''
+      - '<#8c8c8c>[<#92bed8>▶<#8c8c8c>] <#92bed8>Click<#f2f0e6> — open'
     next-name: '<#92bed8><bold>Next page'
     next-lore:
       - '<#f2f0e6>Show older records.'
+      - ''
+      - '<#8c8c8c>[<#92bed8>▶<#8c8c8c>] <#92bed8>Click<#f2f0e6> — open'
   roster:
     title: '<#20252b>Round roster'
     player-name: '<#f2f0e6><player>'
@@ -320,10 +338,10 @@ menu:
       - '<#8c8c8c>Impact: <hit>'
     dna-name: '<#5fb3ff><bold>Analyze DNA'
     dna-lore:
-      - '<#f2f0e6>A detective with a scanner can track'
+      - '<#f2f0e6>Only a detective with a scanner can see'
       - '<#f2f0e6>the direction to a living killer.'
       - ''
-      - '<#5fb3ff>Click<#f2f0e6> to scan'
+      - '<#8c8c8c>[<#5fb3ff>▶<#8c8c8c>] <#5fb3ff>Click<#f2f0e6> — scan DNA'
     dna-lost-name: '<#8c8c8c><bold>DNA unavailable'
     dna-lost-lore:
       - '<#f2f0e6>The trail expired or the killer is gone.'
@@ -331,13 +349,15 @@ menu:
     call-lore:
       - '<#f2f0e6>Send this body’s location to detectives.'
       - ''
-      - '<#92bed8>Click<#f2f0e6> to send coordinates'
+      - '<#8c8c8c>[<#92bed8>▶<#8c8c8c>] <#92bed8>Click<#f2f0e6> — send coordinates'
     called-name: '<#5fb3ff><bold>Detective notified'
     called-lore:
       - '<#f2f0e6>The coordinates were already sent.'
     roster-name: '<#92bed8><bold>Round roster'
     roster-lore:
       - '<#f2f0e6>Compare the revealed role with the roster.'
+      - ''
+      - '<#8c8c8c>[<#92bed8>▶<#8c8c8c>] <#92bed8>Click<#f2f0e6> — open roster'
   report:
     title: '<#20252b>Round report'
     summary-name: '<#e3b341><bold>Result'
@@ -357,7 +377,7 @@ menu:
       - '<#f2f0e6>Ordered record of every hit.'
       - '<#8c8c8c>Records: <#f2f0e6><events>'
       - ''
-      - '<#92bed8>Click<#f2f0e6> to open'
+      - '<#8c8c8c>[<#92bed8>▶<#8c8c8c>] <#92bed8>Click<#f2f0e6> — open log'
   combat:
     title: '<#20252b>Combat log — <page>/<pages>'
     entry-name: '<#f2f0e6>Record #<sequence>'
@@ -467,6 +487,8 @@ match:
     <#8fa6b8>   <#f2f0e6>Explore the map and collect weapons.
     <#8fa6b8>   <#f2f0e6>Roles are hidden and damage is disabled.
     <#8fa6b8>   <#f2f0e6>The countdown starts after role reveal.
+    <#8fa6b8>   <#f2f0e6>Normal chat reaches nearby players.
+    <#8fa6b8>   <#f2f0e6>Eliminated players hear spectators only.
     <#8fa6b8>   <#92bed8>Right-click <#f2f0e6>— fire   <#92bed8>F <#f2f0e6>— reload
   countdown-title: '<#ffcc33><bold><seconds>'
   countdown-subtitle: '<#ffffff>Get ready for the round'
@@ -755,20 +777,26 @@ arcade:
     - '<#f2f0e6>Advance through 12 weapon levels, earning one for each elimination.'
     - '<#f2f0e6>After them, one precise knife hit wins the race.'
     - '<#8c8c8c>Queue: <#e3b341><queue><#8c8c8c>/<#e3b341><minimum>'
+    - ''
+    - '<#8c8c8c>[<#e3b341>▶<#8c8c8c>] <#e3b341>Click<#f2f0e6> — open mode'
   gungame-guide-name: '<#e3b341><bold>Gun Game rules'
   gungame-guide:
     - '<#f2f0e6>Advance through 12 weapon levels after each elimination.'
     - '<#f2f0e6>Then land a knife hit to finish the race.'
     - '<#8c8c8c>After an elimination you respawn with brief protection.'
+    - '<#8c8c8c>Your current level and score stay visible in the HUD.'
   disasters-title: '<#20252b>Disasters'
   disasters-name: '<#ff9f0f><bold>Disasters'
   disasters-lore:
     - '<#f2f0e6>Survive six disaster waves and return to the fight.'
     - '<#8c8c8c>Queue: <#ff9f0f><queue><#8c8c8c>/<#ff9f0f><minimum>'
+    - ''
+    - '<#8c8c8c>[<#ff9f0f>▶<#8c8c8c>] <#ff9f0f>Click<#f2f0e6> — open mode'
   disasters-guide-name: '<#ff9f0f><bold>Disasters rules'
   disasters-guide:
     - '<#f2f0e6>Survive six rounds; survivors earn the points.'
     - '<#f2f0e6>Each hazard is announced before it strikes.'
+    - '<#8c8c8c>The wave and score stay visible in the HUD; follow the warning before impact.'
   preparing: '<#f2f0e6><mode> is preparing to start.'
   countdown: '<#e3b341>Mode starts in <seconds>s.'
   started: '<#7bd88f><mode> has started.'
@@ -793,10 +821,19 @@ arcade:
   no-winners: '<#969696>There are no winners.'
   status: '<#92bed8><mode> <#8c8c8c>| <#f2f0e6><phase> <#8c8c8c>| <seconds>s | Score: <score>'
   join-name: '<#7bd88f><bold>Join the queue'
-  join-lore: '<#f2f0e6>Take a place in the shared queue.'
+  join-lore:
+    - '<#f2f0e6>Take a place in the shared queue.'
+    - ''
+    - '<#8c8c8c>[<#7bd88f>▶<#8c8c8c>] <#7bd88f>Click<#f2f0e6> — join the queue'
   leave-name: '<#d84a4a><bold>Leave the queue'
-  leave-lore: '<#f2f0e6>Release your place.'
+  leave-lore:
+    - '<#f2f0e6>Release your place.'
+    - ''
+    - '<#8c8c8c>[<#d84a4a>▶<#8c8c8c>] <#d84a4a>Click<#f2f0e6> — leave the queue'
   start-name: '<#7bd88f><bold>Start mode'
-  start-lore: '<#f2f0e6>Start a match in the selected mode.'
+  start-lore:
+    - '<#f2f0e6>Start a match in the selected mode.'
+    - ''
+    - '<#8c8c8c>[<#7bd88f>▶<#8c8c8c>] <#7bd88f>Click<#f2f0e6> — start'
   status-name: '<#92bed8><bold>Queue status'
   status-lore: '<#8c8c8c>Status: <queue_state>'

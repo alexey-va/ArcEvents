@@ -66,6 +66,8 @@ class EventNetworkCoordinator(
     private val readyArenaIds: () -> List<String>,
     private val onReservation: (ReservationBatch) -> Boolean,
     private val onArrival: (QueueEntry) -> Boolean,
+    /** True while the service still owns durable escrow for a just-arrived player. */
+    private val recoveryPending: (UUID) -> Boolean = { false },
     private val clock: () -> Long = System::currentTimeMillis,
 ) : AutoCloseable {
     @Volatile
@@ -79,6 +81,10 @@ class EventNetworkCoordinator(
     private var maintenanceTask: ScheduledTask? = null
     private var maintenancePeriodTicks = 0L
     private val statistics = ConcurrentHashMap<UUID, PlayerEventStats>()
+    private val recoveredReturnRetries = ConcurrentHashMap<UUID, PlayerRecovery>()
+    private val recoveredReturnAttempts = ConcurrentHashMap.newKeySet<UUID>()
+    /** Keeps a return route alive while the proxy transfer that initiated it is still in flight. */
+    private val pendingTransfers = ConcurrentHashMap.newKeySet<UUID>()
     private val startInFlight = AtomicBoolean(false)
     @Volatile
     private var started = false
@@ -386,6 +392,7 @@ class EventNetworkCoordinator(
     }
 
     fun handleJoin(player: Player) {
+        pendingTransfers.remove(player.uniqueId)
         loadStats(player.uniqueId)
         val current = settings()
         repository.claimReservation(player.uniqueId, current.serverId, clock()).whenComplete { entry, failure ->
@@ -397,7 +404,9 @@ class EventNetworkCoordinator(
                 }
                 when (entry?.state) {
                     QueueState.ARRIVED -> {
-                        if (current.nodeMode != NodeMode.HOST || !onArrival(entry)) recoverOrphanedArrival(player, entry)
+                        if (current.nodeMode != NodeMode.HOST || !onArrival(entry) && !recoveryPending(player.uniqueId)) {
+                            recoverOrphanedArrival(player, entry)
+                        }
                     }
                     QueueState.MATCHED -> recoverOrphanedArrival(player, entry)
                     QueueState.RETURN_PENDING -> finishPendingReturn(player, entry)
@@ -469,14 +478,7 @@ class EventNetworkCoordinator(
                     return@runSync
                 }
                 released.orEmpty().forEach { entry ->
-                    val message = EventNetworkMessage.create(
-                        signal = EventNetworkSignal.RETURN_PLAYER,
-                        matchId = batch.matchId,
-                        playerId = UUID.fromString(entry.playerId),
-                        destinationServer = entry.originServer,
-                    )
-                    publish(message)
-                    routeReturn(message)
+                    publishReturnRoute(entry)
                 }
                 refresh()
             }
@@ -508,20 +510,7 @@ class EventNetworkCoordinator(
     }
 
     fun returnRecoveredPlayer(player: Player, recovery: PlayerRecovery) {
-        repository.prepareRecoveredReturn(player.uniqueId, recovery.matchId).whenComplete { _, failure ->
-            Tasks.scheduler.runSync {
-                if (!started || !player.isOnline) return@runSync
-                if (failure != null) {
-                    plugin.logger.log(Level.SEVERE, "ArcEvents could not preserve recovered return ${player.uniqueId}", failure)
-                }
-                val current = settings()
-                if (!current.network.returnToOrigin || recovery.returnServer == current.serverId) {
-                    repository.acknowledgeReturn(player.uniqueId, recovery.matchId)
-                    return@runSync
-                }
-                returnPlayer(player, recovery.returnServer)
-            }
-        }
+        attemptRecoveredReturn(player, recovery)
     }
 
     fun hostAvailable(mode: EventMode = EventMode.TTT): Boolean {
@@ -534,6 +523,76 @@ class EventNetworkCoordinator(
 
     private fun publish(message: EventNetworkMessage) {
         requireNotNull(eventChannel) { "ArcEvents network coordinator is not started" }.publish(message)
+    }
+
+    private fun publishReturnRoute(entry: QueueEntry) {
+        val matchId = entry.matchId?.let { value -> runCatching { UUID.fromString(value) }.getOrNull() } ?: return
+        val message = EventNetworkMessage.create(
+            signal = EventNetworkSignal.RETURN_PLAYER,
+            matchId = matchId,
+            playerId = UUID.fromString(entry.playerId),
+            destinationServer = entry.originServer,
+        )
+        publish(message)
+        routeReturn(message)
+    }
+
+    private fun attemptRecoveredReturn(player: Player, recovery: PlayerRecovery) {
+        if (!recoveredReturnAttempts.add(player.uniqueId)) return
+        repository.prepareRecoveredReturn(player.uniqueId, recovery.matchId).whenComplete { pending, failure ->
+            Tasks.scheduler.runSync {
+                try {
+                    if (!started || !player.isOnline) return@runSync
+                    if (failure != null || pending == null) {
+                        rememberRecoveredReturn(player.uniqueId, recovery)
+                        if (failure != null) {
+                            plugin.logger.log(Level.SEVERE, "ArcEvents could not preserve recovered return ${player.uniqueId}", failure)
+                        } else {
+                            plugin.logger.log(
+                                Level.WARNING,
+                                "ArcEvents recovered return route was not durable for ${player.uniqueId}; retrying",
+                            )
+                        }
+                        return@runSync
+                    }
+                    recoveredReturnRetries.remove(player.uniqueId, recovery)
+                    val current = settings()
+                    val originServer = pending.originServer
+                    if (!current.network.returnToOrigin || originServer == current.serverId) {
+                        repository.acknowledgeReturn(player.uniqueId, recovery.matchId).whenComplete { acknowledged, acknowledgeFailure ->
+                            if (acknowledgeFailure != null || acknowledged != true) {
+                                plugin.logger.log(
+                                    Level.WARNING,
+                                    "ArcEvents could not acknowledge recovered return ${player.uniqueId}",
+                                    acknowledgeFailure,
+                                )
+                            }
+                        }
+                        return@runSync
+                    }
+                    if (!returnPlayer(player, originServer)) {
+                        rememberRecoveredReturn(player.uniqueId, recovery)
+                    }
+                } finally {
+                    recoveredReturnAttempts.remove(player.uniqueId)
+                }
+            }
+        }
+    }
+
+    private fun rememberRecoveredReturn(playerId: UUID, recovery: PlayerRecovery) {
+        if (recoveredReturnRetries.containsKey(playerId) || recoveredReturnRetries.size < MAX_PENDING_RECOVERY_RETURNS) {
+            recoveredReturnRetries[playerId] = recovery
+        } else {
+            plugin.logger.log(Level.SEVERE, "ArcEvents recovered return retry limit reached; route remains durable for $playerId")
+        }
+    }
+
+    private fun retryRecoveredReturns() {
+        recoveredReturnRetries.entries.toList().forEach { (playerId, recovery) ->
+            val player = plugin.server.getPlayer(playerId) ?: return@forEach
+            if (player.isOnline) attemptRecoveredReturn(player, recovery)
+        }
     }
 
     private fun replyAllowed(request: EventNetworkMessage, reply: EventNetworkMessage, origin: String): Boolean {
@@ -632,8 +691,13 @@ class EventNetworkCoordinator(
                 player.sendEventMessage(locale.render("queue.reserved", player))
                 if (settings().serverId == destination) {
                     handleJoin(player)
-                } else if (settings().network.transferOnReservation && !transferSent(player, destination)) {
-                    player.sendEventMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.transfer", player))))
+                } else if (settings().network.transferOnReservation) {
+                    if (transferSent(player, destination)) {
+                        pendingTransfers += playerId
+                    } else {
+                        pendingTransfers.remove(playerId)
+                        player.sendEventMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.transfer", player))))
+                    }
                 }
             }
         }
@@ -656,6 +720,10 @@ class EventNetworkCoordinator(
                 }
                 val player = plugin.server.getPlayer(playerId) ?: return@runSync
                 if (settings().serverId == origin || !settings().network.returnToOrigin) {
+                    if (settings().serverId == origin && playerId in pendingTransfers) {
+                        debug.event("return_waiting_for_transfer", "player" to playerId, "match" to matchId)
+                        return@runSync
+                    }
                     player.sendEventMessage(locale.render("queue.returned", player))
                     repository.acknowledgeReturn(playerId, matchId).whenComplete { acknowledged, acknowledgeFailure ->
                         if (acknowledgeFailure != null || acknowledged != true) {
@@ -706,8 +774,19 @@ class EventNetworkCoordinator(
     private fun maintain() {
         if (!started) return
         val now = clock()
+        repository.expireReservations(now).whenComplete { expired, failure ->
+            Tasks.scheduler.runSync {
+                if (!started) return@runSync
+                if (failure != null) {
+                    plugin.logger.log(Level.WARNING, "ArcEvents expired reservation recovery failed", failure)
+                } else {
+                    expired.orEmpty().forEach(::publishReturnRoute)
+                }
+            }
+        }
         repository.cleanup(now)
         if (!redis.isSubscriptionActive()) redis.init()
+        retryRecoveredReturns()
         refresh()
         heartbeat()
     }
@@ -796,6 +875,9 @@ class EventNetworkCoordinator(
         nodePresence?.close()
         nodePresence = null
         nodes = emptyList()
+        recoveredReturnRetries.clear()
+        recoveredReturnAttempts.clear()
+        pendingTransfers.clear()
         startInFlight.set(false)
     }
 
@@ -804,6 +886,7 @@ class EventNetworkCoordinator(
         private const val FUTURE_SKEW_MS = 60_000L
         private const val START_MESSAGE_MAX_AGE_MS = 10_000L
         private const val START_FUTURE_SKEW_MS = 2_000L
+        private const val MAX_PENDING_RECOVERY_RETURNS = 256
         private val START_SIGNALS = setOf(EventNetworkSignal.START_REQUEST, EventNetworkSignal.START_RESULT)
     }
 }

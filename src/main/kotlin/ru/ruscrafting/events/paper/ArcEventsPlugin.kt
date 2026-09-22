@@ -121,6 +121,7 @@ class ArcEventsPlugin : JavaPlugin() {
                 readyArenaIds = arenaPool::readyIds,
                 onReservation = { activeService.onReservation(it) },
                 onArrival = { activeService.onArrival(it) },
+                recoveryPending = { activeService.escrowPending(it) },
             )
             network = coordinator
             lifecycle.own(coordinator)
@@ -177,6 +178,9 @@ class ArcEventsPlugin : JavaPlugin() {
             server.pluginManager.registerEvents(ArcEventsListener(activeService, menu, items), this)
             coordinator.start()
             activeService.start()
+            if (settings.nodeMode == ru.ruscrafting.events.config.NodeMode.HOST) {
+                lifecycle.own(ProxyEventChatBridge(this, activeService::handlesMatchChat))
+            }
             lifecycle.ready(
                 "server" to settings.serverId,
                 "mode" to settings.nodeMode,
@@ -267,19 +271,9 @@ class ArcEventsPlugin : JavaPlugin() {
         activeService: ArcEventsGameplayBoundary,
     ): AutoCloseable? {
         if (!candidate.packetChatIsolationEnabled) return null
-        val protocolLib = server.pluginManager.getPlugin("ProtocolLib")
-        if (protocolLib?.isEnabled != true) {
-            logger.warning("ArcEvents packet chat isolation was requested but ProtocolLib is not enabled; using Paper isolation only")
-            return null
+        return PacketEventsChatIsolation.open(activeService).also {
+            logger.info("ArcEvents participant chat isolation enabled through PacketEvents")
         }
-        return runCatching { openProtocolLibChatIsolation(this, activeService) }
-            .onSuccess {
-                logger.info("ArcEvents packet chat isolation enabled through ProtocolLib ${protocolLib.pluginMeta.version}")
-            }
-            .onFailure { failure ->
-                logger.log(Level.SEVERE, "ArcEvents could not enable packet chat isolation; using Paper isolation only", failure)
-            }
-            .getOrNull()
     }
 
     private fun openNameplateRenderer(

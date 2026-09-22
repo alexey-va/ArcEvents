@@ -2,10 +2,12 @@ package ru.ruscrafting.events.paper
 
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import net.kyori.adventure.text.Component
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
 import org.bukkit.entity.Player
 import ru.arc.paper.menu.PaperDialogRuntime
 import ru.arc.paper.menu.PaperDialogScreen
@@ -54,6 +56,11 @@ class ArcEventsDialogMenuModelTest : StringSpec({
             displayed.map { it.id } shouldBe listOf("events.main", "events.help", "events.stats", "events.ttt")
             displayed.first().body.isNotEmpty() shouldBe true
             displayed.last().body.first().text.toString().lowercase().let { "loading" in it || "загружаем" in it } shouldBe true
+            val mainButtons = displayed.first().buttons.associate { button ->
+                button.id.value to PlainTextComponentSerializer.plainText().serialize(button.label)
+            }
+            mainButtons.getValue("action_arcade_gungame_name") shouldContain "›"
+            mainButtons.getValue("action_arcade_disasters_name") shouldContain "›"
         } finally {
             root.toFile().deleteRecursively()
         }

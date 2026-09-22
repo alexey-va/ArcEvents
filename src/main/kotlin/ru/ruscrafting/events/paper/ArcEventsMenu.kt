@@ -73,10 +73,17 @@ class ArcEventsMenu(
 
     /** Command/hotkey entry: discard an older dialog flow before rendering a root. */
     fun openRoot(player: Player, view: EventsView = EventsView.Main) {
+        val requestedView = if (view == EventsView.Main && service.isParticipant(player.uniqueId)) {
+            when (service.currentMode()) {
+                EventMode.GUN_GAME -> EventsView.Arcade(EventMode.GUN_GAME)
+                EventMode.DISASTERS -> EventsView.Arcade(EventMode.DISASTERS)
+                else -> EventsView.Ttt
+            }
+        } else view
         pendingDialogLoads.remove(player.uniqueId)
-        if (view !in nativeDialogViews) dialogRuntime.close(player)
+        if (requestedView !in nativeDialogViews) dialogRuntime.close(player)
         dialogRuntime.beginFlow(player)
-        open(player, view)
+        open(player, requestedView)
     }
 
     fun open(player: Player, view: EventsView = EventsView.Main) {
@@ -248,7 +255,6 @@ class ArcEventsMenu(
         val view = EventsView.Arcade(mode)
         when (slot) {
             element(view, "back") -> open(player, EventsView.Main)
-            element(view, "help") -> open(player, EventsView.Arcade(mode))
             element(view, "center") -> {
                 val participant = service.arcadeSnapshot()?.participants?.get(player.uniqueId)
                 if (participant != null && participant.status != ParticipantStatus.RESTORED) {

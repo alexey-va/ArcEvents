@@ -84,7 +84,10 @@ class ArcEventsCommand(
         val root = args.getOrNull(0)?.lowercase()
         val action = args.getOrNull(1)?.lowercase()
         if (args.size == 3 && root in setOf("qa", "admin") && action == "player") return servicePlayerNames()
-        if (args.size == 3 && root == "admin" && action in setOf("arena", "start")) return arenaIds(includeAuto = true)
+        if (args.size == 3 && root == "admin" && action in setOf("arena", "start")) {
+            val mode = parseMode(args.getOrNull(2)) ?: EventMode.TTT
+            return arenaIds(mode, includeAuto = true)
+        }
         if (args.size == 3 && root == "admin" && action == "weapons") return ADMIN_WEAPON_ACTIONS
         if (root != "debug") return emptyList()
         return when (args.size) {
@@ -141,7 +144,8 @@ class ArcEventsCommand(
             "arenas" -> sendArenas(sender)
             "arena" -> {
                 val arena = args.getOrNull(1)?.lowercase() ?: "auto"
-                val accepted = arena == "auto" || arena in service.selectableArenaIds()
+                val mode = parseMode(args.getOrNull(2)) ?: EventMode.TTT
+                val accepted = arena == "auto" || arena in service.selectableArenaIds(mode)
                 if (accepted) selectedAdminArenas[senderSelectionKey(sender)] = arena
                 sender.sendEventMessage(locale.render(if (accepted) "admin.arena-selected" else "admin.arena-selection-failed", sender, mapOf(
                     "arena" to locale.text(arena),
@@ -157,7 +161,7 @@ class ArcEventsCommand(
                 }
                 val explicitArena = args.getOrNull(if (args.getOrNull(1) != null && parseMode(args[1]) != null) 2 else 1)?.lowercase()
                 val arena = explicitArena ?: selectedAdminArenas[senderSelectionKey(sender)]
-                if (arena != null && arena != "auto" && arena !in service.selectableArenaIds()) {
+                if (arena != null && arena != "auto" && arena !in service.selectableArenaIds(mode)) {
                     sender.sendEventMessage(locale.render("admin.arena-selection-failed", sender, mapOf("arena" to locale.text(arena))))
                 } else sendStartResult(sender, StartMessageAudience.ADMIN, arena, mode)
             }
@@ -400,9 +404,9 @@ class ArcEventsCommand(
     private fun deny(sender: CommandSender) { sender.sendEventMessage(locale.render("command.no-permission", sender)) }
 
     private fun servicePlayerNames(): List<String> = plugin.server.onlinePlayers.map(Player::getName)
-    private fun arenaIds(includeAuto: Boolean = false): List<String> = buildList {
+    private fun arenaIds(mode: EventMode = EventMode.TTT, includeAuto: Boolean = false): List<String> = buildList {
         if (includeAuto) add("auto")
-        addAll(service.selectableArenaIds())
+        addAll(service.selectableArenaIds(mode))
     }.distinct()
     private fun senderSelectionKey(sender: CommandSender): String = (sender as? Player)?.uniqueId?.toString()
         ?: "console:${sender.name.lowercase()}"

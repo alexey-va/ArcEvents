@@ -73,7 +73,7 @@ class ArcEventsConfigTest : StringSpec({
                 healthPriority = 200,
                 summaryPriority = 100,
             )
-            config.packetChatIsolationEnabled shouldBe false
+            config.packetChatIsolationEnabled shouldBe true
             config.localChat shouldBe LocalChatSettings(
                 enabled = true,
                 closeDistance = 8.0,
@@ -167,7 +167,7 @@ class ArcEventsConfigTest : StringSpec({
                 ArcEventsReloadPolicy.validate(current, sanitationCandidate, matchOrReservationActive = false)
             }.message shouldBe "imported decoration sanitation requires a restart"
 
-            Files.writeString(root.resolve("config.yml"), original.replace("    enabled: false\n\nui:", "    enabled: true\n\nui:"))
+            Files.writeString(root.resolve("config.yml"), original.replace("    enabled: true\n\nui:", "    enabled: false\n\nui:"))
             val packetIsolationCandidate = ArcEventsConfig.inspect(root)
             shouldThrow<IllegalArgumentException> {
                 ArcEventsReloadPolicy.validate(current, packetIsolationCandidate, matchOrReservationActive = false)
@@ -331,7 +331,7 @@ class ArcEventsConfigTest : StringSpec({
             FirearmId.MCMILLAN to 2100005,
         )
         config.ui.lootDisplays shouldBe true
-        config.packetChatIsolationEnabled shouldBe false
+        config.packetChatIsolationEnabled shouldBe true
         config.weapons.lootEffect.enabled shouldBe false
         config.weapons.lootEffect.customModelData.values.toSet() shouldBe setOf(2, 3, 4, 5, 6)
     }

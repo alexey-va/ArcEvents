@@ -82,11 +82,12 @@ chat:
     close-distance: 8.0
     normal-distance: 24.0
     maximum-distance: 36.0
-  # Paper chat/viewer isolation is always active during a match. This optional
-  # layer also suppresses external player, disguised and system-chat packets.
-  # Requires a ProtocolLib build compatible with the exact Minecraft version.
+  # Suppress unrelated chat and action bars with the PacketEvents dependency
+  # already required by ARC. ArcEvents messages remain visible. Restart-only.
+  # ProxyARC also receives a short-lived participant flag from HOST nodes;
+  # its own backend allowlist decides where that flag may take effect.
   packet-isolation:
-    enabled: false
+    enabled: true
 
 ui:
   sounds: true

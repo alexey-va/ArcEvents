@@ -74,12 +74,25 @@ Reservation cancellation moves each selected route to `RETURN_PENDING` with
 bounded CAS retries, so host restarts, duplicate join events, and an interrupted
 proxy transfer remain recoverable.
 
-During match-owned phases, Paper chat viewers and Bukkit broadcast recipients
-exclude participants; living and spectator channels remain match-scoped.
-`chat.packet-isolation.enabled: true` may additionally suppress external player,
-disguised, system-chat, and action-bar packets through an installed ProtocolLib
-build compatible with the exact server version. This packet boundary is a
-soft-dependency and is disabled by default.
+From durable arrival capture through confirmed restoration, Paper chat viewers,
+Bukkit broadcasts and PacketEvents filter outside chat and action bars for event
+participants. ArcEvents sends its own messages through the explicit silent packet
+transport. `chat.packet-isolation.enabled` defaults to `true`; PacketEvents 2.12.1
+is required alongside ARC. Titles, boss bars and disconnect reasons are unaffected.
+
+HOST nodes renew a proxy chat lease every five seconds on `arc:events_chat`.
+ProxyARC accepts only the current backend connection and its own player UUID;
+`plugins/proxyarc/modules/event-chat.yml` controls `enabled` and `allowed-servers`.
+The shipped list contains `parkour`; add any other event backends there. The
+allowlist is hot-reloadable with `/proxyarc reload`. A lease expires after 15
+seconds without renewal and is cleared on leave, server transition, disconnect,
+shutdown, or removal from the allowlist. ProxyARC filters its own delivery paths;
+independent Velocity plugins need their own integration.
+
+Reservation routes cannot release players whose durable recovery is still pending.
+Cancelled arrivals remain protected and retry restoration before returning home.
+Configured enabled arena bounds remain protected between rounds.
+See [the 2026-09-22 review](docs/review-20260922.md) for coverage and remaining limits.
 
 Production rotates between three lightweight packaged arenas:
 [Japanese Lobby](https://www.planetminecraft.com/project/japanese-lobby-6691829/)

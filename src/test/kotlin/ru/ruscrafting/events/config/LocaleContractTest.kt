@@ -98,6 +98,52 @@ class LocaleContractTest : StringSpec({
         }
     }
 
+    "inventory actions end with the shared action footer" {
+        val root = Files.createTempDirectory("arcevents-action-footer-")
+        try {
+            listOf("ru", "en").forEach { language ->
+                val config = Config(root, "lang/$language.yml")
+                val actionWord = if (language == "ru") "Нажмите" else "Click"
+                listOf(
+                    "menu.admin.arenas-lore", "menu.admin.start-lore", "menu.admin.stop-lore",
+                    "menu.admin.reload-lore", "menu.admin.recover-lore", "menu.arenas.entry-lore",
+                    "menu.arenas.auto-lore", "menu.body.dna-lore", "menu.body.call-lore",
+                    "menu.body.roster-lore", "menu.report.combat-lore", "menu.common.previous-lore",
+                    "menu.common.next-lore", "arcade.gungame-lore", "arcade.disasters-lore", "arcade.join-lore",
+                    "arcade.leave-lore", "arcade.start-lore",
+                ).forEach { path ->
+                    val footer = config.stringList(path).last()
+                    footer.contains("[<") shouldBe true
+                    footer.contains("▶") shouldBe true
+                    footer.contains(actionWord) shouldBe true
+                }
+            }
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    "mode entry and in-round guidance describe the current next action" {
+        val root = Files.createTempDirectory("arcevents-guidance-")
+        try {
+            listOf("ru", "en").forEach { language ->
+                val config = Config(root, "lang/$language.yml")
+                val actionWord = if (language == "ru") "Нажмите" else "Click"
+                config.stringList("arcade.gungame-lore").last().contains(actionWord) shouldBe true
+                config.stringList("arcade.disasters-lore").last().contains(actionWord) shouldBe true
+                val hudHint = if (language == "ru") "экранной подсказке" else "HUD"
+                config.stringList("arcade.gungame-guide").joinToString(" ").contains(hudHint) shouldBe true
+                config.stringList("arcade.disasters-guide").joinToString(" ").contains(hudHint) shouldBe true
+                val flow = config.stringList("menu.help.flow-lore").joinToString(" ")
+                val controls = config.stringList("menu.help.controls-lore").joinToString(" ")
+                flow.contains(if (language == "ru") "рядом" else "nearby") shouldBe true
+                controls.contains("/arcevents team") shouldBe true
+            }
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
     "round chat has no square badges or bold decoration" {
         val root = Files.createTempDirectory("arcevents-chat-style-")
         try {

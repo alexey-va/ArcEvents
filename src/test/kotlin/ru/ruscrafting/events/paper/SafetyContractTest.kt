@@ -213,26 +213,22 @@ class SafetyContractTest : StringSpec({
         isImportedBlockDecoration(org.bukkit.Material.ARMOR_STAND) shouldBe false
     }
 
-    "packet isolation scope admits only the current ArcEvents recipient" {
-        val player = mockk<Player>()
-        val playerId = UUID.randomUUID()
-        val otherId = UUID.randomUUID()
-        every { player.uniqueId } returns playerId
-        ArcEventsMessageDelivery.activate()
+    "event messages use their explicit transport and restore native sending when closed" {
+        val player = mockk<Player>(relaxed = true)
+        val message = Component.text("event")
+        val deliveries = mutableListOf<Triple<Player, Component, Boolean>>()
+        ArcEventsMessageDelivery.activate { recipient, component, overlay ->
+            deliveries += Triple(recipient, component, overlay)
+        }
         try {
-            ArcEventsMessageDelivery.deliver(player) {
-                ArcEventsMessageDelivery.isInternal(playerId) shouldBe true
-                ArcEventsMessageDelivery.isInternal(otherId) shouldBe false
-            }
-            ArcEventsMessageDelivery.isInternal(playerId) shouldBe false
+            player.sendEventMessage(message)
+            player.sendEventActionBar(message)
+            deliveries shouldBe listOf(Triple(player, message, false), Triple(player, message, true))
+            verify(exactly = 0) { player.sendMessage(any<Component>()) }
         } finally {
             ArcEventsMessageDelivery.deactivate()
         }
-    }
-
-    "packet isolation suppresses only external messages to event participants" {
-        shouldSuppressChatPacket(isolatedRecipient = true, internalMessage = false) shouldBe true
-        shouldSuppressChatPacket(isolatedRecipient = true, internalMessage = true) shouldBe false
-        shouldSuppressChatPacket(isolatedRecipient = false, internalMessage = false) shouldBe false
+        player.sendEventMessage(message)
+        verify(exactly = 1) { player.sendMessage(message) }
     }
 })

@@ -3,52 +3,32 @@ package ru.ruscrafting.events.paper
 import net.kyori.adventure.text.Component
 import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
-import java.util.UUID
 
-/** Marks ArcEvents-owned chat packets while the optional ProtocolLib boundary is active. */
+/** The packet boundary owns this transport; no thread-local permission can leak across sends. */
 internal object ArcEventsMessageDelivery {
-    private val internalRecipients = ThreadLocal<MutableMap<UUID, Int>>()
-
     @Volatile
-    private var active = false
+    private var transport: ((Player, Component, Boolean) -> Unit)? = null
 
-    fun activate() {
-        active = true
+    fun activate(delivery: (Player, Component, Boolean) -> Unit) {
+        transport = delivery
     }
 
     fun deactivate() {
-        active = false
-        internalRecipients.remove()
+        transport = null
     }
 
-    fun deliver(player: Player, delivery: () -> Unit) {
-        if (!active) {
-            delivery()
-            return
-        }
-        val recipients = internalRecipients.get() ?: mutableMapOf<UUID, Int>().also(internalRecipients::set)
-        val playerId = player.uniqueId
-        recipients[playerId] = recipients.getOrDefault(playerId, 0) + 1
-        try {
-            delivery()
-        } finally {
-            val remaining = recipients.getValue(playerId) - 1
-            if (remaining == 0) recipients.remove(playerId) else recipients[playerId] = remaining
-            if (recipients.isEmpty()) internalRecipients.remove()
-        }
+    fun send(player: Player, message: Component, actionBar: Boolean = false) {
+        val delivery = transport
+        if (delivery != null) delivery(player, message, actionBar)
+        else if (actionBar) player.sendActionBar(message)
+        else player.sendMessage(message)
     }
-
-    fun isInternal(playerId: UUID): Boolean = active && internalRecipients.get()?.get(playerId)?.let { it > 0 } == true
 }
 
 internal fun CommandSender.sendEventMessage(message: Component) {
-    if (this is Player) {
-        ArcEventsMessageDelivery.deliver(this) { sendMessage(message) }
-    } else {
-        sendMessage(message)
-    }
+    if (this is Player) ArcEventsMessageDelivery.send(this, message) else sendMessage(message)
 }
 
 internal fun Player.sendEventActionBar(message: Component) {
-    ArcEventsMessageDelivery.deliver(this) { sendActionBar(message) }
+    ArcEventsMessageDelivery.send(this, message, actionBar = true)
 }

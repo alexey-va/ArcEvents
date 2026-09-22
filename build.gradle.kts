@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "ru.ruscrafting"
-version = "0.3.8"
+version = "0.3.9"
 description = "Cross-server custom events for RusCrafting"
 
 val integrationTestSourceSet = sourceSets.create("integrationTest") {
@@ -20,7 +20,7 @@ repositories {
     maven("https://repo.rus-crafting.ru/grocermc/") { content { includeGroup("ru.ruscrafting.arc") } }
     maven("https://repo.papermc.io/repository/maven-public/")
     maven("https://maven.enginehub.org/repo/")
-    maven("https://repo.dmulloy2.net/repository/public/")
+    maven("https://repo.codemc.io/repository/maven-public/")
 }
 
 java { toolchain { languageVersion.set(JavaLanguageVersion.of(25)) } }
@@ -43,7 +43,7 @@ dependencies {
     compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
     compileOnly("com.sk89q.worldedit:worldedit-bukkit:$worldEditVersion")
     compileOnly("com.sk89q.worldguard:worldguard-bukkit:7.0.16")
-    compileOnly("net.dmulloy2:ProtocolLib:5.4.0")
+    compileOnly("com.github.retrooper:packetevents-spigot:2.12.1") { exclude(group = "io.netty") }
     compileOnly("net.luckperms:api:5.5")
 
     testImplementation("io.kotest:kotest-runner-junit5:6.0.7")
@@ -53,6 +53,7 @@ dependencies {
     testImplementation("ru.ruscrafting.arc:arc-core-paper-testing:$arcCoreVersion")
     testImplementation("ru.ruscrafting.arc:arc-core-paper-api:$arcCoreVersion")
     testImplementation("net.luckperms:api:5.5")
+    testImplementation("com.github.retrooper:packetevents-spigot:2.12.1") { exclude(group = "io.netty") }
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     "integrationTestImplementation"(sourceSets.test.get().output)
     "integrationTestImplementation"("ru.ruscrafting.arc:arc-core-integration-testing:$arcCoreVersion")
@@ -123,6 +124,7 @@ plugwright {
             if (hostE2e) listOf("-Dterminal.jline=false", "-Djna.nounpack=true") else emptyList(),
     )
     downloadPlugins {
+        url("https://github.com/retrooper/packetevents/releases/download/v2.12.1/packetevents-spigot-2.12.1.jar")
         url("https://cdn.modrinth.com/data/Vebnzrzj/versions/OrIs0S6b/LuckPerms-Bukkit-5.5.17.jar")
         url("https://github.com/MilkBowl/Vault/releases/download/1.7.3/Vault.jar")
         url("https://repo.rus-crafting.ru/grocermc/ru/ruscrafting/thirdparty/rediseconomy/4.5.12/rediseconomy-4.5.12.jar")

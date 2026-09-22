@@ -4,10 +4,14 @@ import com.google.gson.Gson
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import io.kotest.matchers.shouldBe
+import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import ru.arc.config.ConfigManager
 import ru.arc.core.PaperArcRuntime
 import ru.arc.core.Tasks
+import ru.arc.network.BackendServerId
+import ru.arc.paper.network.BackendTransferResult
 import ru.arc.paper.network.BackendTransfer
 import ru.arc.redis.InMemoryRedis
 import ru.arc.redis.RedisManager
@@ -17,7 +21,11 @@ import ru.arc.paper.testing.failOnUnsupportedMockBukkitOperation
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.domain.EventMode
+import ru.ruscrafting.events.network.EventNetworkMessage
+import ru.ruscrafting.events.network.EventNetworkSignal
 import ru.ruscrafting.events.network.HostNode
+import ru.ruscrafting.events.network.QueueEntry
+import ru.ruscrafting.events.network.QueueState
 import ru.ruscrafting.events.network.RedisEventNetworkRepository
 import ru.ruscrafting.events.network.ReservationBatch
 import java.nio.file.Files
@@ -50,16 +58,76 @@ class EventNetworkCoordinatorMockBukkitTest : FunSpec({
             }
         }
     }
+
+    test("recovered player is not transferred until RETURN_PENDING is durable") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture().use { fixture ->
+                fixture.start()
+                val player = fixture.addPlayer("Recovered")
+                fixture.coordinator.returnRecoveredPlayer(player, PlayerRecovery(UUID.randomUUID(), "spawn"))
+                fixture.tick(3)
+
+                verify(exactly = 0) { fixture.transfer.connect(any(), any()) }
+            }
+        }
+    }
+
+    test("recovered player retries a failed return transfer while still online") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture().use { fixture ->
+                fixture.start()
+                val player = fixture.addPlayer("RecoveredRetry")
+                val matchId = UUID.randomUUID()
+                fixture.seedMatched(player, matchId)
+                var transferCalls = 0
+                every { fixture.transfer.connect(any(), any()) } answers {
+                    transferCalls++
+                    if (transferCalls == 1) BackendTransferResult.SEND_FAILED else BackendTransferResult.SENT
+                }
+
+                fixture.coordinator.returnRecoveredPlayer(player, PlayerRecovery(matchId, "spawn"))
+                fixture.tick(3)
+                transferCalls shouldBe 1
+
+                fixture.coordinator.reconfigure()
+                fixture.tick(3)
+                transferCalls shouldBe 2
+                fixture.queueEntry(player)?.state shouldBe QueueState.RETURN_PENDING
+            }
+        }
+    }
+
+    test("expired reservation does not acknowledge while outbound transfer is pending") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture().use { fixture ->
+                fixture.start()
+                val player = fixture.addPlayer("DelayedTransfer")
+                val matchId = UUID.randomUUID()
+                fixture.seedReserved(player, matchId, "survival")
+                every { fixture.transfer.connect(any(), any()) } returns BackendTransferResult.SENT
+                fixture.publishRoute(matchId, player, "survival")
+                fixture.tick(3)
+
+                fixture.advanceTime(11L)
+                fixture.coordinator.reconfigure()
+                fixture.tick(5)
+
+                fixture.queueEntry(player)?.state shouldBe QueueState.RETURN_PENDING
+                verify(exactly = 1) { fixture.transfer.connect(player, BackendServerId.of("survival")) }
+            }
+        }
+    }
 })
 
 private class EventNetworkCoordinatorFixture : AutoCloseable {
     private val paper = MockBukkitTestRuntime.open()
     private val plugin = paper.createSimplePlugin("ArcEventsNetworkCoordinatorTest")
     private val dataRoot = Files.createTempDirectory("arcevents-network-coordinator-")
-    private val nowMs = 1_787_730_000_000L
+    private var nowMs = 1_787_730_000_000L
     private val redisStore = InMemoryRedis(ServerIdentity { "parkour" })
     private val repository = RedisEventNetworkRepository(redisStore)
     val reservations = mutableListOf<ReservationBatch>()
+    val transfer = mockk<BackendTransfer>(relaxed = true)
     private val settings: ArcEventsConfig
     private val locale: ArcEventsLocale
     val coordinator: EventNetworkCoordinator
@@ -80,7 +148,7 @@ private class EventNetworkCoordinatorFixture : AutoCloseable {
             locale = locale,
             repository = repository,
             redis = mockk<RedisManager>(relaxed = true),
-            transfer = mockk<BackendTransfer>(relaxed = true),
+            transfer = transfer,
             debug = ArcEventsDebug({ true }) {},
             matchState = { null to null },
             arenaReady = { true },
@@ -92,6 +160,49 @@ private class EventNetworkCoordinatorFixture : AutoCloseable {
     }
 
     fun start() = coordinator.start()
+
+    fun addPlayer(name: String) = paper.addPlayer(name)
+
+    fun tick(count: Int) {
+        repeat(count) {
+            paper.performTicks(1)
+            Thread.sleep(2L)
+        }
+    }
+
+    fun advanceTime(deltaMs: Long) {
+        nowMs += deltaMs
+    }
+
+    fun seedMatched(player: org.bukkit.entity.Player, matchId: UUID) {
+        repository.joinQueue(player.uniqueId, player.name, "spawn", nowMs, 60_000L).get(5, TimeUnit.SECONDS)
+        repository.reserve(matchId, settings.serverId, 1, 1, nowMs, 30_000L).get(5, TimeUnit.SECONDS)
+        repository.claimReservation(player.uniqueId, settings.serverId, nowMs + 1).get(5, TimeUnit.SECONDS)
+        repository.completeReservation(matchId, listOf(player.uniqueId)).get(5, TimeUnit.SECONDS)
+    }
+
+    fun seedReserved(player: org.bukkit.entity.Player, matchId: UUID, destination: String) {
+        repository.joinQueue(player.uniqueId, player.name, settings.serverId, nowMs, 60_000L).get(5, TimeUnit.SECONDS)
+        repository.reserve(matchId, destination, 1, 1, nowMs, 10L).get(5, TimeUnit.SECONDS)
+    }
+
+    fun publishRoute(matchId: UUID, player: org.bukkit.entity.Player, destination: String) {
+        val message = EventNetworkMessage.create(
+            signal = EventNetworkSignal.ROUTE_PLAYER,
+            nowMs = nowMs,
+            matchId = matchId,
+            playerId = player.uniqueId,
+            destinationServer = destination,
+        )
+        redisStore.simulateExternalMessage(
+            RedisEventNetworkRepository.EVENT_CHANNEL,
+            Gson().toJson(message),
+            "spawn",
+        )
+    }
+
+    fun queueEntry(player: org.bukkit.entity.Player): QueueEntry? =
+        repository.loadQueueEntry(player.uniqueId).get(5, TimeUnit.SECONDS)
 
     fun heartbeat(): HostNode = redisStore.loadMap(RedisEventNetworkRepository.NODES_KEY).get(5, TimeUnit.SECONDS)
         .getValue(settings.serverId)

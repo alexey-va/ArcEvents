@@ -188,6 +188,38 @@ class RedisEventNetworkRepositoryTest : StringSpec({
         repository.loadQueue(6_003).join().map(QueueEntry::playerId).contains(uuid(1).toString()) shouldBe false
     }
 
+    "matched route can only be claimed at its destination until return is prepared" {
+        val repository = RedisEventNetworkRepository(InMemoryRedis(ServerIdentity { "parkour" }))
+        val player = uuid(1)
+        val matchId = uuid(103)
+        repository.joinQueue(player, "Player1", "spawn", 1_000, 60_000).join()
+        repository.reserve(matchId, "parkour", 1, 1, 2_000, 30_000).join()!!
+        repository.claimReservation(player, "parkour", 2_001).join()?.state shouldBe QueueState.ARRIVED
+        repository.completeReservation(matchId, listOf(player)).join() shouldBe 1
+
+        repository.claimReservation(player, "spawn", 2_002).join() shouldBe null
+        repository.loadQueueEntry(player).join()?.state shouldBe QueueState.MATCHED
+        repository.prepareRecoveredReturn(player, matchId).join()?.state shouldBe QueueState.RETURN_PENDING
+        repository.claimReservation(player, "spawn", 2_003).join()?.state shouldBe QueueState.RETURN_PENDING
+    }
+
+    "expired reservation becomes a durable return route while queued expiry remains deletable" {
+        val repository = RedisEventNetworkRepository(InMemoryRedis(ServerIdentity { "parkour" }))
+        val reservedPlayer = uuid(1)
+        val queuedPlayer = uuid(2)
+        repository.joinQueue(reservedPlayer, "Reserved", "spawn", 1_000, 60_000).join()
+        repository.joinQueue(queuedPlayer, "Queued", "spawn", 1_001, 5).join()
+        val matchId = uuid(104)
+        repository.reserve(matchId, "parkour", 1, 1, 2_000, 10).join()!!
+
+        val expired = repository.expireReservations(2_011).join()
+        expired.map(QueueEntry::playerId) shouldBe listOf(reservedPlayer.toString())
+        expired.single().state shouldBe QueueState.RETURN_PENDING
+        repository.cleanup(2_011).join() shouldBe 1
+        repository.loadQueueEntry(reservedPlayer).join()?.state shouldBe QueueState.RETURN_PENDING
+        repository.loadQueueEntry(queuedPlayer).join() shouldBe null
+    }
+
     "insufficient reservation leaves the queue intact" {
         val repository = RedisEventNetworkRepository(InMemoryRedis())
         (1..3).forEach { repository.joinQueue(uuid(it), "Player$it", "spawn", it.toLong(), 60_000).join() }

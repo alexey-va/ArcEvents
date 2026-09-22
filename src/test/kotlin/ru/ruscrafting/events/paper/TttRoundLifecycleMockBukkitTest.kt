@@ -56,6 +56,77 @@ import java.util.concurrent.TimeUnit
  * [ArcEventsPlugin.onEnable] bootstrap are outside this host-local test and do not currently have MockBukkit coverage.
  */
 class TttRoundLifecycleMockBukkitTest : FunSpec({
+    test("arrivals are protected and repeated arrival cannot clear inventory twice") {
+        failOnUnsupportedMockBukkitOperation {
+            TttRoundFixture().use { fixture ->
+                fixture.startReservation()
+                val player = fixture.players.first()
+                fixture.arrive(player) shouldBe true
+                fixture.service.isParticipant(player.uniqueId) shouldBe true
+                fixture.service.handlesMatchChat(player.uniqueId) shouldBe true
+                fixture.service.phase() shouldBe MatchPhase.RESERVED
+                fixture.service.shouldCancelDamage(player.uniqueId, null, false, null) shouldBe true
+                player.inventory.setItemInMainHand(ItemStack.of(Material.STICK))
+                fixture.arrive(player) shouldBe true
+                player.inventory.itemInMainHand.type shouldBe Material.STICK
+                fixture.service.leave(player)
+                player.inventory.itemInMainHand.type shouldBe Material.DIAMOND
+                fixture.service.isParticipant(player.uniqueId) shouldBe false
+                fixture.service.handlesMatchChat(player.uniqueId) shouldBe false
+            }
+        }
+    }
+
+    test("failed reservation restoration retains host escrow and never releases that player") {
+        failOnUnsupportedMockBukkitOperation {
+            TttRoundFixture().use { fixture ->
+                fixture.startReservation()
+                val player = fixture.players.first()
+                fixture.arrive(player) shouldBe true
+                fixture.rejectRecovery = true
+                fixture.service.stopByAdmin() shouldBe AdminStopResult.RESERVATION
+                fixture.escrow.pendingCount() shouldBe 1
+                fixture.service.isParticipant(player.uniqueId) shouldBe true
+                verify { fixture.network.releaseReservation(any(), match { player.uniqueId !in it }) }
+                verify(exactly = 0) { fixture.network.returnRecoveredPlayer(player, any()) }
+                fixture.rejectRecovery = false
+                fixture.advanceTime(1_000)
+                fixture.escrow.pendingCount() shouldBe 0
+                player.inventory.itemInMainHand.type shouldBe Material.DIAMOND
+                fixture.service.isParticipant(player.uniqueId) shouldBe false
+                verify(exactly = 1) { fixture.network.returnRecoveredPlayer(player, any()) }
+            }
+        }
+    }
+
+    test("configured arenas remain protected while idle") {
+        failOnUnsupportedMockBukkitOperation {
+            TttRoundFixture().use { fixture ->
+                val location = Location(fixture.paper.server.getWorld("ttt_arena"), 0.5, 64.0, 0.5)
+                fixture.service.withinArena(location) shouldBe false
+                fixture.service.withinProtectedArena(location) shouldBe true
+                val event = org.bukkit.event.block.BlockBreakEvent(location.block, fixture.players.first())
+                fixture.paper.callEvent(event)
+                event.isCancelled shouldBe true
+            }
+        }
+    }
+
+    test("TTT chat isolation belongs only to participants and ends after restoration") {
+        failOnUnsupportedMockBukkitOperation {
+            TttRoundFixture().use { fixture ->
+                val outsider = fixture.addOutsider("Uninvolved")
+                fixture.service.handlesMatchChat(outsider.uniqueId) shouldBe false
+                fixture.startActiveRound()
+                fixture.players.forEach { fixture.service.handlesMatchChat(it.uniqueId) shouldBe true }
+                fixture.service.handlesMatchChat(outsider.uniqueId) shouldBe false
+                fixture.service.handlesMatchChat(UUID.randomUUID()) shouldBe false
+                fixture.service.leave(fixture.players.first())
+                fixture.service.handlesMatchChat(fixture.players.first().uniqueId) shouldBe false
+            }
+        }
+    }
+
     test("an arriving player is escrowed and cleared before the reserved roster completes") {
         failOnUnsupportedMockBukkitOperation {
             TttRoundFixture().use { fixture ->
@@ -307,6 +378,7 @@ class TttRoundLifecycleMockBukkitTest : FunSpec({
 })
 
 internal class TttRoundFixture : AutoCloseable {
+    var rejectRecovery = false
     val paper = MockBukkitTestRuntime.open()
     private val plugin = paper.createSimplePlugin("ArcEventsTttRoundTest")
     private val dataRoot = Files.createTempDirectory("arcevents-ttt-round-")
@@ -372,6 +444,12 @@ internal class TttRoundFixture : AutoCloseable {
             ArcEventsListener(service, mockk(relaxed = true), items),
             plugin,
         )
+        paper.server.pluginManager.registerEvents(object : org.bukkit.event.Listener {
+            @org.bukkit.event.EventHandler(priority = org.bukkit.event.EventPriority.HIGHEST)
+            fun rejectTeleport(event: org.bukkit.event.player.PlayerTeleportEvent) {
+                if (rejectRecovery) event.isCancelled = true
+            }
+        }, plugin)
         players = listOf(
             createPlayer("Alpha", Material.DIAMOND, 10.0, 1),
             createPlayer("Bravo", Material.EMERALD, 20.0, 2),

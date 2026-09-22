@@ -52,6 +52,8 @@ private enum class NativeButtonRole(
 
 private val NATIVE_DESTINATIONS = mapOf(
     "menu.main.ttt-name" to NativeButtonRole.ACTIVITY_DESTINATION,
+    "arcade.gungame-name" to NativeButtonRole.ACTIVITY_DESTINATION,
+    "arcade.disasters-name" to NativeButtonRole.ACTIVITY_DESTINATION,
     "menu.main.stats-name" to NativeButtonRole.PERSONAL_DESTINATION,
     "menu.main.help-name" to NativeButtonRole.HELP_DESTINATION,
     "menu.main.admin-name" to NativeButtonRole.ROOT_DESTINATION,
