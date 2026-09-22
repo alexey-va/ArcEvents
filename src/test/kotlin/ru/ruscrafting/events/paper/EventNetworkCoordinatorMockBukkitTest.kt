@@ -167,6 +167,29 @@ class EventNetworkCoordinatorMockBukkitTest : FunSpec({
         }
     }
 
+    test("a submitted recovery return retries until the proxy actually removes the player") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture().use { fixture ->
+                fixture.start()
+                val player = fixture.addPlayer("PendingReturn")
+                fixture.seedMatched(player, UUID.randomUUID())
+                every { fixture.transfer.connect(any(), any()) } returns BackendTransferResult.SENT
+
+                fixture.coordinator.returnRecoveredPlayer(player, PlayerRecovery(UUID.fromString(fixture.queueEntry(player)!!.matchId), "spawn"))
+                fixture.tick(3)
+                fixture.coordinator.reconfigure()
+                fixture.tick(3)
+
+                verify(exactly = 2) { fixture.transfer.connect(player, BackendServerId.of("spawn")) }
+                fixture.queueEntry(player)?.state shouldBe QueueState.RETURN_PENDING
+                player.disconnect()
+                fixture.coordinator.reconfigure()
+                fixture.tick(3)
+                verify(exactly = 2) { fixture.transfer.connect(player, BackendServerId.of("spawn")) }
+            }
+        }
+    }
+
     test("reservation transfer retries while the player remains online") {
         failOnUnsupportedMockBukkitOperation {
             EventNetworkCoordinatorFixture().use { fixture ->

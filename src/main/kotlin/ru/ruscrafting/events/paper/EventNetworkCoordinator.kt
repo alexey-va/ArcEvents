@@ -665,10 +665,10 @@ class EventNetworkCoordinator(
                         }
                         return@runSync
                     }
-                    recoveredReturnRetries.remove(player.uniqueId, recovery)
                     val current = settings()
                     val originServer = pending.originServer
                     if (!current.network.returnToOrigin || originServer == current.serverId) {
+                        recoveredReturnRetries.remove(player.uniqueId, recovery)
                         repository.acknowledgeReturn(player.uniqueId, recovery.matchId).whenComplete { acknowledged, acknowledgeFailure ->
                             if (acknowledgeFailure != null || acknowledged != true) {
                                 plugin.logger.log(
@@ -680,9 +680,10 @@ class EventNetworkCoordinator(
                         }
                         return@runSync
                     }
-                    if (!returnPlayer(player, originServer)) {
-                        rememberRecoveredReturn(player.uniqueId, recovery)
-                    }
+                    // SENT confirms packet submission, not a completed proxy transfer. A return
+                    // requested during backend join may be ignored until that connection is ready.
+                    rememberRecoveredReturn(player.uniqueId, recovery)
+                    returnPlayer(player, originServer)
                 } finally {
                     recoveredReturnAttempts.remove(player.uniqueId)
                 }
@@ -700,8 +701,9 @@ class EventNetworkCoordinator(
 
     private fun retryRecoveredReturns() {
         recoveredReturnRetries.entries.toList().forEach { (playerId, recovery) ->
-            val player = plugin.server.getPlayer(playerId) ?: return@forEach
-            if (player.isOnline) attemptRecoveredReturn(player, recovery)
+            val player = plugin.server.getPlayer(playerId)?.takeIf(Player::isOnline)
+            if (player == null) recoveredReturnRetries.remove(playerId, recovery)
+            else attemptRecoveredReturn(player, recovery)
         }
     }
 
@@ -876,7 +878,7 @@ class EventNetworkCoordinator(
                 }
             }
         } else {
-            returnPlayer(player, entry.originServer)
+            returnRecoveredPlayer(player, PlayerRecovery(matchId, entry.originServer))
         }
     }
 
