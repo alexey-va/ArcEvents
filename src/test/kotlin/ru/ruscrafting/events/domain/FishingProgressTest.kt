@@ -11,7 +11,14 @@ class FishingProgressTest : StringSpec({
 
         repeat(rules.islands) { stage ->
             repeat(rules.catchesPerIsland) { catchIndex ->
-                val landed = progress.beginCast().recordCatch()
+                val caught = progress.beginCast().recordCatch()
+                caught.phase shouldBe FishingPhase.CAUGHT
+                caught.creatureHealth shouldBe 0.0
+                caught.catchesOnStage shouldBe catchIndex
+                caught.totalCatches shouldBe stage * rules.catchesPerIsland + catchIndex
+                caught.bag.size shouldBe progress.bag.size
+
+                val landed = caught.placeCatch()
                 landed.phase shouldBe FishingPhase.CREATURE
                 landed.catchesOnStage shouldBe catchIndex
                 landed.totalCatches shouldBe stage * rules.catchesPerIsland + catchIndex
@@ -26,7 +33,12 @@ class FishingProgressTest : StringSpec({
 
             progress = progress.claimBossBait()
             progress.bossBait shouldBe true
-            val boss = progress.beginCast().recordCatch()
+            val caughtBoss = progress.beginCast().recordCatch()
+            caughtBoss.phase shouldBe FishingPhase.CAUGHT
+            caughtBoss.creatureHealth shouldBe 0.0
+            caughtBoss.encounter?.boss shouldBe true
+            caughtBoss.coins shouldBe progress.coins
+            val boss = caughtBoss.placeCatch()
             boss.phase shouldBe FishingPhase.BOSS
             boss.encounter?.boss shouldBe true
             boss.catchesOnStage shouldBe rules.catchesPerIsland
@@ -62,26 +74,65 @@ class FishingProgressTest : StringSpec({
             progress = progress.beginCast().reelIn()
         }
         val firstLanded = progress.beginCast().recordCatch()
+        firstLanded.phase shouldBe FishingPhase.CAUGHT
         firstLanded.encounter?.species shouldBe "clam"
         firstLanded.encounter?.rare shouldBe false
         firstLanded.catchesOnStage shouldBe 0
         firstLanded.totalCatches shouldBe 0
         firstLanded.bag shouldBe emptyList()
         firstLanded.castNonce shouldBe 7L
-        progress = firstLanded.damageCreature(firstLanded.creatureHealth)
+        progress = firstLanded.placeCatch().damageCreature(firstLanded.encounter!!.maxHealth)
         progress.totalCatches shouldBe 1
         progress.catchesOnStage shouldBe 1
 
-        progress = progress.beginCast().recordCatch().damageCreature(10_000.0)
+        progress = progress.beginCast().recordCatch().placeCatch().damageCreature(10_000.0)
         progress.catchesOnStage shouldBe 1
         progress.totalCatches shouldBe 2
         progress = progress.beginCast().recordCatch()
         progress.encounter?.species shouldBe "shrimp"
         progress.encounter?.rare shouldBe true
-        progress = progress.damageCreature(progress.creatureHealth)
+        progress.phase shouldBe FishingPhase.CAUGHT
+        val placed = progress.placeCatch()
+        progress = placed.damageCreature(placed.creatureHealth)
         progress.catchesOnStage shouldBe 1
         progress.totalCatches shouldBe 3
         progress.bag.size shouldBe 3
+    }
+
+    "held catches do not fight or pay out until one placement activates normal and boss combat" {
+        var progress = FishingProgress(FishingRules(catchesPerIsland = 1), dynamite = 1)
+        val caught = progress.beginCast().recordCatch()
+        caught.phase shouldBe FishingPhase.CAUGHT
+        caught.creatureHealth shouldBe 0.0
+        caught.damageCreature(10_000.0) shouldBe caught
+        caught.consumeDynamite() shouldBe caught
+        caught.totalCatches shouldBe 0
+        caught.catchesOnStage shouldBe 0
+        caught.bag shouldBe emptyList()
+        caught.coins shouldBe 0
+
+        val placed = caught.placeCatch()
+        placed.phase shouldBe FishingPhase.CREATURE
+        placed.creatureHealth shouldBe placed.encounter!!.maxHealth
+        placed.placeCatch() shouldBe placed
+        progress = placed.damageCreature(10_000.0)
+        progress.totalCatches shouldBe 1
+        progress.bag.size shouldBe 1
+        progress = progress.claimBossBait()
+
+        val caughtBoss = progress.beginCast().recordCatch()
+        caughtBoss.phase shouldBe FishingPhase.CAUGHT
+        caughtBoss.encounter?.boss shouldBe true
+        caughtBoss.damageCreature(10_000.0) shouldBe caughtBoss
+        caughtBoss.coins shouldBe 0
+
+        val placedBoss = caughtBoss.placeCatch()
+        placedBoss.phase shouldBe FishingPhase.BOSS
+        placedBoss.creatureHealth shouldBe placedBoss.encounter!!.maxHealth
+        placedBoss.placeCatch() shouldBe placedBoss
+        val trophy = placedBoss.damageCreature(10_000.0)
+        trophy.phase shouldBe FishingPhase.TROPHY
+        trophy.coins shouldBe placedBoss.encounter!!.value
     }
 
     "merchant purchases debit coins, unlock by stage and refuse duplicate or invalid offers" {
@@ -122,14 +173,20 @@ class FishingProgressTest : StringSpec({
         biting.feedCatch() shouldBe biting
         biting.eatCatch() shouldBe biting
 
-        val fighting = biting.recordCatch()
+        val caught = biting.recordCatch()
+        caught.phase shouldBe FishingPhase.CAUGHT
+        caught.buy(FishingOffer.KNIFE) shouldBe caught
+        caught.feedCatch() shouldBe caught
+        caught.eatCatch() shouldBe caught
+
+        val fighting = caught.placeCatch()
         fighting.buy(FishingOffer.KNIFE) shouldBe fighting
         fighting.feedCatch() shouldBe fighting
         fighting.eatCatch() shouldBe fighting
 
         var trophy = FishingProgress(FishingRules(catchesPerIsland = 1), coins = 100)
-        trophy = trophy.beginCast().recordCatch().damageCreature(10_000.0).claimBossBait()
-        trophy = trophy.beginCast().recordCatch().damageCreature(10_000.0)
+        trophy = trophy.beginCast().recordCatch().placeCatch().damageCreature(10_000.0).claimBossBait()
+        trophy = trophy.beginCast().recordCatch().placeCatch().damageCreature(10_000.0)
         trophy.phase shouldBe FishingPhase.TROPHY
         trophy.buy(FishingOffer.KNIFE).coins shouldBe 125
         trophy.feedCatch().bag shouldBe emptyList()
@@ -164,7 +221,7 @@ class FishingProgressTest : StringSpec({
         thrownAtWater.bag shouldBe emptyList()
         thrownAtWater.consumeDynamite() shouldBe thrownAtWater
 
-        val fighting = FishingProgress(dynamite = 2).beginCast().recordCatch()
+        val fighting = FishingProgress(dynamite = 2).beginCast().recordCatch().placeCatch()
         val blast = fighting.consumeDynamite()
         blast.phase shouldBe FishingPhase.CREATURE
         blast.dynamite shouldBe 1
@@ -174,9 +231,12 @@ class FishingProgressTest : StringSpec({
 
         val biting = water.beginCast()
         biting.consumeDynamite() shouldBe biting
+        val held = biting.recordCatch()
+        held.consumeDynamite() shouldBe held
+        held.damageCreature(10_000.0) shouldBe held
         val withBait = FishingProgress(FishingRules(catchesPerIsland = 1), dynamite = 2)
-            .beginCast().recordCatch().damageCreature(10_000.0).claimBossBait()
-        val boss = withBait.beginCast().recordCatch()
+            .beginCast().recordCatch().placeCatch().damageCreature(10_000.0).claimBossBait()
+        val boss = withBait.beginCast().recordCatch().placeCatch()
         val bossBlast = boss.consumeDynamite()
         bossBlast.phase shouldBe FishingPhase.BOSS
         bossBlast.dynamite shouldBe 1
@@ -190,7 +250,7 @@ class FishingProgressTest : StringSpec({
 
     "claimed boss bait survives bites and a reel-in until the next catch lands" {
         val required = FishingProgress(FishingRules(catchesPerIsland = 1))
-            .beginCast().recordCatch().damageCreature(10_000.0)
+            .beginCast().recordCatch().placeCatch().damageCreature(10_000.0)
         val baited = required.claimBossBait()
         val biting = baited.beginCast()
         biting.phase shouldBe FishingPhase.BITE
@@ -200,9 +260,10 @@ class FishingProgressTest : StringSpec({
         reeled.phase shouldBe FishingPhase.CASTING
         reeled.bossBait shouldBe true
         val landed = reeled.beginCast().recordCatch()
-        landed.phase shouldBe FishingPhase.BOSS
+        landed.phase shouldBe FishingPhase.CAUGHT
         landed.bossBait shouldBe false
         landed.encounter?.boss shouldBe true
+        landed.placeCatch().phase shouldBe FishingPhase.BOSS
     }
 
     "gear switching is free only for owned gear and never grants an unlock" {
@@ -213,10 +274,10 @@ class FishingProgressTest : StringSpec({
         owner.equip(FishingGear.KNUCKLES).equippedGear shouldBe FishingGear.KNUCKLES
         val biting = owner.beginCast()
         biting.equip(FishingGear.KNIFE) shouldBe biting
-        val fighting = owner.beginCast().recordCatch()
+        val fighting = owner.beginCast().recordCatch().placeCatch()
         fighting.equip(FishingGear.KNIFE) shouldBe fighting
         val trophy = FishingProgress(FishingRules(catchesPerIsland = 1), ownedGear = setOf(FishingGear.KNUCKLES, FishingGear.KNIFE))
-            .beginCast().recordCatch().damageCreature(10_000.0).claimBossBait().beginCast().recordCatch().damageCreature(10_000.0)
+            .beginCast().recordCatch().placeCatch().damageCreature(10_000.0).claimBossBait().beginCast().recordCatch().placeCatch().damageCreature(10_000.0)
         trophy.equip(FishingGear.KNIFE).equippedGear shouldBe FishingGear.KNIFE
         val travel = trophy.handInTrophy()
         travel.equip(FishingGear.KNIFE) shouldBe travel
@@ -236,6 +297,7 @@ class FishingProgressTest : StringSpec({
         closed.lastCatch shouldBe null
         closed.beginCast() shouldBe closed
         closed.recordCatch() shouldBe closed
+        closed.placeCatch() shouldBe closed
         closed.damageCreature(10_000.0) shouldBe closed
         closed.buy(FishingOffer.KNIFE) shouldBe closed
         closed.feedCatch() shouldBe closed

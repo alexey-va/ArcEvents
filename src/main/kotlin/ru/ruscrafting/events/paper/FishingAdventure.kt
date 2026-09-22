@@ -9,6 +9,7 @@ import org.bukkit.NamespacedKey
 import org.bukkit.Particle
 import org.bukkit.Sound
 import org.bukkit.attribute.Attribute
+import org.bukkit.block.BlockFace
 import org.bukkit.entity.Cod
 import org.bukkit.entity.Drowned
 import org.bukkit.entity.ElderGuardian
@@ -88,6 +89,7 @@ class FishingAdventure(
     private val matchIdString = matchId.toString()
     private var progress = FishingProgress(rules)
     private val creatures = linkedMapOf<UUID, LivingEntity>()
+    private var encounterLanding: Location? = null
     private val fuses = linkedMapOf<UUID, Fuse>()
     private val firearmItems = EnumMap<FishingGear, ItemStack>(FishingGear::class.java)
     private var appliedGear: FishingGear? = null
@@ -298,6 +300,32 @@ class FishingAdventure(
     fun handleInteract(event: PlayerInteractEvent): Boolean {
         if (closed || !started || event.player.uniqueId != player.uniqueId || event.player.world.uid != world.uid) return false
         if (event.hand != EquipmentSlot.HAND || event.action !in setOf(Action.RIGHT_CLICK_AIR, Action.RIGHT_CLICK_BLOCK)) return false
+        if (items.kind(event.item) == EventItemKind.FISHING_LIVE_CATCH) {
+            event.isCancelled = true
+            if (!owns(player) || progress.phase != FishingPhase.CAUGHT || player.inventory.heldItemSlot != 4 ||
+                !items.belongsTo(event.item, matchIdString)
+            ) return true
+            val landing = catchPlacement(event)
+            if (landing == null) {
+                sendActionBar("fishing.place-ground")
+                return true
+            }
+            val catch = requireNotNull(progress.encounter)
+            // Keep the held catch until Paper has successfully created its sole encounter.
+            try {
+                spawnCreature(catch, announce = false, landing = landing)
+            } catch (failure: Exception) {
+                plugin.logger.log(java.util.logging.Level.WARNING, "Could not place fishing catch for match $matchIdString", failure)
+                sendActionBar("fishing.place-failed")
+                return true
+            }
+            encounterLanding = landing
+            progress = progress.placeCatch()
+            syncLoadout()
+            player.inventory.heldItemSlot = 1
+            message(if (catch.boss) "fishing.boss-summoned" else "fishing.creature-summoned")
+            return true
+        }
         if (progress.phase == FishingPhase.TRAVEL && near(FishingArenaGenerator.exit(stage()), rules.stageTravelRadius)) {
             event.isCancelled = true
             transitionStage()
@@ -334,6 +362,26 @@ class FishingAdventure(
         fuses[dropped.uniqueId] = Fuse(dropped.uniqueId, progress.stage, clock() + 2_500L)
         message("fishing.dynamite-thrown")
         return true
+    }
+
+    private fun catchPlacement(event: PlayerInteractEvent): Location? {
+        val floor = event.clickedBlock ?: return null
+        if (event.action != Action.RIGHT_CLICK_BLOCK || event.blockFace != BlockFace.UP ||
+            floor.world.uid != world.uid || !floor.type.isSolid || floor.isLiquid
+        ) return null
+        val box = floor.boundingBox
+        if (box.widthX < 0.9 || box.widthZ < 0.9) return null
+        val landing = Location(world, floor.x + 0.5, box.maxY, floor.z + 0.5)
+        if (!inStageBounds(landing) || player.eyeLocation.distanceSquared(landing) > 25.0 ||
+            abs(landing.y - FishingArenaGenerator.SPAWN_Y) > 0.6
+        ) return null
+        // A bounded 3x3 clearance also fits the largest boss; never alter arena blocks.
+        for (x in -1..1) for (z in -1..1) for (y in 1..3) {
+            val block = floor.getRelative(x, y, z)
+            if (!block.isPassable || block.isLiquid) return null
+        }
+        if (traderNpc?.location?.distanceSquared(landing)?.let { it < 9.0 } == true) return null
+        return landing
     }
 
     fun isTraderNpc(entity: Entity): Boolean =
@@ -437,14 +485,14 @@ class FishingAdventure(
         val catch = requireNotNull(progress.encounter)
         val name = localized("fishing.species.${catch.species}")
         val shownName = if (catch.rare) Component.empty().append(localized("fishing.rare-prefix")).append(name) else name
-        sendActionBar("fishing.catch", mapOf("catches" to shownName))
+        message("fishing.catch", mapOf("catches" to shownName))
+        encounterLanding = null
         syncLoadout()
-        spawnCreature(catch, announce = false)
-        if (catch.boss) message("fishing.boss-summoned")
+        player.inventory.heldItemSlot = 4
     }
 
-    private fun spawnCreature(catch: FishingCatch, announce: Boolean = true) {
-        val spawn = point(FishingArenaGenerator.catchLanding(stage()))
+    private fun spawnCreature(catch: FishingCatch, announce: Boolean = true, landing: Location? = encounterLanding) {
+        val spawn = landing ?: point(FishingArenaGenerator.catchLanding(stage()))
         val type: Class<out Mob> = when (catch.species) {
             "clam", "rockfish" -> Silverfish::class.java
             "ash_carp" -> Cod::class.java
@@ -463,26 +511,32 @@ class FishingAdventure(
             // Arena worlds stay peaceful; only this explicitly spawned encounter may persist.
             mob.setDespawnInPeacefulOverride(TriState.FALSE)
         }
-        entity.isPersistent = true
-        entity.isSilent = true
-        entity.isCustomNameVisible = true
-        entity.isGlowing = true
-        val speciesName = localized("fishing.species.${catch.species}")
-        entity.customName(
-            if (catch.rare) Component.empty().append(localized("fishing.rare-prefix")).append(speciesName)
-            else speciesName,
-        )
-        entity.apply { setAI(false); isAware = false }
-        entity.setGravity(false)
-        entity.persistentDataContainer.set(ownerKey, PersistentDataType.STRING, ownerTag)
-        entity.persistentDataContainer.set(matchKey, PersistentDataType.STRING, matchIdString)
-        entity.persistentDataContainer.set(stageKey, PersistentDataType.INTEGER, progress.stage)
-        entity.persistentDataContainer.set(bossKey, PersistentDataType.BYTE, (if (catch.boss) 1 else 0).toByte())
-        val maximum = catch.maxHealth
-        entity.getAttribute(Attribute.MAX_HEALTH)?.baseValue = maximum.coerceIn(1.0, 1_024.0)
-        // The native attribute has a server-defined cap; logical encounter health remains authoritative.
-        val visibleMaximum = entity.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20.0
-        entity.health = (progress.creatureHealth.takeIf { it > 0.0 } ?: maximum).coerceIn(1.0, visibleMaximum)
+        try {
+            entity.isPersistent = true
+            entity.isSilent = true
+            entity.isCustomNameVisible = true
+            entity.isGlowing = true
+            val speciesName = localized("fishing.species.${catch.species}")
+            entity.customName(
+                if (catch.rare) Component.empty().append(localized("fishing.rare-prefix")).append(speciesName)
+                else speciesName,
+            )
+            entity.apply { setAI(false); isAware = false }
+            entity.setGravity(false)
+            entity.persistentDataContainer.set(ownerKey, PersistentDataType.STRING, ownerTag)
+            entity.persistentDataContainer.set(matchKey, PersistentDataType.STRING, matchIdString)
+            entity.persistentDataContainer.set(stageKey, PersistentDataType.INTEGER, progress.stage)
+            entity.persistentDataContainer.set(bossKey, PersistentDataType.BYTE, (if (catch.boss) 1 else 0).toByte())
+            val maximum = catch.maxHealth
+            entity.getAttribute(Attribute.MAX_HEALTH)?.baseValue = maximum.coerceIn(1.0, 1_024.0)
+            // The native attribute has a server-defined cap; logical encounter health remains authoritative.
+            val visibleMaximum = entity.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20.0
+            entity.health = (progress.creatureHealth.takeIf { it > 0.0 } ?: maximum).coerceIn(1.0, visibleMaximum)
+            check(entity.isValid) { "Fishing encounter spawn was rejected" }
+        } catch (failure: Exception) {
+            entity.remove()
+            throw failure
+        }
         creatures.clear()
         creatures[entity.uniqueId] = entity
         telegraph = null
@@ -636,14 +690,14 @@ class FishingAdventure(
             val radiusSquared = 16.0
             if (playerInCurrentStage() && player.location.distanceSquared(location) <= radiusSquared) hurt(player, 6.0)
             if (progress.phase == FishingPhase.CASTING && inCurrentFishingWater(location)) {
-                val bite = progress.beginCast().recordCatch()
+                val bite = progress.beginCast().recordCatch().placeCatch()
                 if (bite !== progress) {
                     progress = bite
+                    encounterLanding = null
                     val catch = requireNotNull(progress.encounter)
-                    sendActionBar("fishing.catch", mapOf("catches" to localized("fishing.species.${catch.species}")))
                     syncLoadout()
-                    spawnCreature(catch, announce = false)
-                    if (catch.boss) message("fishing.boss-summoned")
+                    player.inventory.heldItemSlot = 1
+                    spawnCreature(catch)
                     creatures.values.firstOrNull()?.let { damageEncounter(rules.dynamiteDamage, it) }
                 }
             }
@@ -739,8 +793,9 @@ class FishingAdventure(
         appliedGear = equipped
         player.inventory.setItem(3, if (progress.dynamite > 0) items.fishingDynamite(player, matchIdString, progress.dynamite) else ItemStack.empty())
         player.inventory.setItem(4, when {
-            progress.encounter != null && progress.phase in setOf(FishingPhase.CREATURE, FishingPhase.BOSS) ->
+            progress.encounter != null && progress.phase == FishingPhase.CAUGHT ->
                 items.fishingLiveCatch(player, matchIdString, localized("fishing.species.${progress.encounter!!.species}"))
+            progress.phase in setOf(FishingPhase.CREATURE, FishingPhase.BOSS) -> ItemStack.empty()
             progress.bag.isNotEmpty() ->
                 items.fishingCatchBag(player, matchIdString, progress.bag.size,
                     localized("fishing.species.${progress.bag.first().species}"), progress.bag.first().value)

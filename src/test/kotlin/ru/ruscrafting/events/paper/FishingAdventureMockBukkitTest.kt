@@ -4,6 +4,7 @@ import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.spyk
 import io.mockk.verify
 import org.bukkit.Location
 import org.bukkit.Material
@@ -178,7 +179,8 @@ class FishingAdventureMockBukkitTest : FunSpec({
                 trade(adventure, player, "bait") shouldBe true
                 adventure.snapshot().bossBait shouldBe true
                 castCatch(fixture, player, adventure)
-                    val boss = world.entities.filterIsInstance<LivingEntity>().single { it !is Player && it !is org.bukkit.entity.Villager }
+                placeCatch(fixture, player, adventure)
+                val boss = world.entities.filterIsInstance<LivingEntity>().single { it !is Player && it !is org.bukkit.entity.Villager }
                 if (stage == 3) {
                     boss.teleport(player.location.clone().add(0.0, 20.0, 0.0))
                     fixture.advanceTime(1_000)
@@ -221,6 +223,46 @@ class FishingAdventureMockBukkitTest : FunSpec({
         } }
     }
 
+    test("held catch waits for valid ground and repeated clicks cannot duplicate its encounter") {
+        failOnUnsupportedMockBukkitOperation { TttRoundFixture().use { fixture ->
+            fixture.startActiveArcade(EventMode.FISHING)
+            val player = fixture.players.first() as PlayerMock
+            val adventure = requireNotNull(fixture.service.fishingAdventure(player))
+            castCatch(fixture, player, adventure)
+            val held = adventure.snapshot()
+            val health = player.health
+            fixture.advanceTime(5_000)
+            adventure.snapshot() shouldBe held
+            player.health shouldBe health
+            player.world.entities.filterIsInstance<Mob>().count { it !is Villager } shouldBe 0
+            fixture.paper.callEvent(rightClick(player, player.inventory.getItem(4))).isCancelled shouldBe true
+            adventure.snapshot() shouldBe held
+
+            val floor = prepareCatchFloor(player, adventure)
+            floor.getRelative(0, 1, 0).type = Material.STONE
+            val click = { PlayerInteractEvent(player, Action.RIGHT_CLICK_BLOCK, player.inventory.getItem(4), floor, BlockFace.UP, EquipmentSlot.HAND) }
+            fixture.paper.callEvent(click()).isCancelled shouldBe true
+            adventure.snapshot() shouldBe held
+            floor.getRelative(0, 1, 0).type = Material.AIR
+            floor.type = Material.WATER
+            fixture.paper.callEvent(click()).isCancelled shouldBe true
+            adventure.snapshot() shouldBe held
+            floor.type = Material.STONE
+            val staleClick = click()
+            fixture.paper.callEvent(click()).isCancelled shouldBe true
+            adventure.snapshot().phase shouldBe FishingPhase.CREATURE
+            player.inventory.heldItemSlot shouldBe 1
+            fixture.items.kind(player.inventory.getItem(4)) shouldBe null
+            val creature = player.world.entities.filterIsInstance<Mob>().single { it !is Villager }
+            creature.location.x shouldBe floor.x + 0.5
+            creature.location.y shouldBe floor.y + 1.0
+            fixture.paper.callEvent(staleClick)
+            player.world.entities.filterIsInstance<Mob>().filter { it !is Villager }.map { it.uniqueId } shouldBe listOf(creature.uniqueId)
+            strike(fixture, player, creature)
+            fixture.items.kind(player.inventory.getItem(4)) shouldBe EventItemKind.FISHING_CATCH_BAG
+        } }
+    }
+
     test("stranded swimmer returns to the current island without losing the run") {
         failOnUnsupportedMockBukkitOperation { TttRoundFixture().use { fixture ->
             fixture.startActiveArcade(EventMode.FISHING)
@@ -256,15 +298,15 @@ class FishingAdventureMockBukkitTest : FunSpec({
 private fun catchAndDefeat(fixture: TttRoundFixture, player: PlayerMock, adventure: FishingAdventure) {
     castCatch(fixture, player, adventure)
     fixture.items.kind(player.inventory.getItem(4)) shouldBe EventItemKind.FISHING_LIVE_CATCH
+    placeCatch(fixture, player, adventure)
     val creature = player.world.entities.filterIsInstance<LivingEntity>().single { it !is Player && it !is org.bukkit.entity.Villager }
-    creature.location.z shouldBe FishingArenaGenerator.catchLanding(FishingArenaStage.entries[adventure.snapshot().stage]).z
+    creature.location.z shouldBe 10.5
     creature.isGlowing shouldBe true
     strike(fixture, player, creature)
     fixture.items.kind(player.inventory.getItem(4)) shouldBe EventItemKind.FISHING_CATCH_BAG
 }
 
 private fun castCatch(fixture: TttRoundFixture, player: PlayerMock, adventure: FishingAdventure) {
-    val bossBait = adventure.snapshot().bossBait
     val stage = FishingArenaStage.entries[adventure.snapshot().stage]
     player.simulatePlayerMove(Location(player.world, stage.centerX + 0.5, 65.0, 16.5))
     player.inventory.heldItemSlot = 0
@@ -282,7 +324,34 @@ private fun castCatch(fixture: TttRoundFixture, player: PlayerMock, adventure: F
     caught.isCancelled shouldBe true
     caught.expToDrop shouldBe 0
     verify(exactly = 1) { drop.remove() }
-    adventure.snapshot().phase shouldBe if (bossBait) FishingPhase.BOSS else FishingPhase.CREATURE
+    adventure.snapshot().phase shouldBe FishingPhase.CAUGHT
+    player.inventory.heldItemSlot shouldBe 4
+}
+
+private fun prepareCatchFloor(player: PlayerMock, adventure: FishingAdventure): org.bukkit.block.Block {
+    val stage = FishingArenaStage.entries[adventure.snapshot().stage]
+    player.simulatePlayerMove(Location(player.world, stage.centerX + 0.5, 65.0, 12.5))
+    val floor = spyk(player.world.getBlockAt(stage.centerX, 64, 10))
+    // MockBukkit does not implement native collision bounds. This fixture is a full stone cube.
+    every { floor.boundingBox } returns org.bukkit.util.BoundingBox(
+        floor.x.toDouble(), 64.0, 10.0, floor.x + 1.0, 65.0, 11.0,
+    )
+    floor.type = Material.STONE
+    for (x in -1..1) for (z in -1..1) for (y in 1..3) {
+        val clearance = spyk(player.world.getBlockAt(floor.x + x, floor.y + y, floor.z + z))
+        clearance.type = Material.AIR
+        every { clearance.isPassable } answers { clearance.type.isAir }
+        every { floor.getRelative(x, y, z) } returns clearance
+    }
+    return floor
+}
+
+private fun placeCatch(fixture: TttRoundFixture, player: PlayerMock, adventure: FishingAdventure) {
+    val floor = prepareCatchFloor(player, adventure)
+    val boss = requireNotNull(adventure.snapshot().encounter).boss
+    val click = PlayerInteractEvent(player, Action.RIGHT_CLICK_BLOCK, player.inventory.getItem(4), floor, BlockFace.UP, EquipmentSlot.HAND)
+    fixture.paper.callEvent(click).isCancelled shouldBe true
+    adventure.snapshot().phase shouldBe if (boss) FishingPhase.BOSS else FishingPhase.CREATURE
 }
 
 private fun strike(fixture: TttRoundFixture, player: PlayerMock, creature: LivingEntity) {

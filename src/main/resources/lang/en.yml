@@ -872,15 +872,15 @@ arcade:
   status-lore: '<#8c8c8c>Status: <queue_state>'
 
 fishing:
-  start: "<#7bd88f>Rod: slot 1, weapon: slot 2. Your catch lands on the dock: defeat it, then bring it to the trader under the canopy."
-  catch: "<#67d7ff>Caught <catches>! It is glowing on the dock. Take your weapon and defeat it."
+  start: "<#7bd88f>Fish with your rod (slot 1). Then right-click the ground with the fish, defeat it, and feed the catch to the trader under the canopy."
+  catch: "<#67d7ff>Caught <catches>! The fish is in your hand. Right-click nearby ground to start the fight."
   complete: "<newline>  <#7bd88f>Expedition complete. All five trophies delivered.<newline>"
   creature-defeated: "<#7bd88f>Catch in slot 5. Hold it and right-click the trader to feed your catch."
   creature-hit: "<#7bd88f>Prey health: <health>."
   creature-name: "<#ff9f0f>Dangerous catch"
   boss-name: "<#d6a8ff>Island boss"
-  boss-summoned: "<#d84a4a>The boss took the bait. Watch its attack warnings."
-  creature-summoned: "<#ff9f0f>Your catch is attacking. Strike up close or use a firearm."
+  boss-summoned: "<#d84a4a>The boss is on land! Your weapon is ready: left-click to attack and dodge the marked strikes."
+  creature-summoned: "<#ff9f0f>The fish is on land! Your weapon is ready: left-click to attack, then bring the catch to the trader."
   creature-missing: "<#e3b341>Encounter restored. Keep fighting."
   boss-warning: "<#d84a4a>Leave the marker: the boss is preparing an attack."
   braced: "<#e3b341>The boss is stunned — attack now."
@@ -898,7 +898,12 @@ fishing:
   water-rescue: "<#67d7ff>You were brought back ashore."
   live-catch-name: "<#ff9f0f>Live catch: <species>"
   live-catch-lore:
-    - "<#e8dfd2>The fish is on the dock. Defeat it to add it to your bag."
+    - ""
+    - "<#b8b8b8>Release the fish on land to fight it."
+    - ""
+    - "<#8c8c8c>[<#7bd88f>▶<#8c8c8c>] <#7bd88f>Right-click ground<#b8b8b8> — start the fight"
+  place-failed: "<#e3b341>Could not release the fish. It is still in your hand — try again."
+  place-ground: "<#e3b341>Click the top of dry ground near the dock. Leave clear space around it."
   catch-bag-name: "<#67d7ff><species> | In bag: <count>"
   catch-bag-lore:
     - "<#e8dfd2>Hold this and right-click the trader."
@@ -919,6 +924,7 @@ fishing:
   phase:
     casting: "fishing"
     bite: "bite"
+    caught: "right-click ground to release fish"
     creature: "fight"
     travel: "next island"
     boss: "boss fight"

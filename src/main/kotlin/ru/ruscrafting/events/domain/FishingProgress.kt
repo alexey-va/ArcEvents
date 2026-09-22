@@ -57,6 +57,7 @@ data class FishingRules(
 enum class FishingPhase {
     CASTING,
     BITE,
+    CAUGHT,
     CREATURE,
     TRAVEL,
     BOSS,
@@ -69,7 +70,7 @@ enum class FishingPhase {
  * Immutable state for a single temporary fishing run.
  *
  * Invalid or duplicate events are no-ops. Progress counts completed normal
- * encounters; landed catches remain in `encounter` until defeated.
+ * encounters; caught fish remain in `encounter` until placed and defeated.
  */
 data class FishingProgress(
     val rules: FishingRules = FishingRules(),
@@ -105,16 +106,20 @@ data class FishingProgress(
             !bossBait ||
                 (phase in setOf(FishingPhase.CASTING, FishingPhase.BITE) && catchesOnStage == rules.catchesPerIsland),
         )
-        if (phase in setOf(FishingPhase.BOSS, FishingPhase.TROPHY, FishingPhase.TRAVEL, FishingPhase.COMPLETE)) {
+        if (phase in setOf(FishingPhase.BOSS, FishingPhase.TROPHY, FishingPhase.TRAVEL, FishingPhase.COMPLETE) ||
+            (phase == FishingPhase.CAUGHT && encounter?.boss == true)
+        ) {
             require(catchesOnStage == rules.catchesPerIsland)
         }
 
         val activeEncounter = phase == FishingPhase.CREATURE || phase == FishingPhase.BOSS
-        if (activeEncounter) {
+        val caughtEncounter = phase == FishingPhase.CAUGHT
+        if (activeEncounter || caughtEncounter) {
             require(encounter != null)
-            require(creatureHealth > 0.0 && creatureHealth <= encounter.maxHealth)
+            if (activeEncounter) require(creatureHealth > 0.0 && creatureHealth <= encounter.maxHealth)
+            else require(creatureHealth == 0.0)
             require(bag.size < FishingRules.MAX_BAG)
-            require((phase == FishingPhase.BOSS) == encounter.boss)
+            if (activeEncounter) require((phase == FishingPhase.BOSS) == encounter.boss)
         } else {
             require(creatureHealth == 0.0)
         }
@@ -142,17 +147,27 @@ data class FishingProgress(
     fun reelIn(): FishingProgress =
         if (phase == FishingPhase.BITE) copy(phase = FishingPhase.CASTING) else this
 
-    /** Lands a creature but does not count quest progress or award it until defeat. */
+    /** Records the caught fish without starting combat; placement activates its encounter. */
     fun recordCatch(): FishingProgress {
         if (phase != FishingPhase.BITE || bag.size >= FishingRules.MAX_BAG) return this
         val boss = bossBait
         val landed = if (boss) FishingCatalog.bossFor(stage, rules) else FishingCatalog.catchFor(stage, totalCatches, rules)
         return copy(
-            phase = if (boss) FishingPhase.BOSS else FishingPhase.CREATURE,
-            creatureHealth = landed.maxHealth,
+            phase = FishingPhase.CAUGHT,
+            creatureHealth = 0.0,
             bossBait = false,
             encounter = landed,
             lastCatch = landed,
+        )
+    }
+
+    /** Starts combat for the held catch. Repeated or out-of-order placement is inert. */
+    fun placeCatch(): FishingProgress {
+        if (phase != FishingPhase.CAUGHT) return this
+        val landed = encounter ?: return this
+        return copy(
+            phase = if (landed.boss) FishingPhase.BOSS else FishingPhase.CREATURE,
+            creatureHealth = landed.maxHealth,
         )
     }
 
