@@ -58,7 +58,8 @@ class ArenaWorldProvisioner(private val plugin: Plugin) {
         require(!Files.isSymbolicLink(worldFolder)) { "Arena world directory must not be a symbolic link" }
         val marker = worldFolder.resolve(ARENA_TEMPLATE_MARKER)
         val disaster = arena.template == DisasterArenaGenerator.TEMPLATE
-        val builtIn = arena.template == TttCitadelBlueprint.TEMPLATE || disaster
+        val fishing = arena.template == FishingArenaGenerator.TEMPLATE
+        val builtIn = arena.template == TttCitadelBlueprint.TEMPLATE || disaster || fishing
         val packaged = PackagedArenaTemplates.find(arena.template)
         val imported = ReviewedImportedArenaTemplates.find(arena.template)
         require(builtIn || packaged != null || imported != null) {
@@ -95,6 +96,7 @@ class ArenaWorldProvisioner(private val plugin: Plugin) {
             .generateStructures(false)
             .keepSpawnLoaded(TriState.FALSE)
         when {
+            fishing -> creator.seed(FishingArenaGenerator.SEED).generator(FishingArenaGenerator())
             disaster -> creator.seed(73491L).generator(DisasterArenaGenerator())
             builtIn -> creator.seed(TttCitadelBlueprint.SEED).generator(TttCitadelChunkGenerator())
             packaged != null || imported != null -> creator.generator(EmptyArenaChunkGenerator())

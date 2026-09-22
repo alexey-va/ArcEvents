@@ -29,6 +29,7 @@ import org.bukkit.event.player.PlayerCommandPreprocessEvent
 import org.bukkit.event.player.PlayerBucketEmptyEvent
 import org.bukkit.event.player.PlayerBucketFillEvent
 import org.bukkit.event.player.PlayerDropItemEvent
+import org.bukkit.event.player.PlayerFishEvent
 import org.bukkit.event.player.PlayerInteractAtEntityEvent
 import org.bukkit.event.player.PlayerInteractEntityEvent
 import org.bukkit.event.player.PlayerInteractEvent
@@ -75,6 +76,9 @@ interface ArcEventsGameplayBoundary {
     fun readBodyId(entity: Entity): UUID?
     fun inspectBody(player: Player, bodyId: UUID)
     fun isInternalTeleport(playerId: UUID, destination: Location?): Boolean
+    fun handleFishing(event: PlayerFishEvent) = Unit
+    fun handleFishingDamage(event: EntityDamageEvent): Boolean = false
+    fun handleFishingInteract(event: PlayerInteractEvent): Boolean = false
 }
 
 class ArcEventsListener(
@@ -86,6 +90,15 @@ class ArcEventsListener(
 
     @EventHandler fun onJoin(event: PlayerJoinEvent) = service.handleJoin(event.player)
     @EventHandler fun onQuit(event: PlayerQuitEvent) = service.handleQuit(event.player)
+
+    // Cancel event-owned vanilla rewards before unrelated reward listeners observe a catch.
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)
+    fun onFish(event: PlayerFishEvent) = service.handleFishing(event)
+
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)
+    fun onFishingTargetDamage(event: EntityDamageEvent) {
+        service.handleFishingDamage(event)
+    }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onDamage(event: EntityDamageEvent) {
@@ -183,6 +196,7 @@ class ArcEventsListener(
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     fun onInteract(event: PlayerInteractEvent) {
         val player = event.player
+        if (service.handleFishingInteract(event)) return
         val kind = itemResolver.kind(event.item) ?: return
         if (!service.belongsToCurrentMatch(player.uniqueId, event.item)) {
             event.isCancelled = true

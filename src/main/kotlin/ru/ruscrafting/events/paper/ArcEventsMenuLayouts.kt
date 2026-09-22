@@ -42,7 +42,7 @@ class ArcEventsMenuLayouts(dataRoot: Path) {
         private fun regions(vararg ids: String) = ids.mapTo(linkedSetOf(), MenuRegionId::of)
 
         val CONTRACTS = linkedMapOf(
-            MAIN to MenuContract(requiredElements = elements("ttt", "gungame", "disasters", "statistics", "help", "admin")),
+            MAIN to MenuContract(requiredElements = elements("ttt", "gungame", "disasters", "fishing", "statistics", "help", "admin")),
             HELP to MenuContract(requiredElements = elements("innocent", "traitor", "detective", "flow", "evidence", "weapons", "controls", "back")),
             TTT to MenuContract(requiredElements = elements("overview", "left", "center", "right", "arena", "help", "back", "evacuate")),
             ARCADE to MenuContract(requiredElements = elements("overview", "left", "center", "right", "arena", "help", "back", "evacuate")),
@@ -60,6 +60,7 @@ class ArcEventsMenuLayouts(dataRoot: Path) {
             EventsView.Main -> MAIN
             EventsView.Help, EventsView.EventHelp -> HELP
             EventsView.Ttt -> TTT
+            EventsView.Fishing -> error("Fishing uses the native dialog only")
             is EventsView.Arcade -> ARCADE
             EventsView.Statistics -> STATISTICS
             EventsView.Admin -> ADMIN

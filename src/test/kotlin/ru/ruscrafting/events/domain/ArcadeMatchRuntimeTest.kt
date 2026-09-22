@@ -15,6 +15,46 @@ class ArcadeMatchRuntimeTest : StringSpec({
         EventMode.fromId("unknown") shouldBe null
     }
 
+    "only fishing accepts a solo roster and victory still requires completion" {
+        val solo = players(1)
+        val rules = ArcadeRules(1, 1, 0, 0, 30)
+        shouldThrow<IllegalArgumentException> { ArcadeMatchRuntime().start(UUID.randomUUID(), EventMode.GUN_GAME, solo, rules) }
+        shouldThrow<IllegalArgumentException> { ArcadeMatchRuntime().start(UUID.randomUUID(), EventMode.DISASTERS, solo, rules) }
+        shouldThrow<IllegalArgumentException> { ArcadeMatchRuntime().start(UUID.randomUUID(), EventMode.FISHING, players(2), rules) }
+        val c = Clock()
+        val runtime = ArcadeMatchRuntime(c::read)
+        runtime.start(UUID.randomUUID(), EventMode.FISHING, solo, rules)
+        runtime.tick().phase shouldBe MatchPhase.ACTIVE
+        runtime.current!!.winners shouldBe emptySet()
+        runtime.completeFishing(solo.single().playerId).winners shouldBe setOf(solo.single().playerId)
+        runtime.phase shouldBe MatchPhase.RESOLVING
+        shouldThrow<IllegalArgumentException> { runtime.completeFishing(solo.single().playerId) }
+    }
+
+    "fishing timeout death and disconnect end solo without granting victory" {
+        val solo = players(1)
+        val id = solo.single().playerId
+        fun active(c: Clock) = ArcadeMatchRuntime(c::read).apply {
+            start(UUID.randomUUID(), EventMode.FISHING, solo, ArcadeRules(1, 1, 0, 0, 30))
+            tick()
+        }
+        val c = Clock()
+        val timeout = active(c)
+        c.now = 30_000
+        timeout.tick().phase shouldBe MatchPhase.RESOLVING
+        timeout.current!!.winners shouldBe emptySet()
+        val death = active(Clock())
+        death.eliminate(id, null).phase shouldBe MatchPhase.RESOLVING
+        death.current!!.winners shouldBe emptySet()
+        death.current!!.participants.getValue(id).deaths shouldBe 1
+        val quit = active(Clock())
+        quit.disconnect(id).phase shouldBe MatchPhase.CANCELLED
+        quit.beginRestoring()
+        quit.markRecoveryApplied(id)
+        quit.release()
+        quit.current shouldBe null
+    }
+
     "rules reject inverted and negative bounds" {
         shouldThrow<IllegalArgumentException> { ArcadeRules(minimumPlayers = 5, maximumPlayers = 4).validated() }
         shouldThrow<IllegalArgumentException> { ArcadeRules(roundSeconds = -1).validated() }

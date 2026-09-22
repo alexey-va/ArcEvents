@@ -110,7 +110,7 @@ class LocaleContractTest : StringSpec({
                     "menu.arenas.auto-lore", "menu.body.dna-lore", "menu.body.call-lore",
                     "menu.body.roster-lore", "menu.report.combat-lore", "menu.common.previous-lore",
                     "menu.common.next-lore", "arcade.gungame-lore", "arcade.disasters-lore", "arcade.join-lore",
-                    "arcade.leave-lore", "arcade.start-lore",
+                    "arcade.leave-lore", "arcade.start-lore", "arcade.fishing-lore", "arcade.fishing-start-lore",
                 ).forEach { path ->
                     val footer = config.stringList(path).last()
                     footer.contains("[<") shouldBe true
@@ -144,6 +144,46 @@ class LocaleContractTest : StringSpec({
         }
     }
 
+    "fishing copy exposes the solo expedition flow and result states" {
+        val root = Files.createTempDirectory("arcevents-fishing-copy-")
+        try {
+            listOf("ru", "en").forEach { language ->
+                val config = Config(root, "lang/$language.yml")
+                val guide = config.stringList("arcade.fishing-guide").joinToString(" ")
+                val entry = config.stringList("arcade.fishing-lore").joinToString(" ")
+                guide.contains(if (language == "ru") "три острова" else "three islands") shouldBe true
+                guide.contains(if (language == "ru") "финального босса" else "final boss") shouldBe true
+                entry.contains(if (language == "ru") "одиночку" else "solo") shouldBe true
+                config.string("fishing.result-success").isNotBlank() shouldBe true
+                config.string("fishing.result-timeout").isNotBlank() shouldBe true
+                config.string("fishing.result-defeat").isNotBlank() shouldBe true
+                config.string("fishing.rod-name").isNotBlank() shouldBe true
+                config.stringList("fishing.rod-lore").isNotEmpty() shouldBe true
+                config.string("fishing.weapon-0-name").isNotBlank() shouldBe true
+                config.string("fishing.weapon-1-name").isNotBlank() shouldBe true
+                config.string("fishing.weapon-2-name").isNotBlank() shouldBe true
+                config.stringList("fishing.weapon-lore").isNotEmpty() shouldBe true
+                listOf(
+                    "start", "catch", "complete", "travel-unlocked", "creature-defeated", "creature-hit", "hud",
+                    "creature-name", "boss-name", "boss-summoned", "creature-summoned", "creature-missing",
+                    "boss-warning", "travel-started", "travel-marker", "invalid-catch", "encounter-restored", "telegraph",
+                ).forEach { key -> config.string("fishing.$key").isNotBlank() shouldBe true }
+                listOf("casting", "bite", "creature", "travel", "boss", "complete", "closed").forEach { phase ->
+                    config.string("fishing.phase.$phase").isNotBlank() shouldBe true
+                }
+                config.string("fishing.catch").contains("<catches>") shouldBe true
+                config.string("fishing.hud").contains("<stage>") shouldBe true
+                config.string("fishing.hud").contains("<phase>") shouldBe true
+                config.string("fishing.creature-name").contains("<stage>") shouldBe true
+                config.string("fishing.boss-name").contains("<stage>") shouldBe true
+                config.string("fishing.travel-started").contains("<stage>") shouldBe true
+                config.string("fishing.telegraph").contains("<radius>") shouldBe true
+            }
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
     "round chat has no square badges or bold decoration" {
         val root = Files.createTempDirectory("arcevents-chat-style-")
         try {
@@ -166,7 +206,7 @@ class LocaleContractTest : StringSpec({
         private val roots = listOf(
             "prefix", "command", "reason", "menu", "arena", "state", "phase", "queue", "match", "role",
             "loadout", "body", "weapon", "roster", "report", "shop", "team", "chat", "admin", "debug", "hud", "guide",
-            "nameplate", "arcade",
+            "nameplate", "arcade", "fishing",
         )
 
         private fun leaves(config: Config): Set<String> = roots.flatMap { root -> collect(config, root) }.toSet()

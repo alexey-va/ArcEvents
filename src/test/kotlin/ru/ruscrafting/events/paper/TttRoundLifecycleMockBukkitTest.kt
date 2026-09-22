@@ -56,6 +56,22 @@ import java.util.concurrent.TimeUnit
  * [ArcEventsPlugin.onEnable] bootstrap are outside this host-local test and do not currently have MockBukkit coverage.
  */
 class TttRoundLifecycleMockBukkitTest : FunSpec({
+    test("departing reserved arrival restores escrow and prepares durable return") {
+        failOnUnsupportedMockBukkitOperation {
+            TttRoundFixture().use { fixture ->
+                fixture.startReservation()
+                val player = fixture.players.first()
+                fixture.arrive(player) shouldBe true
+                fixture.escrow.pendingCount() shouldBe 1
+                fixture.service.handleQuit(player)
+                fixture.escrow.pendingCount() shouldBe 0
+                player.inventory.itemInMainHand.type shouldBe Material.DIAMOND
+                fixture.service.isParticipant(player.uniqueId) shouldBe false
+                verify(exactly = 1) { fixture.network.returnRecoveredPlayer(player, any()) }
+            }
+        }
+    }
+
     test("arrivals are protected and repeated arrival cannot clear inventory twice") {
         failOnUnsupportedMockBukkitOperation {
             TttRoundFixture().use { fixture ->
@@ -384,6 +400,7 @@ internal class TttRoundFixture : AutoCloseable {
     private val dataRoot = Files.createTempDirectory("arcevents-ttt-round-")
     private val world = paper.addSimpleWorld("ttt_arena")
     private val disastersWorld = paper.addSimpleWorld("arcevents_disasters")
+    private val fishingWorld = FishingTestWorld(paper.server).also(paper.server::addWorld)
     private var nowMs = 1_787_730_000_000L
     private var started = false
     private val debugLines = mutableListOf<String>()
@@ -413,6 +430,9 @@ internal class TttRoundFixture : AutoCloseable {
         for (x in -24..24) for (z in -24..24) {
             disastersWorld.getBlockAt(x, 63, z).type = Material.STONE
             disastersWorld.getBlockAt(x, 64, z).type = Material.MOSS_BLOCK
+        }
+        for (center in listOf(0, 48, 96)) for (x in center - 4..center + 4) for (z in -10..13) {
+            fishingWorld.getBlockAt(x, 64, z).type = Material.OAK_PLANKS
         }
         ConfigManager.clear()
         settings = ArcEventsConfig.load(dataRoot)
@@ -495,7 +515,8 @@ internal class TttRoundFixture : AutoCloseable {
         started = true
         service.start()
         paper.performTicks(1)
-        service.debugStartLocal(players, if (mode == EventMode.DISASTERS) "disasters" else "test", mode) shouldBe DebugMutationResult.APPLIED
+        service.debugStartLocal(if (mode == EventMode.FISHING) players.take(1) else players,
+            when (mode) { EventMode.DISASTERS -> "disasters"; EventMode.FISHING -> "fishing"; else -> "test" }, mode) shouldBe DebugMutationResult.APPLIED
         advanceTime(16_000)
         service.arcadeSnapshot()?.phase shouldBe MatchPhase.ACTIVE
     }
@@ -562,7 +583,7 @@ internal class TttRoundFixture : AutoCloseable {
             field.substring(0, separator) to field.substring(separator + 1)
         }
 
-    fun assertOriginalPlayerStateRestored() {
+    fun assertOriginalPlayerStateRestored(participants: Collection<Player> = players) {
         players.forEach { player ->
             val original = requireNotNull(originals[player.uniqueId])
             player.gameMode shouldBe original.gameMode
@@ -571,7 +592,7 @@ internal class TttRoundFixture : AutoCloseable {
             player.location.x shouldBe original.location.x
             player.location.y shouldBe original.location.y
             player.location.z shouldBe original.location.z
-            paper.playerDataSaveCount(player) shouldBe 2
+            paper.playerDataSaveCount(player) shouldBe if (player in participants) 2 else 0
         }
     }
 
@@ -707,6 +728,9 @@ private val TTT_FIXTURE_CONFIG = """
       detective-credits: 1
       body-despawn-seconds: 60
     arcade:
+      fishing:
+        preparation-seconds: 0
+        countdown-seconds: 0
       gungame:
         minimum-players: 3
         maximum-players: 4

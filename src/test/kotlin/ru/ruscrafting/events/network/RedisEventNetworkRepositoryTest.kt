@@ -1,6 +1,7 @@
 package ru.ruscrafting.events.network
 
 import io.kotest.core.spec.style.StringSpec
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
 import com.google.gson.Gson
 import ru.arc.redis.InMemoryRedis
@@ -22,6 +23,62 @@ class RedisEventNetworkRepositoryTest : StringSpec({
         val batch = requireNotNull(repository.reserve(uuid(99), "parkour", 4, 4, 10_000, 60_000, mode = EventMode.DISASTERS.id).join())
         batch.mode shouldBe EventMode.DISASTERS
         batch.entries.map { it.mode }.distinct() shouldBe listOf(EventMode.DISASTERS.id)
+    }
+
+    "fishing reserves the requester row even when another player is earlier in FIFO" {
+        val repository = RedisEventNetworkRepository(InMemoryRedis(ServerIdentity { "spawn" }))
+        val earlier = uuid(1)
+        val requester = uuid(2)
+        repository.joinQueue(earlier, "Earlier", "spawn", 1_000, 60_000).join()
+        repository.joinQueue(requester, "Requester", "survival", 2_000, 60_000).join()
+
+        val batch = requireNotNull(repository.reserveForRequester(
+            matchId = uuid(90),
+            destinationServer = "parkour",
+            requesterId = requester,
+            requesterOrigin = "survival",
+            nowMs = 3_000,
+            reservationMs = 60_000,
+            mode = EventMode.FISHING.id,
+        ).join())
+
+        batch.mode shouldBe EventMode.FISHING
+        batch.entries.map(QueueEntry::playerId) shouldBe listOf(requester.toString())
+        repository.loadQueueEntry(earlier).join()?.state shouldBe QueueState.QUEUED
+        repository.loadQueueEntry(requester).join()?.state shouldBe QueueState.RESERVED
+    }
+
+    "fishing rejects a missing or wrong origin without mutating any queued row" {
+        val repository = RedisEventNetworkRepository(InMemoryRedis(ServerIdentity { "spawn" }))
+        val requester = uuid(3)
+        repository.joinQueue(requester, "Requester", "survival", 1_000, 60_000).join()
+
+        repository.reserveForRequester(
+            matchId = uuid(92),
+            destinationServer = "parkour",
+            requesterId = uuid(4),
+            requesterOrigin = "survival",
+            nowMs = 2_000,
+            reservationMs = 60_000,
+            mode = EventMode.FISHING.id,
+        ).join() shouldBe null
+        repository.reserveForRequester(
+            matchId = uuid(91),
+            destinationServer = "parkour",
+            requesterId = requester,
+            requesterOrigin = "spawn",
+            nowMs = 2_000,
+            reservationMs = 60_000,
+            mode = EventMode.FISHING.id,
+        ).join() shouldBe null
+        repository.loadQueueEntry(requester).join()?.state shouldBe QueueState.QUEUED
+    }
+
+    "generic FIFO reserve refuses fishing mode" {
+        val repository = RedisEventNetworkRepository(InMemoryRedis(ServerIdentity { "spawn" }))
+        shouldThrow<IllegalArgumentException> {
+            repository.reserve(uuid(93), "parkour", 1, 1, 2_000, 60_000, mode = EventMode.FISHING.id)
+        }
     }
 
     "owner-aware network state is isolated while compatible statistics retain history" {

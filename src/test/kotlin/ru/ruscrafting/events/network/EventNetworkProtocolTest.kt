@@ -16,6 +16,15 @@ class EventNetworkProtocolTest : StringSpec({
             destinationServer = "parkour",
             mode = EventMode.DISASTERS.id,
         ).mode shouldBe EventMode.DISASTERS.id
+        QueueEntry(UUID.randomUUID().toString(), "FishingPlayer", "spawn", EventMode.FISHING.id, joinedAtMs = 1_000, expiresAtMs = 2_000)
+            .validated().mode shouldBe EventMode.FISHING.id
+        EventNetworkMessage.create(
+            EventNetworkSignal.START_REQUEST,
+            nowMs = 1_000,
+            destinationServer = "parkour",
+            requesterId = UUID.randomUUID(),
+            mode = EventMode.FISHING.id,
+        ).mode shouldBe EventMode.FISHING.id
     }
 
     "unknown event modes fail closed" {

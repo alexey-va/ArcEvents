@@ -33,8 +33,9 @@ class ArcEventsCommand(
         when (args[0].lowercase()) {
             "menu" -> player(sender)?.let(menu::openRoot)
             "join" -> player(sender)?.let(service::joinQueue)
+            "fishing" -> player(sender)?.let { sendStartResult(it, StartMessageAudience.PLAYER, mode = EventMode.FISHING) }
             "start" -> player(sender)?.let { player ->
-                if (settings().eventControls.creatorControlsEnabled || player.hasPermission("arcevents.start") ||
+                if (parseMode(args.getOrNull(1)) == EventMode.FISHING || settings().eventControls.creatorControlsEnabled || player.hasPermission("arcevents.start") ||
                     player.hasPermission("arcevents.admin")
                 ) {
                     parseMode(args.getOrNull(1))?.let { sendStartResult(player, StartMessageAudience.PLAYER, mode = it) }
@@ -62,7 +63,7 @@ class ArcEventsCommand(
     override fun onTabComplete(sender: CommandSender, command: Command, alias: String, args: Array<out String>): List<String> {
         val options = when (args.size) {
             1 -> buildList {
-                addAll(listOf("menu", "join", "leave", "spawn", "status", "shop", "roster", "report", "team", "help"))
+                addAll(listOf("menu", "join", "fishing", "leave", "spawn", "status", "shop", "roster", "report", "team", "help"))
                 if (settings().eventControls.creatorControlsEnabled || sender.hasPermission("arcevents.start")) add("start")
                 if (sender.hasPermission("arcevents.admin")) addAll(listOf("admin", "reload"))
                 if (sender.hasPermission("arcevents.qa")) add("qa")
@@ -326,6 +327,7 @@ class ArcEventsCommand(
         "event" -> EventsView.Ttt
         "gungame" -> EventsView.Arcade(EventMode.GUN_GAME)
         "disasters" -> EventsView.Arcade(EventMode.DISASTERS)
+        "fishing" -> EventsView.Arcade(EventMode.FISHING)
         "stats" -> EventsView.Statistics
         "help" -> EventsView.Help
         "admin" -> EventsView.Admin

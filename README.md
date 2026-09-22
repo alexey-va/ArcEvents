@@ -1,6 +1,6 @@
 # ArcEvents
 
-ArcEvents is the network event engine for RusCrafting with three modes:
+ArcEvents is the network event engine for RusCrafting with four modes:
 
 - **TTT**: hidden traitors, detectives, evidence, role shops and living/spectator chat.
 - **GunGame** (`gungame`): each elimination advances through the twelve existing
@@ -9,13 +9,28 @@ ArcEvents is the network event engine for RusCrafting with three modes:
 - **Disasters** (`disasters`): six survival waves alternate meteors, lightning
   and low fog. Survivors earn one point per wave; everyone returns for the next
   wave. The dedicated generated arena provides roofs and climbable terraces.
+- **Islands of the Deep** (`fishing`): a solo fishing expedition across a camp,
+  reef ruins and an underwater shrine. Reel in dangerous creatures, defeat them,
+  unlock the next island and defeat the final boss. The native menu offers
+  **Start solo**; `/arcevents fishing` starts the same personal journey.
 
-All modes use the same durable player-state escrow, origin-server return routes
-and common FIFO queue. The queue creator selects the mode at start; starting a
-mode does not split or reorder the queue. GunGame and Disasters require three
+All modes use the same durable player-state escrow and origin-server return routes.
+Public modes use a common FIFO queue; its creator selects the mode at start.
+Fishing reserves only its authenticated requester's row, even when someone else
+is first in the public queue. It never recruits other players. The host still
+owns one active match at a time; the solo menu reports a busy host before entry.
+GunGame and Disasters require three
 players by default (configurable under `arcade`), while TTT keeps its own rules.
 Arcade wins contribute to shared match/win statistics without changing TTT karma
 or role-specific wins. Old-round projectiles cannot affect a later match.
+
+Fishing owns a generated `fishing-v1` world, configured through
+`arcade.fishing.arena.world`. It is excluded from public combat-map rotation.
+Its temporary rod, weapons, creatures and hooks leave no permanent item or XP
+reward; original player state is restored on success, defeat, evacuation and
+recovery. Gameplay tuning is under `arcade.fishing`: reload rules while idle;
+changing the generated world's identity requires a restart. No backend name is
+embedded in the fishing implementation.
 
 ## Menu configuration
 

@@ -19,6 +19,9 @@ import ru.ruscrafting.events.domain.EventMode
 
 internal const val MIN_DIALOG_PROTOCOL = 771 // Minecraft Java 1.21.6
 internal const val TTT_DIALOG_ID = "events.ttt"
+internal const val FISHING_DIALOG_ID = "events.fishing"
+internal const val FISHING_MAIN_SLOT = 13
+internal const val FISHING_PRIMARY_SLOT = 2
 private val WHITE_COLOR = TextColor.fromHexString("#ffffff")!!
 private val GREEN_COLOR = TextColor.fromHexString("#9bd48d")!!
 private val BLUE_COLOR = TextColor.fromHexString("#92bed8")!!
@@ -54,6 +57,7 @@ private val NATIVE_DESTINATIONS = mapOf(
     "menu.main.ttt-name" to NativeButtonRole.ACTIVITY_DESTINATION,
     "arcade.gungame-name" to NativeButtonRole.ACTIVITY_DESTINATION,
     "arcade.disasters-name" to NativeButtonRole.ACTIVITY_DESTINATION,
+    "arcade.fishing-name" to NativeButtonRole.ACTIVITY_DESTINATION,
     "menu.main.stats-name" to NativeButtonRole.PERSONAL_DESTINATION,
     "menu.main.help-name" to NativeButtonRole.HELP_DESTINATION,
     "menu.main.admin-name" to NativeButtonRole.ROOT_DESTINATION,
@@ -71,6 +75,7 @@ private val NATIVE_TITLE_COLORS = mapOf(
     "menu.stats.title" to VIOLET_COLOR,
     "menu.help.title" to CYAN_COLOR,
     "menu.admin.title" to WHITE_COLOR,
+    "arcade.fishing-title" to AMBER_COLOR,
 )
 
 private val INVENTORY_ACTION_FOOTER = Regex("^\\s*\\[\\s*▶\\s*]\\s*(?:Нажмите|Click)\\b", RegexOption.IGNORE_CASE)
@@ -78,7 +83,7 @@ private val INVENTORY_ACTION_FOOTER = Regex("^\\s*\\[\\s*▶\\s*]\\s*(?:Нажм
 internal fun dialogFrontendSupported(enabled: Boolean, protocolVersion: Int, view: EventsView): Boolean =
     enabled && protocolVersion >= MIN_DIALOG_PROTOCOL && view in setOf(
         EventsView.Main, EventsView.Help, EventsView.EventHelp, EventsView.Ttt,
-        EventsView.Statistics, EventsView.Admin,
+        EventsView.Statistics, EventsView.Admin, EventsView.Fishing,
     )
 
 @Suppress("UnstableApiUsage")
@@ -101,6 +106,7 @@ internal class ArcEventsDialogMenu(
             EventsView.Help, EventsView.EventHelp -> help(player, view)
             EventsView.Statistics -> statistics(player)
             EventsView.Admin -> admin(player)
+            EventsView.Fishing -> fishing(player)
             else -> return false
         }
         show(player, view, screen)
@@ -127,6 +133,20 @@ internal class ArcEventsDialogMenu(
         return true
     }
 
+    fun openFishing(player: Player, reopen: (() -> Unit)? = null, onDismiss: () -> Unit = {}): Boolean {
+        if (!settings().ui.dialogsEnabled || !dialogFrontendSupported(true, protocols.resolve(player), EventsView.Fishing)) return false
+        show(player, EventsView.Fishing, fishing(player), reopen, onDismiss)
+        return true
+    }
+
+    fun openFishingLoading(player: Player, reopen: () -> Unit, onDismiss: () -> Unit): Boolean {
+        if (!settings().ui.dialogsEnabled || !dialogFrontendSupported(true, protocols.resolve(player), EventsView.Fishing)) return false
+        show(player, EventsView.Fishing, screen(player, "arcade.fishing-title", listOf(
+            body(player, "arcade.fishing-loading-name", "arcade.fishing-loading-lore"),
+        ), emptyList(), 1, FISHING_DIALOG_ID), reopen, onDismiss)
+        return true
+    }
+
     private fun show(player: Player, view: EventsView, screen: PaperDialogScreen, reopen: (() -> Unit)? = null, onDismiss: () -> Unit = {}) {
         present(player, screen, reopen ?: { open(player, view); Unit }, onDismiss, escapeCloses(player))
     }
@@ -141,6 +161,7 @@ internal class ArcEventsDialogMenu(
                 mapOf("queue" to locale.text(state.queueSize), "minimum" to locale.text(settings().arcade.rules(EventMode.GUN_GAME).minimumPlayers))))
             add(button(player, "arcade.disasters-name", "arcade.disasters-lore", EventsView.Main, 6,
                 mapOf("queue" to locale.text(state.queueSize), "minimum" to locale.text(settings().arcade.rules(EventMode.DISASTERS).minimumPlayers))))
+            add(button(player, "arcade.fishing-name", "arcade.fishing-lore", EventsView.Main, FISHING_MAIN_SLOT))
             add(button(player, "menu.main.stats-name", "menu.main.stats-lore", EventsView.Main, 18))
             add(button(player, "menu.main.help-name", "menu.main.help-lore", EventsView.Main, 22))
             if (player.hasPermission("arcevents.admin")) add(button(player, "menu.main.admin-name", "menu.main.admin-lore", EventsView.Main, 26))
@@ -148,6 +169,32 @@ internal class ArcEventsDialogMenu(
         return screen(player, "menu.main.title", listOf(body(player, "menu.main.title", "menu.main.main-body", mapOf(
             "queue" to locale.text(state.queueSize), "minimum" to locale.text(settings().ttt.minimumPlayers),
             "arena_state" to locale.render(if (state.arenaReady) "state.arena-ready" else "state.arena-unavailable", player)))), actions, 2, "events.main")
+    }
+
+    private fun fishing(player: Player): PaperDialogScreen {
+        val state = service.snapshot()
+        val currentMode = service.currentMode()
+        val fishingMatch = currentMode == EventMode.FISHING
+        val phaseName = if (fishingMatch) state.phase?.name?.lowercase() else null
+        val phase = locale.render("phase.${phaseName ?: "idle"}", player)
+        val values = mapOf(
+            "phase" to phase,
+            "seconds" to locale.text(if (fishingMatch) state.secondsRemaining.coerceAtLeast(0) else 0),
+            "maximum" to locale.text(settings().arcade.rules(EventMode.FISHING).roundSeconds),
+            "arena" to locale.render("arena.fishing.name", player),
+        )
+        val participant = service.isParticipant(player.uniqueId) && fishingMatch
+        val busy = state.matchId != null && !participant
+        val fishingArenaReady = service.modeAvailable(EventMode.FISHING)
+        val startAvailable = !busy && fishingArenaReady
+        val action = when {
+            participant -> button(player, "menu.event.evacuate-name", "menu.event.evacuate-lore", EventsView.Fishing, FISHING_PRIMARY_SLOT)
+            startAvailable -> button(player, "arcade.fishing-start-name", "arcade.fishing-start-lore", EventsView.Fishing, FISHING_PRIMARY_SLOT, values)
+            else -> button(player, "arcade.fishing-unavailable-name", "arcade.fishing-unavailable-lore", EventsView.Fishing, FISHING_PRIMARY_SLOT, values)
+        }
+        return screen(player, "arcade.fishing-title", listOf(
+            body(player, "arcade.fishing-guide-name", "arcade.fishing-guide", values),
+        ), listOf(action), 1, FISHING_DIALOG_ID)
     }
 
     private fun ttt(player: Player, queueState: QueueState?, plan: EventMenuPlan, selectedArena: Component): PaperDialogScreen {

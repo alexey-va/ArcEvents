@@ -275,7 +275,11 @@ class ArcEventsService(
         if (!started || settings().nodeMode != NodeMode.HOST || match != null || arcade.current != null || reservation != null) {
             return false
         }
-        if (arenaPool.reserve(batch.matchId, if (batch.mode == EventMode.DISASTERS) "disasters" else batch.preferredArenaId, batch.mode) == null) return false
+        if (arenaPool.reserve(batch.matchId, when (batch.mode) {
+                EventMode.DISASTERS -> "disasters"
+                EventMode.FISHING -> "fishing"
+                else -> batch.preferredArenaId
+            }, batch.mode) == null) return false
         matchSettings = settings().ttt
         arcadeRules = batch.mode.takeUnless { it == EventMode.TTT }?.let { settings().arcade.rules(it) }
         reservation = batch
@@ -478,6 +482,14 @@ class ArcEventsService(
 
     override fun handleQuit(player: Player) {
         arrivals.remove(player.uniqueId)
+        if (player.uniqueId in arrivalPlayers && !arcade.isParticipant(player.uniqueId) && participant(player.uniqueId) == null) {
+            runCatching { recoverPlayer(player) }.onSuccess { recovery ->
+                if (recovery != null) completeRecovery(player, recovery)
+            }.onFailure { failure ->
+                plugin.logger.log(Level.SEVERE, "ArcEvents could not restore departing arrival ${player.uniqueId}", failure)
+            }
+            return
+        }
         if (arcade.isParticipant(player.uniqueId)) { arcade.disconnect(player); return }
         cancelMapSpawnReturn(player.uniqueId, notify = false)
         hud.remove(player.uniqueId)
@@ -501,6 +513,15 @@ class ArcEventsService(
         }
         return network.reserveNow(requester, preferredArenaId, mode)
     }
+
+    fun startFishing(player: Player): CompletableFuture<ReservationStartResult> =
+        startFromQueue(player, "fishing", EventMode.FISHING)
+
+    fun modeAvailable(mode: EventMode): Boolean = network.hostAvailable(mode)
+
+    override fun handleFishing(event: org.bukkit.event.player.PlayerFishEvent) = arcade.handleFish(event)
+    override fun handleFishingDamage(event: org.bukkit.event.entity.EntityDamageEvent): Boolean = arcade.handleFishingDamage(event)
+    override fun handleFishingInteract(event: org.bukkit.event.player.PlayerInteractEvent): Boolean = arcade.handleFishingInteract(event)
 
     /** Reconciles every live consumer after the plugin atomically swaps its settings snapshot. */
     fun reconfigureRuntime() {
@@ -686,6 +707,15 @@ class ArcEventsService(
 
     override fun registerProjectile(projectile: Projectile): Boolean {
         val shooter = projectile.shooter as? Player ?: return true
+        arcade.current?.let { active ->
+            // Native fishing hooks are projectiles too. Permit only this solo player's issued rod.
+            if (active.mode != EventMode.FISHING || projectile !is org.bukkit.entity.FishHook ||
+                active.phase != MatchPhase.ACTIVE || !arcade.isAlive(shooter.uniqueId) ||
+                items.kind(shooter.inventory.itemInMainHand) != EventItemKind.FISHING_ROD ||
+                !items.belongsTo(shooter.inventory.itemInMainHand, active.matchId.toString())) return false
+            projectile.persistentDataContainer.set(projectileMatchKey, PersistentDataType.STRING, active.matchId.toString())
+            return true
+        }
         val current = match ?: return false
         val participant = current.participant(shooter.uniqueId) ?: return true
         if (current.phase != MatchPhase.ACTIVE || participant.status != ParticipantStatus.ALIVE) return false
@@ -705,6 +735,7 @@ class ArcEventsService(
     }
 
     override fun handleProjectileHit(projectile: Projectile) {
+        if (projectile is org.bukkit.entity.FishHook) return
         if (projectileMatchId(projectile) == null) return
         smokeGrenades.handleHit(projectile)
         projectiles.remove(projectile.uniqueId)
@@ -864,7 +895,8 @@ class ArcEventsService(
             EventItemKind.TRAITOR_SMOKE -> activateSmoke(player)
             EventItemKind.DETECTIVE_MEDKIT -> activateMedkit(player)
             EventItemKind.GUIDE, EventItemKind.SHOP, EventItemKind.FIREARM, EventItemKind.AMMUNITION, EventItemKind.ROUND_REPORT,
-            EventItemKind.ARCADE_KNIFE, EventItemKind.DETECTIVE_SCANNER, EventItemKind.TRAITOR_BLADE, EventItemKind.DETECTIVE_ARMOR -> false
+            EventItemKind.ARCADE_KNIFE, EventItemKind.DETECTIVE_SCANNER, EventItemKind.TRAITOR_BLADE, EventItemKind.DETECTIVE_ARMOR,
+            EventItemKind.FISHING_ROD, EventItemKind.FISHING_WEAPON -> false
         }
     }
 
@@ -1484,7 +1516,11 @@ class ArcEventsService(
         if (online.size !in rules.minimumPlayers..rules.maximumPlayers) return DebugMutationResult.INSUFFICIENT_PLAYERS
         if (online.any { hasPendingRecovery(it.uniqueId) }) return DebugMutationResult.PRECONDITION_FAILED
         val id = UUID.randomUUID()
-        val arena = arenaPool.reserve(id, if (mode == EventMode.DISASTERS) "disasters" else arenaId, mode)
+        val arena = arenaPool.reserve(id, when (mode) {
+            EventMode.DISASTERS -> "disasters"
+            EventMode.FISHING -> "fishing"
+            else -> arenaId
+        }, mode)
             ?: return DebugMutationResult.ARENA_UNAVAILABLE
         return try {
             val entries = online.map { QueueEntry(it.uniqueId.toString(), it.name, config.serverId, mode.id,

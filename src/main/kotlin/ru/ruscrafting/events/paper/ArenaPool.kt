@@ -76,7 +76,7 @@ class ArenaPool(
             return true
         }
         val arena = configured(id) ?: return false
-        if (arena.id == "disasters") return false
+        if (arena.id in setOf("disasters", "fishing")) return false
         if (!ready(arena, settings().ttt.maximumPlayers)) return false
         nextArenaId = arena.id
         nextArenaAutomatic = false
@@ -97,11 +97,16 @@ class ArenaPool(
     @Synchronized
     fun reserve(matchId: UUID, preferredId: String? = null, mode: EventMode = EventMode.TTT): ArenaSettings? {
         if (activeMatchId != null) return null
-        val ready = readyArenas().filter { (it.id == "disasters") == (mode == EventMode.DISASTERS) }
+        val dedicated = when (mode) {
+            EventMode.DISASTERS -> "disasters"
+            EventMode.FISHING -> "fishing"
+            else -> null
+        }
+        val ready = readyArenas().filter { if (dedicated != null) it.id == dedicated else it.id !in setOf("disasters", "fishing") }
         if (ready.isEmpty()) return null
         val normalizedPreferred = preferredId?.lowercase()
         val automatic = normalizedPreferred == "auto" || (normalizedPreferred == null && nextArenaAutomatic)
-        val explicit = normalizedPreferred?.takeUnless { it == "auto" } ?: nextArenaId
+        val explicit = normalizedPreferred?.takeUnless { it == "auto" } ?: dedicated ?: nextArenaId
         val chosen = when {
             automatic -> automaticArena(matchId, ready)
             explicit != null -> ready.firstOrNull { it.id == explicit } ?: return null

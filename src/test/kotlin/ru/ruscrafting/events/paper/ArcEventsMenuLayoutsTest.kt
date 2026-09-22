@@ -23,6 +23,7 @@ class ArcEventsMenuLayoutsTest : StringSpec({
 
         val catalog = ArcEventsMenuLayouts.loadConfiguration(root)
         catalog.require(ArcEventsMenuLayouts.MAIN).slot("help").index shouldBe 21
+        catalog.require(ArcEventsMenuLayouts.MAIN).slot("fishing").index shouldBe 13
         catalog.require(ArcEventsMenuLayouts.ARENAS).region("arenas").size shouldBe 8
     }
 

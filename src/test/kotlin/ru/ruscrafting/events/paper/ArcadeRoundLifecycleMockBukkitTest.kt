@@ -8,6 +8,37 @@ import ru.ruscrafting.events.domain.MatchPhase
 import ru.ruscrafting.events.domain.ParticipantStatus
 
 class ArcadeRoundLifecycleMockBukkitTest : FunSpec({
+    test("fishing owns one player and restores original state after defeat") {
+        failOnUnsupportedMockBukkitOperation {
+            TttRoundFixture().use { fixture ->
+                fixture.startActiveArcade(EventMode.FISHING)
+                val player = fixture.players.first()
+                fixture.service.arcadeSnapshot()?.participants?.size shouldBe 1
+                fixture.escrow.pendingCount() shouldBe 1
+                fixture.items.kind(player.inventory.itemInMainHand) shouldBe EventItemKind.FISHING_ROD
+                fixture.service.shouldCancelDamage(player.uniqueId, fixture.players[1].uniqueId, false, null) shouldBe true
+                fixture.service.eliminate(player)
+                fixture.service.arcadeSnapshot()?.phase shouldBe MatchPhase.RESOLVING
+                fixture.service.arcadeSnapshot()?.winners shouldBe emptySet()
+                fixture.advanceTime(9_000)
+                fixture.service.arcadeSnapshot() shouldBe null
+                fixture.escrow.pendingCount() shouldBe 0
+                fixture.assertOriginalPlayerStateRestored(fixture.players.take(1))
+            }
+        }
+    }
+
+    test("fishing shutdown restores its sole player without touching outsiders") {
+        failOnUnsupportedMockBukkitOperation {
+            TttRoundFixture().use { fixture ->
+                fixture.startActiveArcade(EventMode.FISHING)
+                fixture.service.close()
+                fixture.escrow.pendingCount() shouldBe 0
+                fixture.assertOriginalPlayerStateRestored(fixture.players.take(1))
+            }
+        }
+    }
+
     test("GunGame debug bootstrap activates the real arcade session") {
         failOnUnsupportedMockBukkitOperation {
             TttRoundFixture().use { fixture ->

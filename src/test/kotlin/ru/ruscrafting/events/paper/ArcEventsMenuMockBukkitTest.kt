@@ -99,6 +99,7 @@ class ArcEventsMenuMockBukkitTest : FunSpec({
                 val settings = ArcEventsConfig.load(root); val locale = ArcEventsLocale(root) { settings }; val layouts = ArcEventsMenuLayouts(root)
                 val service = mockk<ArcEventsService> {
                     every { snapshot() } returns testSnapshot(0)
+                    every { modeAvailable(any()) } returns true
                     every { queueControl(player.uniqueId) } returns CompletableFuture.completedFuture(QueueControlSnapshot(null, null))
                     every { arcadeSnapshot() } returns null
                 }
@@ -128,6 +129,7 @@ class ArcEventsMenuMockBukkitTest : FunSpec({
                     every { isParticipant(player.uniqueId) } returns true
                     every { currentMode() } returns EventMode.DISASTERS
                     every { snapshot() } returns testSnapshot(3)
+                    every { modeAvailable(any()) } returns true
                     every { queueControl(player.uniqueId) } returns CompletableFuture.completedFuture(QueueControlSnapshot(null, null))
                     every { arcadeSnapshot() } returns null
                 }
@@ -148,6 +150,7 @@ class ArcEventsMenuMockBukkitTest : FunSpec({
                 val settings = ArcEventsConfig.load(root); val locale = ArcEventsLocale(root) { settings }; val layouts = ArcEventsMenuLayouts(root); val deferred = CompletableFuture<QueueControlSnapshot>()
                 val service = mockk<ArcEventsService> {
                     every { snapshot() } returns testSnapshot(3)
+                    every { modeAvailable(any()) } returns true
                     every { queueControl(player.uniqueId) } returns deferred
                     every { arcadeSnapshot() } returns null
                     every { startFromQueue(any(), any(), EventMode.GUN_GAME) } returns CompletableFuture.completedFuture(ReservationStartResult.STARTED)

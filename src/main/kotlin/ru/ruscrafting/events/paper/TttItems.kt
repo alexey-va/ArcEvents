@@ -16,6 +16,8 @@ import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.domain.TttRole
 
 enum class EventItemKind {
+    FISHING_ROD,
+    FISHING_WEAPON,
     ARCADE_KNIFE,
     GUIDE,
     SHOP,
@@ -150,6 +152,20 @@ class TttItems(
 
     fun belongsTo(item: ItemStack?, matchId: String): Boolean = item?.takeUnless(ItemStack::isEmpty)?.itemMeta
         ?.persistentDataContainer?.get(matchIdKey, PersistentDataType.STRING) == matchId
+
+    fun fishingRod(player: Player, matchId: String): ItemStack = tagged(
+        Material.FISHING_ROD, EventItemKind.FISHING_ROD, matchId,
+        locale.render("fishing.rod-name", player), locale.lore("fishing.rod-lore", player),
+    ).also { it.editMeta { meta -> meta.isUnbreakable = true } }
+
+    fun fishingWeapon(player: Player, matchId: String, stage: Int): ItemStack {
+        require(stage in 0..2)
+        return tagged(
+            listOf(Material.STONE_SWORD, Material.IRON_SWORD, Material.DIAMOND_SWORD)[stage],
+            EventItemKind.FISHING_WEAPON, matchId, locale.render("fishing.weapon-$stage-name", player),
+            locale.lore("fishing.weapon-lore", player),
+        ).also { it.editMeta { meta -> meta.isUnbreakable = true } }
+    }
 
     private fun tagged(
         material: Material,

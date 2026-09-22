@@ -137,6 +137,7 @@ ui:
     main-ttt-spyglass: {material: SPYGLASS}
     main-gungame-iron-sword: {material: IRON_SWORD}
     main-disasters-lightning-rod: {material: LIGHTNING_ROD}
+    main-fishing-fishing-rod: {material: FISHING_ROD}
     main-stats-writable-book: {material: WRITABLE_BOOK}
     main-help-knowledge-book: {material: KNOWLEDGE_BOOK}
     main-admin-command-block: {material: COMMAND_BLOCK}
@@ -205,6 +206,7 @@ ui:
         ttt: {slot: 4}
         gungame: {slot: 2}
         disasters: {slot: 6}
+        fishing: {slot: 13}
         statistics: {slot: 18}
         help: {slot: 22}
         admin: {slot: 26}
@@ -328,6 +330,27 @@ ttt:
   body-despawn-seconds: 600
 
 arcade:
+  fishing:
+    # One personal expedition. Existing public modes keep their own player limits.
+    minimum-players: 1
+    maximum-players: 1
+    preparation-seconds: 3
+    countdown-seconds: 3
+    round-seconds: 900
+    post-round-seconds: 8
+    # Rules reload while the host is idle; an active expedition keeps its contract.
+    catches-per-island: 3
+    min-bite-ticks: 40
+    max-bite-ticks: 100
+    creature-health: 18.0
+    boss-health: 80.0
+    telegraph-ticks: 30
+    attack-interval-ticks: 60
+    travel-radius: 3.0
+    fishing-radius: 6.0
+    arena:
+      # Dedicated generated world; changing its identity requires a restart.
+      world: arcevents_fishing
   gungame:
     minimum-players: 3
     maximum-players: 12

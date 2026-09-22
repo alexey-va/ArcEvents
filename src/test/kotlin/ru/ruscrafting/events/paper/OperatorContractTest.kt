@@ -112,6 +112,7 @@ class OperatorContractTest : StringSpec({
         dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL, EventsView.Statistics) shouldBe true
         dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL, EventsView.Help) shouldBe true
         dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL, EventsView.Admin) shouldBe true
+        dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL, EventsView.Fishing) shouldBe true
         dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL, EventsView.Shop) shouldBe false
         dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL, EventsView.Roster) shouldBe false
     }

@@ -7,6 +7,21 @@ import java.nio.file.Files
 import java.util.UUID
 
 class ArenaPoolTest : StringSpec({
+    "fishing leases only its dedicated arena and leaves public rotation intact" {
+        val root = Files.createTempDirectory("arcevents-fishing-pool-")
+        try {
+            Files.writeString(root.resolve("config.yml"), hostConfig())
+            val config = ArcEventsConfig.inspect(root)
+            val pool = ArenaPool({ config }) { _, _ -> true }
+            pool.selectNext("fishing") shouldBe false
+            pool.reserve(UUID.randomUUID(), "fishing", ru.ruscrafting.events.domain.EventMode.GUN_GAME) shouldBe null
+            pool.selectNext("beta") shouldBe true
+            pool.reserve(UUID.randomUUID(), mode = ru.ruscrafting.events.domain.EventMode.FISHING)?.id shouldBe "fishing"
+            pool.clear()
+            (pool.reserve(UUID.randomUUID())?.id in listOf("alpha", "beta")) shouldBe true
+        } finally { root.toFile().deleteRecursively() }
+    }
+
     "disasters use their own arena without entering the combat rotation" {
         val root = Files.createTempDirectory("arcevents-mode-arena-")
         try {

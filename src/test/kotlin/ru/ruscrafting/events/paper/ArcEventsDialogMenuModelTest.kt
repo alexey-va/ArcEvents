@@ -14,6 +14,7 @@ import ru.arc.paper.menu.PaperDialogScreen
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
 import java.nio.file.Files
+import java.util.Locale
 import java.util.UUID
 
 class ArcEventsDialogMenuModelTest : StringSpec({
@@ -41,9 +42,13 @@ class ArcEventsDialogMenuModelTest : StringSpec({
             val locale = ArcEventsLocale(root) { settings }
             val player = mockk<Player>(relaxed = true)
             every { player.uniqueId } returns UUID.randomUUID()
+            every { player.locale() } returns Locale.US
             every { player.hasPermission(any<String>()) } returns true
             val service = mockk<ArcEventsService>(relaxed = true)
             every { service.snapshot() } returns ServiceSnapshot("test", ru.ruscrafting.events.config.NodeMode.HOST, "test", true, true, true, null, 0, null, null, 0, 0, 0, 0, 0, 0)
+            every { service.modeAvailable(ru.ruscrafting.events.domain.EventMode.FISHING) } returns true
+            every { service.isParticipant(any()) } returns false
+            every { service.currentMode() } returns null
             val displayed = mutableListOf<PaperDialogScreen>()
             val menu = ArcEventsDialogMenu(mockk<PaperDialogRuntime>(), service, locale, { settings }, { _, _, _ -> }, ClientProtocolResolver { 771 }, { false }) { _, screen, _, _, _ -> displayed += screen }
 
@@ -51,16 +56,25 @@ class ArcEventsDialogMenuModelTest : StringSpec({
             menu.open(player, EventsView.Help) shouldBe true
             menu.open(player, EventsView.Statistics) shouldBe true
             menu.openTttLoading(player, {}, {}) shouldBe true
-            displayed.size shouldBe 4
+            menu.open(player, EventsView.Fishing) shouldBe true
+            displayed.size shouldBe 5
             displayed.forEach { (it.exitButton != null) shouldBe true }
-            displayed.map { it.id } shouldBe listOf("events.main", "events.help", "events.stats", "events.ttt")
+            displayed.map { it.id } shouldBe listOf("events.main", "events.help", "events.stats", "events.ttt", "events.fishing")
             displayed.first().body.isNotEmpty() shouldBe true
-            displayed.last().body.first().text.toString().lowercase().let { "loading" in it || "загружаем" in it } shouldBe true
+            displayed[3].body.first().text.toString().lowercase().let { "loading" in it || "загружаем" in it } shouldBe true
             val mainButtons = displayed.first().buttons.associate { button ->
                 button.id.value to PlainTextComponentSerializer.plainText().serialize(button.label)
             }
             mainButtons.getValue("action_arcade_gungame_name") shouldContain "›"
             mainButtons.getValue("action_arcade_disasters_name") shouldContain "›"
+            mainButtons.getValue("action_arcade_fishing_name") shouldContain "›"
+            PlainTextComponentSerializer.plainText().serialize(displayed.last().buttons.single().label) shouldContain "Start solo"
+
+            every { service.snapshot() } returns ServiceSnapshot("test", ru.ruscrafting.events.config.NodeMode.HOST, "test", true, true, true, null, 0,
+                UUID.randomUUID(), ru.ruscrafting.events.domain.MatchPhase.ACTIVE, 2, 2, 1, 1, 0, 12)
+            every { service.currentMode() } returns ru.ruscrafting.events.domain.EventMode.TTT
+            menu.open(player, EventsView.Fishing) shouldBe true
+            PlainTextComponentSerializer.plainText().serialize(displayed.last().body.first().text) shouldContain "Status: idle"
         } finally {
             root.toFile().deleteRecursively()
         }

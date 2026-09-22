@@ -8,7 +8,8 @@ import kotlin.math.ceil
 enum class EventMode(val id: String) {
     TTT("ttt"),
     GUN_GAME("gungame"),
-    DISASTERS("disasters");
+    DISASTERS("disasters"),
+    FISHING("fishing");
 
     companion object {
         fun fromId(id: String): EventMode? = entries.firstOrNull { it.id == id.lowercase() }
@@ -28,8 +29,9 @@ data class ArcadeRules(
     val intermissionSeconds: Int = 5,
     val disasterRounds: Int = 6,
 ) {
-    fun validated(): ArcadeRules = apply {
-        require(minimumPlayers in 2..maximumPlayers && maximumPlayers in 2..16)
+    fun validated(allowSolo: Boolean = false): ArcadeRules = apply {
+        if (allowSolo) require(minimumPlayers == 1 && maximumPlayers == 1)
+        else require(minimumPlayers in 2..maximumPlayers && maximumPlayers in 2..16)
         require(preparationSeconds in 0..60 && countdownSeconds in 0..60)
         require(roundSeconds in 30..1800 && postRoundSeconds in 0..60)
         require(respawnSeconds in 1..15 && spawnProtectionSeconds in 0..5)
@@ -78,7 +80,7 @@ class ArcadeMatchRuntime(
     fun start(matchId: UUID, mode: EventMode, players: List<QueuedPlayer>, rules: ArcadeRules = ArcadeRules()): ArcadeMatch {
         check(current == null) { "A match is already active" }
         require(mode != EventMode.TTT) { "Arcade runtime does not own TTT" }
-        rules.validated()
+        rules.validated(allowSolo = mode == EventMode.FISHING)
         require(players.size in rules.minimumPlayers..rules.maximumPlayers)
         require(players.map { it.playerId }.distinct().size == players.size)
         players.forEach {
@@ -109,6 +111,9 @@ class ArcadeMatchRuntime(
         if (match.phase == MatchPhase.ACTIVE && match.mode == EventMode.GUN_GAME && now >= requireNotNull(match.deadlineMs)) {
             match = resolveGunGameTimeout(match)
         }
+        if (match.phase == MatchPhase.ACTIVE && match.mode == EventMode.FISHING && now >= requireNotNull(match.deadlineMs)) {
+            match = finish(match, match.participants, emptySet(), MatchEndReason.TIMEOUT)
+        }
         current = match
         return match
     }
@@ -116,13 +121,14 @@ class ArcadeMatchRuntime(
     fun eliminate(victimId: UUID, killerId: UUID?, knifeKill: Boolean = false): ArcadeMatch {
         val match = requireCurrent()
         require(match.phase == MatchPhase.ACTIVE)
-        require(match.mode in setOf(EventMode.GUN_GAME, EventMode.DISASTERS))
+        require(match.mode in setOf(EventMode.GUN_GAME, EventMode.DISASTERS, EventMode.FISHING))
         val victim = requireNotNull(match.participants[victimId])
         if (victim.status != ParticipantStatus.ALIVE) return match
         if (victim.protectedUntilMs?.let { clock() < it } == true) return match
         val now = clock()
         val players = match.participants.toMutableMap()
         players[victimId] = victim.copy(status = ParticipantStatus.DEAD, deaths = victim.deaths + 1, respawnAtMs = now + match.rules.respawnSeconds * 1000L, protectedUntilMs = null)
+        if (match.mode == EventMode.FISHING) return finish(match, players, emptySet(), MatchEndReason.ELIMINATION)
         if (match.mode == EventMode.DISASTERS) return update(match, players)
         if (killerId != null && killerId != victimId) {
             val killer = players[killerId]
@@ -156,8 +162,15 @@ class ArcadeMatchRuntime(
         if (player.status !in setOf(ParticipantStatus.RESERVED, ParticipantStatus.ALIVE, ParticipantStatus.DEAD)) return match
         val changed = update(match, match.participants + (playerId to player.copy(status = ParticipantStatus.DISCONNECTED)))
         return if (changed.phase in setOf(MatchPhase.PREPARING, MatchPhase.COUNTDOWN) && connected(changed) < changed.rules.minimumPlayers)
-            cancel(MatchEndReason.INSUFFICIENT_PLAYERS) else if (changed.phase == MatchPhase.ACTIVE && connected(changed) < 2)
+            cancel(MatchEndReason.INSUFFICIENT_PLAYERS) else if (changed.phase == MatchPhase.ACTIVE && connected(changed) < if (changed.mode == EventMode.FISHING) 1 else 2)
             cancel(MatchEndReason.INSUFFICIENT_PLAYERS) else changed
+    }
+
+    fun completeFishing(playerId: UUID): ArcadeMatch {
+        val match = requireCurrent()
+        require(match.mode == EventMode.FISHING && match.phase == MatchPhase.ACTIVE)
+        require(match.participants[playerId]?.status == ParticipantStatus.ALIVE)
+        return finish(match, match.participants, setOf(playerId), MatchEndReason.ELIMINATION)
     }
 
     fun beginDisaster(): ArcadeMatch {

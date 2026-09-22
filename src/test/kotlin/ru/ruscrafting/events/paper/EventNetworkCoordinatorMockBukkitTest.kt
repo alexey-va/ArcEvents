@@ -34,6 +34,29 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 
 class EventNetworkCoordinatorMockBukkitTest : FunSpec({
+    test("fishing is restricted to its dedicated arena and never starts ownerless") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture().use { fixture ->
+                fixture.start()
+
+                fixture.coordinator.selectableArenaIds(EventMode.FISHING) shouldBe listOf("fishing")
+                fixture.await(fixture.coordinator.reserveNow(mode = EventMode.FISHING)) shouldBe ReservationStartResult.NOT_OWNER
+            }
+        }
+    }
+
+    test("host availability follows the selected mode arena") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture(includeCombatArena = false).use { fixture ->
+                fixture.start()
+
+                fixture.coordinator.hostAvailable(EventMode.TTT) shouldBe false
+                fixture.coordinator.hostAvailable(EventMode.GUN_GAME) shouldBe false
+                fixture.coordinator.hostAvailable(EventMode.FISHING) shouldBe true
+            }
+        }
+    }
+
     test("host heartbeat and every mode reservation use their own player limits") {
         failOnUnsupportedMockBukkitOperation {
             EventNetworkCoordinatorFixture().use { fixture ->
@@ -47,12 +70,18 @@ class EventNetworkCoordinatorMockBukkitTest : FunSpec({
             EventMode.entries.forEach { mode ->
                 EventNetworkCoordinatorFixture().use { fixture ->
                     fixture.start()
+                    val requester = if (mode == EventMode.FISHING) fixture.addPlayer("FishingOwner") else null
                     fixture.queueFourPlayers()
 
-                    fixture.await(fixture.coordinator.reserveNow(mode = mode)) shouldBe ReservationStartResult.STARTED
+                    fixture.await(fixture.coordinator.reserveNow(requester = requester, mode = mode)) shouldBe ReservationStartResult.STARTED
                     fixture.reservations.single().apply {
                         this.mode shouldBe mode
-                        entries.map { it.mode }.distinct() shouldBe listOf(mode.id)
+                        if (mode == EventMode.FISHING) {
+                            entries.map { it.playerId } shouldBe listOf(requester!!.uniqueId.toString())
+                            fixture.queueEntry(UUID.nameUUIDFromBytes("coordinator-1".toByteArray()))?.state shouldBe QueueState.QUEUED
+                        } else {
+                            entries.map { it.mode }.distinct() shouldBe listOf(mode.id)
+                        }
                     }
                 }
             }
@@ -97,6 +126,53 @@ class EventNetworkCoordinatorMockBukkitTest : FunSpec({
         }
     }
 
+    test("reservation transfer retries while the player remains online") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture().use { fixture ->
+                fixture.start()
+                val player = fixture.addPlayer("ReservationRetry")
+                val matchId = UUID.randomUUID()
+                fixture.seedReserved(player, matchId, "survival")
+                var transferCalls = 0
+                every { fixture.transfer.connect(any(), any()) } answers {
+                    transferCalls++
+                    if (transferCalls == 1) BackendTransferResult.SEND_FAILED else BackendTransferResult.SENT
+                }
+
+                fixture.publishRoute(matchId, player, "survival")
+                fixture.tick(3)
+                transferCalls shouldBe 1
+                fixture.queueEntry(player)?.state shouldBe QueueState.RESERVED
+
+                fixture.coordinator.reconfigure()
+                fixture.tick(3)
+                transferCalls shouldBe 2
+                fixture.queueEntry(player)?.state shouldBe QueueState.RESERVED
+            }
+        }
+    }
+
+    test("stale reservation transfer retry is pruned before sending") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture().use { fixture ->
+                fixture.start()
+                val player = fixture.addPlayer("StaleRetry")
+                val matchId = UUID.randomUUID()
+                fixture.seedReserved(player, matchId, "survival")
+                every { fixture.transfer.connect(any(), any()) } returns BackendTransferResult.SEND_FAILED
+
+                fixture.publishRoute(matchId, player, "survival")
+                fixture.tick(3)
+                fixture.releaseReservation(player, matchId)
+                fixture.queueEntry(player)?.state shouldBe QueueState.RETURN_PENDING
+
+                fixture.coordinator.reconfigure()
+                fixture.tick(3)
+                verify(exactly = 1) { fixture.transfer.connect(player, BackendServerId.of("survival")) }
+            }
+        }
+    }
+
     test("expired reservation does not acknowledge while outbound transfer is pending") {
         failOnUnsupportedMockBukkitOperation {
             EventNetworkCoordinatorFixture().use { fixture ->
@@ -119,7 +195,7 @@ class EventNetworkCoordinatorMockBukkitTest : FunSpec({
     }
 })
 
-private class EventNetworkCoordinatorFixture : AutoCloseable {
+private class EventNetworkCoordinatorFixture(private val includeCombatArena: Boolean = true) : AutoCloseable {
     private val paper = MockBukkitTestRuntime.open()
     private val plugin = paper.createSimplePlugin("ArcEventsNetworkCoordinatorTest")
     private val dataRoot = Files.createTempDirectory("arcevents-network-coordinator-")
@@ -152,7 +228,13 @@ private class EventNetworkCoordinatorFixture : AutoCloseable {
             debug = ArcEventsDebug({ true }) {},
             matchState = { null to null },
             arenaReady = { true },
-            readyArenaIds = { listOf("test", "disasters") },
+            readyArenaIds = {
+                buildList {
+                    if (includeCombatArena) add("test")
+                    add("fishing")
+                    add("disasters")
+                }
+            },
             onReservation = { batch -> reservations += batch; true },
             onArrival = { true },
             clock = { nowMs },
@@ -201,8 +283,13 @@ private class EventNetworkCoordinatorFixture : AutoCloseable {
         )
     }
 
-    fun queueEntry(player: org.bukkit.entity.Player): QueueEntry? =
-        repository.loadQueueEntry(player.uniqueId).get(5, TimeUnit.SECONDS)
+    fun queueEntry(player: org.bukkit.entity.Player): QueueEntry? = queueEntry(player.uniqueId)
+
+    fun queueEntry(playerId: UUID): QueueEntry? = repository.loadQueueEntry(playerId).get(5, TimeUnit.SECONDS)
+
+    fun releaseReservation(player: org.bukkit.entity.Player, matchId: UUID) {
+        repository.releaseReservation(matchId, listOf(player.uniqueId)).get(5, TimeUnit.SECONDS)
+    }
 
     fun heartbeat(): HostNode = redisStore.loadMap(RedisEventNetworkRepository.NODES_KEY).get(5, TimeUnit.SECONDS)
         .getValue(settings.serverId)

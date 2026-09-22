@@ -12,6 +12,29 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 class ArcEventsConfigTest : StringSpec({
+    "fishing is solo and reloads tuned rules only between expeditions" {
+        val root = Files.createTempDirectory("arcevents-fishing-config-")
+        try {
+            val current = ArcEventsConfig.load(root)
+            current.arcade.fishing.minimumPlayers shouldBe 1
+            current.arcade.fishing.maximumPlayers shouldBe 1
+            val original = Files.readString(root.resolve("config.yml"))
+            Files.writeString(root.resolve("config.yml"), original.replace("catches-per-island: 3", "catches-per-island: 2"))
+            val candidate = ArcEventsConfig.inspect(root)
+            candidate.fishing.catchesPerIsland shouldBe 2
+            shouldNotThrowAny { ArcEventsReloadPolicy.validate(current, candidate, false) }
+            shouldThrow<IllegalArgumentException> { ArcEventsReloadPolicy.validate(current, candidate, true, "default") }
+            Files.writeString(root.resolve("config.yml"), original.replace("node-mode: RELAY", "node-mode: HOST"))
+            val host = ArcEventsConfig.inspect(root)
+            host.arenas.single { it.id == "fishing" }.let { arena ->
+                arena.world shouldBe "arcevents_fishing"
+                arena.template shouldBe "fishing-v1"
+                arena.operational(1) shouldBe true
+            }
+            current.arenas.none { it.id == "fishing" } shouldBe true
+        } finally { root.toFile().deleteRecursively() }
+    }
+
     "bundled defaults are a safe relay with a disabled arena" {
         val root = Files.createTempDirectory("arcevents-config-")
         try {
@@ -299,7 +322,7 @@ class ArcEventsConfigTest : StringSpec({
         arena.operational(16) shouldBe false
     }
 
-    "reviewed parkour profile exposes four combat maps and the disasters arena" {
+    "reviewed parkour profile exposes four combat maps and two dedicated arcade arenas" {
         val repository = opsRoot()
         val config = ArcEventsConfig.inspect(repository.resolve("parkour/plugins/ArcEvents"))
 
@@ -309,10 +332,11 @@ class ArcEventsConfigTest : StringSpec({
             "nuke",
             "ttt-minecraft-b5",
             "disasters",
+            "fishing",
         )
         config.defaultArenaId shouldBe "inferno"
         config.arenas.all { it.operational(config.ttt.maximumPlayers) } shouldBe true
-        val importedArenas = config.arenas.filter { it.id != "disasters" && it.template.endsWith("-v1") }
+        val importedArenas = config.arenas.filter { it.id !in setOf("disasters", "fishing") && it.template.endsWith("-v1") }
         importedArenas.all { it.spawns.size == 1 } shouldBe true
         importedArenas.all { it.lootSpawns.size >= 32 } shouldBe true
         importedArenas.all { it.weaponCount == 30 } shouldBe true

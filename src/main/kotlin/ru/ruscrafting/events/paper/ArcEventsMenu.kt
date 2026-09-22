@@ -31,6 +31,7 @@ sealed interface EventsView {
     data object Help : EventsView
     data object EventHelp : EventsView
     data object Ttt : EventsView
+    data object Fishing : EventsView
     data class Arcade(val mode: EventMode) : EventsView
     data object Statistics : EventsView
     data object Admin : EventsView
@@ -56,6 +57,7 @@ class ArcEventsMenu(
 
     private val pendingClicks = mutableSetOf<UUID>()
     private val pendingDialogLoads = mutableMapOf<UUID, UUID>()
+    private val pendingFishingActions = mutableMapOf<UUID, UUID>()
     private val selectedArenas = mutableMapOf<UUID, String>()
     private val dialogRuntime = PaperDialogRuntime(plugin)
     private val dialogs = ArcEventsDialogMenu(dialogRuntime, service, locale, settings,
@@ -77,10 +79,12 @@ class ArcEventsMenu(
             when (service.currentMode()) {
                 EventMode.GUN_GAME -> EventsView.Arcade(EventMode.GUN_GAME)
                 EventMode.DISASTERS -> EventsView.Arcade(EventMode.DISASTERS)
+                EventMode.FISHING -> EventsView.Fishing
                 else -> EventsView.Ttt
             }
         } else view
         pendingDialogLoads.remove(player.uniqueId)
+        pendingFishingActions.remove(player.uniqueId)
         if (requestedView !in nativeDialogViews) dialogRuntime.close(player)
         dialogRuntime.beginFlow(player)
         open(player, requestedView)
@@ -88,12 +92,21 @@ class ArcEventsMenu(
 
     fun open(player: Player, view: EventsView = EventsView.Main) {
         if (view != EventsView.Ttt) pendingDialogLoads.remove(player.uniqueId)
+        if (view != EventsView.Fishing) pendingFishingActions.remove(player.uniqueId)
         if (view !in nativeDialogViews) dialogRuntime.close(player)
         if (view == EventsView.Ttt) {
             openTtt(player)
             return
         }
+        if (view == EventsView.Fishing) {
+            openFishing(player)
+            return
+        }
         if (view is EventsView.Arcade) {
+            if (view.mode == EventMode.FISHING) {
+                openFishing(player)
+                return
+            }
             openArcade(player, view.mode)
             return
         }
@@ -103,6 +116,7 @@ class ArcEventsMenu(
             EventsView.Help, EventsView.EventHelp -> openHelp(player, view)
             EventsView.Statistics -> openStatistics(player)
             EventsView.Ttt -> error("TTT is opened asynchronously")
+            EventsView.Fishing -> error("Fishing is opened natively")
             EventsView.Admin -> openAdmin(player)
             EventsView.Arenas -> openArenas(player)
             EventsView.EventArenas -> openEventArenas(player)
@@ -141,6 +155,7 @@ class ArcEventsMenu(
     override fun close() {
         activeFrames.clear()
         pendingDialogLoads.clear()
+        pendingFishingActions.clear()
         menuRuntime.close()
         dialogRuntime.close()
     }
@@ -151,6 +166,7 @@ class ArcEventsMenu(
             EventsView.Help -> if (slot == element(view, "back")) open(player, EventsView.Main)
             EventsView.EventHelp -> if (slot == element(view, "back")) open(player, EventsView.Ttt)
             EventsView.Ttt -> clickTtt(player, slot, nativePresentation)
+            EventsView.Fishing -> clickFishing(player, slot, nativePresentation)
             is EventsView.Arcade -> clickArcade(player, view.mode, slot)
             EventsView.Statistics -> if (slot == element(view, "back")) open(player, EventsView.Main)
             EventsView.Admin -> clickAdmin(player, slot)
@@ -169,7 +185,7 @@ class ArcEventsMenu(
     }
 
     companion object {
-        val nativeDialogViews = setOf<EventsView>(EventsView.Main, EventsView.Help, EventsView.EventHelp, EventsView.Ttt, EventsView.Statistics, EventsView.Admin)
+        val nativeDialogViews = setOf<EventsView>(EventsView.Main, EventsView.Help, EventsView.EventHelp, EventsView.Ttt, EventsView.Fishing, EventsView.Statistics, EventsView.Admin)
 
         internal fun closeSurfaceForPresentation(
             player: Player,
@@ -197,6 +213,7 @@ class ArcEventsMenu(
             "queue" to locale.text(state.queueSize),
             "minimum" to locale.text(settings().arcade.rules(EventMode.DISASTERS).minimumPlayers),
         )))
+        inventory.setItem(element(view, "fishing"), item(Material.FISHING_ROD, player, "arcade.fishing-name", "arcade.fishing-lore"))
         inventory.setItem(element(view, "statistics"), item(Material.WRITABLE_BOOK, player, "menu.main.stats-name", "menu.main.stats-lore"))
         inventory.setItem(element(view, "help"), item(Material.KNOWLEDGE_BOOK, player, "menu.main.help-name", "menu.main.help-lore"))
         if (player.hasPermission("arcevents.admin")) {
@@ -211,6 +228,7 @@ class ArcEventsMenu(
             element(view, "ttt") -> open(player, EventsView.Ttt)
             element(view, "gungame") -> open(player, EventsView.Arcade(EventMode.GUN_GAME))
             element(view, "disasters") -> open(player, EventsView.Arcade(EventMode.DISASTERS))
+            element(view, "fishing") -> open(player, EventsView.Fishing)
             element(view, "statistics") -> open(player, EventsView.Statistics)
             element(view, "help") -> open(player, EventsView.Help)
             element(view, "admin") -> if (player.hasPermission("arcevents.admin")) open(player, EventsView.Admin)
@@ -218,6 +236,10 @@ class ArcEventsMenu(
     }
 
     private fun openArcade(player: Player, mode: EventMode) {
+        if (mode == EventMode.FISHING) {
+            openFishing(player)
+            return
+        }
         service.queueControl(player.uniqueId).whenComplete { control, failure ->
             Tasks.scheduler.runSync {
                 if (!player.isOnline) return@runSync
@@ -230,9 +252,10 @@ class ArcEventsMenu(
                 val creator = controls.creatorControlsEnabled && control?.ownedBy(player.uniqueId) == true
                 val arcadeParticipant = service.arcadeSnapshot()?.participants?.get(player.uniqueId)
                 val inArcadeMatch = arcadeParticipant != null && arcadeParticipant.status != ParticipantStatus.RESTORED
+                val modeAvailable = service.modeAvailable(mode)
                 val canStart = queueState == QueueState.QUEUED && (adminOverride || creator ||
                     (!controls.creatorControlsEnabled && player.hasPermission("arcevents.start"))) &&
-                    state.hostAvailable && state.matchId == null && state.queueSize >= rules.minimumPlayers && failure == null
+                    modeAvailable && state.matchId == null && state.queueSize >= rules.minimumPlayers && failure == null
                 val values = mapOf("queue" to locale.text(state.queueSize), "minimum" to locale.text(rules.minimumPlayers), "mode" to locale.render("arcade.${mode.id}-name", player))
                 val inventory = inventory(player, view, "arcade.${mode.id}-title", values)
                 inventory.setItem(element(view, "overview"), item(Material.IRON_SWORD.takeIf { mode == EventMode.GUN_GAME } ?: Material.LIGHTNING_ROD, player, "arcade.${mode.id}-name", "arcade.${mode.id}-guide", values))
@@ -243,10 +266,54 @@ class ArcEventsMenu(
                     when { inArcadeMatch -> "menu.event.evacuate-lore"; queued -> "arcade.leave-lore"; else -> "arcade.join-lore" }, values))
                 if (canStart) inventory.setItem(element(view, "right"), item(Material.LIME_CONCRETE, player, "arcade.start-name", "arcade.start-lore", values))
                 inventory.setItem(element(view, "left"), item(Material.CLOCK, player, "arcade.status-name", "arcade.status-lore", values + mapOf("queue_state" to locale.render(
-                    when { failure != null -> "state.network-degraded"; inArcadeMatch -> "menu.event.state.matched"; queueState != null -> queueStateLocaleKey(queueState); !state.hostAvailable -> "state.network-degraded"; else -> "state.idle" }, player))))
+                    when { failure != null -> "state.network-degraded"; inArcadeMatch -> "menu.event.state.matched"; queueState != null -> queueStateLocaleKey(queueState); !modeAvailable -> "state.network-degraded"; else -> "state.idle" }, player))))
                 inventory.setItem(element(view, "help"), item(Material.KNOWLEDGE_BOOK, player, "arcade.${mode.id}-guide-name", "arcade.${mode.id}-guide", values))
                 inventory.setItem(element(view, "back"), backItem(player))
                 show(player, view, inventory)
+            }
+        }
+    }
+
+    private fun openFishing(player: Player) {
+        if (dialogs.openFishing(player, { openFishing(player) }) {
+                pendingFishingActions.remove(player.uniqueId)
+            }) return
+        player.sendEventMessage(locale.render("arcade.fishing-dialog-unavailable", player))
+    }
+
+    private fun clickFishing(player: Player, slot: Int, nativePresentation: Boolean) {
+        if (slot != FISHING_PRIMARY_SLOT) return
+        val participant = service.isParticipant(player.uniqueId) && service.currentMode() == EventMode.FISHING
+        if (participant) {
+            closeSurface(player, nativePresentation)
+            service.leave(player)
+            return
+        }
+        val token = UUID.randomUUID()
+        pendingFishingActions[player.uniqueId] = token
+        val loading = dialogs.openFishingLoading(
+            player,
+            reopen = {
+                pendingFishingActions.remove(player.uniqueId, token)
+                openFishing(player)
+            },
+            onDismiss = { pendingFishingActions.remove(player.uniqueId, token) },
+        )
+        if (!loading) {
+            pendingFishingActions.remove(player.uniqueId, token)
+            player.sendEventMessage(locale.render("arcade.fishing-dialog-unavailable", player))
+            return
+        }
+        service.startFishing(player).whenComplete { result, failure ->
+            Tasks.scheduler.runSync {
+                if (!player.isOnline || pendingFishingActions[player.uniqueId] != token) return@runSync
+                pendingFishingActions.remove(player.uniqueId, token)
+                player.sendEventMessage(locale.render(
+                    if (failure == null && result != null) reservationStartMessage(result, StartMessageAudience.PLAYER) else "command.failed",
+                    player,
+                    if (failure == null && result != null) emptyMap() else mapOf("reason" to locale.render("reason.network", player)),
+                ))
+                openFishing(player)
             }
         }
     }
@@ -274,7 +341,7 @@ class ArcEventsMenu(
                                 (controls.creatorControlsEnabled && control.ownedBy(player.uniqueId)) ||
                                 (!controls.creatorControlsEnabled && player.hasPermission("arcevents.start"))) &&
                             service.snapshot().queueSize >= settings().arcade.rules(mode).minimumPlayers &&
-                            service.snapshot().hostAvailable && service.snapshot().matchId == null
+                            service.modeAvailable(mode) && service.snapshot().matchId == null
                         if (!allowed) {
                             player.sendEventMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.contended", player))))
                             open(player, view)

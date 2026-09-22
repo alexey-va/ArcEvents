@@ -8,6 +8,7 @@ import ru.arc.redis.RedisConfigBootstrap
 import ru.arc.redis.RedisModuleConfig
 import ru.ruscrafting.events.domain.ArcadeRules
 import ru.ruscrafting.events.domain.EventMode
+import ru.ruscrafting.events.domain.FishingRules
 import ru.ruscrafting.events.domain.FirearmId
 import ru.ruscrafting.events.domain.FirearmRarity
 import ru.ruscrafting.events.domain.FirearmSpec
@@ -245,32 +246,48 @@ data class DebugSettings(
     fun mutationsAllowed(serverId: String): Boolean = enabled && serverId in allowedServerIds
 }
 
-data class ArcadeSettings(val gunGame: ArcadeRules, val disasters: ArcadeRules) {
+data class ArcadeSettings(
+    val gunGame: ArcadeRules,
+    val disasters: ArcadeRules,
+    val fishing: ArcadeRules = ArcadeRules(minimumPlayers = 1, maximumPlayers = 1, preparationSeconds = 3, countdownSeconds = 3, roundSeconds = 900),
+) {
     fun rules(mode: EventMode): ArcadeRules = when (mode) {
         EventMode.GUN_GAME -> gunGame
         EventMode.DISASTERS -> disasters
+        EventMode.FISHING -> fishing
         EventMode.TTT -> error("TTT owns its own rules")
     }
 }
 
 class ArcEventsConfig(private val config: Config) {
-    val arcade: ArcadeSettings get() = ArcadeSettings(arcadeRules("gungame", 12), arcadeRules("disasters", 16))
+    val arcade: ArcadeSettings get() = ArcadeSettings(arcadeRules("gungame", 12), arcadeRules("disasters", 16), arcadeRules("fishing", 1))
+    val fishing: FishingRules get() = FishingRules(
+        catchesPerIsland = config.int("arcade.fishing.catches-per-island", 3),
+        minBiteTicks = config.int("arcade.fishing.min-bite-ticks", 40),
+        maxBiteTicks = config.int("arcade.fishing.max-bite-ticks", 100),
+        creatureHealth = config.double("arcade.fishing.creature-health", 18.0),
+        bossHealth = config.double("arcade.fishing.boss-health", 80.0),
+        telegraphTicks = config.int("arcade.fishing.telegraph-ticks", 30),
+        attackIntervalTicks = config.int("arcade.fishing.attack-interval-ticks", 60),
+        stageTravelRadius = config.double("arcade.fishing.travel-radius", 3.0),
+        fishingRadius = config.double("arcade.fishing.fishing-radius", 6.0),
+    )
 
     private fun arcadeRules(id: String, maximum: Int): ArcadeRules {
         val path = "arcade.$id"
         return ArcadeRules(
-            minimumPlayers = config.int("$path.minimum-players", 3),
+            minimumPlayers = config.int("$path.minimum-players", if (id == "fishing") 1 else 3),
             maximumPlayers = config.int("$path.maximum-players", maximum),
-            preparationSeconds = config.int("$path.preparation-seconds", 15),
-            countdownSeconds = config.int("$path.countdown-seconds", 5),
-            roundSeconds = config.int("$path.round-seconds", 360),
+            preparationSeconds = config.int("$path.preparation-seconds", if (id == "fishing") 3 else 15),
+            countdownSeconds = config.int("$path.countdown-seconds", if (id == "fishing") 3 else 5),
+            roundSeconds = config.int("$path.round-seconds", if (id == "fishing") 900 else 360),
             postRoundSeconds = config.int("$path.post-round-seconds", 8),
             respawnSeconds = config.int("$path.respawn-seconds", 3),
             spawnProtectionSeconds = config.int("$path.spawn-protection-seconds", 2),
             disasterSeconds = config.int("$path.disaster-seconds", 25),
             intermissionSeconds = config.int("$path.intermission-seconds", 5),
             disasterRounds = config.int("$path.disaster-rounds", 6),
-        ).validated()
+        ).validated(allowSolo = id == "fishing")
     }
 
     val enabled: Boolean get() = config.bool("enabled", true)
@@ -459,6 +476,20 @@ class ArcEventsConfig(private val config: Config) {
                     configured + disasterArena()
                 } else configured
             }
+            .let { configured ->
+                if (nodeMode == NodeMode.HOST) {
+                    require(configured.none { it.id == "fishing" }) { "fishing is reserved for the generated arena" }
+                    configured + fishingArena()
+                } else configured
+            }
+
+    private fun fishingArena(): ArenaSettings {
+        val world = config.string("arcade.fishing.arena.world", "arcevents_fishing")
+        val spawn = EventLocation(world, 0.5, 65.0, 0.5)
+        return ArenaSettings("fishing", true, world, "fishing-v1", spawn, spawn,
+            EventBounds(EventLocation(world, -24.0, 54.0, -24.0), EventLocation(world, 121.0, 100.0, 29.0)),
+            listOf(spawn), emptyList())
+    }
 
     private fun disasterArena(): ArenaSettings {
         val world = config.string("arcade.disasters.arena.world", "arcevents_disasters")
@@ -540,6 +571,7 @@ class ArcEventsConfig(private val config: Config) {
             "arena-runtime.imported-decorations.max-displays must be between 0 and 1024"
         }
         arcade
+        fishing
         val ttt = ttt
         require(ttt.minimumPlayers in 4..ttt.maximumPlayers)
         require(ttt.maximumPlayers in 4..32)
@@ -649,7 +681,7 @@ class ArcEventsConfig(private val config: Config) {
             }
             require(arena.spawns.size <= 1) { "Arena ${arena.id} must use one common player spawn" }
             require(arena.lootSpawns.size <= 128) { "Arena ${arena.id} has too many loot spawns" }
-            if (arena.enabled && weapons.enabled && arena.template !in setOf("", "citadel-v1", "disasters-v1")) {
+            if (arena.enabled && weapons.enabled && arena.template !in setOf("", "citadel-v1", "disasters-v1", "fishing-v1")) {
                 require(arena.lootSpawns.size >= ttt.maximumPlayers) {
                     "Imported arena ${arena.id} requires at least ${ttt.maximumPlayers} loot spawns"
                 }
@@ -671,6 +703,7 @@ class ArcEventsConfig(private val config: Config) {
             "",
             "citadel-v1",
             "disasters-v1",
+            "fishing-v1",
             "ttt-minecraft-b5-v1",
             "cs2-inferno-v1",
             "cs2-mirage-v1",
@@ -796,6 +829,9 @@ object ArcEventsReloadPolicy {
             "network.return-to-origin requires a restart"
         }
         if (matchOrReservationActive) {
+            require(candidate.fishing == current.fishing && candidate.arcade.fishing == current.arcade.fishing) {
+                "arcade.fishing rules can reload only while idle"
+            }
             require(candidate.weapons.enabled == current.weapons.enabled) {
                 "weapons.enabled can reload only while idle"
             }

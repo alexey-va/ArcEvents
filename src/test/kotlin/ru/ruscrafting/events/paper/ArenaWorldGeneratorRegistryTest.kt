@@ -34,6 +34,14 @@ class ArenaWorldGeneratorRegistryTest : StringSpec({
         (ArenaWorldGeneratorRegistry.generatorFor(container, arena.fileName.toString()) is TttCitadelChunkGenerator) shouldBe true
     }
 
+    "fishing archipelago restores its deterministic generator" {
+        val container = Files.createTempDirectory("arcevents-fishing-generator-")
+        val arena = Files.createDirectory(container.resolve("fishing-v1"))
+        Files.writeString(arena.resolve(ARENA_TEMPLATE_MARKER), FishingArenaGenerator.TEMPLATE + "\n")
+
+        (ArenaWorldGeneratorRegistry.generatorFor(container, arena.fileName.toString()) is FishingArenaGenerator) shouldBe true
+    }
+
     "unowned worlds get no generator and corrupt owned markers fail closed" {
         val container = Files.createTempDirectory("arcevents-generator-boundary-")
         Files.createDirectory(container.resolve("ordinary_world"))

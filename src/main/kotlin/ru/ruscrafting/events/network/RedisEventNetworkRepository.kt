@@ -156,6 +156,38 @@ class RedisEventNetworkRepository(
     fun loadQueueEntry(playerId: UUID): CompletableFuture<QueueEntry?> =
         redis.loadMapEntries(QUEUE_KEY, playerId.toString()).thenApply { values -> values.firstOrNull()?.let(queueCodec::decode) }
 
+    /** Reserves only the authenticated requester row; fishing must never consume FIFO neighbours. */
+    fun reserveForRequester(
+        matchId: UUID,
+        destinationServer: String,
+        requesterId: UUID,
+        requesterOrigin: String,
+        nowMs: Long,
+        reservationMs: Long,
+        mode: String,
+    ): CompletableFuture<ReservationBatch?> {
+        require(EventMode.fromId(mode) == EventMode.FISHING) { "Requester-only reservation is for fishing" }
+        return loadQueueEntry(requesterId).thenCompose { entry ->
+            if (entry == null || entry.state != QueueState.QUEUED || entry.expiresAtMs < nowMs || entry.originServer != requesterOrigin) {
+                CompletableFuture.completedFuture(null)
+            } else {
+                reserveCandidates(
+                    matchId = matchId,
+                    destinationServer = destinationServer,
+                    candidates = listOf(entry),
+                    minimum = 1,
+                    nowMs = nowMs,
+                    reservationMs = reservationMs,
+                    requiredOwnerId = requesterId,
+                    requiredOwnerOrigin = requesterOrigin,
+                    mode = mode,
+                    index = 0,
+                    reserved = emptyList(),
+                )
+            }
+        }
+    }
+
     fun reserve(
         matchId: UUID,
         destinationServer: String,
@@ -166,31 +198,34 @@ class RedisEventNetworkRepository(
         requiredOwnerId: UUID? = null,
         requiredOwnerOrigin: String? = null,
         mode: String = EventMode.TTT.id,
-    ): CompletableFuture<ReservationBatch?> = loadQueue(nowMs).thenCompose { entries ->
-        require(EventMode.fromId(mode) != null) { "Unsupported event mode" }
-        val candidates = entries.filter { it.state == QueueState.QUEUED }.take(maximum)
-        val owner = candidates.firstOrNull()
-        if (requiredOwnerId != null && (
-                owner == null || owner.playerId != requiredOwnerId.toString() ||
-                    requiredOwnerOrigin != null && owner.originServer != requiredOwnerOrigin
-                )
-        ) {
-            return@thenCompose CompletableFuture.completedFuture(null)
+    ): CompletableFuture<ReservationBatch?> {
+        require(mode != EventMode.FISHING.id) { "Fishing requires requester-bound reservation" }
+        return loadQueue(nowMs).thenCompose { entries ->
+            require(EventMode.fromId(mode) != null) { "Unsupported event mode" }
+            val candidates = entries.filter { it.state == QueueState.QUEUED }.take(maximum)
+            val owner = candidates.firstOrNull()
+            if (requiredOwnerId != null && (
+                    owner == null || owner.playerId != requiredOwnerId.toString() ||
+                        requiredOwnerOrigin != null && owner.originServer != requiredOwnerOrigin
+                    )
+            ) {
+                return@thenCompose CompletableFuture.completedFuture(null)
+            }
+            if (candidates.size < minimum) CompletableFuture.completedFuture(null)
+            else reserveCandidates(
+                matchId,
+                destinationServer,
+                candidates,
+                minimum,
+                nowMs,
+                reservationMs,
+                requiredOwnerId,
+                requiredOwnerOrigin,
+                mode,
+                0,
+                emptyList(),
+            )
         }
-        if (candidates.size < minimum) CompletableFuture.completedFuture(null)
-        else reserveCandidates(
-            matchId,
-            destinationServer,
-            candidates,
-            minimum,
-            nowMs,
-            reservationMs,
-            requiredOwnerId,
-            requiredOwnerOrigin,
-            mode,
-            0,
-            emptyList(),
-        )
     }
 
     fun claimReservation(playerId: UUID, currentServer: String, nowMs: Long): CompletableFuture<QueueEntry?> =
