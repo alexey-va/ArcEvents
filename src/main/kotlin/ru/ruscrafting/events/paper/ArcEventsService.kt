@@ -634,7 +634,7 @@ class ArcEventsService(
     }
 
     override fun shouldCancelDamage(victimId: UUID, attackerId: UUID?, projectile: Boolean, projectileMatchId: UUID?): Boolean {
-        if (victimId in arrivalPlayers || attackerId in arrivalPlayers) return true
+        if (victimId in arrivalPlayers || (attackerId != null && attackerId in arrivalPlayers)) return true
         if (arcade.current != null) {
             if (attackerId != null && (arcade.isParticipant(victimId) || arcade.isParticipant(attackerId)) &&
                 arcade.current?.mode == EventMode.GUN_GAME && pendingHit == null) {

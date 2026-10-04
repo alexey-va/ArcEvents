@@ -56,6 +56,17 @@ import java.util.concurrent.TimeUnit
  * [ArcEventsPlugin.onEnable] bootstrap are outside this host-local test and do not currently have MockBukkit coverage.
  */
 class TttRoundLifecycleMockBukkitTest : FunSpec({
+    test("environmental damage remains allowed during an active round") {
+        failOnUnsupportedMockBukkitOperation {
+            TttRoundFixture().use { fixture ->
+                fixture.startActiveRound()
+                val victim = fixture.players.first()
+
+                fixture.service.shouldCancelDamage(victim.uniqueId, null, false, null) shouldBe false
+            }
+        }
+    }
+
     test("departing reserved arrival restores escrow and prepares durable return") {
         failOnUnsupportedMockBukkitOperation {
             TttRoundFixture().use { fixture ->
@@ -82,6 +93,7 @@ class TttRoundLifecycleMockBukkitTest : FunSpec({
                 fixture.service.handlesMatchChat(player.uniqueId) shouldBe true
                 fixture.service.phase() shouldBe MatchPhase.RESERVED
                 fixture.service.shouldCancelDamage(player.uniqueId, null, false, null) shouldBe true
+                fixture.service.shouldCancelDamage(UUID.randomUUID(), player.uniqueId, false, null) shouldBe true
                 player.inventory.setItemInMainHand(ItemStack.of(Material.STICK))
                 fixture.arrive(player) shouldBe true
                 player.inventory.itemInMainHand.type shouldBe Material.STICK
