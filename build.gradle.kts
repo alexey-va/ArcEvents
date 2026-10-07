@@ -98,6 +98,8 @@ tasks {
         exclude("org/bukkit/**")
         exclude("io/papermc/**")
         exclude("net/kyori/adventure/**")
+        exclude("ru/arc/paper/packet/PaperVisualPacketRuntime*.class")
+        exclude("ru/arc/paper/api/**")
         // ARC is the sole native sidebar host; consumers share only its API class identity.
         exclude("ru/arc/paper/sidebar/**")
     }
