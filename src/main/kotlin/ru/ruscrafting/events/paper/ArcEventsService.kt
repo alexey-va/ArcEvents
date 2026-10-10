@@ -25,6 +25,7 @@ import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.config.EventBounds
 import ru.ruscrafting.events.config.EventLocation
 import ru.ruscrafting.events.config.NodeMode
+import ru.ruscrafting.events.config.PlayerStateMode
 import ru.ruscrafting.events.config.TttSettings
 import ru.ruscrafting.events.domain.MatchEndReason
 import ru.ruscrafting.events.domain.MatchOutcome
@@ -140,6 +141,8 @@ class ArcEventsService(
     /** Gameplay and phase clocks are immutable for one reservation and its resulting match. */
     private var matchSettings: TttSettings? = null
     private val arrivals = linkedMapOf<UUID, QueueEntry>()
+    private val eventRecoveries = mutableMapOf<UUID, PlayerRecovery>()
+    private val disposableOrigins = mutableMapOf<UUID, EventLocation>()
     private val arrivalPlayers = java.util.concurrent.ConcurrentHashMap.newKeySet<UUID>()
     private val sessionTasks = mutableListOf<ScheduledTask>()
     private var mainTickTask: ScheduledTask? = null
@@ -199,6 +202,16 @@ class ArcEventsService(
     fun arcadeSnapshot(): ArcadeMatch? = arcade.current
     fun currentMatch(): TttMatch? = match
     fun participant(playerId: UUID): TttParticipant? = match?.participant(playerId)
+    fun ownsActiveRoute(entry: QueueEntry): Boolean {
+        val playerId = runCatching { UUID.fromString(entry.playerId) }.getOrNull() ?: return false
+        val matchId = entry.matchId?.let { runCatching { UUID.fromString(it) }.getOrNull() } ?: return false
+        val pending = reservation
+        if (pending?.matchId == matchId && pending.entries.any { it.playerId == entry.playerId }) return true
+        val tttParticipant = match?.takeIf { it.matchId == matchId }?.participant(playerId)
+        if (tttParticipant?.status?.let { it != ParticipantStatus.RESTORED } == true) return true
+        val arcadeParticipant = arcade.current?.takeIf { it.matchId == matchId }?.participants?.get(playerId)
+        return arcadeParticipant?.status?.let { it != ParticipantStatus.RESTORED } == true
+    }
     fun stats(playerId: UUID): PlayerEventStats = network.stats(playerId)
     fun queueState(playerId: UUID): CompletableFuture<QueueState?> = network.queueState(playerId)
     fun queueControl(playerId: UUID): CompletableFuture<QueueControlSnapshot> = network.queueControl(playerId)
@@ -301,19 +314,27 @@ class ArcEventsService(
         if (playerId in arrivals) return true
         if (playerId in arrivalPlayers) return true // A failed preparation still owns recovery.
         try {
-            escrow.commitThenMutate(
+            commitPlayerMutation(
                 batch.matchId,
                 listOf(player),
                 mapOf(playerId to entry.originServer),
                 clock(),
             ) {
                 arrivalPlayers += playerId
+                eventRecoveries[playerId] = PlayerRecovery(batch.matchId, entry.originServer)
+                rememberDisposableOrigin(player, entry.originServer)
+                if (disposablePlayerState()) resetDisposablePlayer(player)
                 items.clearForEvent(player)
-                player.saveData()
+                if (!disposablePlayerState()) player.saveData()
             }
         } catch (failure: Throwable) {
             plugin.logger.log(Level.SEVERE, "ArcEvents could not isolate arrival $playerId", failure)
-            if (hasPendingRecovery(playerId)) arrivalPlayers += playerId
+            if (disposablePlayerState()) {
+                runCatching { resetDisposablePlayer(player) }
+                arrivalPlayers.remove(playerId)
+                eventRecoveries.remove(playerId)
+                disposableOrigins.remove(playerId)
+            } else if (hasPendingRecovery(playerId)) arrivalPlayers += playerId
             return playerId in arrivalPlayers
         }
         arrivals[playerId] = entry
@@ -482,6 +503,7 @@ class ArcEventsService(
     }
 
     override fun handleQuit(player: Player) {
+        if (disposablePlayerState() && isParticipant(player.uniqueId)) resetDisposablePlayer(player)
         arrivals.remove(player.uniqueId)
         if (player.uniqueId in arrivalPlayers && !arcade.isParticipant(player.uniqueId) && participant(player.uniqueId) == null) {
             runCatching { recoverPlayer(player) }.onSuccess { recovery ->
@@ -1201,6 +1223,7 @@ class ArcEventsService(
         val matchId = UUID.randomUUID()
         val arena = arenaPool.reserve(matchId, arenaId) ?: return DebugMutationResult.ARENA_UNAVAILABLE
         matchSettings = currentSettings.ttt
+        online.forEach { rememberDisposableOrigin(it, currentSettings.serverId) }
         val created = runtime.create(
             matchId,
             online.map { player -> QueuedPlayer(player.uniqueId, player.name, currentSettings.serverId, clock()) },
@@ -1221,7 +1244,7 @@ class ArcEventsService(
             cleanupProjectiles()
             cleanupLoot()
             val prepared = runtime.prepare(created, currentSettings.ttt.preparationSeconds)
-            escrow.commitThenMutate(
+            commitPlayerMutation(
                 matchId,
                 online,
                 online.associate { it.uniqueId to currentSettings.serverId },
@@ -1546,6 +1569,7 @@ class ArcEventsService(
         return try {
             val entries = online.map { QueueEntry(it.uniqueId.toString(), it.name, config.serverId, mode.id,
                 joinedAtMs = clock(), expiresAtMs = clock() + 60_000L) }
+            online.forEach { rememberDisposableOrigin(it, config.serverId) }
             arcade.start(id, mode, entries, online, rules)
             arcade.confirmRoster()
             DebugMutationResult.APPLIED
@@ -1593,7 +1617,7 @@ class ArcEventsService(
             )
             val prepared = runtime.prepare(created, matchTtt.preparationSeconds)
             arrivalPlayers.removeAll(online.map(Player::getUniqueId).toSet())
-            escrow.commitThenMutate(
+            commitPlayerMutation(
                 batch.matchId,
                 online,
                 entries.associate { UUID.fromString(it.playerId) to it.originServer },
@@ -1667,9 +1691,12 @@ class ArcEventsService(
     private fun applyEventState(players: List<Player>, current: TttMatch) {
         val arena = requireNotNull(arenaPool.active()) { "Match ${current.matchId} has no arena lease" }
         players.forEach { player ->
+            if (disposablePlayerState()) resetDisposablePlayer(player)
             player.closeInventory()
             player.activePotionEffects.forEach { player.removePotionEffect(it.type) }
             player.gameMode = GameMode.ADVENTURE
+            player.isInvulnerable = false
+            player.noDamageTicks = 0
             player.allowFlight = false
             player.isFlying = false
             player.velocity = Vector()
@@ -1692,7 +1719,7 @@ class ArcEventsService(
             if (settings().ui.particles) {
                 player.world.spawnParticle(Particle.END_ROD, player.location.add(0.0, 1.0, 0.0), 18, 0.7, 0.8, 0.7, 0.015)
             }
-            player.saveData()
+            if (!disposablePlayerState()) player.saveData()
         }
         spawnLoot(current)
         hud.open(current)
@@ -1979,9 +2006,28 @@ class ArcEventsService(
     }
 
     private fun completeRecovery(player: Player, recovery: PlayerRecovery, messageKey: String = "match.restored") {
+        if (disposablePlayerState() && !ownsDisposableRecovery(player.uniqueId, recovery)) {
+            debug.event("stale_disposable_recovery_ignored", "player" to player.uniqueId, "match" to recovery.matchId)
+            return
+        }
         arrivalPlayers.remove(player.uniqueId)
         arrivals.remove(player.uniqueId)
         recoveryReadFailures.remove(player.uniqueId)
+        eventRecoveries.remove(player.uniqueId, recovery)
+        if (disposablePlayerState()) {
+            runCatching { resetDisposablePlayer(player) }.onFailure { failure ->
+                plugin.logger.log(Level.WARNING, "ArcEvents could not clear disposable state for ${player.uniqueId}", failure)
+            }
+            val localOrigin = disposableOrigins.remove(player.uniqueId)
+            if (recovery.returnServer == settings().serverId) {
+                val destination = localOrigin ?: arenaPool.active()?.lobby
+                if (destination != null) runCatching { teleport(player, destination) }.onFailure { failure ->
+                    plugin.logger.log(Level.WARNING, "ArcEvents could not return ${player.uniqueId} to the disposable-host lobby", failure)
+                }
+            }
+        } else {
+            disposableOrigins.remove(player.uniqueId)
+        }
         runCatching { markRecovered(player.uniqueId, recovery) }.onFailure { failure ->
             plugin.logger.log(Level.SEVERE, "ArcEvents could not record recovery for ${player.uniqueId}", failure)
         }
@@ -2002,7 +2048,7 @@ class ArcEventsService(
         return EventRecoveryGate.blocked(online, pending, recovered)
     }
 
-    private fun pendingPlayers(matchId: UUID): Set<UUID>? = runCatching { escrow.pendingPlayers(matchId) }
+    private fun pendingPlayers(matchId: UUID): Set<UUID>? = if (disposablePlayerState()) emptySet() else runCatching { escrow.pendingPlayers(matchId) }
         .onSuccess { recoveryReadFailures.remove(matchId) }
         .onFailure { failure ->
             if (recoveryReadFailures.add(matchId)) {
@@ -2015,7 +2061,7 @@ class ArcEventsService(
 
     private fun totalPendingCount(): Int = allPendingPlayers()?.size ?: -1
 
-    private fun allPendingPlayers(): Set<UUID>? = runCatching { escrow.pendingPlayers() }
+    private fun allPendingPlayers(): Set<UUID>? = if (disposablePlayerState()) emptySet() else runCatching { escrow.pendingPlayers() }
         .onSuccess { recoveryCatalogFailureLogged = false }
         .onFailure { failure ->
             if (!recoveryCatalogFailureLogged) {
@@ -2206,12 +2252,86 @@ class ArcEventsService(
     }
 
     private fun recoverPlayer(player: Player): PlayerRecovery? {
-        val recovery = escrow.recover(player) { destination -> authorizedTeleport(player, destination) }
+        val recovery = if (!disposablePlayerState()) {
+            escrow.recover(player) { destination -> authorizedTeleport(player, destination) }
+        } else {
+            val playerId = player.uniqueId
+            val activeTtt = match
+            val tttParticipant = activeTtt?.takeIf { it.phase != MatchPhase.COMPLETED }
+                ?.participant(playerId)
+                ?.takeIf { it.status != ParticipantStatus.RESTORED }
+                ?.let { PlayerRecovery(activeTtt.matchId, it.originServer) }
+            val activeArcade = arcade.current
+            val arcadeParticipant = activeArcade
+                ?.takeIf { it.phase != MatchPhase.COMPLETED }
+                ?.participants?.get(playerId)
+                ?.takeIf { it.status != ParticipantStatus.RESTORED }
+                ?.let { PlayerRecovery(activeArcade.matchId, it.originServer) }
+            tttParticipant ?: arcadeParticipant ?: eventRecoveries[playerId]
+                ?.takeIf { playerId in arrivalPlayers }
+        }
+        if (recovery != null && disposablePlayerState()) resetDisposablePlayer(player)
         if (recovery == null) {
             arrivalPlayers.remove(player.uniqueId)
             arrivals.remove(player.uniqueId)
         }
         return recovery
+    }
+
+    private fun ownsDisposableRecovery(playerId: UUID, recovery: PlayerRecovery): Boolean {
+        val tttParticipant = match
+            ?.takeIf { it.matchId == recovery.matchId }
+            ?.participant(playerId)
+        if (tttParticipant != null && tttParticipant.status != ParticipantStatus.RESTORED) return true
+
+        val arcadeParticipant = arcade.current
+            ?.takeIf { it.matchId == recovery.matchId }
+            ?.participants?.get(playerId)
+        if (arcadeParticipant != null && arcadeParticipant.status != ParticipantStatus.RESTORED) return true
+
+        return playerId in arrivalPlayers && eventRecoveries[playerId] == recovery
+    }
+
+    private fun disposablePlayerState(): Boolean = settings().playerStateMode == PlayerStateMode.DISPOSABLE
+
+    private fun <M : Any> commitPlayerMutation(
+        matchId: UUID,
+        players: List<Player>,
+        returnServers: Map<UUID, String>,
+        nowMs: Long,
+        mutation: () -> M,
+    ) {
+        if (disposablePlayerState()) mutation()
+        else escrow.commitThenMutate(matchId, players, returnServers, nowMs) { mutation() }
+    }
+
+    private fun rememberDisposableOrigin(player: Player, originServer: String) {
+        if (disposablePlayerState() && originServer == settings().serverId) {
+            disposableOrigins[player.uniqueId] = player.location.clone().eventLocation()
+        }
+    }
+
+    private fun resetDisposablePlayer(player: Player) {
+        player.closeInventory()
+        player.activePotionEffects.forEach { player.removePotionEffect(it.type) }
+        player.gameMode = GameMode.SURVIVAL
+        player.isInvulnerable = false
+        player.noDamageTicks = 0
+        player.allowFlight = false
+        player.isFlying = false
+        player.velocity = Vector()
+        player.fireTicks = 0
+        player.fallDistance = 0f
+        player.health = requireNotNull(player.getAttribute(Attribute.MAX_HEALTH)).value
+        player.absorptionAmount = 0.0
+        player.foodLevel = 20
+        player.saturation = 20f
+        player.level = 0
+        player.exp = 0f
+        player.totalExperience = 0
+        player.inventory.clear()
+        player.inventory.armorContents = arrayOfNulls(4)
+        player.inventory.setItemInOffHand(null)
     }
 
     private fun authorizedTeleport(player: Player, destination: Location): Boolean =

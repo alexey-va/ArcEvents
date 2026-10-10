@@ -114,5 +114,13 @@ class PlayerStateEscrowMockBukkitTest : FunSpec({
 
         shouldThrow<IllegalArgumentException> { RecoveryBatchStore(dataRoot).loadAll() }
         Files.exists(record) shouldBe true
+
+        val original = Files.readString(record)
+        val disposable = PlayerStateEscrow(RecoveryBatchStore(dataRoot), enabled = false)
+        disposable.recoveryBacklog() shouldBe 0
+        disposable.pendingPlayers() shouldBe emptySet()
+        disposable.pendingPlayers(matchId) shouldBe emptySet()
+        disposable.pendingCount() shouldBe 0
+        Files.readString(record) shouldBe original
     }
 })

@@ -34,6 +34,158 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 
 class EventNetworkCoordinatorMockBukkitTest : FunSpec({
+    test("disposable host preserves stale match routes for the origin without redirecting a later join") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture(disposable = true).use { fixture ->
+                fixture.start()
+                val player = fixture.addPlayer("DStale")
+                val matchId = UUID.randomUUID()
+                fixture.seedMatched(player, matchId)
+                every { fixture.transfer.connect(any(), any()) } returns BackendTransferResult.SENT
+
+                fixture.coordinator.handleJoin(player)
+                fixture.tick(4)
+                requireNotNull(fixture.queueEntry(player)).state shouldBe QueueState.RETURN_PENDING
+
+                // A subsequent unrelated backend join must not replay the old return transfer.
+                fixture.coordinator.handleJoin(player)
+                fixture.tick(4)
+                requireNotNull(fixture.queueEntry(player)).let {
+                    it.matchId shouldBe matchId.toString()
+                    it.originServer shouldBe "spawn"
+                    it.state shouldBe QueueState.RETURN_PENDING
+                }
+                verify(exactly = 0) { fixture.transfer.connect(any(), any()) }
+            }
+        }
+    }
+
+    test("disposable host sends an explicit current recovery return") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture(disposable = true).use { fixture ->
+                fixture.start()
+                val player = fixture.addPlayer("DReturn")
+                val matchId = UUID.randomUUID()
+                fixture.seedMatched(player, matchId)
+                every { fixture.transfer.connect(any(), any()) } returns BackendTransferResult.SENT
+
+                fixture.coordinator.returnRecoveredPlayer(player, PlayerRecovery(matchId, "spawn"))
+                fixture.tick(4)
+
+                requireNotNull(fixture.queueEntry(player)).let {
+                    it.matchId shouldBe matchId.toString()
+                    it.originServer shouldBe "spawn"
+                    it.state shouldBe QueueState.RETURN_PENDING
+                }
+                verify(exactly = 1) { fixture.transfer.connect(player, BackendServerId.of("spawn")) }
+            }
+        }
+    }
+
+    test("rapid disposable-host rejoin revokes a pending recovery return callback and retry") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture(disposable = true).use { fixture ->
+                fixture.start()
+                val player = fixture.addPlayer("DRapid")
+                val matchId = UUID.randomUUID()
+                fixture.seedMatched(player, matchId)
+                every { fixture.transfer.connect(any(), any()) } returns BackendTransferResult.SENT
+
+                // Queue the async return callback, then model a new backend join before it runs.
+                fixture.coordinator.returnRecoveredPlayer(player, PlayerRecovery(matchId, "spawn"))
+                fixture.coordinator.handleJoin(player)
+                fixture.tick(4)
+                fixture.coordinator.reconfigure()
+                fixture.tick(4)
+
+                requireNotNull(fixture.queueEntry(player)).let {
+                    it.matchId shouldBe matchId.toString()
+                    it.originServer shouldBe "spawn"
+                    it.state shouldBe QueueState.RETURN_PENDING
+                }
+                verify(exactly = 0) { fixture.transfer.connect(any(), any()) }
+            }
+        }
+    }
+
+    test("disposable host acknowledges an exact return route when it is the origin") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture(disposable = true).use { fixture ->
+                fixture.start()
+                val player = fixture.addPlayer("DAck")
+                val matchId = UUID.randomUUID()
+                fixture.seedMatched(player, matchId, origin = "parkour")
+                fixture.markReturnPending(player)
+
+                fixture.coordinator.handleJoin(player)
+                fixture.tick(4)
+
+                fixture.queueEntry(player) shouldBe null
+                verify(exactly = 0) { fixture.transfer.connect(any(), any()) }
+            }
+        }
+    }
+
+    test("disposable host leaves an exact active match route alone") {
+        failOnUnsupportedMockBukkitOperation {
+            lateinit var activeRoute: (QueueEntry) -> Boolean
+            EventNetworkCoordinatorFixture(
+                disposable = true,
+                activeMatchParticipant = { entry -> activeRoute(entry) },
+            ).use { fixture ->
+                fixture.start()
+                val player = fixture.addPlayer("DActive")
+                val matchId = UUID.randomUUID()
+                fixture.seedMatched(player, matchId)
+                activeRoute = { entry -> entry.playerId == player.uniqueId.toString() && entry.matchId == matchId.toString() }
+                every { fixture.transfer.connect(any(), any()) } returns BackendTransferResult.SENT
+
+                fixture.coordinator.handleJoin(player)
+                fixture.tick(4)
+
+                fixture.queueEntry(player)?.state shouldBe QueueState.MATCHED
+                verify(exactly = 0) { fixture.transfer.connect(any(), any()) }
+            }
+        }
+    }
+
+    test("disposable host converts an orphan arrival to a durable return without transferring") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture(disposable = true, onArrival = { false }).use { fixture ->
+                fixture.start()
+                val player = fixture.addPlayer("DOrphan")
+                val matchId = UUID.randomUUID()
+                fixture.seedReserved(player, matchId, "parkour", origin = "spawn")
+                every { fixture.transfer.connect(any(), any()) } returns BackendTransferResult.SENT
+
+                fixture.coordinator.handleJoin(player)
+                fixture.tick(4)
+
+                requireNotNull(fixture.queueEntry(player)).state shouldBe QueueState.RETURN_PENDING
+                verify(exactly = 0) { fixture.transfer.connect(any(), any()) }
+            }
+        }
+    }
+
+    test("disposable host ignores an old return message without a current recovery attempt") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture(disposable = true).use { fixture ->
+                fixture.start()
+                val player = fixture.addPlayer("DOldMsg")
+                val matchId = UUID.randomUUID()
+                fixture.seedMatched(player, matchId)
+                fixture.markReturnPending(player)
+                every { fixture.transfer.connect(any(), any()) } returns BackendTransferResult.SENT
+
+                fixture.publishReturn(matchId, player, "spawn")
+                fixture.tick(4)
+
+                requireNotNull(fixture.queueEntry(player)).state shouldBe QueueState.RETURN_PENDING
+                verify(exactly = 0) { fixture.transfer.connect(any(), any()) }
+            }
+        }
+    }
+
     test("solo start on a relay resumes an old matched route without replacing escrow ownership") {
         failOnUnsupportedMockBukkitOperation {
             EventNetworkCoordinatorFixture(relay = true).use { fixture ->
@@ -262,6 +414,9 @@ class EventNetworkCoordinatorMockBukkitTest : FunSpec({
 private class EventNetworkCoordinatorFixture(
     private val includeCombatArena: Boolean = true,
     private val relay: Boolean = false,
+    private val disposable: Boolean = false,
+    private val onArrival: (QueueEntry) -> Boolean = { true },
+    private val activeMatchParticipant: (QueueEntry) -> Boolean = { false },
 ) : AutoCloseable {
     private val paper = MockBukkitTestRuntime.open()
     private val plugin = paper.createSimplePlugin("ArcEventsNetworkCoordinatorTest")
@@ -280,8 +435,9 @@ private class EventNetworkCoordinatorFixture(
         ConfigManager.clear()
         ArcEventsConfig.mergeMissing(dataRoot)
         val configPath = dataRoot.resolve("config.yml")
-        Files.writeString(configPath, if (relay) Files.readString(configPath).replace("server-id: parkour", "server-id: spawn")
-            else Files.readString(configPath).replace("node-mode: RELAY", "node-mode: HOST"))
+        val baseConfig = if (relay) Files.readString(configPath).replace("server-id: parkour", "server-id: spawn")
+            else Files.readString(configPath).replace("node-mode: RELAY", "node-mode: HOST")
+        Files.writeString(configPath, if (disposable) baseConfig.replace("mode: PRESERVE", "mode: DISPOSABLE") else baseConfig)
         copyResource("lang/ru.yml")
         copyResource("lang/en.yml")
         settings = ArcEventsConfig.inspect(dataRoot)
@@ -304,7 +460,8 @@ private class EventNetworkCoordinatorFixture(
                 }
             },
             onReservation = { batch -> reservations += batch; true },
-            onArrival = { true },
+            onArrival = onArrival,
+            activeMatchParticipant = activeMatchParticipant,
             clock = { nowMs },
         )
     }
@@ -333,15 +490,15 @@ private class EventNetworkCoordinatorFixture(
         nowMs += deltaMs
     }
 
-    fun seedMatched(player: org.bukkit.entity.Player, matchId: UUID) {
-        repository.joinQueue(player.uniqueId, player.name, "spawn", nowMs, 60_000L).get(5, TimeUnit.SECONDS)
-        repository.reserveForRequester(matchId, "parkour", player.uniqueId, "spawn", nowMs, 30_000L, EventMode.FISHING.id).get(5, TimeUnit.SECONDS)
+    fun seedMatched(player: org.bukkit.entity.Player, matchId: UUID, origin: String = "spawn") {
+        repository.joinQueue(player.uniqueId, player.name, origin, nowMs, 60_000L).get(5, TimeUnit.SECONDS)
+        repository.reserveForRequester(matchId, "parkour", player.uniqueId, origin, nowMs, 30_000L, EventMode.FISHING.id).get(5, TimeUnit.SECONDS)
         repository.claimReservation(player.uniqueId, "parkour", nowMs + 1).get(5, TimeUnit.SECONDS)
         repository.completeReservation(matchId, listOf(player.uniqueId)).get(5, TimeUnit.SECONDS)
     }
 
-    fun seedReserved(player: org.bukkit.entity.Player, matchId: UUID, destination: String) {
-        repository.joinQueue(player.uniqueId, player.name, settings.serverId, nowMs, 60_000L).get(5, TimeUnit.SECONDS)
+    fun seedReserved(player: org.bukkit.entity.Player, matchId: UUID, destination: String, origin: String = settings.serverId) {
+        repository.joinQueue(player.uniqueId, player.name, origin, nowMs, 60_000L).get(5, TimeUnit.SECONDS)
         repository.reserve(matchId, destination, 1, 1, nowMs, 10L).get(5, TimeUnit.SECONDS)
     }
 
@@ -360,7 +517,26 @@ private class EventNetworkCoordinatorFixture(
         )
     }
 
+    fun publishReturn(matchId: UUID, player: org.bukkit.entity.Player, origin: String) {
+        val message = EventNetworkMessage.create(
+            signal = EventNetworkSignal.RETURN_PLAYER,
+            nowMs = nowMs,
+            matchId = matchId,
+            playerId = player.uniqueId,
+            destinationServer = origin,
+        )
+        redisStore.simulateExternalMessage(
+            RedisEventNetworkRepository.EVENT_CHANNEL,
+            Gson().toJson(message),
+            origin,
+        )
+    }
+
     fun queueEntry(player: org.bukkit.entity.Player): QueueEntry? = queueEntry(player.uniqueId)
+
+    fun markReturnPending(player: org.bukkit.entity.Player) {
+        repository.markReturnPending(requireNotNull(queueEntry(player))).get(5, TimeUnit.SECONDS)
+    }
 
     fun queueEntry(playerId: UUID): QueueEntry? = repository.loadQueueEntry(playerId).get(5, TimeUnit.SECONDS)
 

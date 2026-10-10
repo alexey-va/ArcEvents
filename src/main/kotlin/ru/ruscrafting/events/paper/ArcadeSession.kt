@@ -20,6 +20,7 @@ import ru.arc.core.Tasks
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.config.EventLocation
+import ru.ruscrafting.events.config.PlayerStateMode
 import ru.ruscrafting.events.domain.*
 import ru.ruscrafting.events.network.QueueEntry
 import java.time.Duration
@@ -69,11 +70,13 @@ class ArcadeSession(
         val match = runtime.start(matchId, mode, entries.map(QueueEntry::queuedPlayer), rules)
         var mutationAttempted = false
         try {
-            escrow.commitThenMutate(matchId, players, entries.associate { UUID.fromString(it.playerId) to it.originServer }, clock()) {
+            val preservePlayerState = settings().playerStateMode == PlayerStateMode.PRESERVE
+            val mutatePlayers = {
                 mutationAttempted = true
                 players.forEach { player ->
                     resetPlayer(player)
                     player.inventory.clear()
+                    player.inventory.armorContents = arrayOfNulls(4)
                     player.inventory.setItemInOffHand(null)
                     teleport(player, requireNotNull(arenaPool.active()).playerSpawn)
                     player.sendEventMessage(locale.render("arcade.preparing", player, mapOf("mode" to modeName(player))))
@@ -84,16 +87,26 @@ class ArcadeSession(
                         "arena" to locale.render("arena.fishing.name", player),
                     ) else emptyMap()
                     locale.lore("arcade.${mode.id}-guide", player, guideValues).forEach(player::sendEventMessage)
-                    player.saveData()
+                    if (preservePlayerState) player.saveData()
                 }
             }
+            if (preservePlayerState) {
+                escrow.commitThenMutate(
+                    matchId,
+                    players,
+                    entries.associate { UUID.fromString(it.playerId) to it.originServer },
+                    clock(),
+                ) { mutatePlayers() }
+            } else mutatePlayers()
         } catch (failure: Throwable) {
             // A rejected journal commit must not trap an untouched local roster in recovery.
             // Existing arrival snapshots still require their normal verified restoration.
             if (!mutationAttempted) {
-                runCatching { escrow.pendingPlayers(matchId) }.onSuccess { pending ->
-                    players.filter { it.uniqueId !in pending }.forEach { runtime.markRecoveryApplied(it.uniqueId) }
-                }
+                if (settings().playerStateMode == PlayerStateMode.PRESERVE) {
+                    runCatching { escrow.pendingPlayers(matchId) }.onSuccess { pending ->
+                        players.filter { it.uniqueId !in pending }.forEach { runtime.markRecoveryApplied(it.uniqueId) }
+                    }
+                } else players.forEach { runtime.markRecoveryApplied(it.uniqueId) }
             }
             throw failure
         }
@@ -309,6 +322,7 @@ class ArcadeSession(
         player.closeInventory()
         player.activePotionEffects.forEach { player.removePotionEffect(it.type) }
         player.gameMode = GameMode.ADVENTURE
+        player.isInvulnerable = false
         player.noDamageTicks = 0
         player.allowFlight = false
         player.isFlying = false
@@ -437,7 +451,9 @@ class ArcadeSession(
             runCatching { recover(player) }.onSuccess { recovery -> if (recovery != null) recovered(player, recovery) }
                 .onFailure { plugin.logger.log(Level.SEVERE, "ArcEvents arcade recovery failed for ${player.uniqueId}", it) }
         }
-        val pending = runCatching { escrow.pendingPlayers(match.matchId) }.getOrElse { return }
+        val pending = if (settings().playerStateMode == PlayerStateMode.DISPOSABLE) {
+            emptySet()
+        } else runCatching { escrow.pendingPlayers(match.matchId) }.getOrElse { return }
         val onlineIds = match.participants.keys.filterTo(mutableSetOf()) { plugin.server.getPlayer(it)?.isOnline == true }
         val restoredIds = requireNotNull(current).participants.values.filter { it.status == ParticipantStatus.RESTORED }.mapTo(mutableSetOf()) { it.playerId }
         if (EventRecoveryGate.blocked(onlineIds, pending, restoredIds)) return

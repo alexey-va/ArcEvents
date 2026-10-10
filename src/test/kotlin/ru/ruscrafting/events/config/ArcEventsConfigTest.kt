@@ -12,6 +12,32 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 class ArcEventsConfigTest : StringSpec({
+    "disposable player state is host-only and restart-only" {
+        val root = Files.createTempDirectory("arcevents-player-state-mode-")
+        try {
+            val defaults = ArcEventsConfig.load(root)
+            defaults.playerStateMode shouldBe PlayerStateMode.PRESERVE
+            val configFile = root.resolve("config.yml")
+            val hostConfig = Files.readString(configFile).replace("node-mode: RELAY", "node-mode: HOST")
+            Files.writeString(configFile, hostConfig)
+            val current = ArcEventsConfig.inspect(root)
+            current.playerStateMode shouldBe PlayerStateMode.PRESERVE
+            Files.writeString(configFile, hostConfig.replace("mode: PRESERVE", "mode: DISPOSABLE"))
+            val disposable = ArcEventsConfig.inspect(root)
+            disposable.playerStateMode shouldBe PlayerStateMode.DISPOSABLE
+            shouldThrow<IllegalArgumentException> {
+                ArcEventsReloadPolicy.validate(current, disposable, matchOrReservationActive = false)
+            }
+
+            Files.writeString(
+                configFile,
+                hostConfig.replace("node-mode: HOST", "node-mode: RELAY")
+                    .replace("mode: PRESERVE", "mode: DISPOSABLE"),
+            )
+            shouldThrow<IllegalArgumentException> { ArcEventsConfig.inspect(root) }
+        } finally { root.toFile().deleteRecursively() }
+    }
+
     "fishing is solo and reloads tuned rules only between expeditions" {
         val root = Files.createTempDirectory("arcevents-fishing-config-")
         try {

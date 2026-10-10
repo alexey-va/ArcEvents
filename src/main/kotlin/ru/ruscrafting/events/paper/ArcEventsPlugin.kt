@@ -24,6 +24,7 @@ import ru.arc.redis.ServerIdentity
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.config.ArcEventsReloadPolicy
+import ru.ruscrafting.events.config.PlayerStateMode
 import ru.ruscrafting.events.config.ArcEventsRedisBootstrap
 import ru.ruscrafting.events.domain.MatchPhase
 import ru.ruscrafting.events.network.RedisEventNetworkRepository
@@ -83,7 +84,10 @@ class ArcEventsPlugin : JavaPlugin() {
             redis = manager
             val repository = RedisEventNetworkRepository(manager, Gson())
             val debug = ArcEventsDebug({ settings.debugEnabled }, logger::info)
-            val escrow = PlayerStateEscrow(RecoveryBatchStore(dataRoot, Gson()))
+            val escrow = PlayerStateEscrow(
+                RecoveryBatchStore(dataRoot, Gson()),
+                enabled = settings.playerStateMode == PlayerStateMode.PRESERVE,
+            )
             val items = TttItems(this, locale) { settings }
             val firearms = TttFirearms(this, locale) { settings }
             val lootScene = TttLootScene(this, firearms) { settings }
@@ -122,6 +126,7 @@ class ArcEventsPlugin : JavaPlugin() {
                 onReservation = { activeService.onReservation(it) },
                 onArrival = { activeService.onArrival(it) },
                 recoveryPending = { activeService.escrowPending(it) },
+                activeMatchParticipant = activeService::ownsActiveRoute,
             )
             network = coordinator
             lifecycle.own(coordinator)
@@ -161,7 +166,7 @@ class ArcEventsPlugin : JavaPlugin() {
                 val redisReady = manager.isConnected()
                 RuntimeHealthContribution(
                     state = if (redisReady) RuntimeHealthState.UP else RuntimeHealthState.DEGRADED,
-                    recoveryBacklog = escrow.recoveryBacklog(),
+                    recoveryBacklog = if (settings.playerStateMode == PlayerStateMode.DISPOSABLE) 0 else escrow.recoveryBacklog(),
                     activeLeases = coordinator.activeLeaseCount(),
                     schemas = mapOf("player_recovery" to RecoveryBatch.FORMAT_VERSION),
                     dependencies = mapOf("redis" to redisReady),
@@ -184,12 +189,15 @@ class ArcEventsPlugin : JavaPlugin() {
             lifecycle.ready(
                 "server" to settings.serverId,
                 "mode" to settings.nodeMode,
+                "player_state" to settings.playerStateMode,
                 "arena_ready" to activeService.arenaReady(),
                 "redis" to manager.isConnected(),
             )
             lifecycle.reportHealthEvery(HEALTH_REPORT_TICKS)
             logger.info(
                 "ArcEvents enabled node=${settings.serverId} mode=${settings.nodeMode} host=${settings.hostServer} " +
+                    "playerState=${settings.playerStateMode} " +
+                    "legacyRecovery=${if (settings.playerStateMode == PlayerStateMode.DISPOSABLE) "ignored" else "active"} " +
                     "arenaReady=${activeService.arenaReady()} redisConnected=${manager.isConnected()}",
             )
         } catch (failure: Throwable) {

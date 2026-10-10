@@ -14,7 +14,14 @@ ArcEvents is the network event engine for RusCrafting with four modes:
   unlock the next island and defeat the final boss. The native menu offers
   **Start solo**; `/arcevents fishing` starts the same personal journey.
 
-All modes use the same durable player-state escrow and origin-server return routes.
+Player-state handling is selected per host with `player-state.mode`. `PRESERVE`
+is the default: all modes use durable player-state escrow and origin-server
+return routes. `DISPOSABLE` is for hosts whose inventory is independent of the
+origin backend: ArcEvents skips snapshots and restores, clears event loadout and
+temporary gameplay state on exit, and keeps a local participant's pre-event
+location when it can return on the same backend. Configure this only on a
+`HOST`; changing the mode requires a restart.
+
 Public modes use a common FIFO queue; its creator selects the mode at start.
 Fishing reserves only its authenticated requester's row, even when someone else
 is first in the public queue. It never recruits other players. The host still
@@ -28,8 +35,10 @@ Fishing owns a generated `fishing-v1` world, configured through
 `arcade.fishing.arena.world`. It is excluded from public combat-map rotation.
 Its temporary rod, weapons, creatures and hooks leave no permanent item or XP
 reward; original player state is restored on success, defeat, evacuation and
-recovery. Gameplay tuning is under `arcade.fishing`: reload rules while idle;
-changing the generated world's identity requires a restart. No backend name is
+recovery in `PRESERVE` mode. `DISPOSABLE` clears the event state instead of
+restoring the original inventory. Gameplay tuning is under `arcade.fishing`:
+reload rules while idle; changing the generated world's identity requires a
+restart. No backend name is
 embedded in the fishing implementation.
 
 ## Menu configuration
@@ -75,9 +84,14 @@ decorations; changing the template does not require recompilation.
   start the roster. A relay sends a target-bound, replay-bounded request with
   the creator identity to the configured host; the host validates ownership
   again and remains the only node that can reserve players or create a match.
-- A relay never clears an inventory. The host writes one atomic recovery batch
-  for the entire match before the first gameplay mutation, verifies every
-  restored surface, saves player data, and only then acknowledges the snapshot.
+- A relay never clears an inventory. In `PRESERVE` mode the host writes one
+  atomic recovery batch for the entire match before the first gameplay mutation,
+  verifies every restored surface, saves player data, and only then acknowledges
+  the snapshot.
+- A host configured as `player-state.mode: DISPOSABLE` skips snapshot capture
+  and restoration entirely. Existing recovery files are retained but ignored
+  while this mode is active; review those records before switching back to
+  `PRESERVE`.
 - After confirmed recovery, players are returned through the proxy to the
   backend from which they joined the event.
 

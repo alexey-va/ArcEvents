@@ -20,6 +20,8 @@ import kotlin.math.floor
 
 enum class NodeMode { RELAY, HOST }
 
+enum class PlayerStateMode { PRESERVE, DISPOSABLE }
+
 data class EventLocation(
     val world: String,
     val x: Double,
@@ -304,6 +306,8 @@ class ArcEventsConfig(private val config: Config) {
     val enabled: Boolean get() = config.bool("enabled", true)
     val serverId: String get() = config.string("server-id", "parkour").trim().lowercase()
     val nodeMode: NodeMode get() = NodeMode.valueOf(config.string("node-mode", "RELAY").trim().uppercase())
+    val playerStateMode: PlayerStateMode
+        get() = PlayerStateMode.valueOf(config.string("player-state.mode", "PRESERVE").trim().uppercase())
     val hostServer: String get() = config.string("host-server", "parkour").trim().lowercase()
     val defaultLocale: String get() = config.string("locale.default", "ru").trim().lowercase()
     val useClientLocale: Boolean get() = config.bool("locale.use-client-locale", true)
@@ -519,6 +523,9 @@ class ArcEventsConfig(private val config: Config) {
         require(enabled) { "ArcEvents is disabled in config.yml" }
         BackendServerId.of(serverId)
         BackendServerId.of(hostServer)
+        require(playerStateMode != PlayerStateMode.DISPOSABLE || nodeMode == NodeMode.HOST) {
+            "player-state.mode DISPOSABLE is valid only on a HOST node"
+        }
         require(defaultLocale in setOf("ru", "en")) { "locale.default must be ru or en" }
         val localChat = localChat
         require(localChat.closeDistance.isFinite() && localChat.closeDistance in 1.0..128.0) {
@@ -812,6 +819,7 @@ object ArcEventsReloadPolicy {
         require(candidate.enabled == current.enabled) { "enabled requires a restart" }
         require(candidate.serverId == current.serverId) { "server-id requires a restart" }
         require(candidate.nodeMode == current.nodeMode) { "node-mode requires a restart" }
+        require(candidate.playerStateMode == current.playerStateMode) { "player-state.mode requires a restart" }
         require(candidate.hostServer == current.hostServer) { "host-server requires a restart" }
         require(candidate.network.enabled == current.network.enabled) { "network.enabled requires a restart" }
         require(candidate.packetChatIsolationEnabled == current.packetChatIsolationEnabled) {

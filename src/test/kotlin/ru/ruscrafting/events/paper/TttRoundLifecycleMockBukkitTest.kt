@@ -19,6 +19,8 @@ import org.bukkit.damage.DamageType
 import org.bukkit.event.entity.EntityDamageByEntityEvent
 import org.bukkit.event.entity.EntityDamageEvent.DamageCause
 import org.bukkit.inventory.ItemStack
+import org.bukkit.potion.PotionEffect
+import org.bukkit.potion.PotionEffectType
 import net.kyori.adventure.audience.Audience
 import net.kyori.adventure.chat.SignedMessage
 import net.kyori.adventure.text.Component
@@ -56,6 +58,44 @@ import java.util.concurrent.TimeUnit
  * [ArcEventsPlugin.onEnable] bootstrap are outside this host-local test and do not currently have MockBukkit coverage.
  */
 class TttRoundLifecycleMockBukkitTest : FunSpec({
+    test("disposable host runs and completes an event without escrow and returns local participants clean") {
+        failOnUnsupportedMockBukkitOperation {
+            TttRoundFixture(disposable = true).use { fixture ->
+                val player = fixture.players.first()
+                player.teleport(Location(player.world, 100.5, 70.0, -5.5, 40f, 0f)) shouldBe true
+                val originalLocation = player.location.clone()
+                fixture.startActiveRound()
+                val matchId = requireNotNull(fixture.service.currentMatch()).matchId
+                fixture.escrow.pendingCount(matchId) shouldBe 0
+                fixture.escrow.recoveryBacklog() shouldBe 0
+
+                player.inventory.setItem(1, ItemStack.of(Material.DIAMOND, 2))
+                player.isInvulnerable = true
+                player.allowFlight = true
+                player.isFlying = true
+                player.addPotionEffect(PotionEffect(PotionEffectType.SPEED, 200, 1))
+
+                fixture.service.stopByAdmin()
+
+                fixture.escrow.pendingCount() shouldBe 0
+                player.gameMode shouldBe GameMode.SURVIVAL
+                player.isInvulnerable shouldBe false
+                player.allowFlight shouldBe false
+                player.isFlying shouldBe false
+                player.activePotionEffects.isEmpty() shouldBe true
+                player.inventory.contents.filterNotNull() shouldBe emptyList()
+                player.location.world shouldBe originalLocation.world
+                player.location.x shouldBe originalLocation.x
+                player.location.y shouldBe originalLocation.y
+                player.location.z shouldBe originalLocation.z
+                player.location.yaw shouldBe originalLocation.yaw
+                player.location.pitch shouldBe originalLocation.pitch
+                fixture.paper.playerDataSaveCount(player) shouldBe 0
+                verify(exactly = 1) { fixture.network.returnRecoveredPlayer(player, any()) }
+            }
+        }
+    }
+
     test("environmental damage remains allowed during an active round") {
         failOnUnsupportedMockBukkitOperation {
             TttRoundFixture().use { fixture ->
@@ -405,7 +445,7 @@ class TttRoundLifecycleMockBukkitTest : FunSpec({
     }
 })
 
-internal class TttRoundFixture : AutoCloseable {
+internal class TttRoundFixture(private val disposable: Boolean = false) : AutoCloseable {
     var rejectRecovery = false
     var clientProtocolVersion = MIN_DIALOG_PROTOCOL
     val paper = MockBukkitTestRuntime.open()
@@ -448,10 +488,20 @@ internal class TttRoundFixture : AutoCloseable {
             fishingWorld.getBlockAt(x, 64, z).type = Material.OAK_PLANKS
         }
         ConfigManager.clear()
+        if (disposable) {
+            val configPath = dataRoot.resolve("config.yml")
+            Files.writeString(configPath, Files.readString(configPath).replace(
+                "node-mode: HOST",
+                "node-mode: HOST\nplayer-state:\n  mode: DISPOSABLE",
+            ))
+        }
         settings = ArcEventsConfig.load(dataRoot)
         locale = ArcEventsLocale(dataRoot) { settings }
         items = TttItems(plugin, locale) { settings }
-        escrow = PlayerStateEscrow(RecoveryBatchStore(dataRoot, Gson()))
+        escrow = PlayerStateEscrow(
+            RecoveryBatchStore(dataRoot, Gson()),
+            enabled = settings.playerStateMode == ru.ruscrafting.events.config.PlayerStateMode.PRESERVE,
+        )
         arenaPool = ArenaPool(settings = { settings }, ready = { _, _ -> true })
         firearms = TttFirearms(plugin, locale) { settings }
         val lootScene = TttLootScene(plugin, firearms) { settings }
@@ -507,7 +557,8 @@ internal class TttRoundFixture : AutoCloseable {
 
         service.debugStartLocal(players, "test", mode) shouldBe DebugMutationResult.APPLIED
         service.phase() shouldBe MatchPhase.PREPARING
-        escrow.pendingCount(requireNotNull(service.currentMatch()).matchId) shouldBe players.size
+        escrow.pendingCount(requireNotNull(service.currentMatch()).matchId) shouldBe
+            if (disposable) 0 else players.size
         players.forEach { player ->
             player.gameMode shouldBe GameMode.ADVENTURE
             player.world shouldBe world

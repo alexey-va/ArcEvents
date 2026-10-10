@@ -15,6 +15,7 @@ import ru.arc.redis.network.RedisRequestResult
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.config.NodeMode
+import ru.ruscrafting.events.config.PlayerStateMode
 import ru.ruscrafting.events.domain.MatchEndReason
 import ru.ruscrafting.events.domain.MatchPhase
 import ru.ruscrafting.events.domain.EventMode
@@ -69,6 +70,8 @@ class EventNetworkCoordinator(
     private val onArrival: (QueueEntry) -> Boolean,
     /** True while the service still owns durable escrow for a just-arrived player. */
     private val recoveryPending: (UUID) -> Boolean = { false },
+    /** True only when this exact route still belongs to a live host participant. */
+    private val activeMatchParticipant: (QueueEntry) -> Boolean = { false },
     private val clock: () -> Long = System::currentTimeMillis,
 ) : AutoCloseable {
     @Volatile
@@ -83,10 +86,11 @@ class EventNetworkCoordinator(
     private var maintenancePeriodTicks = 0L
     private val statistics = ConcurrentHashMap<UUID, PlayerEventStats>()
     private val recoveredReturnRetries = ConcurrentHashMap<UUID, PlayerRecovery>()
+    private data class RecoveredReturnAttempt(val player: Player, val recovery: PlayerRecovery)
     private data class ReservationTransferRetry(val matchId: UUID, val destinationServer: String)
     private val reservationTransferRetries = ConcurrentHashMap<UUID, ReservationTransferRetry>()
     private val reservationTransferAttempts = ConcurrentHashMap.newKeySet<UUID>()
-    private val recoveredReturnAttempts = ConcurrentHashMap.newKeySet<UUID>()
+    private val recoveredReturnAttempts = ConcurrentHashMap<UUID, RecoveredReturnAttempt>()
     /** Keeps a return route alive while the proxy transfer that initiated it is still in flight. */
     private val pendingTransfers = ConcurrentHashMap.newKeySet<UUID>()
     private val startInFlight = AtomicBoolean(false)
@@ -285,6 +289,10 @@ class EventNetworkCoordinator(
         val current = settings()
         when (entry.state) {
             QueueState.ARRIVED, QueueState.MATCHED -> {
+                if (disposableHost(current)) {
+                    if (!activeMatchParticipant(entry)) preserveOrphanedRoute(player, entry)
+                    return ReservationStartResult.RECOVERY_PENDING
+                }
                 val destination = entry.destinationServer ?: return ReservationStartResult.NETWORK_FAILURE
                 if (destination != current.serverId) {
                     if (!current.network.transferOnReservation || destination != current.hostServer ||
@@ -308,7 +316,11 @@ class EventNetworkCoordinator(
                 playerId = player.uniqueId,
                 destinationServer = requireNotNull(entry.destinationServer),
             ))
-            QueueState.RETURN_PENDING -> if (current.serverId != entry.destinationServer) handleJoin(player)
+            QueueState.RETURN_PENDING -> when {
+                entry.originServer == current.serverId -> finishPendingReturn(player, entry)
+                disposableHost(current) -> Unit
+                current.serverId != entry.destinationServer -> handleJoin(player)
+            }
             QueueState.QUEUED -> error("Queued entries require a new reservation")
         }
         return ReservationStartResult.RECOVERY_PENDING
@@ -492,8 +504,14 @@ class EventNetworkCoordinator(
 
     fun handleJoin(player: Player) {
         pendingTransfers.remove(player.uniqueId)
-        loadStats(player.uniqueId)
         val current = settings()
+        // A disposable-host recovery belongs to the join that initiated it. Do not let a
+        // retry, or its still-pending async callback, redirect a later unrelated join.
+        if (disposableHost(current)) {
+            recoveredReturnRetries.remove(player.uniqueId)
+            recoveredReturnAttempts.remove(player.uniqueId)
+        }
+        loadStats(player.uniqueId)
         repository.claimReservation(player.uniqueId, current.serverId, clock()).whenComplete { entry, failure ->
             Tasks.scheduler.runSync {
                 if (!started || !player.isOnline) return@runSync
@@ -503,12 +521,29 @@ class EventNetworkCoordinator(
                 }
                 when (entry?.state) {
                     QueueState.ARRIVED -> {
-                        if (current.nodeMode != NodeMode.HOST || !onArrival(entry) && !recoveryPending(player.uniqueId)) {
-                            recoverOrphanedArrival(player, entry)
+                        if (current.nodeMode != NodeMode.HOST ||
+                            !onArrival(entry) && !recoveryPending(player.uniqueId) &&
+                            !(disposableHost(current) && activeMatchParticipant(entry))
+                        ) {
+                            if (disposableHost(current)) preserveOrphanedRoute(player, entry)
+                            else recoverOrphanedArrival(player, entry)
                         }
                     }
-                    QueueState.MATCHED -> recoverOrphanedArrival(player, entry)
-                    QueueState.RETURN_PENDING -> finishPendingReturn(player, entry)
+                    QueueState.MATCHED -> when {
+                        current.nodeMode == NodeMode.HOST && activeMatchParticipant(entry) -> Unit
+                        disposableHost(current) -> preserveOrphanedRoute(player, entry)
+                        else -> recoverOrphanedArrival(player, entry)
+                    }
+                    QueueState.RETURN_PENDING -> when {
+                        entry.originServer == current.serverId -> finishPendingReturn(player, entry)
+                        disposableHost(current) -> debug.event(
+                            "stale_return_route_ignored",
+                            "player" to player.uniqueId,
+                            "match" to entry.matchId,
+                            "origin" to entry.originServer,
+                        )
+                        else -> finishPendingReturn(player, entry)
+                    }
                     else -> Unit
                 }
             }
@@ -648,21 +683,22 @@ class EventNetworkCoordinator(
     }
 
     private fun attemptRecoveredReturn(player: Player, recovery: PlayerRecovery) {
-        if (!recoveredReturnAttempts.add(player.uniqueId)) return
+        val attempt = RecoveredReturnAttempt(player, recovery)
+        if (recoveredReturnAttempts.putIfAbsent(player.uniqueId, attempt) != null) return
         repository.prepareRecoveredReturn(player.uniqueId, recovery.matchId).whenComplete { pending, failure ->
             Tasks.scheduler.runSync {
                 try {
-                    if (!started || !player.isOnline) return@runSync
-                    if (failure != null || pending == null) {
+                    if (!started || recoveredReturnAttempts[player.uniqueId] !== attempt ||
+                        plugin.server.getPlayer(player.uniqueId) !== player || !player.isOnline
+                    ) return@runSync
+                    if (failure != null) {
                         rememberRecoveredReturn(player.uniqueId, recovery)
-                        if (failure != null) {
-                            plugin.logger.log(Level.SEVERE, "ArcEvents could not preserve recovered return ${player.uniqueId}", failure)
-                        } else {
-                            plugin.logger.log(
-                                Level.WARNING,
-                                "ArcEvents recovered return route was not durable for ${player.uniqueId}; retrying",
-                            )
-                        }
+                        plugin.logger.log(Level.SEVERE, "ArcEvents could not preserve recovered return ${player.uniqueId}", failure)
+                        return@runSync
+                    }
+                    if (pending == null) {
+                        // The exact route has already been acknowledged, removed, or replaced.
+                        recoveredReturnRetries.remove(player.uniqueId, recovery)
                         return@runSync
                     }
                     val current = settings()
@@ -685,7 +721,7 @@ class EventNetworkCoordinator(
                     rememberRecoveredReturn(player.uniqueId, recovery)
                     returnPlayer(player, originServer)
                 } finally {
-                    recoveredReturnAttempts.remove(player.uniqueId)
+                    recoveredReturnAttempts.remove(player.uniqueId, attempt)
                 }
             }
         }
@@ -832,9 +868,20 @@ class EventNetworkCoordinator(
                     debug.event("return_route_rejected", "player" to playerId, "match" to matchId, "origin" to origin)
                     return@runSync
                 }
+                val current = settings()
                 val player = plugin.server.getPlayer(playerId) ?: return@runSync
-                if (settings().serverId == origin || !settings().network.returnToOrigin) {
-                    if (settings().serverId == origin && playerId in pendingTransfers) {
+                if (disposableHost(current) && current.serverId != origin) {
+                    val attempt = recoveredReturnAttempts[playerId]
+                    if (attempt == null || attempt.player !== player ||
+                        attempt.recovery != PlayerRecovery(matchId, origin) ||
+                        recoveredReturnRetries[playerId] != attempt.recovery
+                    ) {
+                        debug.event("stale_return_message_ignored", "player" to playerId, "match" to matchId, "origin" to origin)
+                        return@runSync
+                    }
+                }
+                if (current.serverId == origin || !current.network.returnToOrigin) {
+                    if (current.serverId == origin && playerId in pendingTransfers) {
                         debug.event("return_waiting_for_transfer", "player" to playerId, "match" to matchId)
                         return@runSync
                     }
@@ -867,6 +914,30 @@ class EventNetworkCoordinator(
             }
         }
     }
+
+    /** Keep the origin bound to the route without transferring an unrelated disposable-host join. */
+    private fun preserveOrphanedRoute(player: Player, entry: QueueEntry) {
+        repository.markReturnPending(entry).whenComplete { pending, failure ->
+            Tasks.scheduler.runSync {
+                if (!started) return@runSync
+                if (failure != null || pending == null) {
+                    plugin.logger.log(Level.SEVERE, "ArcEvents could not preserve stale route ${entry.playerId}", failure)
+                    return@runSync
+                }
+                debug.event(
+                    "stale_route_preserved",
+                    "player" to entry.playerId,
+                    "match" to entry.matchId,
+                    "origin" to entry.originServer,
+                    "state" to pending.state,
+                )
+                if (pending.originServer == settings().serverId) finishPendingReturn(player, pending)
+            }
+        }
+    }
+
+    private fun disposableHost(current: ArcEventsConfig): Boolean =
+        current.nodeMode == NodeMode.HOST && current.playerStateMode == PlayerStateMode.DISPOSABLE
 
     private fun finishPendingReturn(player: Player, entry: QueueEntry) {
         val matchId = UUID.fromString(requireNotNull(entry.matchId))

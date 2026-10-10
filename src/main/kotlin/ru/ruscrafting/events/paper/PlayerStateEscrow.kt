@@ -141,8 +141,9 @@ class RecoveryBatchStore(
 class PlayerStateEscrow(
     private val store: RecoveryBatchStore,
     private val playerStates: PaperPlayerStateService = PaperPlayerStateService(),
+    private val enabled: Boolean = true,
 ) {
-    private val cachedRecoveryBacklog = AtomicInteger(loadPendingCount())
+    private val cachedRecoveryBacklog = AtomicInteger(if (enabled) loadPendingCount() else 0)
     private val workflow = DurableRecoveryWorkflow<RecoveryBatch, PlayerRestoreReceipt>(
         commit = { candidate -> completed { store.commit(candidate) } },
         sameContent = RecoveryBatch::sameContent,
@@ -157,6 +158,7 @@ class PlayerStateEscrow(
         nowMs: Long,
         mutation: (RecoveryBatch) -> M,
     ): DurableMutationReceipt<RecoveryBatch, M> {
+        check(enabled) { "Player-state escrow is disabled by player-state.mode" }
         require(players.isNotEmpty() && players.size <= RecoveryBatch.MAX_PLAYERS)
         require(players.map(Player::getUniqueId).distinct().size == players.size)
         require(players.all { it.uniqueId in returnServers })
@@ -176,14 +178,15 @@ class PlayerStateEscrow(
         }
     }
 
-    fun pendingCount(): Int = store.loadAll().sumOf { it.pending().size }
+    fun pendingCount(): Int = if (enabled) store.loadAll().sumOf { it.pending().size } else 0
 
     /** Constant-time, thread-safe recovery gauge for runtime health sampling. */
     fun recoveryBacklog(): Int = cachedRecoveryBacklog.get()
 
-    fun pendingCount(matchId: UUID): Int = store.pendingPlayers(matchId).size
+    fun pendingCount(matchId: UUID): Int = if (enabled) store.pendingPlayers(matchId).size else 0
 
     fun recover(player: Player, teleport: (Location) -> Boolean = player::teleport): PlayerRecovery? {
+        check(enabled) { "Player-state escrow is disabled by player-state.mode" }
         val (batch, state) = store.pendingFor(player.uniqueId) ?: return null
         val completion = try {
             workflow.restoreThenAcknowledge(batch) {
@@ -202,14 +205,15 @@ class PlayerStateEscrow(
         return completion.restoreReceipt.recovery
     }
 
-    fun pendingPlayers(): Set<UUID> = store.loadAll().flatMap(RecoveryBatch::pending)
+    fun pendingPlayers(): Set<UUID> = if (!enabled) emptySet() else store.loadAll().flatMap(RecoveryBatch::pending)
         .map { UUID.fromString(it.playerId) }.toSet()
 
-    fun pendingPlayers(matchId: UUID): Set<UUID> = store.pendingPlayers(matchId)
+    fun pendingPlayers(matchId: UUID): Set<UUID> = if (enabled) store.pendingPlayers(matchId) else emptySet()
 
     private data class PlayerRestoreReceipt(val playerId: UUID, val recovery: PlayerRecovery)
 
     private fun refreshRecoveryBacklog() {
+        if (!enabled) return
         runCatching(::loadPendingCount).onSuccess(cachedRecoveryBacklog::set)
     }
 

@@ -3,6 +3,13 @@ server-id: parkour
 node-mode: RELAY
 host-server: parkour
 
+# PRESERVE commits and restores complete player-state snapshots around events.
+# DISPOSABLE is host-only: inventories and temporary gameplay state are cleared
+# on event exit, and legacy recovery files are retained but ignored. Review old
+# recovery records before switching back. Restart-only.
+player-state:
+  mode: PRESERVE
+
 network:
   enabled: true
   allowed-origins: [spawn, survival, parkour]
@@ -27,8 +34,8 @@ default-arena: ''
 # Safe live gameplay tuning. In-progress timers keep their captured deadline;
 # new actions and the next match use the latest values.
 gameplay:
-  # The original inventory is committed to durable recovery before this runs.
-  # Disable only for a future mode that intentionally keeps player inventory.
+  # PRESERVE mode commits the original inventory before this runs. DISPOSABLE
+  # hosts intentionally discard event loadout and temporary player state.
   clear-inventory: true
   spawn-return-seconds: 10
   spawn-return-movement-tolerance: 0.05
