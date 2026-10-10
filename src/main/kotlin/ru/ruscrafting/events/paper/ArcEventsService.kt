@@ -312,7 +312,13 @@ class ArcEventsService(
         if (batch.entries.none { it.playerId == entry.playerId }) return false
         val player = plugin.server.getPlayer(playerId)?.takeIf(Player::isOnline) ?: return false
         if (playerId in arrivals) return true
-        if (playerId in arrivalPlayers) return true // A failed preparation still owns recovery.
+        if (playerId in arrivalPlayers) {
+            if (!disposablePlayerState() || eventRecoveries[playerId] == PlayerRecovery(batch.matchId, entry.originServer)) {
+                return true // A failed preparation or this exact reservation still owns recovery.
+            }
+            // An older disposable arrival is only in-memory isolation state. A fresh reservation may replace it.
+            clearDisposableArrival(playerId, eventRecoveries[playerId]?.matchId)
+        }
         try {
             commitPlayerMutation(
                 batch.matchId,
@@ -503,26 +509,42 @@ class ArcEventsService(
     }
 
     override fun handleQuit(player: Player) {
+        val quitRecovery = if (disposablePlayerState()) disposableRecovery(player.uniqueId) else null
         if (disposablePlayerState() && isParticipant(player.uniqueId)) resetDisposablePlayer(player)
         arrivals.remove(player.uniqueId)
         if (player.uniqueId in arrivalPlayers && !arcade.isParticipant(player.uniqueId) && participant(player.uniqueId) == null) {
             runCatching { recoverPlayer(player) }.onSuccess { recovery ->
-                if (recovery != null) completeRecovery(player, recovery)
+                if (recovery != null) completeRecovery(player, recovery, departing = disposablePlayerState())
             }.onFailure { failure ->
                 plugin.logger.log(Level.SEVERE, "ArcEvents could not restore departing arrival ${player.uniqueId}", failure)
             }
             return
         }
-        if (arcade.isParticipant(player.uniqueId)) { arcade.disconnect(player); return }
+        if (arcade.isParticipant(player.uniqueId)) {
+            arcade.disconnect(player)
+            quitRecovery?.let { recovery ->
+                if (recovery.matchId == arcade.current?.matchId) completeRecovery(player, recovery, departing = true)
+            }
+            return
+        }
         cancelMapSpawnReturn(player.uniqueId, notify = false)
         hud.remove(player.uniqueId)
         val current = match ?: return
-        if (current.participant(player.uniqueId) == null || current.phase !in LIVE_PHASES) return
+        if (current.participant(player.uniqueId) == null) return
+        if (current.phase !in LIVE_PHASES) {
+            quitRecovery?.let { completeRecovery(player, it, departing = true) }
+            return
+        }
         val (changed, outcome) = runtime.disconnect(player.uniqueId)
         debug.event("participant_disconnected", "match" to current.matchId, "player" to player.uniqueId, "phase" to current.phase)
-        if (outcome is MatchOutcome.Finished) resolve(changed)
-        else if (changed.phase != MatchPhase.ACTIVE && !preRoundRosterViable(changed)) {
+        if (outcome is MatchOutcome.Finished) {
+            resolve(changed)
+            quitRecovery?.takeIf { it.matchId == changed.matchId }?.let { completeRecovery(player, it, departing = true) }
+        } else if (changed.phase != MatchPhase.ACTIVE && !preRoundRosterViable(changed)) {
+            quitRecovery?.takeIf { it.matchId == changed.matchId }?.let { completeRecovery(player, it, departing = true) }
             cancel(MatchEndReason.INSUFFICIENT_PLAYERS)
+        } else {
+            quitRecovery?.takeIf { it.matchId == changed.matchId }?.let { completeRecovery(player, it, departing = true) }
         }
     }
 
@@ -1586,6 +1608,7 @@ class ArcEventsService(
         val online = arrivals.values.mapNotNull { entry -> plugin.server.getPlayer(UUID.fromString(entry.playerId)) }
             .filter(Player::isOnline).distinctBy(Player::getUniqueId)
         arrivals.clear()
+        cleanupOfflineDisposableArrivals(batch, online.mapTo(mutableSetOf(), Player::getUniqueId))
         val currentSettings = settings()
         val matchTtt = activeTtt()
         if (batch.mode != EventMode.TTT) { startReservedArcade(batch, online); return }
@@ -1991,6 +2014,9 @@ class ArcEventsService(
                 )
             }
         }
+        if (disposablePlayerState()) {
+            current.participants.keys.forEach { clearDisposableArrival(it, current.matchId) }
+        }
         debug.event("match_released", "match" to current.matchId, "phase" to current.phase, "recovery" to totalPendingCount())
         arenaPool.release(current.matchId)
         recoveryReadFailures.remove(current.matchId)
@@ -2005,7 +2031,12 @@ class ArcEventsService(
         runtime.markRecoveryApplied(playerId)
     }
 
-    private fun completeRecovery(player: Player, recovery: PlayerRecovery, messageKey: String = "match.restored") {
+    private fun completeRecovery(
+        player: Player,
+        recovery: PlayerRecovery,
+        messageKey: String = "match.restored",
+        departing: Boolean = false,
+    ) {
         if (disposablePlayerState() && !ownsDisposableRecovery(player.uniqueId, recovery)) {
             debug.event("stale_disposable_recovery_ignored", "player" to player.uniqueId, "match" to recovery.matchId)
             return
@@ -2019,7 +2050,8 @@ class ArcEventsService(
                 plugin.logger.log(Level.WARNING, "ArcEvents could not clear disposable state for ${player.uniqueId}", failure)
             }
             val localOrigin = disposableOrigins.remove(player.uniqueId)
-            if (recovery.returnServer == settings().serverId) {
+            // Paper rejects teleports during PlayerQuitEvent; never replay this cleanup on a later join.
+            if (!departing && recovery.returnServer == settings().serverId) {
                 val destination = localOrigin ?: arenaPool.active()?.lobby
                 if (destination != null) runCatching { teleport(player, destination) }.onFailure { failure ->
                     plugin.logger.log(Level.WARNING, "ArcEvents could not return ${player.uniqueId} to the disposable-host lobby", failure)
@@ -2031,7 +2063,7 @@ class ArcEventsService(
         runCatching { markRecovered(player.uniqueId, recovery) }.onFailure { failure ->
             plugin.logger.log(Level.SEVERE, "ArcEvents could not record recovery for ${player.uniqueId}", failure)
         }
-        runCatching { player.sendEventMessage(locale.render(messageKey, player)) }
+        if (!departing) runCatching { player.sendEventMessage(locale.render(messageKey, player)) }
         runCatching { network.returnRecoveredPlayer(player, recovery) }.onFailure { failure ->
             plugin.logger.log(Level.SEVERE, "ArcEvents could not prepare return for ${player.uniqueId}", failure)
             runCatching { network.handleJoin(player) }
@@ -2255,20 +2287,7 @@ class ArcEventsService(
         val recovery = if (!disposablePlayerState()) {
             escrow.recover(player) { destination -> authorizedTeleport(player, destination) }
         } else {
-            val playerId = player.uniqueId
-            val activeTtt = match
-            val tttParticipant = activeTtt?.takeIf { it.phase != MatchPhase.COMPLETED }
-                ?.participant(playerId)
-                ?.takeIf { it.status != ParticipantStatus.RESTORED }
-                ?.let { PlayerRecovery(activeTtt.matchId, it.originServer) }
-            val activeArcade = arcade.current
-            val arcadeParticipant = activeArcade
-                ?.takeIf { it.phase != MatchPhase.COMPLETED }
-                ?.participants?.get(playerId)
-                ?.takeIf { it.status != ParticipantStatus.RESTORED }
-                ?.let { PlayerRecovery(activeArcade.matchId, it.originServer) }
-            tttParticipant ?: arcadeParticipant ?: eventRecoveries[playerId]
-                ?.takeIf { playerId in arrivalPlayers }
+            disposableRecovery(player.uniqueId)
         }
         if (recovery != null && disposablePlayerState()) resetDisposablePlayer(player)
         if (recovery == null) {
@@ -2276,6 +2295,45 @@ class ArcEventsService(
             arrivals.remove(player.uniqueId)
         }
         return recovery
+    }
+
+    private fun disposableRecovery(playerId: UUID): PlayerRecovery? {
+        val activeTtt = match
+        val tttParticipant = activeTtt?.takeIf { it.phase != MatchPhase.COMPLETED }
+            ?.participant(playerId)
+            ?.takeIf { it.status != ParticipantStatus.RESTORED }
+            ?.let { PlayerRecovery(activeTtt.matchId, it.originServer) }
+        val activeArcade = arcade.current
+        val arcadeParticipant = activeArcade
+            ?.takeIf { it.phase != MatchPhase.COMPLETED }
+            ?.participants?.get(playerId)
+            ?.takeIf { it.status != ParticipantStatus.RESTORED }
+            ?.let { PlayerRecovery(activeArcade.matchId, it.originServer) }
+        return tttParticipant ?: arcadeParticipant ?: eventRecoveries[playerId]
+            ?.takeIf { playerId in arrivalPlayers }
+    }
+
+    private fun cleanupOfflineDisposableArrivals(batch: ReservationBatch, online: Set<UUID>) {
+        if (!disposablePlayerState()) return
+        batch.entries.asSequence()
+            .map { UUID.fromString(it.playerId) }
+            .filter { it !in online }
+            .forEach { playerId ->
+                if (eventRecoveries[playerId]?.matchId == batch.matchId) {
+                    clearDisposableArrival(playerId, batch.matchId)
+                }
+            }
+    }
+
+    private fun clearDisposableArrival(playerId: UUID, matchId: UUID?) {
+        if (!disposablePlayerState()) return
+        val recovery = eventRecoveries[playerId]
+        if (recovery != null && matchId != null && recovery.matchId != matchId) return
+        arrivalPlayers.remove(playerId)
+        if (recovery != null) eventRecoveries.remove(playerId, recovery)
+        disposableOrigins.remove(playerId)
+        arrivals[playerId]?.takeIf { matchId == null || it.matchId == matchId.toString() }
+            ?.let { arrivals.remove(playerId, it) }
     }
 
     private fun ownsDisposableRecovery(playerId: UUID, recovery: PlayerRecovery): Boolean {

@@ -123,6 +123,74 @@ class TttRoundLifecycleMockBukkitTest : FunSpec({
         }
     }
 
+    test("disposable reserved arrival clears its quit ownership before the same player arrives again") {
+        failOnUnsupportedMockBukkitOperation {
+            TttRoundFixture(disposable = true).use { fixture ->
+                val player = fixture.players.first()
+                fixture.startReservation()
+                fixture.arrive(player) shouldBe true
+                player.inventory.setItemInMainHand(ItemStack.of(Material.STICK))
+                player.isInvulnerable = true
+                player.allowFlight = true
+
+                val mockPlayer = player as org.mockbukkit.mockbukkit.entity.PlayerMock
+                mockPlayer.disconnect() shouldBe true
+
+                fixture.service.isParticipant(player.uniqueId) shouldBe false
+                player.inventory.contents.filterNotNull() shouldBe emptyList()
+                player.isInvulnerable shouldBe false
+                player.allowFlight shouldBe false
+                verify(exactly = 1) { fixture.network.returnRecoveredPlayer(player, any()) }
+
+                mockPlayer.reconnect() shouldBe true
+                fixture.paper.performTicks(2)
+                fixture.service.stopByAdmin() shouldBe AdminStopResult.RESERVATION
+                fixture.startReservation()
+                val freshMatchId = fixture.reservationMatchId()
+                fixture.arrive(player) shouldBe true
+                fixture.players.drop(1).forEach { fixture.arrive(it) shouldBe true }
+
+                fixture.service.currentMatch()?.matchId shouldBe freshMatchId
+                fixture.service.phase() shouldBe MatchPhase.PREPARING
+                verify(exactly = 1) { fixture.network.returnRecoveredPlayer(player, any()) }
+            }
+        }
+    }
+
+    test("disposable live quit releases the participant before an unrelated rejoin") {
+        failOnUnsupportedMockBukkitOperation {
+            TttRoundFixture(disposable = true).use { fixture ->
+                fixture.startActiveRound()
+                val player = fixture.playerWithRole(TttRole.DETECTIVE)
+                player.inventory.setItemInMainHand(ItemStack.of(Material.STICK))
+                player.isInvulnerable = true
+                player.allowFlight = true
+                val mockPlayer = player as org.mockbukkit.mockbukkit.entity.PlayerMock
+
+                mockPlayer.disconnect() shouldBe true
+
+                fixture.service.isParticipant(player.uniqueId) shouldBe false
+                player.inventory.contents.filterNotNull() shouldBe emptyList()
+                player.isInvulnerable shouldBe false
+                player.allowFlight shouldBe false
+                verify(exactly = 1) { fixture.network.returnRecoveredPlayer(player, any()) }
+
+                fixture.service.stopByAdmin() shouldBe AdminStopResult.MATCH
+                fixture.service.currentMatch() shouldBe null
+                mockPlayer.reconnect() shouldBe true
+                fixture.paper.performTicks(2)
+                verify(exactly = 1) { fixture.network.returnRecoveredPlayer(player, any()) }
+
+                fixture.startReservation()
+                val freshMatchId = fixture.reservationMatchId()
+                fixture.players.forEach { fixture.arrive(it) shouldBe true }
+                fixture.service.currentMatch()?.matchId shouldBe freshMatchId
+                fixture.service.phase() shouldBe MatchPhase.PREPARING
+                verify(exactly = 1) { fixture.network.returnRecoveredPlayer(player, any()) }
+            }
+        }
+    }
+
     test("arrivals are protected and repeated arrival cannot clear inventory twice") {
         failOnUnsupportedMockBukkitOperation {
             TttRoundFixture().use { fixture ->
@@ -597,10 +665,12 @@ internal class TttRoundFixture(private val disposable: Boolean = false) : AutoCl
     }
 
     fun startReservation() {
-        check(!started) { "The fixture owns one TTT session" }
-        started = true
-        service.start()
-        paper.performTicks(1)
+        if (!started) {
+            started = true
+            service.start()
+            paper.performTicks(1)
+        }
+        check(service.matchState().first == null) { "The fixture must release its prior match before reserving again" }
         val matchId = UUID.randomUUID()
         reservationBatch = ReservationBatch(matchId, players.mapIndexed { index, player ->
             QueueEntry(
@@ -616,6 +686,8 @@ internal class TttRoundFixture(private val disposable: Boolean = false) : AutoCl
         })
         service.onReservation(requireNotNull(reservationBatch)) shouldBe true
     }
+
+    fun reservationMatchId(): UUID = requireNotNull(reservationBatch).matchId
 
     fun arrive(player: Player): Boolean {
         val batch = requireNotNull(reservationBatch)
