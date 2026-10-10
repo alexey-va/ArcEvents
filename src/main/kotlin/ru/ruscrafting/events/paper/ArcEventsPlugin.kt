@@ -126,7 +126,7 @@ class ArcEventsPlugin : JavaPlugin() {
                 onReservation = { activeService.onReservation(it) },
                 onArrival = { activeService.onArrival(it) },
                 recoveryPending = { activeService.escrowPending(it) },
-                activeMatchParticipant = activeService::ownsActiveRoute,
+                activeMatchParticipant = { activeService.ownsActiveRoute(it) },
             )
             network = coordinator
             lifecycle.own(coordinator)
