@@ -59,6 +59,17 @@ async function waitForFiringPosition(...players) {
   assert.fail(`teleport did not settle at the firing position: ${players.map((entry) => `${entry.username}:${entry.bot.entity?.position.y}`).join(', ')}`);
 }
 
+async function teleportTo(actor, target, x, y, z) {
+  actor.chat(`/tp ${target.username} ${x} ${y} ${z}`);
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const position = target.bot.entity?.position;
+    if (position && Math.hypot(position.x - x, position.y - y, position.z - z) < 1) return;
+    await pause(50);
+  }
+  const position = target.bot.entity?.position;
+  assert.fail(`${target.username} did not reach teleport destination (${x}, ${y}, ${z}); current position: ${position?.x}, ${position?.y}, ${position?.z}`);
+}
+
 async function waitForWeapon(player, weaponId) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const weapon = player.bot.inventory.slots[36];
@@ -145,10 +156,8 @@ async function grantTraitorBlade(admin, traitor) {
 }
 
 async function tttKill(admin, attacker, victim, bladeSlot) {
-  admin.chat(`/tp ${attacker.username} -12.5 16 -12.5`);
-  await expect(admin).toHaveReceivedMessage(new RegExp(`Teleported ${attacker.username}`), { timeout: 5000 });
-  admin.chat(`/tp ${victim.username} -10.5 16 -12.5`);
-  await expect(admin).toHaveReceivedMessage(new RegExp(`Teleported ${victim.username}`), { timeout: 5000 });
+  await teleportTo(admin, attacker, -12.5, 16, -12.5);
+  await teleportTo(admin, victim, -10.5, 16, -12.5);
   await waitForFiringPosition(attacker, victim);
   const marker = victim.getMessageBufferIndex();
   attacker.bot.setQuickBarSlot(bladeSlot - 36);
@@ -159,10 +168,8 @@ async function tttKill(admin, attacker, victim, bladeSlot) {
 }
 
 async function shoot(attacker, victim) {
-  attacker.bot.chat(`/tp ${attacker.username} -12.5 16 -12.5`);
-  await expect(attacker).toHaveReceivedMessage(new RegExp(`Teleported ${attacker.username}`), { timeout: 5000 });
-  attacker.bot.chat(`/tp ${victim.username} -10.5 16 -12.5`);
-  await expect(attacker).toHaveReceivedMessage(new RegExp(`Teleported ${victim.username}`), { timeout: 5000 });
+  await teleportTo(attacker, attacker, -12.5, 16, -12.5);
+  await teleportTo(attacker, victim, -10.5, 16, -12.5);
   await waitForFiringPosition(attacker, victim);
   const eliminatedSince = victim.getMessageBufferIndex();
   attacker.bot.setQuickBarSlot(0);
@@ -196,10 +203,8 @@ test('Gun Game advances through every firearm and finishes on the real knife hit
       await shoot(players[0], players[1]);
     }
 
-    players[0].bot.chat(`/tp ${players[0].username} -12.5 16 -12.5`);
-    await expect(players[0]).toHaveReceivedMessage(new RegExp(`Teleported ${players[0].username}`), { timeout: 5000 });
-    players[0].bot.chat(`/tp ${players[1].username} -10.5 16 -12.5`);
-    await expect(players[0]).toHaveReceivedMessage(new RegExp(`Teleported ${players[1].username}`), { timeout: 5000 });
+    await teleportTo(players[0], players[0], -12.5, 16, -12.5);
+    await teleportTo(players[0], players[1], -10.5, 16, -12.5);
     await waitForFiringPosition(players[0], players[1]);
     const marker = players[1].getMessageBufferIndex();
     players[0].bot.setQuickBarSlot(0);
