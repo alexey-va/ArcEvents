@@ -338,10 +338,8 @@ private fun prepareCatchFloor(player: PlayerMock, adventure: FishingAdventure): 
     )
     floor.type = Material.STONE
     for (x in -1..1) for (z in -1..1) for (y in 1..3) {
-        val clearance = spyk(player.world.getBlockAt(floor.x + x, floor.y + y, floor.z + z))
+        val clearance = player.world.getBlockAt(floor.x + x, floor.y + y, floor.z + z)
         clearance.type = Material.AIR
-        every { clearance.isPassable } answers { clearance.type.isAir }
-        every { floor.getRelative(x, y, z) } returns clearance
     }
     return floor
 }
