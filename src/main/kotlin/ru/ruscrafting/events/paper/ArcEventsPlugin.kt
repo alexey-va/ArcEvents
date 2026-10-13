@@ -1,13 +1,12 @@
 package ru.ruscrafting.events.paper
 
 import com.google.gson.Gson
-import kotlinx.coroutines.runBlocking
 import org.bukkit.plugin.java.JavaPlugin
 import org.bukkit.generator.ChunkGenerator
 import net.luckperms.api.LuckPerms
-import org.slf4j.LoggerFactory
 import ru.arc.core.PaperArcRuntime
 import ru.arc.core.Tasks
+import ru.arc.paper.redis.PaperRedisClient
 import ru.arc.paper.network.BungeeBackendTransfer
 import ru.arc.paper.nameplate.NativePaperNameplateVisibilityPolicy
 import ru.arc.paper.nameplate.PaperNameplateOptions
@@ -19,8 +18,6 @@ import ru.arc.paper.api.ArcSidebarPriorities
 import ru.arc.paper.api.ArcSidebarService
 import ru.arc.observability.RuntimeHealthContribution
 import ru.arc.observability.RuntimeHealthState
-import ru.arc.redis.RedisManager
-import ru.arc.redis.ServerIdentity
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.config.ArcEventsReloadPolicy
@@ -37,7 +34,6 @@ class ArcEventsPlugin : JavaPlugin() {
     private lateinit var locale: ArcEventsLocale
     private lateinit var menuLayouts: ArcEventsMenuLayouts
     private lateinit var menu: ArcEventsMenu
-    private var redis: RedisManager? = null
     private var network: EventNetworkCoordinator? = null
     private var service: ArcEventsService? = null
     private var transfer: BungeeBackendTransfer? = null
@@ -74,14 +70,11 @@ class ArcEventsPlugin : JavaPlugin() {
             if (settings.arenas.any { it.template == TttCitadelBlueprint.TEMPLATE }) TttCitadelLoot.validate()
             ArenaWorldProvisioner(this).ensureLoaded(settings)
             val redisConfig = ArcEventsRedisBootstrap.load(dataRoot, settings)
-            val manager = RedisManager(
-                redisConfig.connection(),
-                ServerIdentity { settings.serverId },
-                LoggerFactory.getLogger("ArcEvents.Redis"),
-            )
+            val manager = PaperRedisClient.open(this, redisConfig.connection(), settings.serverId)
             lifecycle.own(manager)
-            if (!manager.isConnected() || !runBlocking { manager.healthCheck() }) error("Redis connection is unavailable")
-            redis = manager
+            if (!manager.isConnected() || !manager.healthCheck().get(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                error("Redis connection is unavailable")
+            }
             val repository = RedisEventNetworkRepository(manager, Gson())
             val debug = ArcEventsDebug({ settings.debugEnabled }, logger::info)
             val escrow = PlayerStateEscrow(

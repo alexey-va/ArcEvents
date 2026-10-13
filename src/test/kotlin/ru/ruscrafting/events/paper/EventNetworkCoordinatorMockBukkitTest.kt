@@ -14,7 +14,7 @@ import ru.arc.network.BackendServerId
 import ru.arc.paper.network.BackendTransferResult
 import ru.arc.paper.network.BackendTransfer
 import ru.arc.redis.InMemoryRedis
-import ru.arc.redis.RedisManager
+import ru.arc.paper.redis.PaperRedisClient
 import ru.arc.redis.ServerIdentity
 import ru.arc.paper.testing.MockBukkitTestRuntime
 import ru.arc.paper.testing.failOnUnsupportedMockBukkitOperation
@@ -447,7 +447,7 @@ private class EventNetworkCoordinatorFixture(
             settings = { settings },
             locale = locale,
             repository = repository,
-            redis = mockk<RedisManager>(relaxed = true),
+            redis = mockk<PaperRedisClient>(relaxed = true),
             transfer = transfer,
             debug = ArcEventsDebug({ true }) {},
             matchState = { null to null },

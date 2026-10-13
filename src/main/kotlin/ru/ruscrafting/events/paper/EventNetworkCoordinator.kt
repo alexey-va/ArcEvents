@@ -8,7 +8,7 @@ import ru.arc.core.Tasks
 import ru.arc.network.BackendServerId
 import ru.arc.paper.network.BackendTransfer
 import ru.arc.paper.network.BackendTransferResult
-import ru.arc.redis.RedisManager
+import ru.arc.paper.redis.PaperRedisClient
 import ru.arc.redis.network.RedisPresenceDirectory
 import ru.arc.redis.network.RedisRequestReplyChannel
 import ru.arc.redis.network.RedisRequestResult
@@ -60,7 +60,7 @@ class EventNetworkCoordinator(
     private val settings: () -> ArcEventsConfig,
     private val locale: ArcEventsLocale,
     private val repository: RedisEventNetworkRepository,
-    private val redis: RedisManager,
+    private val redis: PaperRedisClient,
     private val transfer: BackendTransfer,
     private val debug: ArcEventsDebug,
     private val matchState: () -> Pair<UUID?, MatchPhase?>,

@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "ru.ruscrafting"
-version = "0.5.13"
+version = "0.5.14"
 description = "Cross-server custom events for RusCrafting"
 
 val integrationTestSourceSet = sourceSets.create("integrationTest") {
@@ -26,7 +26,7 @@ repositories {
 java { toolchain { languageVersion.set(JavaLanguageVersion.of(25)) } }
 kotlin { jvmToolchain(25) }
 
-val arcCoreVersion = "2.7.21"
+val arcCoreVersion = "2.7.22"
 val worldEditVersion = "7.3.18"
 
 dependencies {
@@ -77,6 +77,9 @@ tasks {
     }
     test {
         useJUnitPlatform()
+        testLogging {
+            exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        }
         providers.gradleProperty("ruscraftingOpsRoot")
             .orElse(providers.environmentVariable("RUSCRAFTING_OPS_ROOT"))
             .orNull
@@ -98,6 +101,11 @@ tasks {
         exclude("org/bukkit/**")
         exclude("io/papermc/**")
         exclude("net/kyori/adventure/**")
+        exclude("ru/arc/paper/sql/PaperSqlServiceProvider*.class")
+        exclude("ru/arc/paper/sql/SharedPaperSqlService*.class")
+        exclude("ru/arc/paper/redis/PaperRedisServiceProvider*.class")
+        exclude("ru/arc/paper/redis/SharedPaperRedisService*.class")
+        exclude("ru/arc/paper/metrics/PaperArcMetricsProvider*.class")
         exclude("ru/arc/paper/packet/PaperVisualPacketRuntime*.class")
         exclude("ru/arc/paper/api/**")
         // ARC is the sole native sidebar host; consumers share only its API class identity.
