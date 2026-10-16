@@ -68,13 +68,13 @@ class ArcEventsDialogMenuModelTest : StringSpec({
             mainButtons.getValue("action_arcade_gungame_name") shouldContain "›"
             mainButtons.getValue("action_arcade_disasters_name") shouldContain "›"
             mainButtons.getValue("action_arcade_fishing_name") shouldContain "›"
-            PlainTextComponentSerializer.plainText().serialize(displayed.last().buttons.single().label) shouldContain "Start solo"
+            PlainTextComponentSerializer.plainText().serialize(displayed.last().buttons.single().label) shouldContain "Начать одному"
 
             every { service.snapshot() } returns ServiceSnapshot("test", ru.ruscrafting.events.config.NodeMode.HOST, "test", true, true, true, null, 0,
                 UUID.randomUUID(), ru.ruscrafting.events.domain.MatchPhase.ACTIVE, 2, 2, 1, 1, 0, 12)
             every { service.currentMode() } returns ru.ruscrafting.events.domain.EventMode.TTT
             menu.open(player, EventsView.Fishing) shouldBe true
-            PlainTextComponentSerializer.plainText().serialize(displayed.last().body.first().text) shouldContain "Status: idle"
+            PlainTextComponentSerializer.plainText().serialize(displayed.last().body.first().text) shouldContain "Состояние: ожидание"
         } finally {
             root.toFile().deleteRecursively()
         }

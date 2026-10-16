@@ -20,6 +20,7 @@ class FishingTraderDialogTest : StringSpec({
     "trader and armory render both locales with explicit locked weapons and stable native identities" {
         val root = Files.createTempDirectory("fishing-trader-")
         try {
+            Files.writeString(root.resolve("config.yml"), "locale:\n  default: ru\n  use-client-locale: true\n")
             val settings = ArcEventsConfig.load(root)
             val locale = ArcEventsLocale(root) { settings }
             val player = mockk<Player>(relaxed = true)
