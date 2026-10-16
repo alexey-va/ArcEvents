@@ -310,7 +310,7 @@ class ArcEventsConfig(private val config: Config) {
         get() = PlayerStateMode.valueOf(config.string("player-state.mode", "PRESERVE").trim().uppercase())
     val hostServer: String get() = config.string("host-server", "parkour").trim().lowercase()
     val defaultLocale: String get() = config.string("locale.default", "ru").trim().lowercase()
-    val useClientLocale: Boolean get() = config.bool("locale.use-client-locale", true)
+    val useClientLocale: Boolean get() = config.bool("locale.use-client-locale", false)
     val packetChatIsolationEnabled: Boolean get() = config.bool("chat.packet-isolation.enabled", true)
     val localChat: LocalChatSettings
         get() = LocalChatSettings(

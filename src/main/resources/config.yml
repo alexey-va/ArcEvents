@@ -78,7 +78,7 @@ arena-runtime:
 
 locale:
   default: ru
-  use-client-locale: true
+  use-client-locale: false
 
 chat:
   # Ordinary round chat is spatial. The sender always sees their own line;

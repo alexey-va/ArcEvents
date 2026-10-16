@@ -298,10 +298,12 @@ class ArcEventsConfigTest : StringSpec({
         val root = Files.createTempDirectory("arcevents-config-upgrade-")
         try {
             Files.writeString(root.resolve("config.yml"), "locale:\n  default: en\n")
+            ArcEventsConfig.inspect(root).useClientLocale shouldBe false
 
             val upgraded = ArcEventsConfig.load(root)
             val once = Files.readAllBytes(root.resolve("config.yml"))
             upgraded.defaultLocale shouldBe "en"
+            upgraded.useClientLocale shouldBe false
             upgraded.eventControls.creatorControlsEnabled shouldBe true
             upgraded.ui.lootDisplay.scale shouldBe 0.78
             upgraded.localChat.maximumDistance shouldBe 36.0
