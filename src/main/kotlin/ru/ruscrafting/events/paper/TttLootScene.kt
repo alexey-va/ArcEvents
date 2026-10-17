@@ -3,8 +3,8 @@ package ru.ruscrafting.events.paper
 import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.Particle
-import org.bukkit.World
 import org.bukkit.entity.Display
+import org.bukkit.entity.Entity
 import org.bukkit.entity.Item
 import org.bukkit.entity.ItemDisplay
 import org.bukkit.inventory.ItemStack
@@ -13,6 +13,11 @@ import org.bukkit.util.Vector
 import org.joml.Matrix4f
 import ru.arc.core.ScheduledTask
 import ru.arc.core.Tasks
+import ru.arc.paper.chunk.PaperChunkKey
+import ru.arc.paper.chunk.PaperChunkTicketAcquireResult
+import ru.arc.paper.chunk.PaperChunkTicketLease
+import ru.arc.paper.chunk.PaperChunkTicketRegistry
+import java.util.concurrent.CompletableFuture
 import ru.ruscrafting.events.config.ArcEventsConfig
 import java.util.UUID
 import java.util.logging.Level
@@ -21,17 +26,23 @@ import java.util.logging.Level
 class TttLootScene(
     private val plugin: Plugin,
     private val firearms: TttFirearms,
+    private val work: EventWork? = null,
+    private val chunkTickets: PaperChunkTicketRegistry = PaperChunkTicketRegistry(plugin),
     private val settings: () -> ArcEventsConfig,
 ) : AutoCloseable {
-    private data class LootEntity(
-        val pickupId: UUID,
-        val itemDisplayId: UUID?,
-        val effectDisplayId: UUID?,
-        val chunkKey: LootChunkKey,
+    private class LootEntity(
+        val pickup: Item,
+        var itemDisplay: ItemDisplay?,
+        var effectDisplay: ItemDisplay?,
+        val chunkLease: PaperChunkTicketLease,
     )
 
-    private val entities = linkedMapOf<UUID, LootEntity>()
-    private val chunkTickets = LootChunkTicketRegistry(plugin)
+    private var entities = linkedMapOf<UUID, LootEntity>()
+    private var presentationOrder = ArrayDeque<LootEntity>()
+    private var sceneEpoch = 0L
+    private var presentationEpoch = 0L
+    private var presentationWork: CompletableFuture<Unit>? = null
+    private var cleanupTail = CompletableFuture.completedFuture(Unit)
     private var animationTask: ScheduledTask? = null
     private var animationTicks = 0
     private var rotation = 0f
@@ -64,7 +75,10 @@ class TttLootScene(
 
     fun register(item: Item, pickupDelay: Int = 20) {
         consume(item.uniqueId)
-        val chunkKey = chunkTickets.acquire(item.location)
+        val location = item.location
+        check(location.world.isChunkLoaded(location.blockX shr 4, location.blockZ shr 4)) { "Loot chunk is not loaded" }
+        val chunkLease = (chunkTickets.acquire(PaperChunkKey(location.world.uid, location.blockX shr 4, location.blockZ shr 4))
+            as? PaperChunkTicketAcquireResult.Acquired)?.lease ?: error("Could not retain loot chunk")
         var itemDisplay: ItemDisplay? = null
         var effectDisplay: ItemDisplay? = null
         try {
@@ -84,71 +98,126 @@ class TttLootScene(
                 null
             }
             item.setVisibleByDefault(itemDisplay == null)
-            entities[item.uniqueId] = LootEntity(item.uniqueId, itemDisplay?.uniqueId, effectDisplay?.uniqueId, chunkKey)
+            val tracked = LootEntity(item, itemDisplay, effectDisplay, chunkLease)
+            entities[item.uniqueId] = tracked
+            presentationOrder.addLast(tracked)
             if (itemDisplay != null) ensureAnimation()
         } catch (failure: Throwable) {
             entities.remove(item.uniqueId)
-            removeEntity(itemDisplay?.uniqueId)
-            removeEntity(effectDisplay?.uniqueId)
-            releaseChunk(chunkKey)
+            removeEntity(itemDisplay)
+            removeEntity(effectDisplay)
+            releaseChunk(chunkLease)
             throw failure
         }
     }
 
-    /** Rebuilds only presentation entities; authoritative pickup entities and their stacks survive. */
-    fun reconfigure() {
+    /** Rebuilds presentation through the shared budget; authoritative stacks and pickup order survive. */
+    fun reconfigure(): CompletableFuture<Unit> {
         stopAnimation()
-        entities.keys.toList().forEach { id ->
-            val pickup = (plugin.server.getEntity(id) as? Item)?.takeIf(Item::isValid)
-            if (pickup == null) {
-                consume(id)
-                return@forEach
+        val epoch = ++presentationEpoch
+        val source = sceneEpoch
+        val tasks = work
+        val count = presentationOrder.size
+        var remaining = count
+        fun step(): Boolean {
+            if (remaining > 0 && presentationOrder.isNotEmpty()) {
+                remaining--
+                val tracked = presentationOrder.removeFirst()
+                if (entities[tracked.pickup.uniqueId] === tracked) {
+                    if (!tracked.pickup.isValid) consume(tracked.pickup.uniqueId)
+                    else {
+                        rebuildPresentation(tracked)
+                        presentationOrder.addLast(tracked)
+                    }
+                }
             }
-            val previous = entities[id] ?: return@forEach
-            var candidateDisplay: ItemDisplay? = null
-            var candidateEffect: ItemDisplay? = null
-            runCatching {
-                pickup.itemStack = firearms.refreshItem(pickup.itemStack, null)
-                candidateDisplay = if (settings().ui.lootDisplays) createItemDisplay(pickup) else null
-                candidateEffect = candidateDisplay?.let { createEffectDisplay(pickup) }
-                pickup.setVisibleByDefault(candidateDisplay == null)
-                entities[id] = previous.copy(
-                    itemDisplayId = candidateDisplay?.uniqueId,
-                    effectDisplayId = candidateEffect?.uniqueId,
-                )
-                removeEntity(previous.itemDisplayId)
-                removeEntity(previous.effectDisplayId)
-            }.onFailure { failure ->
-                logPresentationFailure(effect = false, failure)
-                removeEntity(candidateDisplay?.uniqueId)
-                removeEntity(candidateEffect?.uniqueId)
-                runCatching { pickup.setVisibleByDefault(previous.itemDisplayId == null) }
-                    .onFailure(::logCleanupFailure)
-            }
+            return remaining == 0 || presentationOrder.isEmpty()
         }
-        if (entities.values.any { it.itemDisplayId != null }) ensureAnimation()
+        val result = if (tasks == null) runCatching { while (!step()) Unit }.fold(
+            { CompletableFuture.completedFuture(Unit) }, CompletableFuture<Unit>::failedFuture,
+        ) else tasks.capture({ sceneEpoch == source && presentationEpoch == epoch }, ::step)
+        presentationWork = result
+        result.whenComplete { _, failure ->
+            if (presentationWork === result) presentationWork = null
+            if (failure == null && sceneEpoch == source && presentationEpoch == epoch && entities.isNotEmpty()) ensureAnimation()
+        }
+        return result
+    }
+
+    private fun rebuildPresentation(tracked: LootEntity) {
+        val pickup = tracked.pickup
+        val previousDisplay = tracked.itemDisplay
+        val previousEffect = tracked.effectDisplay
+        var candidateDisplay: ItemDisplay? = null
+        var candidateEffect: ItemDisplay? = null
+        runCatching {
+            pickup.itemStack = firearms.refreshItem(pickup.itemStack, null)
+            candidateDisplay = if (settings().ui.lootDisplays) createItemDisplay(pickup) else null
+            candidateEffect = candidateDisplay?.let { createEffectDisplay(pickup) }
+            pickup.setVisibleByDefault(candidateDisplay == null)
+            tracked.itemDisplay = candidateDisplay
+            tracked.effectDisplay = candidateEffect
+            removeEntity(previousDisplay)
+            removeEntity(previousEffect)
+        }.onFailure { failure ->
+            logPresentationFailure(effect = false, failure)
+            removeEntity(candidateDisplay)
+            removeEntity(candidateEffect)
+            runCatching { pickup.setVisibleByDefault(previousDisplay == null) }.onFailure(::logCleanupFailure)
+        }
     }
 
     fun consume(itemId: UUID) {
         val tracked = entities.remove(itemId) ?: return
-        removeEntity(tracked.itemDisplayId)
-        removeEntity(tracked.effectDisplayId)
-        releaseChunk(tracked.chunkKey)
-        if (entities.isEmpty()) stopAnimation()
-    }
-
-    fun clear() {
-        val trackedEntities = entities.values.toList()
-        entities.clear()
-        trackedEntities.forEach { tracked ->
-            removeEntity(tracked.itemDisplayId)
-            removeEntity(tracked.effectDisplayId)
-            removeEntity(tracked.pickupId)
+        removeEntity(tracked.itemDisplay)
+        removeEntity(tracked.effectDisplay)
+        releaseChunk(tracked.chunkLease)
+        if (entities.isEmpty()) {
+            presentationOrder = ArrayDeque()
+            stopAnimation()
         }
-        runCatching(chunkTickets::clear).onFailure(::logCleanupFailure)
-        stopAnimation()
     }
 
+    fun clearAsync(): CompletableFuture<Unit> {
+        sceneEpoch++
+        presentationEpoch++
+        stopAnimation()
+        val detached = entities
+        entities = linkedMapOf()
+        presentationOrder = ArrayDeque()
+        if (detached.isEmpty()) return cleanupTail
+        val iterator = detached.values.iterator()
+        var current: LootEntity? = null
+        var phase = 0
+        var failure: Throwable? = null
+        // Only concrete native references and leases survive consumer shutdown in this callback.
+        val step = {
+            if (current == null && iterator.hasNext()) current = iterator.next()
+            current?.let { tracked ->
+                runCatching {
+                    when (phase++) {
+                        0 -> tracked.itemDisplay?.remove()
+                        1 -> tracked.effectDisplay?.remove()
+                        2 -> tracked.pickup.remove()
+                        else -> tracked.chunkLease.close()
+                    }
+                }.onFailure { problem ->
+                    if (failure == null) failure = problem else failure?.addSuppressed(problem)
+                }
+                if (phase == 4) { current = null; phase = 0 }
+            }
+            val done = current == null && !iterator.hasNext()
+            if (done) failure?.let { throw it }
+            done
+        }
+        val cleaned = work?.cleanupNative(step) ?: runCatching { while (!step()) Unit }.fold(
+            { CompletableFuture.completedFuture(Unit) }, CompletableFuture<Unit>::failedFuture,
+        )
+        cleanupTail = CompletableFuture.allOf(cleanupTail, cleaned).thenApply { Unit }
+        return cleanupTail
+    }
+
+    fun clear() { clearAsync().whenComplete { _, failure -> failure?.let(::logCleanupFailure) } }
     override fun close() = clear()
 
     private fun configurePickup(item: Item, pickupDelay: Int) {
@@ -218,77 +287,77 @@ class TttLootScene(
     }
 
     private fun animate() {
+        if (presentationWork?.isDone == false) return
         val presentation = settings().ui.lootDisplay
         val previousTicks = animationTicks
         animationTicks += presentation.animationStepTicks.toInt()
         val rotate = animationTicks / presentation.rotationTicks > previousTicks / presentation.rotationTicks
-        val emitParticle = animationTicks / presentation.particleIntervalTicks >
-            previousTicks / presentation.particleIntervalTicks
+        val emitParticle = animationTicks / presentation.particleIntervalTicks > previousTicks / presentation.particleIntervalTicks
         if (rotate) rotation += Math.PI.toFloat() + ROTATION_EPSILON
-        val iterator = entities.entries.iterator()
-        while (iterator.hasNext()) {
-            val entry = iterator.next()
-            val tracked = entry.value
-            val pickup = plugin.server.getEntity(tracked.pickupId) as? Item
-            if (pickup?.isValid != true) {
-                removeEntity(tracked.itemDisplayId)
-                removeEntity(tracked.effectDisplayId)
-                iterator.remove()
-                releaseChunk(tracked.chunkKey)
-                continue
-            }
-            val display = tracked.itemDisplayId?.let { plugin.server.getEntity(it) as? ItemDisplay }
-            if (display?.isValid != true) {
-                removeEntity(tracked.effectDisplayId)
-                runCatching { pickup.setVisibleByDefault(true) }.onFailure { logPresentationFailure(effect = false, it) }
-                entry.setValue(tracked.copy(itemDisplayId = null, effectDisplayId = null))
-                continue
-            }
-            val effectDisplay = tracked.effectDisplayId?.let { plugin.server.getEntity(it) as? ItemDisplay }
-            val current = if (tracked.effectDisplayId != null && effectDisplay?.isValid != true) {
-                tracked.copy(effectDisplayId = null).also(entry::setValue)
-            } else {
-                tracked
-            }
-            runCatching {
-                display.teleport(pickup.location.clone().add(0.0, presentation.height, 0.0))
-                effectDisplay?.takeIf(ItemDisplay::isValid)?.teleport(
-                    pickup.location.clone().add(0.0, settings().weapons.lootEffect.height, 0.0),
-                )
-            }.onFailure { logPresentationFailure(effect = false, it) }
-            if (rotate) {
-                runCatching {
-                    display.interpolationDelay = 0
-                    display.interpolationDuration = presentation.rotationTicks
-                    display.setTransformationMatrix(Matrix4f().scale(presentation.scale.toFloat()).rotateY(rotation))
-                }.onFailure { logPresentationFailure(effect = false, it) }
-                effectDisplay?.takeIf(ItemDisplay::isValid)?.also { animatedEffect ->
-                    runCatching {
-                        animatedEffect.interpolationDelay = 0
-                        animatedEffect.interpolationDuration = presentation.rotationTicks
-                        animatedEffect.setTransformationMatrix(
-                            Matrix4f().scale(settings().weapons.lootEffect.scale.toFloat()).rotateY(-rotation * 0.5f),
-                        )
-                    }.onFailure { logPresentationFailure(effect = true, it) }
+        val source = sceneEpoch
+        val epoch = presentationEpoch
+        var remaining = presentationOrder.size
+        fun step(): Boolean {
+            if (remaining > 0 && presentationOrder.isNotEmpty()) {
+                remaining--
+                val tracked = presentationOrder.removeFirst()
+                if (entities[tracked.pickup.uniqueId] === tracked) {
+                    animateEntity(tracked, rotate, emitParticle)
+                    if (entities[tracked.pickup.uniqueId] === tracked) presentationOrder.addLast(tracked)
                 }
             }
-            if (
-                current.effectDisplayId == null && settings().ui.particles && emitParticle
-            ) {
+            return remaining == 0 || presentationOrder.isEmpty()
+        }
+        val result = work?.capture({ sceneEpoch == source && presentationEpoch == epoch }, ::step)
+            ?: runCatching { while (!step()) Unit }.fold(
+                { CompletableFuture.completedFuture(Unit) }, CompletableFuture<Unit>::failedFuture,
+            )
+        presentationWork = result
+        result.whenComplete { _, failure ->
+            if (presentationWork === result) presentationWork = null
+            if (failure != null && sceneEpoch == source && presentationEpoch == epoch) logPresentationFailure(false, failure)
+            if (entities.isEmpty()) stopAnimation()
+        }
+    }
+
+    private fun animateEntity(tracked: LootEntity, rotate: Boolean, emitParticle: Boolean) {
+        val pickup = tracked.pickup
+        if (!pickup.isValid) { consume(pickup.uniqueId); return }
+        val display = tracked.itemDisplay
+        if (display?.isValid != true) {
+            removeEntity(tracked.effectDisplay)
+            runCatching { pickup.setVisibleByDefault(true) }.onFailure { logPresentationFailure(effect = false, it) }
+            tracked.itemDisplay = null
+            tracked.effectDisplay = null
+            return
+        }
+        val effectDisplay = tracked.effectDisplay?.takeIf(ItemDisplay::isValid)
+        tracked.effectDisplay = effectDisplay
+        val presentation = settings().ui.lootDisplay
+        runCatching {
+            display.teleport(pickup.location.clone().add(0.0, presentation.height, 0.0))
+            effectDisplay?.teleport(pickup.location.clone().add(0.0, settings().weapons.lootEffect.height, 0.0))
+        }.onFailure { logPresentationFailure(effect = false, it) }
+        if (rotate) {
+            runCatching {
+                display.interpolationDelay = 0
+                display.interpolationDuration = presentation.rotationTicks
+                display.setTransformationMatrix(Matrix4f().scale(presentation.scale.toFloat()).rotateY(rotation))
+            }.onFailure { logPresentationFailure(effect = false, it) }
+            effectDisplay?.also { animatedEffect ->
                 runCatching {
-                    display.world.spawnParticle(
-                        Particle.END_ROD,
-                        display.location,
-                        1,
-                        0.12,
-                        0.08,
-                        0.12,
-                        0.001,
+                    animatedEffect.interpolationDelay = 0
+                    animatedEffect.interpolationDuration = presentation.rotationTicks
+                    animatedEffect.setTransformationMatrix(
+                        Matrix4f().scale(settings().weapons.lootEffect.scale.toFloat()).rotateY(-rotation * 0.5f),
                     )
                 }.onFailure { logPresentationFailure(effect = true, it) }
             }
         }
-        if (entities.isEmpty()) stopAnimation()
+        if (effectDisplay == null && settings().ui.particles && emitParticle) {
+            runCatching { display.world.spawnParticle(Particle.END_ROD, display.location, 1, 0.12, 0.08, 0.12, 0.001) }
+                .onFailure { logPresentationFailure(effect = true, it) }
+        }
     }
 
     private fun stopAnimation() {
@@ -298,13 +367,13 @@ class TttLootScene(
         rotation = 0f
     }
 
-    private fun removeEntity(entityId: UUID?) {
-        if (entityId == null) return
-        runCatching { plugin.server.getEntity(entityId)?.remove() }.onFailure(::logCleanupFailure)
+    private fun removeEntity(entity: Entity?) {
+        if (entity == null) return
+        runCatching(entity::remove).onFailure(::logCleanupFailure)
     }
 
-    private fun releaseChunk(chunkKey: LootChunkKey) {
-        runCatching { chunkTickets.release(chunkKey) }.onFailure(::logCleanupFailure)
+    private fun releaseChunk(lease: PaperChunkTicketLease) {
+        runCatching(lease::close).onFailure(::logCleanupFailure)
     }
 
     private fun logPresentationFailure(effect: Boolean, failure: Throwable) {
@@ -334,6 +403,7 @@ class TttLootScene(
 object TttLootPlacement {
     fun exact(origin: Location): Location? {
         val world = origin.world
+        if (!world.isChunkLoaded(origin.blockX shr 4, origin.blockZ shr 4)) return null
         val feet = world.getBlockAt(origin.blockX, origin.blockY, origin.blockZ)
         val head = feet.getRelative(0, 1, 0)
         val floor = feet.getRelative(0, -1, 0)
@@ -366,41 +436,4 @@ object TttLootPlacement {
     }
 
     private const val MAX_PLACEMENT_RADIUS = 4
-}
-
-internal data class LootChunkKey(val worldId: UUID, val x: Int, val z: Int)
-
-/** Keeps non-persistent TTT pickups and displays loaded for the lifetime of their loot scene. */
-internal class LootChunkTicketRegistry(private val plugin: Plugin) {
-    private data class Ticket(val world: World, var references: Int, val removeOnRelease: Boolean)
-
-    private val tickets = linkedMapOf<LootChunkKey, Ticket>()
-
-    fun acquire(location: Location): LootChunkKey {
-        val world = location.world
-        val key = LootChunkKey(world.uid, location.blockX shr 4, location.blockZ shr 4)
-        val current = tickets[key]
-        if (current != null) {
-            current.references += 1
-            return key
-        }
-        val added = world.addPluginChunkTicket(key.x, key.z, plugin)
-        tickets[key] = Ticket(world, 1, added)
-        return key
-    }
-
-    fun release(key: LootChunkKey) {
-        val ticket = tickets[key] ?: return
-        ticket.references -= 1
-        if (ticket.references > 0) return
-        tickets.remove(key)
-        if (ticket.removeOnRelease) ticket.world.removePluginChunkTicket(key.x, key.z, plugin)
-    }
-
-    fun clear() {
-        tickets.forEach { (key, ticket) ->
-            if (ticket.removeOnRelease) ticket.world.removePluginChunkTicket(key.x, key.z, plugin)
-        }
-        tickets.clear()
-    }
 }

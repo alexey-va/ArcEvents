@@ -26,6 +26,7 @@ class ArenaWeaponPointEditorTest : FunSpec({
         val root = Files.createTempDirectory("arcevents-editor-")
         try {
             val world = paper.addSimpleWorld("arena")
+            world.loadChunk(0, 0)
             world.getBlockAt(1, 64, 2).type = Material.STONE
             val player = paper.addPlayer("Admin")
             player.teleport(Location(world, 1.8, 65.0, 2.2))
@@ -61,6 +62,7 @@ class ArenaWeaponPointEditorTest : FunSpec({
         val root = Files.createTempDirectory("arcevents-editor-reject-")
         try {
             val world = paper.addSimpleWorld("arena")
+            world.loadChunk(0, 0)
             world.getBlockAt(1, 64, 2).type = Material.BARRIER
             val player = paper.addPlayer("Admin")
             player.teleport(Location(world, 1.5, 65.0, 2.5))

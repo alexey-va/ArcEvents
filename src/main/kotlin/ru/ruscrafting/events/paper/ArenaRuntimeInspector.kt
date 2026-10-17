@@ -34,6 +34,7 @@ class ArenaRuntimeInspector(private val plugin: Plugin) {
 
     private fun ready(point: EventLocation): Boolean {
         val location = point.bukkitLocation() ?: return false
+        if (!location.world.isChunkLoaded(location.blockX shr 4, location.blockZ shr 4)) return false
         val feet = location.block
         val head = feet.getRelative(0, 1, 0)
         val floor = feet.getRelative(0, -1, 0)

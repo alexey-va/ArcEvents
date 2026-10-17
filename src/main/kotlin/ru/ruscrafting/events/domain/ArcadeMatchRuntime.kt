@@ -95,6 +95,13 @@ class ArcadeMatchRuntime(
         ).also { current = it }
     }
 
+    /** Preparation time starts after durable player mutation and roster confirmation. */
+    fun restartPreparationClock() {
+        val match = requireCurrent()
+        check(match.phase == MatchPhase.PREPARING)
+        current = change(match, deadlineMs = clock() + match.rules.preparationSeconds * 1000L)
+    }
+
     fun tick(): ArcadeMatch {
         var match = requireCurrent()
         val now = clock()

@@ -8,7 +8,12 @@ import java.nio.file.Path
 
 internal const val ARENA_TEMPLATE_MARKER = ".arcevents-template"
 
-/** Resolves only ArcEvents-owned, marker-bound world generators at server load time. */
+/**
+ * Resolves only ArcEvents-owned, marker-bound world generators at server load time.
+ * Paper may call this synchronous hook before plugin enable/async preparation. Its bounded 128-byte
+ * ownership probe remains a bootstrap exception; returning a guessed generator would change worlds.
+ * The owned provisioner performs its filesystem checks on a worker and supplies generators explicitly.
+ */
 internal object ArenaWorldGeneratorRegistry {
     fun generatorFor(worldContainer: Path, worldName: String): ChunkGenerator? {
         val container = worldContainer.toAbsolutePath().normalize()

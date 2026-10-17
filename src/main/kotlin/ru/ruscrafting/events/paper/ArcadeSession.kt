@@ -25,6 +25,7 @@ import ru.ruscrafting.events.domain.*
 import ru.ruscrafting.events.network.QueueEntry
 import java.time.Duration
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
 import java.util.logging.Level
 import kotlin.math.ceil
 import kotlin.math.cos
@@ -41,10 +42,11 @@ class ArcadeSession(
     private val network: EventNetworkCoordinator,
     private val escrow: PlayerStateEscrow,
     private val teleport: (Player, EventLocation) -> Unit,
-    private val recover: (Player) -> PlayerRecovery?,
+    private val recover: (Player, (Result<PlayerRecovery?>) -> Unit) -> Unit,
     private val recovered: (Player, PlayerRecovery) -> Unit,
     private val clearWeaponState: (UUID) -> Unit,
     private val clock: () -> Long,
+    private val work: EventWork? = null,
 ) {
     val runtime = ArcadeMatchRuntime(clock)
     val current: ArcadeMatch? get() = runtime.current
@@ -60,7 +62,7 @@ class ArcadeSession(
     private var hazardVictim: UUID? = null
     private var fishing: FishingAdventure? = null
 
-    fun start(matchId: UUID, mode: EventMode, entries: List<QueueEntry>, players: List<Player>, rules: ArcadeRules) {
+    fun start(matchId: UUID, mode: EventMode, entries: List<QueueEntry>, players: List<Player>, rules: ArcadeRules): CompletableFuture<Unit> {
         check(current == null)
         require(entries.map { UUID.fromString(it.playerId) }.toSet() == players.map { it.uniqueId }.toSet())
         require(players.distinctBy { it.uniqueId }.size == players.size)
@@ -69,51 +71,67 @@ class ArcadeSession(
         rosterCommitted = false
         val match = runtime.start(matchId, mode, entries.map(QueueEntry::queuedPlayer), rules)
         var mutationAttempted = false
-        try {
-            val preservePlayerState = settings().playerStateMode == PlayerStateMode.PRESERVE
-            val mutatePlayers = {
-                mutationAttempted = true
-                players.forEach { player ->
-                    resetPlayer(player)
-                    player.inventory.clear()
-                    player.inventory.armorContents = arrayOfNulls(4)
-                    player.inventory.setItemInOffHand(null)
-                    teleport(player, requireNotNull(arenaPool.active()).playerSpawn)
-                    player.sendEventMessage(locale.render("arcade.preparing", player, mapOf("mode" to modeName(player))))
-                    val guideValues = if (mode == EventMode.FISHING) mapOf(
-                        "phase" to locale.render("phase.${match.phase.name.lowercase()}", player),
-                        "seconds" to locale.text(secondsRemaining()),
-                        "maximum" to locale.text(rules.roundSeconds),
-                        "arena" to locale.render("arena.fishing.name", player),
-                    ) else emptyMap()
-                    locale.lore("arcade.${mode.id}-guide", player, guideValues).forEach(player::sendEventMessage)
-                    if (preservePlayerState) player.saveData()
+        val preservePlayerState = settings().playerStateMode == PlayerStateMode.PRESERVE
+        fun current() = current?.matchId == matchId && current?.phase == MatchPhase.PREPARING && players.all(Player::isOnline)
+        val applyPlayer: (Player) -> Unit = { player ->
+            mutationAttempted = true
+            resetPlayer(player)
+            player.inventory.clear()
+            player.inventory.armorContents = arrayOfNulls(4)
+            player.inventory.setItemInOffHand(null)
+            teleport(player, requireNotNull(arenaPool.active()).playerSpawn)
+            player.sendEventMessage(locale.render("arcade.preparing", player, mapOf("mode" to modeName(player))))
+            val guideValues = if (mode == EventMode.FISHING) mapOf(
+                "phase" to locale.render("phase.${match.phase.name.lowercase()}", player),
+                "seconds" to locale.text(secondsRemaining()),
+                "maximum" to locale.text(rules.roundSeconds),
+                "arena" to locale.render("arena.fishing.name", player),
+            ) else emptyMap()
+            locale.lore("arcade.${mode.id}-guide", player, guideValues).forEach(player::sendEventMessage)
+            if (preservePlayerState) player.saveData()
+        }
+        val mutatePlayers: () -> CompletableFuture<Unit> = {
+            if (work == null) {
+                players.forEach(applyPlayer)
+                CompletableFuture.completedFuture(Unit)
+            } else {
+                val iterator = players.iterator()
+                work.capture(::current) {
+                    if (iterator.hasNext()) applyPlayer(iterator.next())
+                    !iterator.hasNext()
                 }
             }
-            if (preservePlayerState) {
-                escrow.commitThenMutate(
-                    matchId,
-                    players,
-                    entries.associate { UUID.fromString(it.playerId) to it.originServer },
-                    clock(),
-                ) { mutatePlayers() }
-            } else mutatePlayers()
-        } catch (failure: Throwable) {
-            // A rejected journal commit must not trap an untouched local roster in recovery.
-            // Existing arrival snapshots still require their normal verified restoration.
-            if (!mutationAttempted) {
-                if (settings().playerStateMode == PlayerStateMode.PRESERVE) {
-                    runCatching { escrow.pendingPlayers(matchId) }.onSuccess { pending ->
-                        players.filter { it.uniqueId !in pending }.forEach { runtime.markRecoveryApplied(it.uniqueId) }
-                    }
-                } else players.forEach { runtime.markRecoveryApplied(it.uniqueId) }
-            }
-            throw failure
         }
-        updateHud(match)
+        val operation = runCatching {
+            if (preservePlayerState) escrow.commitThenMutateStagesAsync(matchId, players,
+                entries.associate { UUID.fromString(it.playerId) to it.originServer }, clock(), ::current,
+            ) { mutatePlayers() }.thenApply { Unit } else mutatePlayers()
+        }.getOrElse { CompletableFuture.failedFuture(it) }
+        return operation.handle { _, failure -> failure }.thenCompose { failure -> onMain {
+            if (failure != null) {
+                if (!mutationAttempted && this.current?.matchId == matchId) {
+                    if (preservePlayerState) {
+                        runCatching { escrow.pendingPlayers(matchId) }.onSuccess { pending ->
+                            players.filter { it.uniqueId !in pending }.forEach { runtime.markRecoveryApplied(it.uniqueId) }
+                        }
+                    } else players.forEach { runtime.markRecoveryApplied(it.uniqueId) }
+                }
+                throw failure
+            }
+            check(current()) { "Arcade preparation superseded" }
+            updateHud(requireNotNull(this.current))
+        } }
     }
 
-    fun confirmRoster() { rosterCommitted = true }
+    private fun <T> onMain(action: () -> T): CompletableFuture<T> = if (work == null) {
+        runCatching(action).fold(CompletableFuture<T>::completedFuture, CompletableFuture<T>::failedFuture)
+    } else work.onMain(action)
+
+    fun confirmRoster() {
+        if (!rosterCommitted) runtime.restartPreparationClock()
+        rosterCommitted = true
+    }
+
     fun participant(id: UUID): ArcadePlayer? = current?.participants?.get(id)
     fun isParticipant(id: UUID) = participant(id)?.status?.let { it != ParticipantStatus.RESTORED } == true
     fun isAlive(id: UUID) = participant(id)?.status == ParticipantStatus.ALIVE
@@ -152,9 +170,15 @@ class ArcadeSession(
                                     runtime.completeFishing(player.uniqueId)
                                     showResult()
                                 }
-                            }, clock)
+                            }, clock, work)
                         fishing = adventure
-                        adventure.start()
+                        adventure.startAsync().whenComplete { _, failure ->
+                            if (failure != null && work?.isCurrent() != false && fishing === adventure &&
+                                current?.matchId == match.matchId) {
+                                plugin.logger.log(Level.SEVERE, "Could not start fishing match ${match.matchId}", failure)
+                                cancel(MatchEndReason.ADMIN)
+                            }
+                        }
                     }
                 }
                 else -> Unit
@@ -448,8 +472,10 @@ class ArcadeSession(
     private fun restorePlayers() {
         val match = current ?: return
         online().filter { participant(it.uniqueId)?.status != ParticipantStatus.RESTORED }.forEach { player ->
-            runCatching { recover(player) }.onSuccess { recovery -> if (recovery != null) recovered(player, recovery) }
-                .onFailure { plugin.logger.log(Level.SEVERE, "ArcEvents arcade recovery failed for ${player.uniqueId}", it) }
+            recover(player) { result ->
+                result.onSuccess { recovery -> if (recovery != null) recovered(player, recovery) }
+                    .onFailure { plugin.logger.log(Level.SEVERE, "ArcEvents arcade recovery failed for ${player.uniqueId}", it) }
+            }
         }
         val pending = if (settings().playerStateMode == PlayerStateMode.DISPOSABLE) {
             emptySet()

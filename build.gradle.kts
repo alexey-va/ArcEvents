@@ -1,3 +1,5 @@
+import java.security.MessageDigest
+
 plugins {
     kotlin("jvm") version "2.3.0"
     id("com.gradleup.shadow") version "9.3.0"
@@ -6,7 +8,7 @@ plugins {
 }
 
 group = "ru.ruscrafting"
-version = "0.5.20"
+version = "0.5.21"
 description = "Cross-server custom events for RusCrafting"
 
 val integrationTestSourceSet = sourceSets.create("integrationTest") {
@@ -27,7 +29,7 @@ java { toolchain { languageVersion.set(JavaLanguageVersion.of(25)) } }
 kotlin { jvmToolchain(25) }
 
 val worldEditVersion = "7.3.18"
-val arcCoreVersion = "2.7.33"
+val arcCoreVersion = "2.7.38"
 
 dependencies {
     implementation(kotlin("stdlib"))
@@ -106,6 +108,7 @@ tasks {
         exclude("ru/arc/paper/redis/PaperRedisServiceProvider*.class")
         exclude("ru/arc/paper/redis/SharedPaperRedisService*.class")
         exclude("ru/arc/paper/metrics/PaperArcMetricsProvider*.class")
+        exclude("ru/arc/paper/runtime/PaperNativeCleanupServiceProvider*.class")
         exclude("ru/arc/paper/packet/PaperVisualPacketRuntime*.class")
         exclude("ru/arc/paper/api/**")
         // ARC is the sole native sidebar host; consumers share only its API class identity.
@@ -120,6 +123,24 @@ dependencyLocking { lockAllConfigurations() }
 // CI supplies a matching ARC shadow jar; local unit/integration tasks remain
 // independent of an ARC checkout.
 val e2eArcJar = providers.gradleProperty("e2eArcJar").map { file(it) }
+val e2eArcCoreJar = providers.gradleProperty("e2eArcCoreJar").map { file(it) }
+val verifyE2eProvider = tasks.register("verifyE2eProvider") {
+    description = "Verifies the standalone provider used by the isolated Paper fixture."
+    inputs.file(e2eArcCoreJar).optional()
+    doLast {
+        val provider = requireNotNull(e2eArcCoreJar.orNull) {
+            "Supply -Pe2eArcCoreJar=/absolute/path/ArcCore-0.1.12.jar for the real Paper fixture"
+        }
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(provider.readBytes()).joinToString("") { "%02x".format(it) }
+        require(digest == "93158072f30ad3d7d5201acdf9036324841c4455844b4f1b650cfea0d8540502") {
+            "ArcCore 0.1.12 fixture checksum mismatch: $digest"
+        }
+    }
+}
+tasks.withType<me.drownek.plugwright.AbstractPlugwrightTask>().configureEach {
+    dependsOn(verifyE2eProvider)
+}
 
 plugwright {
     minecraftVersion.set("1.21.11")
@@ -141,6 +162,7 @@ plugwright {
     }
     writeFiles {
         e2eArcJar.orNull?.let { file("plugins/ARC.jar", it) }
+        e2eArcCoreJar.orNull?.let { file("plugins/ArcCore.jar", it) }
         file("plugins/ARC/modules/runtime.yml", projectDir.resolve("src/test/e2e/fixtures/arc-runtime.yml"))
         file("plugins/ARC/modules/ops-http.yml", projectDir.resolve("src/test/e2e/fixtures/arc-ops-http.yml"))
         file("plugins/RedisEconomy/config.yml", projectDir.resolve("src/test/e2e/fixtures/rediseconomy.yml"))

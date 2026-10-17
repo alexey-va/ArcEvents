@@ -5,10 +5,14 @@ import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import org.bukkit.Location
 import org.bukkit.World
 import org.bukkit.plugin.Plugin
 import java.util.UUID
+import ru.arc.paper.chunk.PaperChunkKey
+import ru.arc.paper.chunk.PaperChunkTicketRegistry
+import ru.arc.paper.chunk.PaperChunkTicketBackend
+import ru.arc.paper.chunk.PaperChunkTicketAddResult
+import ru.arc.paper.chunk.PaperChunkTicketAcquireResult
 
 class LootChunkTicketRegistryTest : StringSpec({
     "one plugin ticket protects every loot entity in a chunk until the last release" {
@@ -17,18 +21,18 @@ class LootChunkTicketRegistryTest : StringSpec({
         every { world.uid } returns UUID.fromString("00000000-0000-0000-0000-000000000042")
         every { world.addPluginChunkTicket(-1, 2, plugin) } returns true
         every { world.removePluginChunkTicket(-1, 2, plugin) } returns true
-        val tickets = LootChunkTicketRegistry(plugin)
+        val tickets = testTickets(plugin, world)
 
-        val first = tickets.acquire(Location(world, -1.0, 80.0, 32.0))
-        val second = tickets.acquire(Location(world, -15.0, 90.0, 47.0))
+        val first = (tickets.acquire(PaperChunkKey(world.uid, -1, 2)) as PaperChunkTicketAcquireResult.Acquired).lease
+        val second = (tickets.acquire(PaperChunkKey(world.uid, -1, 2)) as PaperChunkTicketAcquireResult.Acquired).lease
 
-        first shouldBe LootChunkKey(world.uid, -1, 2)
-        second shouldBe first
+        first.key shouldBe PaperChunkKey(world.uid, -1, 2)
+        second.key shouldBe first.key
         verify(exactly = 1) { world.addPluginChunkTicket(-1, 2, plugin) }
 
-        tickets.release(first)
+        first.close()
         verify(exactly = 0) { world.removePluginChunkTicket(-1, 2, plugin) }
-        tickets.release(second)
+        second.close()
         verify(exactly = 1) { world.removePluginChunkTicket(-1, 2, plugin) }
     }
 
@@ -39,13 +43,20 @@ class LootChunkTicketRegistryTest : StringSpec({
         every { world.addPluginChunkTicket(0, 0, plugin) } returns true
         every { world.addPluginChunkTicket(1, 0, plugin) } returns false
         every { world.removePluginChunkTicket(0, 0, plugin) } returns true
-        val tickets = LootChunkTicketRegistry(plugin)
+        val tickets = testTickets(plugin, world)
 
-        tickets.acquire(Location(world, 1.0, 70.0, 1.0))
-        tickets.acquire(Location(world, 17.0, 70.0, 1.0))
-        tickets.clear()
+        val first = (tickets.acquire(PaperChunkKey(world.uid, 0, 0)) as PaperChunkTicketAcquireResult.Acquired).lease
+        val borrowed = (tickets.acquire(PaperChunkKey(world.uid, 1, 0)) as PaperChunkTicketAcquireResult.Acquired).lease
+        first.close()
+        borrowed.close()
 
         verify(exactly = 1) { world.removePluginChunkTicket(0, 0, plugin) }
         verify(exactly = 0) { world.removePluginChunkTicket(1, 0, plugin) }
     }
+})
+
+private fun testTickets(plugin: Plugin, world: World) = PaperChunkTicketRegistry(object : PaperChunkTicketBackend {
+    override fun add(key: PaperChunkKey) = if (world.addPluginChunkTicket(key.x, key.z, plugin))
+        PaperChunkTicketAddResult.ADDED else PaperChunkTicketAddResult.ALREADY_PRESENT
+    override fun remove(key: PaperChunkKey) = world.removePluginChunkTicket(key.x, key.z, plugin)
 })

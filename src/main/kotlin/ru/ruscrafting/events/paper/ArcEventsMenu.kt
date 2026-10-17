@@ -50,7 +50,7 @@ class ArcEventsMenu(
     private val items: TttItems,
     private val locale: ArcEventsLocale,
     private val settings: () -> ArcEventsConfig,
-    private val reload: () -> Result<Unit>,
+    private val reload: () -> java.util.concurrent.CompletableFuture<Result<Unit>>,
     private val layouts: ArcEventsMenuLayouts,
     private val escapeCloses: (Player) -> Boolean = { false },
 ) : AutoCloseable {
@@ -581,11 +581,16 @@ class ArcEventsMenu(
                 open(player, EventsView.Admin)
             }
             element(view, "reload") -> {
-                val result = reload()
-                player.sendEventMessage(locale.render(if (result.isSuccess) "command.reload-ok" else "command.reload-failed", player, mapOf(
-                    "reason" to locale.text(result.exceptionOrNull()?.message ?: "unknown"),
-                )))
-                open(player, EventsView.Admin)
+                reload().whenComplete { outcome, failure ->
+                    if (plugin.isEnabled) Tasks.scheduler.runSync {
+                        if (!plugin.isEnabled || !player.isOnline) return@runSync
+                        val result = outcome ?: Result.failure(failure ?: IllegalStateException("Reload failed"))
+                        player.sendEventMessage(locale.render(if (result.isSuccess) "command.reload-ok" else "command.reload-failed", player, mapOf(
+                            "reason" to locale.text(result.exceptionOrNull()?.message ?: "unknown"),
+                        )))
+                        open(player, EventsView.Admin)
+                    }
+                }
             }
             element(view, "recover") -> {
                 val count = service.retryRecovery()

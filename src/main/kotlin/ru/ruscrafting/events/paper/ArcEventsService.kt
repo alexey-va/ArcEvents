@@ -121,6 +121,7 @@ class ArcEventsService(
     private val lootSpawner: TttLootSpawner,
     private val clock: () -> Long = System::currentTimeMillis,
     private val clientProtocol: (Player) -> Int = ClientProtocolResolver()::resolve,
+    private val work: EventWork? = null,
 ) : ArcEventsGameplayBoundary, AutoCloseable {
     private val localChat = TttLocalChat(plugin.server, settings, locale)
     private data class MapSpawnReturn(
@@ -135,12 +136,14 @@ class ArcEventsService(
     private val match: TttMatch?
         get() = runtime.current
     private val arcade = ArcadeSession(plugin, settings, locale, items, firearms, arenaPool, network, escrow,
-        ::teleport, ::recoverPlayer, { player, recovery -> completeRecovery(player, recovery) }, ::clearWeaponState, clock)
+        ::teleport, ::recoverPlayer, { player, recovery -> completeRecovery(player, recovery) }, ::clearWeaponState, clock, work)
     private var arcadeRules: ArcadeRules? = null
     private var reservation: ReservationBatch? = null
     /** Gameplay and phase clocks are immutable for one reservation and its resulting match. */
     private var matchSettings: TttSettings? = null
     private val arrivals = linkedMapOf<UUID, QueueEntry>()
+    private val arrivalOperations = mutableMapOf<UUID, CompletableFuture<Boolean>>()
+    private var preparingPlayers: UUID? = null
     private val eventRecoveries = mutableMapOf<UUID, PlayerRecovery>()
     private val disposableOrigins = mutableMapOf<UUID, EventLocation>()
     private val arrivalPlayers = java.util.concurrent.ConcurrentHashMap.newKeySet<UUID>()
@@ -148,8 +151,8 @@ class ArcEventsService(
     private var mainTickTask: ScheduledTask? = null
     private val radarTasks = mutableMapOf<UUID, ScheduledTask>()
     private val teleportAuthorizer = ScopedTeleportAuthorizer()
-    private val projectiles = mutableSetOf<UUID>()
-    private val bodyRegistry = TttBodyRegistry(plugin, locale, clock)
+    private var projectiles = linkedMapOf<UUID, Entity>()
+    private val bodyRegistry = TttBodyRegistry(plugin, locale, clock, work)
     private val shotCooldownUntil = mutableMapOf<UUID, Long>()
     private val reloadTasks = mutableMapOf<UUID, ScheduledTask>()
     private val mapSpawnReturns = mutableMapOf<UUID, MapSpawnReturn>()
@@ -305,48 +308,58 @@ class ArcEventsService(
         return true
     }
 
-    fun onArrival(entry: QueueEntry): Boolean {
-        val batch = reservation ?: return false
-        if (entry.matchId != batch.matchId.toString() || entry.mode != batch.mode.id) return false
+    /** Compatibility for synchronous adapters; production awaits onArrivalAsync. */
+    fun onArrival(entry: QueueEntry): Boolean = onArrivalAsync(entry).let {
+        check(it.isDone) { "Arrival isolation is asynchronous" }
+        it.join()
+    }
+
+    fun onArrivalAsync(entry: QueueEntry): CompletableFuture<Boolean> {
+        fun rejected() = CompletableFuture.completedFuture(false)
+        val batch = reservation ?: return rejected()
+        if (entry.matchId != batch.matchId.toString() || entry.mode != batch.mode.id) return rejected()
         val playerId = UUID.fromString(entry.playerId)
-        if (batch.entries.none { it.playerId == entry.playerId }) return false
-        val player = plugin.server.getPlayer(playerId)?.takeIf(Player::isOnline) ?: return false
-        if (playerId in arrivals) return true
+        if (batch.entries.none { it.playerId == entry.playerId }) return rejected()
+        val player = plugin.server.getPlayer(playerId)?.takeIf(Player::isOnline) ?: return rejected()
+        arrivalOperations[playerId]?.let { return it }
+        if (playerId in arrivals) return CompletableFuture.completedFuture(true)
         if (playerId in arrivalPlayers) {
             if (!disposablePlayerState() || eventRecoveries[playerId] == PlayerRecovery(batch.matchId, entry.originServer)) {
-                return true // A failed preparation or this exact reservation still owns recovery.
+                return CompletableFuture.completedFuture(true)
             }
-            // An older disposable arrival is only in-memory isolation state. A fresh reservation may replace it.
             clearDisposableArrival(playerId, eventRecoveries[playerId]?.matchId)
         }
-        try {
-            commitPlayerMutation(
-                batch.matchId,
-                listOf(player),
-                mapOf(playerId to entry.originServer),
-                clock(),
-            ) {
-                arrivalPlayers += playerId
-                eventRecoveries[playerId] = PlayerRecovery(batch.matchId, entry.originServer)
-                rememberDisposableOrigin(player, entry.originServer)
-                if (disposablePlayerState()) resetDisposablePlayer(player)
-                items.clearForEvent(player)
-                if (!disposablePlayerState()) player.saveData()
-            }
-        } catch (failure: Throwable) {
-            plugin.logger.log(Level.SEVERE, "ArcEvents could not isolate arrival $playerId", failure)
-            if (disposablePlayerState()) {
-                runCatching { resetDisposablePlayer(player) }
-                arrivalPlayers.remove(playerId)
-                eventRecoveries.remove(playerId)
-                disposableOrigins.remove(playerId)
-            } else if (hasPendingRecovery(playerId)) arrivalPlayers += playerId
-            return playerId in arrivalPlayers
-        }
-        arrivals[playerId] = entry
-        debug.event("reservation_arrival", "match" to batch.matchId, "player" to playerId, "arrived" to arrivals.size)
-        if (arrivals.size == batch.entries.size) startReservedRoster()
-        return true
+        val result = CompletableFuture<Boolean>()
+        arrivalOperations[playerId] = result
+        commitPlayerMutation(batch.matchId, listOf(player), mapOf(playerId to entry.originServer), clock(),
+            isCurrent = { started && reservation === batch && player.isOnline },
+        ) {
+            arrivalPlayers += playerId
+            eventRecoveries[playerId] = PlayerRecovery(batch.matchId, entry.originServer)
+            rememberDisposableOrigin(player, entry.originServer)
+            if (disposablePlayerState()) resetDisposablePlayer(player)
+            items.clearForEvent(player)
+            if (!disposablePlayerState()) player.saveData()
+            CompletableFuture.completedFuture(Unit)
+        }.whenComplete { _, failure -> onMain {
+            arrivalOperations.remove(playerId, result)
+            if (failure != null) {
+                plugin.logger.log(Level.SEVERE, "ArcEvents could not isolate arrival $playerId", failure)
+                if (disposablePlayerState()) {
+                    runCatching { resetDisposablePlayer(player) }
+                    arrivalPlayers.remove(playerId)
+                    eventRecoveries.remove(playerId)
+                    disposableOrigins.remove(playerId)
+                } else if (hasPendingRecovery(playerId)) arrivalPlayers += playerId
+                result.complete(playerId in arrivalPlayers)
+            } else if (reservation === batch && player.isOnline) {
+                arrivals[playerId] = entry
+                debug.event("reservation_arrival", "match" to batch.matchId, "player" to playerId, "arrived" to arrivals.size)
+                if (arrivals.size == batch.entries.size) startReservedRoster()
+                result.complete(true)
+            } else result.complete(playerId in arrivalPlayers || hasPendingRecovery(playerId))
+        }.exceptionally { result.completeExceptionally(it); null } }
+        return result
     }
 
     fun joinQueue(player: Player) {
@@ -362,16 +375,16 @@ class ArcEventsService(
     fun leave(player: Player) {
         if (player.uniqueId in arrivalPlayers && participant(player.uniqueId) == null && !arcade.isParticipant(player.uniqueId)) {
             arrivals.remove(player.uniqueId)
-            runCatching { recoverPlayer(player) }.onSuccess { recovery ->
+            recoverPlayer(player) { recoveryResult -> recoveryResult.onSuccess { recovery ->
                 if (recovery != null) completeRecovery(player, recovery, "match.evacuated")
-            }.onFailure { plugin.logger.log(Level.SEVERE, "ArcEvents arrival evacuation failed player=${player.uniqueId}", it) }
+            }.onFailure { plugin.logger.log(Level.SEVERE, "ArcEvents arrival evacuation failed player=${player.uniqueId}", it) } }
             return
         }
         if (arcade.isParticipant(player.uniqueId)) {
             arcade.disconnect(player)
-            runCatching { recoverPlayer(player) }.onSuccess { recovery ->
+            recoverPlayer(player) { recoveryResult -> recoveryResult.onSuccess { recovery ->
                 if (recovery != null) completeRecovery(player, recovery, "match.evacuated")
-            }.onFailure { plugin.logger.log(Level.SEVERE, "ArcEvents arcade evacuation failed", it) }
+            }.onFailure { plugin.logger.log(Level.SEVERE, "ArcEvents arcade evacuation failed", it) } }
             return
         }
         cancelMapSpawnReturn(player.uniqueId, notify = false)
@@ -395,19 +408,20 @@ class ArcEventsService(
 
         if (outcome is MatchOutcome.Finished) resolve(changed)
         hud.remove(player.uniqueId)
-        val recovery = runCatching { recoverPlayer(player) }.getOrElse { failure ->
-            plugin.logger.log(Level.SEVERE, "ArcEvents could not evacuate ${player.uniqueId}", failure)
-            player.sendEventMessage(locale.render("match.restore-pending", player))
-            return
-        }
-        if (recovery == null) {
-            player.sendEventMessage(locale.render("match.restore-pending", player))
-            return
-        }
-        completeRecovery(player, recovery, "match.evacuated")
-
-        if (changed.phase != MatchPhase.ACTIVE && changed.phase in LIVE_PHASES && !preRoundRosterViable(changed)) {
-            cancel(MatchEndReason.INSUFFICIENT_PLAYERS)
+        recoverPlayer(player) { result ->
+            val recovery = result.getOrElse { failure ->
+                plugin.logger.log(Level.SEVERE, "ArcEvents could not evacuate ${player.uniqueId}", failure)
+                player.sendEventMessage(locale.render("match.restore-pending", player))
+                return@recoverPlayer
+            }
+            if (recovery == null) {
+                player.sendEventMessage(locale.render("match.restore-pending", player))
+                return@recoverPlayer
+            }
+            completeRecovery(player, recovery, "match.evacuated")
+            if (changed.phase != MatchPhase.ACTIVE && changed.phase in LIVE_PHASES && !preRoundRosterViable(changed)) {
+                cancel(MatchEndReason.INSUFFICIENT_PLAYERS)
+            }
         }
     }
 
@@ -494,15 +508,15 @@ class ArcEventsService(
             if (!started || !player.isOnline) return@runLater
             val pending = hasPendingRecovery(player.uniqueId)
             if (pending) {
-                val recovery = runCatching { recoverPlayer(player) }.getOrElse {
-                    plugin.logger.log(Level.SEVERE, "ArcEvents could not restore ${player.uniqueId} on join", it)
-                    player.sendEventMessage(locale.render("match.restore-pending", player))
-                    return@runLater
+                recoverPlayer(player) { result ->
+                    result.onSuccess { recovery ->
+                        if (recovery != null) completeRecovery(player, recovery) else network.handleJoin(player)
+                    }.onFailure {
+                        plugin.logger.log(Level.SEVERE, "ArcEvents could not restore ${player.uniqueId} on join", it)
+                        player.sendEventMessage(locale.render("match.restore-pending", player))
+                    }
                 }
-                if (recovery != null) {
-                    completeRecovery(player, recovery)
-                    return@runLater
-                }
+                return@runLater
             }
             network.handleJoin(player)
         }
@@ -513,11 +527,11 @@ class ArcEventsService(
         if (disposablePlayerState() && isParticipant(player.uniqueId)) resetDisposablePlayer(player)
         arrivals.remove(player.uniqueId)
         if (player.uniqueId in arrivalPlayers && !arcade.isParticipant(player.uniqueId) && participant(player.uniqueId) == null) {
-            runCatching { recoverPlayer(player) }.onSuccess { recovery ->
+            recoverPlayer(player) { recoveryResult -> recoveryResult.onSuccess { recovery ->
                 if (recovery != null) completeRecovery(player, recovery, departing = disposablePlayerState())
             }.onFailure { failure ->
                 plugin.logger.log(Level.SEVERE, "ArcEvents could not restore departing arrival ${player.uniqueId}", failure)
-            }
+            } }
             return
         }
         if (arcade.isParticipant(player.uniqueId)) {
@@ -628,13 +642,13 @@ class ArcEventsService(
         plugin.server.onlinePlayers.forEach { player ->
             if (player.uniqueId !in pending) return@forEach
             available++
-            runCatching { recoverPlayer(player) }
+            recoverPlayer(player) { recoveryResult -> recoveryResult
                 .onSuccess { recovery ->
                     if (recovery != null) {
                         completeRecovery(player, recovery)
                     }
                 }
-                .onFailure { plugin.logger.log(Level.SEVERE, "ArcEvents recovery retry failed for ${player.uniqueId}", it) }
+                .onFailure { plugin.logger.log(Level.SEVERE, "ArcEvents recovery retry failed for ${player.uniqueId}", it) } }
         }
         return available
     }
@@ -774,7 +788,7 @@ class ArcEventsService(
         val participant = current.participant(shooter.uniqueId) ?: return true
         if (current.phase != MatchPhase.ACTIVE || participant.status != ParticipantStatus.ALIVE) return false
         projectile.persistentDataContainer.set(projectileMatchKey, PersistentDataType.STRING, current.matchId.toString())
-        projectiles += projectile.uniqueId
+        projectiles[projectile.uniqueId] = projectile
         return true
     }
 
@@ -1232,18 +1246,24 @@ class ArcEventsService(
         )
     }
 
-    fun debugStartLocal(players: List<Player>, arenaId: String? = null, mode: EventMode = EventMode.TTT): DebugMutationResult {
-        if (mode != EventMode.TTT) return debugStartArcade(players, arenaId, mode)
+    fun debugStartLocal(players: List<Player>, arenaId: String? = null, mode: EventMode = EventMode.TTT): DebugMutationResult =
+        debugStartLocalAsync(players, arenaId, mode).let {
+            check(it.isDone) { "Match preparation is asynchronous" }
+            it.join()
+        }
+
+    fun debugStartLocalAsync(players: List<Player>, arenaId: String? = null, mode: EventMode = EventMode.TTT): CompletableFuture<DebugMutationResult> {
+        if (mode != EventMode.TTT) return debugStartArcadeAsync(players, arenaId, mode)
         val currentSettings = settings()
-        if (!currentSettings.debugMutationsAllowed) return DebugMutationResult.MUTATIONS_DISABLED
-        if (currentSettings.nodeMode != NodeMode.HOST) return DebugMutationResult.WRONG_NODE
-        if (match != null || arcade.current != null || reservation != null) return DebugMutationResult.BUSY
+        if (!currentSettings.debugMutationsAllowed) return CompletableFuture.completedFuture(DebugMutationResult.MUTATIONS_DISABLED)
+        if (currentSettings.nodeMode != NodeMode.HOST) return CompletableFuture.completedFuture(DebugMutationResult.WRONG_NODE)
+        if (match != null || arcade.current != null || reservation != null) return CompletableFuture.completedFuture(DebugMutationResult.BUSY)
         val online = players.filter(Player::isOnline).distinctBy(Player::getUniqueId)
         if (online.size !in currentSettings.ttt.minimumPlayers..currentSettings.ttt.maximumPlayers) {
-            return DebugMutationResult.INSUFFICIENT_PLAYERS
+            return CompletableFuture.completedFuture(DebugMutationResult.INSUFFICIENT_PLAYERS)
         }
         val matchId = UUID.randomUUID()
-        val arena = arenaPool.reserve(matchId, arenaId) ?: return DebugMutationResult.ARENA_UNAVAILABLE
+        val arena = arenaPool.reserve(matchId, arenaId) ?: return CompletableFuture.completedFuture(DebugMutationResult.ARENA_UNAVAILABLE)
         matchSettings = currentSettings.ttt
         online.forEach { rememberDisposableOrigin(it, currentSettings.serverId) }
         val created = runtime.create(
@@ -1259,34 +1279,34 @@ class ArcEventsService(
             nowMs = clock(),
         )
         var mutationAttempted = false
-        return runCatching {
-            runtime.clearTransientState()
-            roundReport = null
-            bodyRegistry.clear()
-            cleanupProjectiles()
-            cleanupLoot()
-            val prepared = runtime.prepare(created, currentSettings.ttt.preparationSeconds)
-            commitPlayerMutation(
-                matchId,
-                online,
-                online.associate { it.uniqueId to currentSettings.serverId },
-                clock(),
-            ) {
-                mutationAttempted = true
-                applyEventState(online, prepared)
-            }
-            debug.event("debug_match_preparing", "match" to matchId, "players" to online.size, "arena" to arena.id)
-            DebugMutationResult.APPLIED
-        }.getOrElse { failure ->
-            plugin.logger.log(Level.SEVERE, "ArcEvents debug bootstrap failed for $matchId", failure)
-            if (match?.matchId == matchId) {
-                if (mutationAttempted) cancel(MatchEndReason.SHUTDOWN) else abortUnmutatedPreparation(online)
+        runtime.clearTransientState()
+        roundReport = null
+        bodyRegistry.clear()
+        cleanupProjectiles()
+        cleanupLoot()
+        val prepared = runtime.prepare(created, currentSettings.ttt.preparationSeconds)
+        preparingPlayers = matchId
+        return commitPlayerMutation(matchId, online, online.associate { it.uniqueId to currentSettings.serverId }, clock(),
+            isCurrent = { started && match?.matchId == matchId && match?.phase == MatchPhase.PREPARING },
+        ) {
+            mutationAttempted = true
+            applyEventStateAsync(online, prepared)
+        }.handle { _, failure -> failure }.thenCompose { failure -> onMain {
+            if (preparingPlayers == matchId) preparingPlayers = null
+            if (failure == null) {
+                debug.event("debug_match_preparing", "match" to matchId, "players" to online.size, "arena" to arena.id)
+                DebugMutationResult.APPLIED
             } else {
-                arenaPool.release(matchId)
-                matchSettings = null
+                plugin.logger.log(Level.SEVERE, "ArcEvents debug bootstrap failed for $matchId", failure)
+                if (match?.matchId == matchId) {
+                    if (mutationAttempted) cancel(MatchEndReason.SHUTDOWN) else abortUnmutatedPreparation(online)
+                } else {
+                    arenaPool.release(matchId)
+                    matchSettings = null
+                }
+                DebugMutationResult.INTERNAL_ERROR
             }
-            DebugMutationResult.INTERNAL_ERROR
-        }
+        } }
     }
 
     fun debugAdvance(): DebugMutationResult {
@@ -1484,13 +1504,12 @@ class ArcEventsService(
         return if (callDetective(viewer, body.bodyId)) DebugMutationResult.APPLIED else DebugMutationResult.PRECONDITION_FAILED
     }
 
-    fun debugLoot(respawn: Boolean): DebugMutationResult {
-        if (!settings().debugMutationsAllowed) return DebugMutationResult.MUTATIONS_DISABLED
-        val current = match ?: return DebugMutationResult.NO_MATCH
-        if (current.phase !in LIVE_PHASES) return DebugMutationResult.WRONG_PHASE
-        cleanupLoot()
-        if (respawn) spawnLoot(current)
-        return DebugMutationResult.APPLIED
+    fun debugLootAsync(respawn: Boolean): CompletableFuture<DebugMutationResult> {
+        if (!settings().debugMutationsAllowed) return CompletableFuture.completedFuture(DebugMutationResult.MUTATIONS_DISABLED)
+        val current = match ?: return CompletableFuture.completedFuture(DebugMutationResult.NO_MATCH)
+        if (current.phase !in LIVE_PHASES) return CompletableFuture.completedFuture(DebugMutationResult.WRONG_PHASE)
+        val changed = if (respawn) spawnLootAsync(current) else cleanupLoot()
+        return changed.thenApply { DebugMutationResult.APPLIED }
     }
 
     fun debugCleanup(): DebugMutationResult {
@@ -1547,59 +1566,60 @@ class ArcEventsService(
             releaseRestoredReservation(batch)
             return
         }
-        try {
-            arcade.start(batch.matchId, batch.mode, entries, online, rules)
-            arrivalPlayers.removeAll(online.map(Player::getUniqueId).toSet())
-            network.completeReservation(batch.matchId, online.map(Player::getUniqueId)).whenComplete { _, failure ->
-                Tasks.scheduler.runSync {
-                    if (!started || arcade.current?.matchId != batch.matchId) return@runSync
-                    if (failure != null) {
-                        plugin.logger.log(Level.SEVERE, "ArcEvents could not finalize arcade roster", failure)
-                        arcade.cancel(MatchEndReason.SHUTDOWN)
-                        releaseRestoredReservation(batch)
-                    } else {
-                        arcade.confirmRoster()
-                        if (online.size < batch.entries.size) releaseRestoredReservation(batch, online.mapTo(mutableSetOf(), Player::getUniqueId))
-                        network.announceStarted(batch.matchId)
+        arcade.start(batch.matchId, batch.mode, entries, online, rules).whenComplete { _, failure -> onMain {
+            if (failure != null) {
+                plugin.logger.log(Level.SEVERE, "ArcEvents could not prepare arcade match", failure)
+                if (arcade.current != null) arcade.cancel(MatchEndReason.SHUTDOWN) else arenaPool.release(batch.matchId)
+                releaseRestoredReservation(batch)
+            } else if (started && arcade.current?.matchId == batch.matchId && arcade.current?.phase == MatchPhase.PREPARING) {
+                arrivalPlayers.removeAll(online.map(Player::getUniqueId).toSet())
+                network.completeReservation(batch.matchId, online.map(Player::getUniqueId)).whenComplete { _, finalizeFailure -> onMain {
+                    if (started && arcade.current?.matchId == batch.matchId && arcade.current?.phase == MatchPhase.PREPARING) {
+                        if (finalizeFailure != null) {
+                            plugin.logger.log(Level.SEVERE, "ArcEvents could not finalize arcade roster", finalizeFailure)
+                            arcade.cancel(MatchEndReason.SHUTDOWN)
+                            releaseRestoredReservation(batch)
+                        } else {
+                            arcade.confirmRoster()
+                            if (online.size < batch.entries.size) releaseRestoredReservation(batch, online.mapTo(mutableSetOf(), Player::getUniqueId))
+                            network.announceStarted(batch.matchId)
+                        }
                     }
-                }
+                } }
             }
-        } catch (failure: Throwable) {
-            plugin.logger.log(Level.SEVERE, "ArcEvents could not prepare arcade match", failure)
-            if (arcade.current != null) arcade.cancel(MatchEndReason.SHUTDOWN) else arenaPool.release(batch.matchId)
-            releaseRestoredReservation(batch)
-        }
+        } }
     }
 
-    private fun debugStartArcade(players: List<Player>, arenaId: String?, mode: EventMode): DebugMutationResult {
+    private fun debugStartArcadeAsync(players: List<Player>, arenaId: String?, mode: EventMode): CompletableFuture<DebugMutationResult> {
+        fun done(result: DebugMutationResult) = CompletableFuture.completedFuture(result)
         val config = settings()
-        if (!config.debugMutationsAllowed) return DebugMutationResult.MUTATIONS_DISABLED
-        if (config.nodeMode != NodeMode.HOST) return DebugMutationResult.WRONG_NODE
-        if (matchState().first != null) return DebugMutationResult.BUSY
+        if (!config.debugMutationsAllowed) return done(DebugMutationResult.MUTATIONS_DISABLED)
+        if (config.nodeMode != NodeMode.HOST) return done(DebugMutationResult.WRONG_NODE)
+        if (matchState().first != null) return done(DebugMutationResult.BUSY)
         val online = players.filter(Player::isOnline).distinctBy(Player::getUniqueId)
         val rules = config.arcade.rules(mode)
-        if (online.size !in rules.minimumPlayers..rules.maximumPlayers) return DebugMutationResult.INSUFFICIENT_PLAYERS
-        if (online.any { hasPendingRecovery(it.uniqueId) }) return DebugMutationResult.PRECONDITION_FAILED
-        if (mode == EventMode.FISHING && online.any { !supportsFishingClient(it) }) return DebugMutationResult.PRECONDITION_FAILED
+        if (online.size !in rules.minimumPlayers..rules.maximumPlayers) return done(DebugMutationResult.INSUFFICIENT_PLAYERS)
+        if (online.any { hasPendingRecovery(it.uniqueId) }) return done(DebugMutationResult.PRECONDITION_FAILED)
+        if (mode == EventMode.FISHING && online.any { !supportsFishingClient(it) }) return done(DebugMutationResult.PRECONDITION_FAILED)
         val id = UUID.randomUUID()
         val arena = arenaPool.reserve(id, when (mode) {
             EventMode.DISASTERS -> "disasters"
             EventMode.FISHING -> "fishing"
             else -> arenaId
-        }, mode)
-            ?: return DebugMutationResult.ARENA_UNAVAILABLE
-        return try {
-            val entries = online.map { QueueEntry(it.uniqueId.toString(), it.name, config.serverId, mode.id,
-                joinedAtMs = clock(), expiresAtMs = clock() + 60_000L) }
-            online.forEach { rememberDisposableOrigin(it, config.serverId) }
-            arcade.start(id, mode, entries, online, rules)
-            arcade.confirmRoster()
-            DebugMutationResult.APPLIED
-        } catch (failure: Throwable) {
-            plugin.logger.log(Level.SEVERE, "ArcEvents local arcade bootstrap failed on ${arena.id}", failure)
-            if (arcade.current != null) arcade.cancel(MatchEndReason.SHUTDOWN) else arenaPool.release(id)
-            DebugMutationResult.INTERNAL_ERROR
-        }
+        }, mode) ?: return done(DebugMutationResult.ARENA_UNAVAILABLE)
+        val entries = online.map { QueueEntry(it.uniqueId.toString(), it.name, config.serverId, mode.id,
+            joinedAtMs = clock(), expiresAtMs = clock() + 60_000L) }
+        online.forEach { rememberDisposableOrigin(it, config.serverId) }
+        return arcade.start(id, mode, entries, online, rules).handle { _, failure -> failure }.thenCompose { failure -> onMain {
+            if (failure == null && arcade.current?.matchId == id && arcade.current?.phase == MatchPhase.PREPARING) {
+                arcade.confirmRoster()
+                DebugMutationResult.APPLIED
+            } else {
+                plugin.logger.log(Level.SEVERE, "ArcEvents local arcade bootstrap failed on ${arena.id}", failure)
+                if (arcade.current != null) arcade.cancel(MatchEndReason.SHUTDOWN) else arenaPool.release(id)
+                DebugMutationResult.INTERNAL_ERROR
+            }
+        } }
     }
 
     private fun startReservedRoster() {
@@ -1639,31 +1659,39 @@ class ArcEventsService(
                 nowMs = clock(),
             )
             val prepared = runtime.prepare(created, matchTtt.preparationSeconds)
-            arrivalPlayers.removeAll(online.map(Player::getUniqueId).toSet())
-            commitPlayerMutation(
-                batch.matchId,
-                online,
-                entries.associate { UUID.fromString(it.playerId) to it.originServer },
-                clock(),
+            preparingPlayers = batch.matchId
+            commitPlayerMutation(batch.matchId, online, entries.associate { UUID.fromString(it.playerId) to it.originServer }, clock(),
+                isCurrent = { started && match?.matchId == batch.matchId && match?.phase == MatchPhase.PREPARING },
             ) {
                 mutationAttempted = true
-                applyEventState(online, prepared)
-            }
-            network.completeReservation(batch.matchId, online.map(Player::getUniqueId)).whenComplete { _, failure ->
-                Tasks.scheduler.runSync {
-                    val prepared = match
-                    if (!started || prepared?.matchId != batch.matchId || prepared.phase != MatchPhase.PREPARING) return@runSync
-                    if (failure != null) {
-                        plugin.logger.log(Level.SEVERE, "ArcEvents could not finalize roster ${batch.matchId}", failure)
-                        releaseRestoredReservation(batch)
-                        cancel(MatchEndReason.SHUTDOWN)
-                        return@runSync
+                applyEventStateAsync(online, prepared)
+            }.whenComplete { _, mutationFailure -> onMain {
+                if (mutationFailure != null) {
+                    if (preparingPlayers == batch.matchId) preparingPlayers = null
+                    plugin.logger.log(Level.SEVERE, "ArcEvents could not prepare match ${batch.matchId}", mutationFailure)
+                    releaseRestoredReservation(batch)
+                    if (match?.matchId == batch.matchId) {
+                        if (mutationAttempted) cancel(MatchEndReason.SHUTDOWN) else abortUnmutatedPreparation(online)
                     }
-                    if (online.size < batch.entries.size) releaseRestoredReservation(batch, online.mapTo(mutableSetOf(), Player::getUniqueId))
-                    network.announceStarted(batch.matchId)
-                    debug.event("match_preparing", "match" to batch.matchId, "players" to online.size)
+                } else if (started && match?.matchId == batch.matchId && match?.phase == MatchPhase.PREPARING) {
+                    arrivalPlayers.removeAll(online.map(Player::getUniqueId).toSet())
+                    network.completeReservation(batch.matchId, online.map(Player::getUniqueId)).whenComplete { _, failure -> onMain {
+                        if (started && match?.matchId == batch.matchId && match?.phase == MatchPhase.PREPARING) {
+                            if (preparingPlayers == batch.matchId) preparingPlayers = null
+                            if (failure != null) {
+                                plugin.logger.log(Level.SEVERE, "ArcEvents could not finalize roster ${batch.matchId}", failure)
+                                releaseRestoredReservation(batch)
+                                cancel(MatchEndReason.SHUTDOWN)
+                            } else {
+                                if (online.size < batch.entries.size) releaseRestoredReservation(batch, online.mapTo(mutableSetOf(), Player::getUniqueId))
+                                network.announceStarted(batch.matchId)
+                                debug.event("match_preparing", "match" to batch.matchId, "players" to online.size)
+                            }
+                        }
+                    } }
                 }
-            }
+            } }
+
         } catch (failure: Throwable) {
             plugin.logger.log(Level.SEVERE, "ArcEvents could not prepare match ${batch.matchId}", failure)
             releaseRestoredReservation(batch)
@@ -1679,12 +1707,15 @@ class ArcEventsService(
     private fun abortUnmutatedPreparation(players: List<Player>) {
         val current = match ?: return
         players.filter(Player::isOnline).forEach { player ->
-            val safeToRelease = runCatching { recoverPlayer(player) }.onFailure { failure ->
-                plugin.logger.log(Level.SEVERE, "ArcEvents could not discard an unmutated recovery snapshot for ${player.uniqueId}", failure)
-            }.isSuccess
-            if (safeToRelease && current.participant(player.uniqueId) != null) {
-                runCatching { runtime.markRecoveryApplied(player.uniqueId) }.onFailure { failure ->
-                    plugin.logger.log(Level.SEVERE, "ArcEvents could not mark unmutated state safe for ${player.uniqueId}", failure)
+            recoverPlayer(player) { result ->
+                result.onFailure { failure ->
+                    plugin.logger.log(Level.SEVERE, "ArcEvents could not discard an unmutated recovery snapshot for ${player.uniqueId}", failure)
+                }.onSuccess {
+                    if (match?.matchId == current.matchId && current.participant(player.uniqueId) != null) {
+                        runCatching { runtime.markRecoveryApplied(player.uniqueId) }.onFailure { failure ->
+                            plugin.logger.log(Level.SEVERE, "ArcEvents could not mark unmutated state safe for ${player.uniqueId}", failure)
+                        }
+                    }
                 }
             }
         }
@@ -1699,7 +1730,7 @@ class ArcEventsService(
 
     private fun restoreReservationArrivals(batch: ReservationBatch, players: Collection<Player>) {
         players.filter(Player::isOnline).forEach { player ->
-            runCatching { recoverPlayer(player) }.onSuccess { recovery ->
+            recoverPlayer(player) { recoveryResult -> recoveryResult.onSuccess { recovery ->
                 if (recovery != null) completeRecovery(player, recovery)
             }.onFailure { failure ->
                 plugin.logger.log(
@@ -1707,13 +1738,14 @@ class ArcEventsService(
                     "ArcEvents could not restore cancelled arrival ${player.uniqueId} for ${batch.matchId}",
                     failure,
                 )
-            }
+            } }
         }
     }
 
-    private fun applyEventState(players: List<Player>, current: TttMatch) {
+    private fun applyEventStateAsync(players: List<Player>, current: TttMatch): CompletableFuture<Unit> {
         val arena = requireNotNull(arenaPool.active()) { "Match ${current.matchId} has no arena lease" }
-        players.forEach { player ->
+        val pending = players.iterator()
+        val applyPlayer: (Player) -> Unit = { player ->
             if (disposablePlayerState()) resetDisposablePlayer(player)
             player.closeInventory()
             player.activePotionEffects.forEach { player.removePotionEffect(it.type) }
@@ -1744,14 +1776,23 @@ class ArcEventsService(
             }
             if (!disposablePlayerState()) player.saveData()
         }
-        spawnLoot(current)
-        hud.open(current)
-        hud.update(current, runtime.phaseSecondsRemaining(), activeTtt().preparationSeconds)
+        val applied = if (work == null) {
+            players.forEach(applyPlayer)
+            CompletableFuture.completedFuture(Unit)
+        } else work.capture({ started && match?.matchId == current.matchId && match?.phase == MatchPhase.PREPARING && players.all(Player::isOnline) }) {
+            if (pending.hasNext()) applyPlayer(pending.next())
+            !pending.hasNext()
+        }
+        return applied.thenCompose { onMain { spawnLootAsync(current) }.thenCompose { it } }.thenCompose { onMain {
+            check(started && match?.matchId == current.matchId) { "Match preparation superseded" }
+            hud.open(current)
+            hud.update(current, runtime.phaseSecondsRemaining(), activeTtt().preparationSeconds)
+        } }
     }
 
     private fun beginCountdown() {
         val current = match ?: return
-        if (current.phase != MatchPhase.PREPARING) return
+        if (current.phase != MatchPhase.PREPARING || preparingPlayers == current.matchId) return
         if (!preRoundRosterViable(current)) {
             cancel(MatchEndReason.INSUFFICIENT_PLAYERS)
             return
@@ -1824,12 +1865,12 @@ class ArcEventsService(
         // Cancelled/failed arrivals keep their host escrow and retry before any return transfer.
         arrivalPlayers.toList().filter { it !in arrivals && participant(it) == null && !arcade.isParticipant(it) }
             .mapNotNull(plugin.server::getPlayer).forEach { player ->
-                runCatching { recoverPlayer(player) }.onSuccess { recovery ->
+                recoverPlayer(player) { recoveryResult -> recoveryResult.onSuccess { recovery ->
                     if (recovery != null) completeRecovery(player, recovery)
                 }.onFailure { failure ->
                     if (recoveryReadFailures.add(player.uniqueId)) plugin.logger.log(Level.SEVERE,
                         "ArcEvents arrival recovery retry failed player=${player.uniqueId}", failure)
-                }
+                } }
             }
         if (arcade.current != null) {
             runCatching(arcade::tick).onFailure { failure ->
@@ -1841,6 +1882,7 @@ class ArcEventsService(
         val current = match ?: return
         when (current.phase) {
             MatchPhase.PREPARING -> {
+                if (preparingPlayers == current.matchId) return
                 val phaseTick = runtime.tickPhase()
                 if (phaseTick.elapsed) {
                     beginCountdown()
@@ -1971,7 +2013,7 @@ class ArcEventsService(
         val restoredOnline = mutableSetOf<UUID>()
         current.participants.values.forEach { participant ->
             val player = plugin.server.getPlayer(participant.playerId) ?: return@forEach
-            runCatching { recoverPlayer(player) }
+            recoverPlayer(player) { recoveryResult -> recoveryResult
                 .onSuccess { recovery ->
                     if (recovery != null) {
                         restoredOnline += player.uniqueId
@@ -1981,7 +2023,7 @@ class ArcEventsService(
                 .onFailure {
                     plugin.logger.log(Level.SEVERE, "ArcEvents could not restore ${player.uniqueId}", it)
                     player.sendEventMessage(locale.render("match.restore-pending", player))
-                }
+                } }
         }
         val currentPending = pendingPlayers(current.matchId)?.size ?: -1
         debug.event(
@@ -2109,28 +2151,41 @@ class ArcEventsService(
         runCatching(smokeGrenades::clear).onFailure { failure ->
             plugin.logger.log(Level.WARNING, "ArcEvents could not clear smoke grenades", failure)
         }
-        projectiles.forEach { entityId ->
-            runCatching { plugin.server.getEntity(entityId)?.remove() }.onFailure { failure ->
-                plugin.logger.log(Level.WARNING, "ArcEvents could not remove projectile $entityId", failure)
+        val detached = projectiles
+        projectiles = linkedMapOf()
+        val iterator = detached.values.iterator()
+        var failure: Throwable? = null
+        val step = {
+            if (iterator.hasNext()) runCatching { iterator.next().remove() }.onFailure { problem ->
+                if (failure == null) failure = problem else failure!!.addSuppressed(problem)
             }
+            val done = !iterator.hasNext()
+            if (done) failure?.let { throw it }
+            done
         }
-        projectiles.clear()
+        if (work != null) work.cleanupNative(step)
+        else while (!step()) Unit
     }
 
-    private fun spawnLoot(current: TttMatch) {
-        if (!settings().weapons.enabled) return
-        val arena = arenaPool.active() ?: return
-        cleanupLoot()
-        lootSpawner.spawn(current, arena)
+    private fun spawnLootAsync(current: TttMatch): CompletableFuture<Unit> {
+        if (!settings().weapons.enabled) return CompletableFuture.completedFuture(Unit)
+        val arena = arenaPool.active() ?: return CompletableFuture.completedFuture(Unit)
+        return cleanupLoot().thenCompose { onMain {
+            check(started && match?.matchId == current.matchId && arenaPool.active() === arena) { "Loot preparation superseded" }
+            lootSpawner.spawnAsync(current, arena) { started && match?.matchId == current.matchId && arenaPool.active() === arena }
+        }.thenCompose { it } }
     }
 
-    private fun cleanupLoot() {
-        runCatching(lootScene::clear).onFailure { failure ->
-            plugin.logger.log(Level.WARNING, "ArcEvents could not clear loot presentation", failure)
+    private fun cleanupLoot(): CompletableFuture<Unit> {
+        lootSpawner.cancel()
+        val cleaned = runCatching { lootScene.clearAsync() }.getOrElse { CompletableFuture.failedFuture(it) }
+        cleaned.whenComplete { _, failure ->
+            if (failure != null) plugin.logger.log(Level.WARNING, "ArcEvents could not clear loot presentation", failure)
         }
         reloadTasks.values.forEach { task -> runCatching(task::cancel) }
         reloadTasks.clear()
         shotCooldownUntil.clear()
+        return cleaned
     }
 
     private fun hasSelectedFishingFirearm(player: Player, firearmId: FirearmId, expectedMatchId: String): Boolean {
@@ -2283,6 +2338,24 @@ class ArcEventsService(
         require(authorizedTeleport(player, destination))
     }
 
+    private fun recoverPlayer(player: Player, complete: (Result<PlayerRecovery?>) -> Unit) {
+        if (!disposablePlayerState() && escrow.isLocked(player.uniqueId)) return
+        val operation = if (disposablePlayerState()) {
+            runCatching { recoverPlayer(player) }.fold(CompletableFuture<PlayerRecovery?>::completedFuture, CompletableFuture<PlayerRecovery?>::failedFuture)
+        } else runCatching { escrow.recoverAsync(player) { destination -> authorizedTeleport(player, destination) } }
+            .getOrElse { CompletableFuture.failedFuture(it) }
+        operation.whenComplete { recovery, failure -> onMain {
+            if (failure == null) {
+                if (recovery == null) { arrivalPlayers.remove(player.uniqueId); arrivals.remove(player.uniqueId) }
+                complete(Result.success(recovery))
+            } else complete(Result.failure(failure))
+        } }
+    }
+
+    private fun <T> onMain(action: () -> T): CompletableFuture<T> = if (work == null) {
+        runCatching(action).fold(CompletableFuture<T>::completedFuture, CompletableFuture<T>::failedFuture)
+    } else work.onMain(action)
+
     private fun recoverPlayer(player: Player): PlayerRecovery? {
         val recovery = if (!disposablePlayerState()) {
             escrow.recover(player) { destination -> authorizedTeleport(player, destination) }
@@ -2352,16 +2425,20 @@ class ArcEventsService(
 
     private fun disposablePlayerState(): Boolean = settings().playerStateMode == PlayerStateMode.DISPOSABLE
 
-    private fun <M : Any> commitPlayerMutation(
+    private fun commitPlayerMutation(
         matchId: UUID,
         players: List<Player>,
         returnServers: Map<UUID, String>,
         nowMs: Long,
-        mutation: () -> M,
-    ) {
-        if (disposablePlayerState()) mutation()
-        else escrow.commitThenMutate(matchId, players, returnServers, nowMs) { mutation() }
-    }
+        isCurrent: () -> Boolean,
+        mutation: () -> CompletableFuture<Unit>,
+    ): CompletableFuture<Unit> = try {
+        if (disposablePlayerState()) {
+            check(isCurrent()) { "Event player mutation superseded" }
+            mutation()
+        } else escrow.commitThenMutateStagesAsync(matchId, players, returnServers, nowMs, isCurrent) { mutation() }
+            .thenApply { Unit }
+    } catch (failure: Throwable) { CompletableFuture.failedFuture(failure) }
 
     private fun rememberDisposableOrigin(player: Player, originServer: String) {
         if (disposablePlayerState() && originServer == settings().serverId) {
@@ -2460,34 +2537,43 @@ class ArcEventsService(
     override fun close() {
         if (!started) return
         started = false
-        arcade.cancel(MatchEndReason.SHUTDOWN)
-        reservation?.let { pending ->
+        var failure: Throwable? = null
+        fun detach(action: () -> Unit) {
+            try { action() } catch (problem: Throwable) {
+                if (failure == null) failure = problem else failure.addSuppressed(problem)
+            }
+        }
+        detach { arcade.cancel(MatchEndReason.SHUTDOWN) }
+        detach { reservation?.let { pending ->
             val arrivedPlayers = arrivals.keys.mapNotNull(plugin.server::getPlayer)
             restoreReservationArrivals(pending, arrivedPlayers)
             releaseRestoredReservation(pending).whenComplete { _, failure ->
                 if (failure != null) plugin.logger.log(Level.SEVERE, "Could not preserve reservation returns for ${pending.matchId}", failure)
             }
-        }
-        arenaPool.clear()
+        } }
+        detach { arenaPool.clear() }
         reservation = null
         matchSettings = null
         arrivals.clear()
-        when (match?.phase) {
+        detach { when (match?.phase) {
             MatchPhase.PREPARING, MatchPhase.COUNTDOWN, MatchPhase.ACTIVE -> cancel(MatchEndReason.SHUTDOWN)
             MatchPhase.RESOLVING, MatchPhase.CANCELLED -> beginRestoration()
             else -> Unit
-        }
-        cancelMatchTasks(keepMainTick = false)
-        runCatching(hud::close).onFailure { plugin.logger.log(Level.WARNING, "ArcEvents HUD close failed", it) }
-        runCatching(bodyRegistry::close).onFailure { plugin.logger.log(Level.WARNING, "ArcEvents body close failed", it) }
-        cleanupProjectiles()
-        cleanupLoot()
-        runCatching(smokeGrenades::close).onFailure { plugin.logger.log(Level.WARNING, "ArcEvents smoke close failed", it) }
-        runCatching(lootScene::close).onFailure { plugin.logger.log(Level.WARNING, "ArcEvents loot close failed", it) }
-        radarTasks.values.forEach { task -> runCatching(task::cancel) }
+        } }
+        detach { cancelMatchTasks(keepMainTick = false) }
+        detach(hud::close)
+        detach(bodyRegistry::close)
+        detach(::cleanupProjectiles)
+        detach { cleanupLoot() }
+        detach(lootSpawner::close)
+        detach(smokeGrenades::close)
+        detach(lootScene::close)
+        radarTasks.values.forEach { task -> detach(task::cancel) }
         radarTasks.clear()
-        cleanupRetryTask?.cancel()
+        detach { cleanupRetryTask?.cancel() }
         cleanupRetryTask = null
+        // The plugin combines this failure with the actual host cleanup/worker drains.
+        failure?.let { throw it }
     }
 
     private fun Location.eventLocation(): EventLocation = EventLocation(world.name, x, y, z, yaw, pitch)

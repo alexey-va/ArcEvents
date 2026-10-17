@@ -51,6 +51,8 @@ import ru.ruscrafting.events.domain.FishingRules
 import java.util.EnumMap
 import java.util.UUID
 import java.util.concurrent.ThreadLocalRandom
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CancellationException
 import kotlin.math.ceil
 import kotlin.math.abs
 import kotlin.math.cos
@@ -70,6 +72,7 @@ class FishingAdventure(
     private val hurt: (Player, Double) -> Unit,
     private val complete: () -> Unit,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val work: EventWork? = null,
 ) {
     private enum class Pattern { CHARGE, LEAP, POISON_RINGS, DIVE, MULTI_RING }
     private data class Telegraph(
@@ -105,6 +108,9 @@ class FishingAdventure(
     private var movementEndsAtMs = 0L
     private var nextHitAcceptedAtMs = 0L
     private var started = false
+    private var starting: CompletableFuture<Unit>? = null
+    private var transitioning = false
+    private val staleCleanupCancelled = java.util.concurrent.atomic.AtomicBoolean()
     private var closed = false
     private var completionSignalled = false
 
@@ -121,20 +127,40 @@ class FishingAdventure(
     }
 
     fun start() {
-        if (started || closed) return
-        cleanupStaleEntities()
-        started = true
-        syncLoadout()
-        player.inventory.heldItemSlot = 0
-        player.updateInventory()
-        teleportTo(FishingArenaStage.CAMP)
-        combatTask = Tasks.scheduler.runTimer(1L, 1L) { tickCombat() }
-        message("fishing.start")
+        startAsync().whenComplete { _, failure ->
+            if (failure != null && !closed) plugin.logger.log(java.util.logging.Level.WARNING,
+                "Could not prepare fishing entities for match $matchIdString", failure)
+        }
     }
+
+    fun startAsync(): CompletableFuture<Unit> {
+        if (started || closed) return CompletableFuture.completedFuture(Unit)
+        starting?.let { return it }
+        val prepared = cleanupEntities(stale = true).thenCompose {
+            onMain {
+                if (closed || !player.isOnline || player.world.uid != world.uid) {
+                    throw CancellationException("Fishing source changed before entity cleanup completed")
+                }
+                started = true
+                syncLoadout()
+                player.inventory.heldItemSlot = 0
+                player.updateInventory()
+                teleportTo(FishingArenaStage.CAMP)
+                combatTask = Tasks.scheduler.runTimer(1L, 1L) { tickCombat() }
+                message("fishing.start")
+            }
+        }
+        starting = prepared
+        return prepared
+    }
+
+    private fun <T> onMain(action: () -> T): CompletableFuture<T> =
+        work?.onMain(action) ?: runCatching { CompletableFuture.completedFuture(action()) }
+            .getOrElse { CompletableFuture.failedFuture(it) }
 
     /** Session lifecycle/bounds tick; combat and fuses use the owned 1-tick task. */
     fun tick() {
-        if (closed || !started) return
+        if (closed || !started || transitioning) return
         if (!player.isOnline || player.world.uid != world.uid || player.gameMode == GameMode.SPECTATOR) {
             close()
             return
@@ -171,13 +197,12 @@ class FishingAdventure(
     fun close() {
         if (closed) return
         closed = true
+        staleCleanupCancelled.set(true)
         combatTask?.cancel()
         combatTask = null
         progress = progress.close()
         nextHitAcceptedAtMs = 0L
-        hookId?.let { plugin.server.getEntity(it)?.remove() }
-        hookId = null
-        cleanupMatchEntities()
+        cleanupEntities(stale = false)
         creatures.clear()
         fuses.clear()
         telegraph = null
@@ -187,7 +212,11 @@ class FishingAdventure(
     }
 
     fun handleFish(event: PlayerFishEvent) {
-        if (!started || event.player.uniqueId != player.uniqueId || event.player.world.uid != world.uid) return
+        if (event.player.uniqueId != player.uniqueId || event.player.world.uid != world.uid) return
+        if (!started || transitioning) {
+            if (starting != null || transitioning) cancelFishEvent(event)
+            return
+        }
         val hook = event.hook
         val ownedHook = hookId == hook.uniqueId
         if (closed) {
@@ -299,6 +328,7 @@ class FishingAdventure(
 
     fun handleInteract(event: PlayerInteractEvent): Boolean {
         if (closed || !started || event.player.uniqueId != player.uniqueId || event.player.world.uid != world.uid) return false
+        if (transitioning) { event.isCancelled = true; return true }
         if (event.hand != EquipmentSlot.HAND || event.action !in setOf(Action.RIGHT_CLICK_AIR, Action.RIGHT_CLICK_BLOCK)) return false
         if (items.kind(event.item) == EventItemKind.FISHING_LIVE_CATCH) {
             event.isCancelled = true
@@ -560,7 +590,7 @@ class FishingAdventure(
     }
 
     private fun tickCombat() {
-        if (closed || !started || !player.isOnline || player.world.uid != world.uid) return
+        if (closed || !started || transitioning || !player.isOnline || player.world.uid != world.uid) return
         val now = clock()
         resolveFuses(now)
         if (progress.phase !in setOf(FishingPhase.CREATURE, FishingPhase.BOSS)) return
@@ -744,26 +774,41 @@ class FishingAdventure(
     }
 
     private fun transitionStage() {
-        if (progress.phase != FishingPhase.TRAVEL || progress.isFinalStage) return
+        if (transitioning || progress.phase != FishingPhase.TRAVEL || progress.isFinalStage) return
+        val previous = progress
         val next = progress.travelToNextStage()
         if (next === progress) return
-        progress = next
-        cleanupMatchEntities()
-        creatures.clear()
-        fuses.clear()
-        travelMarker = null
-        traderMarker = null
-        traderNpc = null
-        telegraph = null
-        nextAttackAtMs = 0L
-        stunnedUntilMs = 0L
-        movementEndsAtMs = 0L
-        nextHitAcceptedAtMs = 0L
-        syncLoadout()
-        player.inventory.heldItemSlot = 0
-        player.updateInventory()
-        teleportTo(stage())
-        message("fishing.travel-started", mapOf("stage" to locale.text(progress.stage + 1)))
+        transitioning = true
+        cleanupEntities(stale = false).thenCompose {
+            onMain {
+                if (closed || progress !== previous || !player.isOnline || player.world.uid != world.uid) {
+                    throw CancellationException("Fishing source changed during stage cleanup")
+                }
+                creatures.clear()
+                fuses.clear()
+                travelMarker = null
+                traderMarker = null
+                traderNpc = null
+                telegraph = null
+                nextAttackAtMs = 0L
+                stunnedUntilMs = 0L
+                movementEndsAtMs = 0L
+                nextHitAcceptedAtMs = 0L
+                progress = next
+                transitioning = false
+                syncLoadout()
+                player.inventory.heldItemSlot = 0
+                player.updateInventory()
+                teleportTo(stage())
+                message("fishing.travel-started", mapOf("stage" to locale.text(progress.stage + 1)))
+            }
+        }.whenComplete { _, failure ->
+            if (failure != null && !closed && work?.isCurrent() != false) {
+                // A failed cleanup cannot admit the next stage. The current receipt still owns the player.
+                plugin.logger.log(java.util.logging.Level.SEVERE, "Could not clean fishing stage for $matchIdString", failure)
+                close()
+            }
+        }
     }
 
     private fun syncLoadout() {
@@ -943,24 +988,28 @@ class FishingAdventure(
         entity.persistentDataContainer.set(stageKey, PersistentDataType.INTEGER, progress.stage)
     }
 
-    private fun cleanupStaleEntities() {
-        FishingArenaStage.entries.forEach { arenaStage ->
-            val center = Location(world, arenaStage.centerX + 0.5, FishingArenaGenerator.SPAWN_Y.toDouble(), 0.5)
-            world.getNearbyEntities(center, 25.0, 48.0, 32.0).filter(::isOwnedEntity).forEach(Entity::remove)
+    private fun cleanupEntities(stale: Boolean): CompletableFuture<Unit> {
+        val direct = if (stale) emptyList() else buildList {
+            hookId?.let { plugin.server.getEntity(it)?.let(::add) }
+            fuses.keys.forEach { plugin.server.getEntity(it)?.let(::add) }
+            travelMarker?.let(::add)
+            traderMarker?.let(::add)
+            traderNpc?.let(::add)
+            addAll(creatures.values)
         }
-    }
-
-    private fun cleanupMatchEntities() {
-        hookId?.let { plugin.server.getEntity(it)?.remove() }
         hookId = null
-        fuses.keys.toList().forEach { plugin.server.getEntity(it)?.remove() }
-        travelMarker?.remove()
-        traderMarker?.remove()
-        traderNpc?.remove()
-        creatures.values.toList().forEach { it.remove() }
-        FishingArenaStage.entries.forEach { arenaStage ->
-            val center = Location(world, arenaStage.centerX + 0.5, FishingArenaGenerator.SPAWN_Y.toDouble(), 0.5)
-            world.getNearbyEntities(center, 25.0, 48.0, 32.0).filter(::isTaggedForThisMatch).forEach(Entity::remove)
+        val cancelled = staleCleanupCancelled
+        return cleanupFishingEntities(world, ownerKey, ownerTag, matchKey, if (stale) null else matchIdString,
+            stageKey, if (stale) null else progress.stage, direct, { stale && cancelled.get() }) { step ->
+            val scheduled = work?.let {
+                // A cancelled pre-admission sweep leaves only old tagged orphans for the next sweep;
+                // it must not poison the durable cleanup drain of an otherwise healthy generation.
+                if (stale) it.capture({ !cancelled.get() }, step) else it.cleanupNative(step)
+            }
+            scheduled ?: runCatching {
+                while (!step()) { /* Immediate compatibility path; production uses the host queue. */ }
+                CompletableFuture.completedFuture(Unit)
+            }.getOrElse { CompletableFuture.failedFuture(it) }
         }
     }
 

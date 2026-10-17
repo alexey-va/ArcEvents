@@ -63,7 +63,7 @@ class ArcEventsMenuMockBukkitTest : FunSpec({
                     mockk<TttItems>(),
                     locale,
                     { settings },
-                    { Result.success(Unit) },
+                    { java.util.concurrent.CompletableFuture.completedFuture(Result.success(Unit)) },
                     layouts,
                 ).use { menu ->
                     menu.open(player)
@@ -103,7 +103,7 @@ class ArcEventsMenuMockBukkitTest : FunSpec({
                     every { queueControl(player.uniqueId) } returns CompletableFuture.completedFuture(QueueControlSnapshot(null, null))
                     every { arcadeSnapshot() } returns null
                 }
-                ArcEventsMenu(plugin, service, mockk<TttItems>(), locale, { settings }, { Result.success(Unit) }, layouts).use { menu ->
+                ArcEventsMenu(plugin, service, mockk<TttItems>(), locale, { settings }, { java.util.concurrent.CompletableFuture.completedFuture(Result.success(Unit)) }, layouts).use { menu ->
                     menu.open(player)
                     for ((slot, mode) in listOf(2 to EventMode.GUN_GAME, 6 to EventMode.DISASTERS)) {
                         paper.callEvent(InventoryClickEvent(player.openInventory, InventoryType.SlotType.CONTAINER, slot, ClickType.LEFT, InventoryAction.PICKUP_ALL)); paper.performTicks(2)
@@ -133,7 +133,7 @@ class ArcEventsMenuMockBukkitTest : FunSpec({
                     every { queueControl(player.uniqueId) } returns CompletableFuture.completedFuture(QueueControlSnapshot(null, null))
                     every { arcadeSnapshot() } returns null
                 }
-                ArcEventsMenu(plugin, service, mockk<TttItems>(), locale, { settings }, { Result.success(Unit) }, layouts).use { menu ->
+                ArcEventsMenu(plugin, service, mockk<TttItems>(), locale, { settings }, { java.util.concurrent.CompletableFuture.completedFuture(Result.success(Unit)) }, layouts).use { menu ->
                     menu.openRoot(player); paper.performTicks(2)
                     player.openInventory.topInventory.getItem(layouts.slot(EventsView.Arcade(EventMode.DISASTERS), "overview"))?.type shouldBe Material.LIGHTNING_ROD
                 }
@@ -155,7 +155,7 @@ class ArcEventsMenuMockBukkitTest : FunSpec({
                     every { arcadeSnapshot() } returns null
                     every { startFromQueue(any(), any(), EventMode.GUN_GAME) } returns CompletableFuture.completedFuture(ReservationStartResult.STARTED)
                 }
-                ArcEventsMenu(plugin, service, mockk<TttItems>(), locale, { settings }, { Result.success(Unit) }, layouts).use { menu ->
+                ArcEventsMenu(plugin, service, mockk<TttItems>(), locale, { settings }, { java.util.concurrent.CompletableFuture.completedFuture(Result.success(Unit)) }, layouts).use { menu ->
                     menu.open(player, EventsView.Arcade(EventMode.GUN_GAME)); paper.performTicks(1); deferred.complete(QueueControlSnapshot(QueueState.QUEUED, player.uniqueId)); paper.performTicks(2)
                     paper.callEvent(InventoryClickEvent(player.openInventory, InventoryType.SlotType.CONTAINER, layouts.slot(EventsView.Arcade(EventMode.GUN_GAME), "right"), ClickType.LEFT, InventoryAction.PICKUP_ALL)); paper.performTicks(3)
                     verify(exactly = 1) { service.startFromQueue(player, null, EventMode.GUN_GAME) }

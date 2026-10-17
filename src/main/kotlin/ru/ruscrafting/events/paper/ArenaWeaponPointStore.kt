@@ -49,15 +49,22 @@ class ArenaWeaponPointStore(
         },
         validate = ::validate,
     )
-    private var available = true
-    private var state = runCatching { file.loadOrDefault(::ArenaWeaponPointState) }
+    private val editing = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    fun beginEdit(arenaId: String): Boolean = editing.add(arenaId)
+    fun endEdit(arenaId: String) { editing.remove(arenaId) }
+    fun isEditing(arenaId: String): Boolean = arenaId in editing
+    fun isEditing(): Boolean = editing.isNotEmpty()
+
+    @Volatile var revision: Long = 0L
+        private set
+    @Volatile private var available = true
+    @Volatile private var state = runCatching { file.loadOrDefault(::ArenaWeaponPointState) }
         .onFailure {
             available = false
             loadFailure(it)
         }
         .getOrDefault(ArenaWeaponPointState())
 
-    @Synchronized
     fun points(arena: ArenaSettings): List<EventLocation> = state.arenas[arena.id].orEmpty().mapNotNull { point ->
         EventLocation(arena.world, point.x, point.y, point.z).validated()
             .takeIf { arena.bounds?.contains(it) == true }
@@ -102,7 +109,7 @@ class ArenaWeaponPointStore(
             if (points.isEmpty()) updated.remove(arenaId) else updated[arenaId] = points
         }.toSortedMap()
         return runCatching { file.write(ArenaWeaponPointState(arenas = arenas)) }
-            .onSuccess { state = it }
+            .onSuccess { state = it; revision++ }
             .fold(onSuccess = { result }, onFailure = {
                 loadFailure(it)
                 ArenaWeaponPointEditResult.STORAGE_UNAVAILABLE

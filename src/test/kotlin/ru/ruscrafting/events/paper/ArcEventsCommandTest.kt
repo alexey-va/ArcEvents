@@ -17,7 +17,7 @@ class ArcEventsCommandTest : StringSpec({
     val service = mockk<ArcEventsService>(relaxed = true)
     val settings = mockk<ArcEventsConfig>(relaxed = true)
     val command = mockk<Command>()
-    val executor = ArcEventsCommand(plugin, service, mockk(), mockk(), mockk(), { settings }, { Result.success(Unit) })
+    val executor = ArcEventsCommand(plugin, service, mockk(), mockk(), mockk(), { settings }, { java.util.concurrent.CompletableFuture.completedFuture(Result.success(Unit)) })
 
     "admin start completes a mode before an arena and stops at the final argument" {
         val sender = mockk<CommandSender>(relaxed = true)

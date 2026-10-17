@@ -1,5 +1,6 @@
 package ru.ruscrafting.events.paper
 
+import java.util.concurrent.CompletableFuture
 import org.bukkit.Location
 import org.bukkit.Particle
 import org.bukkit.Server
@@ -35,7 +36,45 @@ class ArenaWeaponPointEditor(
     private val settings: () -> ArcEventsConfig,
     private val arenas: ArenaPool,
     private val store: ArenaWeaponPointStore,
+    private val work: EventWork? = null,
+    private val pointsChanged: (ArenaSettings, List<EventLocation>) -> CompletableFuture<Unit> = { _, _ -> CompletableFuture.completedFuture(Unit) },
 ) {
+    fun addAsync(player: Player): CompletableFuture<ArenaWeaponPointFeedback> = editAsync(player, add = true)
+    fun removeAsync(player: Player): CompletableFuture<ArenaWeaponPointFeedback> = editAsync(player, add = false)
+
+    private fun editAsync(player: Player, add: Boolean): CompletableFuture<ArenaWeaponPointFeedback> {
+        val tasks = work ?: return CompletableFuture.completedFuture(if (add) add(player) else remove(player))
+        var operation: CompletableFuture<ArenaWeaponPointFeedback>? = null
+        val rejection = withEditableArena(player) { arena ->
+            val location = if (add) TttLootPlacement.exact(player.location) else player.location
+            if (location == null) return@withEditableArena feedback(ArenaWeaponPointAdminResult.UNSAFE, arena)
+            if (!store.beginEdit(arena.id)) return@withEditableArena feedback(ArenaWeaponPointAdminResult.BUSY, arena)
+            val point = EventLocation(arena.world, location.x, location.y, location.z)
+            arenas.reconfigure()
+            operation = tasks.compute {
+                if (add) store.add(arena, point, arena.weaponCount) else store.removeNearest(arena, point, REMOVE_RADIUS)
+            }.thenCompose { result -> tasks.onMain {
+                if (result == ArenaWeaponPointEditResult.ADDED || result == ArenaWeaponPointEditResult.REMOVED) {
+                    pointsChanged(arena, store.points(arena)).thenApply { result }
+                } else CompletableFuture.completedFuture(result)
+            }.thenCompose { it } }.handle { result, failure -> result to failure }.thenCompose { (result, failure) -> tasks.onMain {
+                store.endEdit(arena.id)
+                arenas.reconfigure()
+                val status = if (failure != null) ArenaWeaponPointAdminResult.STORAGE_UNAVAILABLE else when (result) {
+                    ArenaWeaponPointEditResult.ADDED -> ArenaWeaponPointAdminResult.ADDED
+                    ArenaWeaponPointEditResult.REMOVED -> ArenaWeaponPointAdminResult.REMOVED
+                    ArenaWeaponPointEditResult.DUPLICATE -> ArenaWeaponPointAdminResult.DUPLICATE
+                    ArenaWeaponPointEditResult.LIMIT_REACHED -> ArenaWeaponPointAdminResult.LIMIT_REACHED
+                    ArenaWeaponPointEditResult.NOT_FOUND -> ArenaWeaponPointAdminResult.NOT_FOUND
+                    else -> ArenaWeaponPointAdminResult.STORAGE_UNAVAILABLE
+                }
+                feedback(status, arena)
+            } }
+            feedback(ArenaWeaponPointAdminResult.BUSY, arena) // Internal admission value; callers await the actual write above.
+        }
+        return operation ?: CompletableFuture.completedFuture(rejection)
+    }
+
     fun add(player: Player): ArenaWeaponPointFeedback = withEditableArena(player) { arena ->
         val exact = TttLootPlacement.exact(player.location)
             ?: return@withEditableArena feedback(ArenaWeaponPointAdminResult.UNSAFE, arena)
@@ -94,7 +133,7 @@ class ArenaWeaponPointEditor(
             candidate.enabled && candidate.world == location.world.name && candidate.bounds?.contains(playerPoint) == true
         }
             ?: return ArenaWeaponPointFeedback(ArenaWeaponPointAdminResult.OUTSIDE_ARENA)
-        if (arenas.inUse(arena.id)) return feedback(ArenaWeaponPointAdminResult.BUSY, arena)
+        if (arenas.inUse(arena.id) || store.isEditing(arena.id)) return feedback(ArenaWeaponPointAdminResult.BUSY, arena)
         return action(arena)
     }
 
@@ -115,6 +154,7 @@ internal fun mandatoryWeaponPointsReady(
     store: ArenaWeaponPointStore,
     arena: ArenaSettings,
 ): Boolean {
+    if (store.isEditing(arena.id)) return false
     val points = store.points(arena)
     if (points.size > arena.weaponCount) return false
     val world = server.getWorld(arena.world) ?: return points.isEmpty()

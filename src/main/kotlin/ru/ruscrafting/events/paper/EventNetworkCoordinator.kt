@@ -73,6 +73,7 @@ class EventNetworkCoordinator(
     /** True only when this exact route still belongs to a live host participant. */
     private val activeMatchParticipant: (QueueEntry) -> Boolean = { false },
     private val clock: () -> Long = System::currentTimeMillis,
+    private val onArrivalAsync: ((QueueEntry) -> CompletableFuture<Boolean>)? = null,
 ) : AutoCloseable {
     @Volatile
     var queueSize: Int = 0
@@ -94,6 +95,7 @@ class EventNetworkCoordinator(
     /** Keeps a return route alive while the proxy transfer that initiated it is still in flight. */
     private val pendingTransfers = ConcurrentHashMap.newKeySet<UUID>()
     private val startInFlight = AtomicBoolean(false)
+    private val joinAttempts = mutableMapOf<UUID, Any>()
     @Volatile
     private var started = false
 
@@ -503,6 +505,8 @@ class EventNetworkCoordinator(
     }
 
     fun handleJoin(player: Player) {
+        val joinAttempt = Any()
+        joinAttempts[player.uniqueId] = joinAttempt
         pendingTransfers.remove(player.uniqueId)
         val current = settings()
         // A disposable-host recovery belongs to the join that initiated it. Do not let a
@@ -514,19 +518,26 @@ class EventNetworkCoordinator(
         loadStats(player.uniqueId)
         repository.claimReservation(player.uniqueId, current.serverId, clock()).whenComplete { entry, failure ->
             Tasks.scheduler.runSync {
-                if (!started || !player.isOnline) return@runSync
+                if (!started || !player.isOnline || plugin.server.getPlayer(player.uniqueId) !== player || joinAttempts[player.uniqueId] !== joinAttempt) return@runSync
                 if (failure != null) {
                     plugin.logger.log(Level.WARNING, "ArcEvents reservation claim failed", failure)
                     return@runSync
                 }
                 when (entry?.state) {
                     QueueState.ARRIVED -> {
-                        if (current.nodeMode != NodeMode.HOST ||
-                            !onArrival(entry) && !recoveryPending(player.uniqueId) &&
-                            !(disposableHost(current) && activeMatchParticipant(entry))
-                        ) {
-                            if (disposableHost(current)) preserveOrphanedRoute(player, entry)
-                            else recoverOrphanedArrival(player, entry)
+                        val arrival = if (current.nodeMode != NodeMode.HOST) CompletableFuture.completedFuture(false)
+                            else runCatching { onArrivalAsync?.invoke(entry) ?: CompletableFuture.completedFuture(onArrival(entry)) }
+                                .getOrElse { CompletableFuture.failedFuture(it) }
+                        arrival.whenComplete { accepted, isolationFailure ->
+                            if (started) Tasks.scheduler.runSync {
+                                if (!started || !player.isOnline || plugin.server.getPlayer(player.uniqueId) !== player || joinAttempts[player.uniqueId] !== joinAttempt) return@runSync
+                                if (isolationFailure != null) plugin.logger.log(Level.WARNING, "ArcEvents arrival isolation failed", isolationFailure)
+                                if (accepted != true && !recoveryPending(player.uniqueId) &&
+                                    !(disposableHost(current) && activeMatchParticipant(entry))) {
+                                    if (disposableHost(current)) preserveOrphanedRoute(player, entry)
+                                    else recoverOrphanedArrival(player, entry)
+                                }
+                            }
                         }
                     }
                     QueueState.MATCHED -> when {
@@ -1087,6 +1098,7 @@ class EventNetworkCoordinator(
 
     override fun close() {
         started = false
+        joinAttempts.clear()
         maintenanceTask?.cancel()
         maintenanceTask = null
         maintenancePeriodTicks = 0L

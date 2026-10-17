@@ -21,7 +21,7 @@ class ArcEventsCommand(
     private val weaponPoints: ArenaWeaponPointEditor,
     private val locale: ArcEventsLocale,
     private val settings: () -> ArcEventsConfig,
-    private val reload: () -> Result<Unit>,
+    private val reload: () -> java.util.concurrent.CompletableFuture<Result<Unit>>,
 ) : TabExecutor {
     private val selectedAdminArenas = mutableMapOf<String, String>()
 
@@ -192,10 +192,15 @@ class ArcEventsCommand(
 
     private fun sendReload(sender: CommandSender) {
         if (!sender.hasPermission("arcevents.admin")) return deny(sender)
-        val result = reload()
-        sender.sendEventMessage(locale.render(if (result.isSuccess) "command.reload-ok" else "command.reload-failed", sender, mapOf(
-            "reason" to locale.text(result.exceptionOrNull()?.message ?: "unknown"),
-        )))
+        reload().whenComplete { outcome, failure ->
+            if (plugin.isEnabled) Tasks.scheduler.runSync {
+                if (!plugin.isEnabled) return@runSync
+                val result = outcome ?: Result.failure(failure ?: IllegalStateException("Reload failed"))
+                sender.sendEventMessage(locale.render(if (result.isSuccess) "command.reload-ok" else "command.reload-failed", sender, mapOf(
+                    "reason" to locale.text(result.exceptionOrNull()?.message ?: "unknown"),
+                )))
+            }
+        }
     }
 
     private fun qa(sender: CommandSender, args: List<String>) {
@@ -237,14 +242,30 @@ class ArcEventsCommand(
             sendStartResult(sender, StartMessageAudience.DEBUG)
             return
         }
-        val result = when (action) {
-            "bootstrap" -> {
-                val requestedArena = args.getOrNull(1)?.lowercase()?.takeIf { it in arenaIds(includeAuto = true) }
-                val requested = args.drop(if (requestedArena == null) 1 else 2)
-                val players = if (requested.isEmpty()) plugin.server.onlinePlayers.toList() else requested.mapNotNull(::servicePlayer)
-                if (requested.isNotEmpty() && players.size != requested.distinct().size) DebugMutationResult.PLAYER_NOT_FOUND
-                else service.debugStartLocal(players, requestedArena, parseMode(args.getOrNull(if (requestedArena == null) 1 else 2)) ?: EventMode.TTT)
+        if (action == "bootstrap") {
+            val requestedArena = args.getOrNull(1)?.lowercase()?.takeIf { it in arenaIds(includeAuto = true) }
+            val requested = args.drop(if (requestedArena == null) 1 else 2)
+            val players = if (requested.isEmpty()) plugin.server.onlinePlayers.toList() else requested.mapNotNull(::servicePlayer)
+            if (requested.isNotEmpty() && players.size != requested.distinct().size) {
+                debugResult(sender, action, DebugMutationResult.PLAYER_NOT_FOUND)
+            } else service.debugStartLocalAsync(players, requestedArena,
+                parseMode(args.getOrNull(if (requestedArena == null) 1 else 2)) ?: EventMode.TTT,
+            ).whenComplete { result, failure ->
+                if (plugin.isEnabled) Tasks.scheduler.runSync {
+                    if (plugin.isEnabled) debugResult(sender, action, if (failure == null) result else DebugMutationResult.INTERNAL_ERROR)
+                }
             }
+            return
+        }
+        if (action == "loot" && args.getOrNull(1)?.lowercase() in setOf("respawn", "clear")) {
+            service.debugLootAsync(respawn = args[1].equals("respawn", ignoreCase = true)).whenComplete { result, failure ->
+                if (plugin.isEnabled) Tasks.scheduler.runSync {
+                    if (plugin.isEnabled) debugResult(sender, action, if (failure == null) result else DebugMutationResult.INTERNAL_ERROR)
+                }
+            }
+            return
+        }
+        val result = when (action) {
             "advance" -> service.debugAdvance()
             "end" -> parseTeam(args.getOrNull(1))?.let(service::debugEnd) ?: DebugMutationResult.INVALID_ARGUMENT
             "credit" -> {
@@ -284,8 +305,6 @@ class ArcEventsCommand(
             "dna" -> withTwoPlayers(args.getOrNull(1), args.getOrNull(2), service::debugDna)
             "call" -> withTwoPlayers(args.getOrNull(1), args.getOrNull(2), service::debugCallDetective)
             "loot" -> when (args.getOrNull(1)?.lowercase()) {
-                "respawn" -> service.debugLoot(respawn = true)
-                "clear" -> service.debugLoot(respawn = false)
                 "status" -> {
                     sender.sendEventMessage(Component.text(service.qaStatus()))
                     return
@@ -367,16 +386,20 @@ class ArcEventsCommand(
 
     private fun editWeaponPoints(sender: CommandSender, args: List<String>) {
         val player = player(sender) ?: return
-        val feedback = when (args.firstOrNull()?.lowercase()) {
-            "add" -> weaponPoints.add(player)
-            "remove" -> weaponPoints.remove(player)
-            "show" -> weaponPoints.show(player)
+        val operation = when (args.firstOrNull()?.lowercase()) {
+            "add" -> weaponPoints.addAsync(player)
+            "remove" -> weaponPoints.removeAsync(player)
+            "show" -> java.util.concurrent.CompletableFuture.completedFuture(weaponPoints.show(player))
             else -> {
                 sender.sendEventMessage(locale.render("admin.weapon-points.usage", sender))
                 return
             }
         }
-        sender.sendEventMessage(locale.render(
+        operation.whenComplete { value, failure ->
+            if (plugin.isEnabled) Tasks.scheduler.runSync {
+                if (!plugin.isEnabled || !player.isOnline) return@runSync
+                val feedback = value ?: ArenaWeaponPointFeedback(ArenaWeaponPointAdminResult.STORAGE_UNAVAILABLE)
+                sender.sendEventMessage(locale.render(
             weaponPointMessage(feedback.result),
             sender,
             mapOf(
@@ -384,7 +407,9 @@ class ArcEventsCommand(
                 "count" to locale.text(feedback.count),
                 "target" to locale.text(feedback.target),
             ),
-        ))
+                ))
+            }
+        }
     }
 
     private fun sendStartResult(

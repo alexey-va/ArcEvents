@@ -23,6 +23,7 @@ class TttLootSceneTest : FunSpec({
 
     test("an unsafe imported loot point is skipped instead of aborting match preparation") {
         val world = paper.addSimpleWorld("loot-world")
+            world.loadChunk(0, 0)
         world.getBlockAt(0, 63, 0).type = Material.BARRIER
         val scene = TttLootScene(
             plugin = paper.createSimplePlugin("ArcEventsLootTest"),
@@ -36,6 +37,7 @@ class TttLootSceneTest : FunSpec({
 
     test("exact points never move while random points may find nearby solid flooring") {
         val world = paper.addSimpleWorld("placement-world")
+            world.loadChunk(0, 0)
         world.getBlockAt(0, 63, 0).type = Material.BARRIER
         world.getBlockAt(1, 63, 0).type = Material.STONE
         val origin = Location(world, 0.5, 64.1, 0.5)

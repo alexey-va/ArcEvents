@@ -25,6 +25,7 @@ import ru.ruscrafting.events.domain.CombatRecord
 import ru.ruscrafting.events.domain.TttParticipant
 import ru.ruscrafting.events.domain.TttRole
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -75,9 +76,11 @@ class TttBodyRegistry(
     private val plugin: Plugin,
     private val locale: ArcEventsLocale,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val work: EventWork? = null,
 ) : AutoCloseable {
     private val bodyKey = NamespacedKey(plugin, "body_id")
     private val bodies = linkedMapOf<UUID, BodyRecord>()
+    private var entityReferences = linkedMapOf<UUID, List<Entity>>()
     private val despawnTasks = mutableMapOf<UUID, ScheduledTask>()
 
     val size: Int
@@ -170,6 +173,7 @@ class TttBodyRegistry(
             finalDamage = lethal?.finalDamage ?: 0.0,
             headshot = lethal?.headshot == true,
         )
+        entityReferences[bodyId] = listOf(anchor, label) + visualEntityIds.mapNotNull(plugin.server::getEntity)
         bodies[bodyId] = record
         despawnTasks[bodyId] = Tasks.scheduler.runLater(despawnTicks) {
             despawnTasks.remove(bodyId)
@@ -199,22 +203,37 @@ class TttBodyRegistry(
     fun remove(bodyId: UUID) {
         despawnTasks.remove(bodyId)?.let { task -> runCatching(task::cancel) }
         bodies.remove(bodyId)?.let { record ->
-            runCatching { record.entityIds().forEach { plugin.server.getEntity(it)?.remove() } }.onFailure { failure ->
+            runCatching { entityReferences.remove(bodyId).orEmpty().forEach(Entity::remove) }.onFailure { failure ->
                 plugin.logger.warning("ArcEvents could not remove TTT body ${record.bodyId}: ${failure.message}")
             }
         }
     }
 
-    fun clear() {
+    fun clearAsync(): CompletableFuture<Unit> {
         despawnTasks.values.forEach { task -> runCatching(task::cancel) }
         despawnTasks.clear()
-        bodies.values.forEach { record ->
-            runCatching { record.entityIds().forEach { plugin.server.getEntity(it)?.remove() } }.onFailure { failure ->
-                plugin.logger.warning("ArcEvents could not remove TTT body ${record.bodyId}: ${failure.message}")
-            }
-        }
+        val detached = entityReferences
+        entityReferences = linkedMapOf()
         bodies.clear()
+        val records = detached.values.iterator()
+        var entities = emptyList<Entity>().iterator()
+        var failure: Throwable? = null
+        val step = {
+            if (!entities.hasNext() && records.hasNext()) entities = records.next().iterator()
+            if (entities.hasNext()) runCatching { entities.next().remove() }.onFailure { problem ->
+                if (failure == null) failure = problem else failure!!.addSuppressed(problem)
+            }
+            val done = !entities.hasNext() && !records.hasNext()
+            if (done) failure?.let { throw it }
+            done
+        }
+        return work?.cleanupNative(step) ?: runCatching { while (!step()) Unit }.fold(
+            { CompletableFuture.completedFuture(Unit) }, CompletableFuture<Unit>::failedFuture)
     }
+
+    fun clear() { clearAsync().whenComplete { _, failure ->
+        if (failure != null) plugin.logger.warning("ArcEvents could not remove TTT bodies: ${failure.message}")
+    } }
 
     override fun close() = clear()
 

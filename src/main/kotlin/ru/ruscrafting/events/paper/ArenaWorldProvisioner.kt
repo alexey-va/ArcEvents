@@ -3,16 +3,6 @@ package ru.ruscrafting.events.paper
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
-import com.sk89q.worldedit.WorldEdit
-import com.sk89q.worldedit.bukkit.BukkitAdapter
-import com.sk89q.worldedit.extent.clipboard.BlockArrayClipboard
-import com.sk89q.worldedit.extent.clipboard.Clipboard
-import com.sk89q.worldedit.extent.clipboard.io.BuiltInClipboardFormat
-import com.sk89q.worldedit.function.operation.ForwardExtentCopy
-import com.sk89q.worldedit.function.operation.Operations
-import com.sk89q.worldedit.math.BlockVector3
-import com.sk89q.worldedit.regions.CuboidRegion
-import com.sk89q.worldedit.session.ClipboardHolder
 import net.kyori.adventure.util.TriState
 import org.bukkit.Difficulty
 import org.bukkit.GameRules
@@ -37,238 +27,374 @@ import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.streams.asSequence
 
-class ArenaWorldProvisioner(private val plugin: Plugin) {
-    fun ensureLoaded(settings: ArcEventsConfig, excludedArenaId: String? = null): List<World> = settings.arenas
-        .filter(ArenaSettings::enabled)
-        .filterNot { it.id == excludedArenaId }
-        .map { arena -> ensureLoaded(settings, arena) }
+class ArenaWorldProvisioner(private val plugin: Plugin,
+    private val tickets: ru.arc.paper.chunk.PaperChunkTicketRegistry = ru.arc.paper.chunk.PaperChunkTicketRegistry(plugin),
+) : AutoCloseable {
+    private val container = plugin.server.worldContainer.toPath().toAbsolutePath().normalize()
+    private val staging = ArenaStagingFiles(container)
+    private val libraryRoot = plugin.dataFolder.toPath().resolve("data/prepared-arena-sources").toAbsolutePath().normalize()
+    private var leases = linkedSetOf<ru.arc.paper.chunk.PaperChunkTicketLease>()
+    private var leaseReleaseFailure: Throwable? = null
+    private var work: EventWork? = null
+    var closeCompletion = java.util.concurrent.CompletableFuture.completedFuture(Unit)
+        private set
+    private var library: ru.arc.paper.api.ArcSchematicLibrary? = null
+    private var stageWorld: World? = null
+    private val readiness = mutableMapOf<String, MutableMap<Pair<Int, Int>, ru.arc.paper.chunk.PaperChunkTicketLease>>()
+    private var initialPoints: Map<String, List<ru.ruscrafting.events.config.EventLocation>> = emptyMap()
+    private var closed = false
 
-    private fun ensureLoaded(settings: ArcEventsConfig, arena: ArenaSettings): World {
-        require(settings.nodeMode == NodeMode.HOST) { "Only a HOST node may provision an arena world" }
-        if (arena.template.isEmpty()) {
-            val world = requireNotNull(plugin.server.getWorld(arena.world)) { "Custom arena world ${arena.world} is not loaded" }
-            configure(world, arena, settings)
-            requireArenaChunks(world, arena, generate = false)
-            rejectCommandBlocks(world, arena)
-            return world
+    private data class PreparedArena(
+        val arena: ArenaSettings, val folder: Path, val existed: Boolean, val existingWorldId: UUID?,
+        val builtIn: Boolean, val packaged: PackagedArenaTemplate?, val imported: ReviewedImportedArenaTemplate?,
+        val files: Map<PackagedArenaFile, ByteArray>, val chunks: List<Pair<Int, Int>>,
+    )
+
+    /** Worker filesystem preparation, then budgeted Paper activation. Arenas retain their established order. */
+    fun ensureLoadedAsync(settings: ArcEventsConfig, work: EventWork, excludedArenaId: String? = null, mandatoryPoints: (ArenaSettings) -> List<ru.ruscrafting.events.config.EventLocation> = { emptyList() }): java.util.concurrent.CompletableFuture<List<World>> {
+        check(this.work == null && !closed)
+        this.work = work
+        val enabled = settings.arenas.filter { it.enabled && it.id != excludedArenaId }
+        require(enabled.isEmpty() || settings.nodeMode == NodeMode.HOST) { "Only a HOST node may provision an arena world" }
+        initialPoints = enabled.associate { it.id to mandatoryPoints(it) }
+        val existing = enabled.associate { it.world to plugin.server.getWorld(it.world)?.uid }
+        val loadedWorldNames = plugin.server.worlds.mapTo(hashSetOf()) { it.name }
+        if (enabled.any { PackagedArenaTemplates.find(it.template)?.format != PackagedArenaFormat.ANVIL_WORLD && PackagedArenaTemplates.find(it.template) != null }) {
+            library = requireNotNull(plugin.server.servicesManager.load(ru.arc.paper.api.ArcSchematicService::class.java)) {
+                "ARC shared schematic service is required to provision packaged schematic arenas"
+            }.open(plugin.name, libraryRoot)
         }
+        return work.compute {
+            val recovery = staging.recover(loadedWorldNames)
+            if (recovery.removed > 0) plugin.logger.info("Removed ${recovery.removed} interrupted owned arena stages")
+            if (recovery.retainedLegacy.isNotEmpty()) plugin.logger.warning(
+                "Retained unmarked legacy arena staging folders for inspection: ${recovery.retainedLegacy.joinToString()}")
+            enabled.map { prepare(it, existing[it.world]) }
+        }.thenCompose { prepared ->
+            var chain = java.util.concurrent.CompletableFuture.completedFuture(mutableListOf<World>())
+            prepared.forEach { arena -> chain = chain.thenCompose { worlds -> activateAsync(settings, arena, work).thenApply { worlds.apply { add(it) } } } }
+            chain.thenApply { it.toList() }
+        }
+    }
 
-        val container = plugin.server.worldContainer.toPath().toAbsolutePath().normalize()
-        val worldFolder = directChild(container, arena.world)
-        require(!Files.isSymbolicLink(worldFolder)) { "Arena world directory must not be a symbolic link" }
-        val marker = worldFolder.resolve(ARENA_TEMPLATE_MARKER)
-        val disaster = arena.template == DisasterArenaGenerator.TEMPLATE
-        val fishing = arena.template == FishingArenaGenerator.TEMPLATE
-        val builtIn = arena.template == TttCitadelBlueprint.TEMPLATE || disaster || fishing
+    private fun prepare(arena: ArenaSettings, existing: UUID?): PreparedArena {
+        val folder = directChild(container, arena.world)
+        require(!Files.isSymbolicLink(folder)) { "Arena world directory must not be a symbolic link" }
+        val existed = Files.exists(folder)
+        require(!existed || Files.isDirectory(folder)) { "Arena path must be a directory" }
+        val builtIn = arena.template in setOf(TttCitadelBlueprint.TEMPLATE, DisasterArenaGenerator.TEMPLATE, FishingArenaGenerator.TEMPLATE)
         val packaged = PackagedArenaTemplates.find(arena.template)
         val imported = ReviewedImportedArenaTemplates.find(arena.template)
-        require(builtIn || packaged != null || imported != null) {
-            "Arena template ${arena.template} is not reviewed"
-        }
+        require(arena.template.isEmpty() || builtIn || packaged != null || imported != null) { "Arena template ${arena.template} is not reviewed" }
         if (packaged != null || imported != null) requireGlobalCommandBlocksDisabled(container)
-
-        val existing = plugin.server.getWorld(arena.world)
-        if (existing != null) {
-            requireMarker(arena, marker)
-            if (packaged != null) requirePackagedWorld(worldFolder, arena, packaged)
-            if (imported != null) requireReviewedImportedWorld(worldFolder, arena, imported)
-            configure(existing, arena, settings)
-            requireArenaChunks(existing, arena, generate = false)
-            if (packaged != null || imported != null) sanitizeImportedDecorations(existing, arena, settings)
-            rejectCommandBlocks(existing, arena)
-            return existing
+        if (arena.template.isNotEmpty() && (existing != null || existed)) {
+            requireMarker(arena, folder.resolve(ARENA_TEMPLATE_MARKER))
+            if (packaged != null) requirePackagedWorld(folder, arena, packaged)
+            if (imported != null) requireReviewedImportedWorld(folder, arena, imported)
         }
-
-        val folderExisted = Files.exists(worldFolder)
-        require(!folderExisted || Files.isDirectory(worldFolder)) { "Arena path must be a directory" }
-        if (folderExisted) {
-            requireMarker(arena, marker)
-            if (packaged != null) requirePackagedWorld(worldFolder, arena, packaged)
-            if (imported != null) requireReviewedImportedWorld(worldFolder, arena, imported)
-        } else if (packaged != null) {
-            provisionPackagedWorld(container, worldFolder, arena, packaged, settings)
-        } else if (imported != null) {
-            error("Reviewed imported arena world ${arena.world} is missing")
-        }
-
-        val creator = WorldCreator.name(arena.world)
-            .environment(World.Environment.NORMAL)
-            .generateStructures(false)
-            .keepSpawnLoaded(TriState.FALSE)
-        when {
-            fishing -> creator.seed(FishingArenaGenerator.SEED).generator(FishingArenaGenerator())
-            disaster -> creator.seed(73491L).generator(DisasterArenaGenerator())
-            builtIn -> creator.seed(TttCitadelBlueprint.SEED).generator(TttCitadelChunkGenerator())
-            packaged != null || imported != null -> creator.generator(EmptyArenaChunkGenerator())
-        }
-        val world = requireNotNull(creator.createWorld()) { "Could not load arena world ${arena.world}" }
-        configure(world, arena, settings)
-        requireArenaChunks(world, arena, generate = builtIn && !folderExisted)
-        if (builtIn && !folderExisted) {
-            Files.writeString(marker, arena.template + "\n", StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
-        }
-        if (packaged != null || imported != null) sanitizeImportedDecorations(world, arena, settings)
-        rejectCommandBlocks(world, arena)
-        val action = if (folderExisted) "Loaded" else "Provisioned"
-        plugin.logger.info("$action ArcEvents arena id=${arena.id} world=${world.name} template=${arena.template}")
-        return world
+        if (imported != null && !existed) error("Reviewed imported arena world ${arena.world} is missing")
+        val files = if (!existed && packaged != null) loadPackagedFiles(packaged) else emptyMap()
+        val range = arenaChunks(arena)
+        return PreparedArena(arena, folder, existed, existing, builtIn, packaged, imported, files,
+            range.x.flatMap { x -> range.z.map { z -> x to z } })
     }
 
-    private fun provisionPackagedWorld(
-        container: Path,
-        worldFolder: Path,
-        arena: ArenaSettings,
-        template: PackagedArenaTemplate,
-        settings: ArcEventsConfig,
-    ) {
-        val files = loadPackagedFiles(template)
-        when (template.format) {
-            PackagedArenaFormat.ANVIL_WORLD -> provisionAnvil(container, worldFolder, arena, template, files, settings)
-            PackagedArenaFormat.SPONGE_V2_SCHEMATIC,
-            PackagedArenaFormat.SPONGE_V3_SCHEMATIC,
-            PackagedArenaFormat.MCEDIT_SCHEMATIC,
-            -> provisionSchematic(container, worldFolder, arena, template, files, settings)
-        }
-    }
-
-    private fun provisionAnvil(
-        container: Path,
-        worldFolder: Path,
-        arena: ArenaSettings,
-        template: PackagedArenaTemplate,
-        files: Map<PackagedArenaFile, ByteArray>,
-        settings: ArcEventsConfig,
-    ) {
-        val stage = stagingChild(container, arena.world)
-        val stageName = stage.fileName.toString()
-        var stageWorld: World? = null
-        try {
-            // Never adopt level.dat from a downloaded world. Paper creates clean
-            // metadata with command execution disabled; only the exact reviewed
-            // region payload is transplanted after the staging world is unloaded.
-            stageWorld = requireNotNull(
-                WorldCreator.name(stageName)
-                    .environment(World.Environment.NORMAL)
-                    .generateStructures(false)
-                    .keepSpawnLoaded(TriState.FALSE)
-                    .generator(EmptyArenaChunkGenerator())
-                    .createWorld(),
-            ) { "Could not create isolated Anvil arena staging world" }
-            configure(stageWorld, arena, settings)
-            stageWorld.save()
-            require(plugin.server.unloadWorld(stageWorld, true)) { "Could not unload isolated Anvil arena staging world" }
-            stageWorld = null
-            clearGeneratedChunkStorage(stage)
-            files.forEach { (file, bytes) -> writeNew(stage, file.destination, bytes) }
-            writeOwnership(stage, arena, template, files)
-            Files.move(stage, worldFolder, StandardCopyOption.ATOMIC_MOVE)
-        } catch (failure: Throwable) {
-            stageWorld?.let { world -> runCatching { plugin.server.unloadWorld(world, false) }.onFailure(failure::addSuppressed) }
-            runCatching { deleteOwnedStage(container, stage) }.onFailure(failure::addSuppressed)
-            throw failure
-        }
-    }
-
-    private fun provisionSchematic(
-        container: Path,
-        worldFolder: Path,
-        arena: ArenaSettings,
-        template: PackagedArenaTemplate,
-        files: Map<PackagedArenaFile, ByteArray>,
-        settings: ArcEventsConfig,
-    ) {
-        require(plugin.server.pluginManager.isPluginEnabled("WorldEdit")) {
-            "WorldEdit is required to provision packaged schematic arenas"
-        }
-        val stage = stagingChild(container, arena.world)
-        val stageName = stage.fileName.toString()
-        var stageWorld: World? = null
-        try {
-            stageWorld = requireNotNull(
-                WorldCreator.name(stageName)
-                    .environment(World.Environment.NORMAL)
-                    .generateStructures(false)
-                    .keepSpawnLoaded(TriState.FALSE)
-                    .generator(EmptyArenaChunkGenerator())
-                    .createWorld(),
-            ) { "Could not create isolated arena staging world" }
-            configure(stageWorld, arena, settings)
-            val source = files.values.single()
-            val clipboard = readAndCropSchematic(template, source)
-            rejectExecutableClipboard(template, clipboard)
-            WorldEdit.getInstance().newEditSession(BukkitAdapter.adapt(stageWorld)).use { editSession ->
-                val operation = ClipboardHolder(clipboard)
-                    .createPaste(editSession)
-                    .to(BlockVector3.at(0, SCHEMATIC_BASE_Y, 0))
-                    .ignoreAirBlocks(true)
-                    .copyEntities(false)
-                    .copyBiomes(false)
-                    .build()
-                Operations.complete(operation)
+    private fun activateAsync(settings: ArcEventsConfig, prepared: PreparedArena, work: EventWork): java.util.concurrent.CompletableFuture<World> {
+        val arena = prepared.arena
+        val provision = if (!prepared.existed && prepared.packaged != null) provisionAsync(settings, prepared, work)
+            else java.util.concurrent.CompletableFuture.completedFuture(Unit)
+        val owned = mutableListOf<ru.arc.paper.chunk.PaperChunkTicketLease>()
+        return provision.thenCompose { work.callNative {
+            check(!closed)
+            val existing = plugin.server.getWorld(arena.world)
+            check(existing?.uid == prepared.existingWorldId) { "Arena world changed during preparation" }
+            val world = existing ?: if (arena.template.isEmpty()) error("Custom arena world ${arena.world} is not loaded") else {
+                val creator = WorldCreator.name(arena.world).environment(World.Environment.NORMAL).generateStructures(false).keepSpawnLoaded(TriState.FALSE)
+                when {
+                    arena.template == FishingArenaGenerator.TEMPLATE -> creator.seed(FishingArenaGenerator.SEED).generator(FishingArenaGenerator())
+                    arena.template == DisasterArenaGenerator.TEMPLATE -> creator.seed(73491L).generator(DisasterArenaGenerator())
+                    prepared.builtIn -> creator.seed(TttCitadelBlueprint.SEED).generator(TttCitadelChunkGenerator())
+                    else -> creator.generator(EmptyArenaChunkGenerator())
+                }
+                requireNotNull(creator.createWorld()) { "Could not load arena world ${arena.world}" }
             }
-            requireArenaChunks(stageWorld, arena, generate = true)
-            rejectCommandBlocks(stageWorld, arena)
-            stageWorld.save()
-            require(plugin.server.unloadWorld(stageWorld, true)) { "Could not unload isolated arena staging world" }
-            stageWorld = null
-            writeOwnership(stage, arena, template, files)
-            Files.move(stage, worldFolder, StandardCopyOption.ATOMIC_MOVE)
-        } catch (failure: Throwable) {
-            stageWorld?.let { world -> runCatching { plugin.server.unloadWorld(world, false) }.onFailure(failure::addSuppressed) }
-            runCatching { deleteOwnedStage(container, stage) }.onFailure(failure::addSuppressed)
-            throw failure
+            configure(world, arena, settings)
+            world
+        } }.thenCompose { world ->
+            loadChunks(world, prepared.chunks, prepared.builtIn && !prepared.existed, owned, work)
+                .thenCompose { sanitizeAndValidate(world, arena, settings, prepared.packaged != null || prepared.imported != null, prepared.chunks, work) }
+                .thenCompose { if (prepared.builtIn && !prepared.existed) work.compute {
+                    Files.writeString(prepared.folder.resolve(ARENA_TEMPLATE_MARKER), arena.template + "\n", StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
+                    Unit
+                } else java.util.concurrent.CompletableFuture.completedFuture(Unit) }
+                .thenCompose { work.onMain {
+                    check(!closed && plugin.server.getWorld(world.uid) === world)
+                    // Keep only the small set used by synchronous readiness checks. Loot acquires its own chunks asynchronously.
+                    val keep = (listOfNotNull(arena.lobby, arena.spectator, arena.playerSpawn) + initialPoints[arena.id].orEmpty()).mapTo(mutableSetOf()) { (floor(it.x).toInt() shr 4) to (floor(it.z).toInt() shr 4) }
+                    val retained = readiness.getOrPut(arena.id) { mutableMapOf() }
+                    owned.filter { (it.key.x to it.key.z) in keep }.forEach { lease ->
+                        retained[lease.key.x to lease.key.z] = lease
+                        owned.remove(lease)
+                    }
+                    plugin.logger.info("${if (prepared.existed) "Loaded" else "Provisioned"} ArcEvents arena id=${arena.id} world=${world.name} template=${arena.template}")
+                    world
+                } }
+        }.handle { world, failure -> world to failure }.thenCompose { (world, failure) -> releaseChunkLeases(owned, work).handle { _, releaseFailure ->
+            if (failure != null) { releaseFailure?.let(failure::addSuppressed); throw failure }
+            releaseFailure?.let { throw it }
+            world
+        } }
+    }
+
+    /** Called after a durable point edit, while that arena's edit admission is still held. */
+    fun refreshReadinessAsync(arena: ArenaSettings, points: List<ru.ruscrafting.events.config.EventLocation>): java.util.concurrent.CompletableFuture<Unit> {
+        val work = requireNotNull(work)
+        val world = requireNotNull(plugin.server.getWorld(arena.world))
+        val keep = (listOfNotNull(arena.lobby, arena.spectator, arena.playerSpawn) + points)
+            .mapTo(linkedSetOf()) { (floor(it.x).toInt() shr 4) to (floor(it.z).toInt() shr 4) }
+        val retained = readiness.getOrPut(arena.id) { mutableMapOf() }
+        val acquired = mutableListOf<ru.arc.paper.chunk.PaperChunkTicketLease>()
+        return loadChunks(world, keep.filterNot(retained::containsKey), false, acquired, work).thenCompose { work.onMain {
+            acquired.forEach { retained[it.key.x to it.key.z] = it }
+            acquired.clear()
+            val obsolete = retained.keys.filterNot(keep::contains)
+            obsolete.forEach { acquired += requireNotNull(retained.remove(it)) }
+        } }.thenCompose { releaseChunkLeases(acquired, work) }
+    }
+
+    private fun loadChunks(world: World, chunks: List<Pair<Int, Int>>, generate: Boolean,
+        owned: MutableList<ru.arc.paper.chunk.PaperChunkTicketLease>, work: EventWork): java.util.concurrent.CompletableFuture<Unit> {
+        var chain = java.util.concurrent.CompletableFuture.completedFuture(Unit)
+        chunks.forEach { (x, z) -> chain = chain.thenCompose { work.callNative {
+            check(!closed && plugin.server.getWorld(world.uid) === world)
+            world.getChunkAtAsync(x, z, generate)
+        }.thenCompose { it }.thenCompose { chunk -> work.callNative {
+            check(!closed && plugin.server.getWorld(world.uid) === world && chunk != null && world.isChunkLoaded(x, z)) { "Could not load arena chunk $x,$z" }
+            val acquired = tickets.acquire(chunk)
+            val lease = (acquired as? ru.arc.paper.chunk.PaperChunkTicketAcquireResult.Acquired)?.lease
+                ?: error("Could not retain arena chunk $x,$z: $acquired")
+            owned += lease
+            leases += lease
+            Unit
+        } } } }
+        return chain
+    }
+
+    internal fun releaseChunkLeases(owned: MutableList<ru.arc.paper.chunk.PaperChunkTicketLease>, work: EventWork): java.util.concurrent.CompletableFuture<Unit> = work.onMain {
+        val iterator = owned.iterator()
+        var failure: Throwable? = null
+        work.capture({ !closed }) {
+            if (iterator.hasNext()) {
+                val lease = iterator.next()
+                try {
+                    lease.close()
+                    leases.remove(lease)
+                    iterator.remove()
+                } catch (problem: Throwable) {
+                    if (failure == null) failure = problem else failure.addSuppressed(problem)
+                    // Core leases close idempotently. A second close cannot prove that a
+                    // failed native ticket removal succeeded, so retain its failed drain.
+                    if (leaseReleaseFailure == null) leaseReleaseFailure = problem
+                }
+            }
+            val done = !iterator.hasNext()
+            if (done) failure?.let { throw it }
+            done
+        }
+    }.thenCompose { it }
+
+    private fun provisionAsync(settings: ArcEventsConfig, prepared: PreparedArena, work: EventWork): java.util.concurrent.CompletableFuture<Unit> {
+        val arena = prepared.arena
+        val template = requireNotNull(prepared.packaged)
+        return work.compute { staging.create(arena.world, arena.template) }.thenCompose { stage ->
+        val owned = mutableListOf<ru.arc.paper.chunk.PaperChunkTicketLease>()
+        var unloaded = false
+        work.callNative {
+            check(!closed)
+            requireNotNull(WorldCreator.name(stage.fileName.toString()).environment(World.Environment.NORMAL)
+                .generateStructures(false).keepSpawnLoaded(TriState.FALSE).generator(EmptyArenaChunkGenerator()).createWorld()) {
+                "Could not create isolated arena staging world"
+            }.also { world -> stageWorld = world; configure(world, arena, settings) }
+        }.thenCompose { world ->
+            val content = if (template.format == PackagedArenaFormat.ANVIL_WORLD) java.util.concurrent.CompletableFuture.completedFuture(Unit)
+                else preparedSchematic(template, prepared.files, work).thenCompose { (snapshot, anchor) ->
+                    val pasteChunks = (0..((snapshot.sizeX - 1) shr 4)).flatMap { x ->
+                        (0..((snapshot.sizeZ - 1) shr 4)).map { z -> x to z }
+                    }
+                    loadChunks(world, (prepared.chunks + pasteChunks).distinct(), true, owned, work).thenCompose { work.onMain {
+                        check(!closed)
+                        requireNotNull(library).paste(snapshot, ru.arc.paper.api.ArcSchematicPasteTarget(world.uid, anchor),
+                            ru.arc.paper.api.ArcSchematicPasteOptions(ignoreAir = true, ignoreBarriers = false, repairConnections = false)).completion
+                    }.thenCompose { it } }.thenApply { result -> check(!result.cancelled) { "Arena paste was cancelled" }; Unit }
+                }
+            content.thenCompose { if (template.format == PackagedArenaFormat.ANVIL_WORLD) java.util.concurrent.CompletableFuture.completedFuture(Unit)
+                else sanitizeAndValidate(world, arena, settings, false, prepared.chunks, work) }
+                .thenCompose { releaseChunkLeases(owned, work) }.thenCompose { work.callNative {
+                    check(!closed)
+                    world.save()
+                    check(plugin.server.unloadWorld(world, true)) { "Could not unload isolated arena staging world" }
+                    stageWorld = null
+                    unloaded = true
+                } }
+        }.thenCompose { work.compute {
+            if (template.format == PackagedArenaFormat.ANVIL_WORLD) {
+                clearGeneratedChunkStorage(stage)
+                prepared.files.forEach { (file, bytes) -> writeNew(stage, file.destination, bytes) }
+            }
+            writeOwnership(stage, arena, template, prepared.files)
+            Files.move(stage, prepared.folder, StandardCopyOption.ATOMIC_MOVE)
+            Files.deleteIfExists(prepared.folder.resolve(ArenaStagingFiles.INTENT))
+            Unit
+        } }.handle { _, failure -> failure }.thenCompose { failure ->
+            if (failure == null) java.util.concurrent.CompletableFuture.completedFuture(Unit) else {
+                releaseChunkLeases(owned, work).handle { _, releaseFailure -> releaseFailure?.let(failure::addSuppressed); Unit }
+                    .thenCompose { work.callNative {
+                        stageWorld?.let { world -> if (world.name == stage.fileName.toString()) {
+                            unloaded = plugin.server.unloadWorld(world, false)
+                            if (unloaded) stageWorld = null
+                            else throw IllegalStateException("Could not unload failed arena staging world")
+                        } }
+                    } }.thenCompose { work.compute {
+                        // A loaded or retired stage keeps its validated intent for the next startup.
+                        if (unloaded && Files.exists(stage)) staging.delete(stage)
+                    } }.handle { _, cleanupFailure ->
+                        cleanupFailure?.let(failure::addSuppressed)
+                        throw failure
+                    }
+            }
+        }
         }
     }
 
-    private fun readAndCropSchematic(template: PackagedArenaTemplate, source: ByteArray): Clipboard {
-        val format = when (template.format) {
-            PackagedArenaFormat.SPONGE_V2_SCHEMATIC -> BuiltInClipboardFormat.SPONGE_V2_SCHEMATIC
-            PackagedArenaFormat.SPONGE_V3_SCHEMATIC -> BuiltInClipboardFormat.SPONGE_V3_SCHEMATIC
-            PackagedArenaFormat.MCEDIT_SCHEMATIC -> BuiltInClipboardFormat.MCEDIT_SCHEMATIC
-            PackagedArenaFormat.ANVIL_WORLD -> error("An Anvil world is not a schematic")
-        }
-        val original = ByteArrayInputStream(source).use { input -> format.getReader(input).use { it.read() } }
-        val dimensions = original.dimensions
-        require(dimensions.x() == template.width && dimensions.y() == template.height && dimensions.z() == template.length) {
-            "Packaged arena ${template.id} dimensions do not match the reviewed artifact"
-        }
-        val cropMinimum = requireNotNull(template.cropMinimum)
-        val cropMaximum = requireNotNull(template.cropMaximum)
-        val originalMinimum = original.region.minimumPoint
-        val sourceMinimum = originalMinimum.add(cropMinimum.x, cropMinimum.y, cropMinimum.z)
-        val sourceMaximum = originalMinimum.add(cropMaximum.x, cropMaximum.y, cropMaximum.z)
-        require(original.region.contains(sourceMinimum) && original.region.contains(sourceMaximum)) {
-            "Packaged arena ${template.id} crop is outside the reviewed artifact"
-        }
-        val destinationMaximum = BlockVector3.at(
-            cropMaximum.x - cropMinimum.x,
-            cropMaximum.y - cropMinimum.y,
-            cropMaximum.z - cropMinimum.z,
-        )
-        val cropped = BlockArrayClipboard(CuboidRegion(BlockVector3.at(0, 0, 0), destinationMaximum))
-        val copy = ForwardExtentCopy(
-            original,
-            CuboidRegion(sourceMinimum, sourceMaximum),
-            sourceMinimum,
-            cropped,
-            BlockVector3.at(0, 0, 0),
-        )
-        copy.setCopyingEntities(false)
-        copy.setCopyingBiomes(false)
-        Operations.complete(copy)
-        cropped.origin = BlockVector3.at(0, 0, 0)
-        return cropped
+    private fun preparedSchematic(template: PackagedArenaTemplate, files: Map<PackagedArenaFile, ByteArray>, work: EventWork): java.util.concurrent.CompletableFuture<Pair<ru.arc.paper.api.ArcSchematicSnapshot, ru.arc.paper.api.ArcSchematicPoint>> {
+        val owner = requireNotNull(library)
+        val source = files.entries.single()
+        val id = "${template.id}/${source.key.destination}"
+        return work.compute {
+            require(!Files.isSymbolicLink(libraryRoot)) { "Prepared arena source root must not be a symbolic link" }
+            val target = safeChild(libraryRoot, id)
+            Files.createDirectories(requireNotNull(target.parent))
+            require(!Files.isSymbolicLink(target.parent) && !Files.isSymbolicLink(target)) { "Prepared arena source must not be a symbolic link" }
+            if (Files.exists(target)) require(sha256(Files.readAllBytes(target)) == source.key.sha256) { "Prepared arena source changed" }
+            else Files.write(target, source.value, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
+        }.thenCompose { owner.loadVerified(id, source.key.sha256, ru.arc.paper.api.ArcSchematicContentPolicy.IGNORE_ENTITIES_AND_BIOMES) }
+            .thenCompose { snapshot ->
+                require(snapshot.sizeX == template.width && snapshot.sizeY == template.height && snapshot.sizeZ == template.length) { "Packaged arena ${template.id} dimensions do not match the reviewed artifact" }
+                val min = requireNotNull(template.cropMinimum)
+                val max = requireNotNull(template.cropMaximum)
+                owner.crop(snapshot,
+                    ru.arc.paper.api.ArcSchematicPoint(snapshot.minimum.x + min.x, snapshot.minimum.y + min.y, snapshot.minimum.z + min.z),
+                    ru.arc.paper.api.ArcSchematicPoint(snapshot.minimum.x + max.x, snapshot.minimum.y + max.y, snapshot.minimum.z + max.z))
+            }.thenCompose { cropped ->
+                owner.inspectBlockEntityNbt(cropped) { _, nbt ->
+                    require(!EXECUTABLE_NBT.containsMatchIn(nbt)) { "Packaged arena ${template.id} contains executable block data" }
+                }.thenCompose { work.compute {
+                    cropped.blocks().forEach { block -> require(block.blockData.substringBefore('[') !in COMMAND_BLOCK_IDS) { "Packaged arena ${template.id} contains a command block" } }
+                    cropped to ru.arc.paper.api.ArcSchematicPoint(cropped.origin.x - cropped.minimum.x,
+                        SCHEMATIC_BASE_Y + cropped.origin.y - cropped.minimum.y, cropped.origin.z - cropped.minimum.z)
+                } }
+            }
     }
 
-    private fun rejectExecutableClipboard(template: PackagedArenaTemplate, clipboard: Clipboard) {
-        require(clipboard.entities.isEmpty()) { "Packaged arena ${template.id} contains copied entities" }
-        clipboard.region.forEach { position ->
-            val block = clipboard.getFullBlock(position)
-            @Suppress("DEPRECATION")
-            val blockId = block.blockType.id
-            require(blockId !in COMMAND_BLOCK_IDS) { "Packaged arena ${template.id} contains a command block" }
-            val nbt = block.nbtReference?.value?.toString().orEmpty()
-            require(!EXECUTABLE_NBT.containsMatchIn(nbt)) { "Packaged arena ${template.id} contains executable block data" }
+    private fun sanitizeAndValidate(world: World, arena: ArenaSettings, settings: ArcEventsConfig, sanitize: Boolean,
+        chunks: List<Pair<Int, Int>>, work: EventWork): java.util.concurrent.CompletableFuture<Unit> = work.onMain {
+        val chunkIterator = chunks.iterator()
+        var entities: Iterator<org.bukkit.entity.Entity>? = null
+        var tiles: Iterator<org.bukkit.block.BlockState>? = null
+        var currentChunk: org.bukkit.Chunk? = null
+        val displays = mutableListOf<Triple<UUID, Double, String>>()
+        val removed = linkedMapOf<String, Int>()
+        var banners = 0
+        fun remove(entity: org.bukkit.entity.Entity) {
+            val type = entity.type.key.asString()
+            entity.remove()
+            removed[type] = removed.getOrDefault(type, 0) + 1
+        }
+        val lobby = requireNotNull(arena.lobby)
+        work.capture({ !closed && plugin.server.getWorld(world.uid) === world }) {
+            when {
+                entities?.hasNext() == true -> {
+                    val entity = requireNotNull(entities).next()
+                    if (sanitize && entity !is Player) {
+                        if (entity is Display && settings.arenaRuntime.preserveImportedDisplays) {
+                            val at = entity.location
+                            val distance = (at.x - lobby.x) * (at.x - lobby.x) + (at.y - lobby.y) * (at.y - lobby.y) + (at.z - lobby.z) * (at.z - lobby.z)
+                            displays += Triple(entity.uniqueId, distance, entity.type.key.asString())
+                        } else remove(entity)
+                    }
+                }
+                tiles?.hasNext() == true -> {
+                    val block = requireNotNull(tiles).next()
+                    require(block.type !in COMMAND_BLOCKS) { "Arena ${arena.id} contains a command block at ${block.location}" }
+                    if (sanitize && isImportedBlockDecoration(block.type)) { block.block.setType(Material.AIR, false); banners++ }
+                }
+                currentChunk != null -> { tiles = requireNotNull(currentChunk).tileEntities.iterator(); currentChunk = null }
+                chunkIterator.hasNext() -> {
+                    val (x, z) = chunkIterator.next()
+                    check(world.isChunkLoaded(x, z)) { "Arena chunk unloaded during validation" }
+                    currentChunk = world.getChunkAt(x, z)
+                    entities = if (sanitize) requireNotNull(currentChunk).entities.iterator() else emptyList<org.bukkit.entity.Entity>().iterator()
+                    tiles = null
+                }
+                else -> Unit
+            }
+            !chunkIterator.hasNext() && currentChunk == null && entities?.hasNext() != true && tiles?.hasNext() != true
+        }.thenCompose { work.compute {
+            displays.sortedWith(compareBy<Triple<UUID, Double, String>>({ it.second }, { it.first.toString() }))
+                .drop(settings.arenaRuntime.maxImportedDisplays).iterator()
+        } }.thenCompose { excess -> work.onMain {
+            work.capture({ !closed && plugin.server.getWorld(world.uid) === world }) {
+                if (excess.hasNext()) {
+                    val (id, _, _) = excess.next()
+                    plugin.server.getEntity(id)?.takeIf { it.world === world }?.let(::remove)
+                }
+                !excess.hasNext()
+            }
+        }.thenCompose { it } }.thenCompose { work.compute {
+            val summary = removed.entries.sortedByDescending(Map.Entry<String, Int>::value).joinToString { (type, count) -> "$type=$count" }
+            Triple(summary, banners, minOf(displays.size, settings.arenaRuntime.maxImportedDisplays))
+        } }.thenCompose { (summary, count, kept) -> work.onMain {
+            if (summary.isNotEmpty()) plugin.logger.info("Removed imported arena entities id=${arena.id} world=${world.name} entities={$summary}")
+            if (count > 0) plugin.logger.info("Removed imported arena banners id=${arena.id} world=${world.name} banners=$count")
+            if (kept > 0) plugin.logger.info("Preserved imported arena displays id=${arena.id} world=${world.name} displays=$kept")
+        } }
+    }.thenCompose { it }
+
+    override fun close() {
+        if (closed) return
+        closed = true
+        var failure: Throwable? = leaseReleaseFailure
+        fun attempt(action: () -> Unit) { runCatching(action).onFailure { problem ->
+            if (failure == null) failure = problem else failure.addSuppressed(problem)
+        } }
+        attempt { library?.close() }
+        val detachedStage = stageWorld
+        val server = plugin.server
+        var stageReleased = detachedStage == null
+        stageWorld = null
+        val detached = leases
+        leases = linkedSetOf()
+        val iterator = detached.iterator()
+        val cleanup = if (iterator.hasNext() || !stageReleased) requireNotNull(work).cleanupNative {
+            if (iterator.hasNext()) {
+                val lease = iterator.next()
+                attempt(lease::close)
+                iterator.remove()
+            } else if (!stageReleased) {
+                stageReleased = true
+                attempt { check(server.unloadWorld(requireNotNull(detachedStage), false)) {
+                    "Owned arena stage remains loaded; its folder is retained"
+                } }
+            }
+            if (!iterator.hasNext() && stageReleased) {
+                failure?.let { throw it }
+                true
+            } else false
+        } else java.util.concurrent.CompletableFuture.completedFuture(Unit)
+        closeCompletion = cleanup.handle { _, cleanupFailure ->
+            if (cleanupFailure != null) throw cleanupFailure
+            failure?.let { throw it }
+            Unit
         }
     }
 
@@ -469,68 +595,6 @@ class ArenaWorldProvisioner(private val plugin: Plugin) {
         require(!enabled) { "Reviewed ArcEvents arenas require enable-command-block=false" }
     }
 
-    private fun requireArenaChunks(world: World, arena: ArenaSettings, generate: Boolean) {
-        val chunks = arenaChunks(arena)
-        for (chunkX in chunks.x) for (chunkZ in chunks.z) {
-            require(world.loadChunk(chunkX, chunkZ, generate)) { "Could not load arena chunk $chunkX,$chunkZ" }
-            require(world.isChunkGenerated(chunkX, chunkZ)) { "Arena chunk $chunkX,$chunkZ is missing" }
-        }
-    }
-
-    private fun rejectCommandBlocks(world: World, arena: ArenaSettings) {
-        val chunks = arenaChunks(arena)
-        for (chunkX in chunks.x) for (chunkZ in chunks.z) {
-            val unsafe = world.getChunkAt(chunkX, chunkZ).tileEntities.firstOrNull { it.type in COMMAND_BLOCKS }
-            require(unsafe == null) { "Arena ${arena.id} contains a command block at ${unsafe?.location}" }
-        }
-    }
-
-    private fun sanitizeImportedDecorations(world: World, arena: ArenaSettings, settings: ArcEventsConfig) {
-        val chunks = arenaChunks(arena)
-        val removed = linkedMapOf<String, Int>()
-        val importedDisplays = mutableListOf<Display>()
-        var removedBanners = 0
-        for (chunkX in chunks.x) for (chunkZ in chunks.z) {
-            val chunk = world.getChunkAt(chunkX, chunkZ)
-            chunk.entities.filterNot { it is Player }.forEach { entity ->
-                if (entity is Display && settings.arenaRuntime.preserveImportedDisplays) {
-                    importedDisplays += entity
-                    return@forEach
-                }
-                val type = entity.type.key.asString()
-                entity.remove()
-                removed[type] = removed.getOrDefault(type, 0) + 1
-            }
-            chunk.tileEntities.filter { isImportedBlockDecoration(it.type) }.forEach { banner ->
-                banner.block.setType(Material.AIR, false)
-                removedBanners++
-            }
-        }
-        importedDisplays
-            .sortedWith(compareBy<Display>(
-                { it.location.distanceSquared(requireNotNull(arena.lobby).let { lobby -> org.bukkit.Location(world, lobby.x, lobby.y, lobby.z) }) },
-                { it.uniqueId.toString() },
-            ))
-            .drop(settings.arenaRuntime.maxImportedDisplays)
-            .forEach { display ->
-                val type = display.type.key.asString()
-                display.remove()
-                removed[type] = removed.getOrDefault(type, 0) + 1
-            }
-        if (removed.isNotEmpty()) {
-            val summary = removed.entries.sortedByDescending(Map.Entry<String, Int>::value)
-                .joinToString { (type, count) -> "$type=$count" }
-            plugin.logger.info("Removed imported arena entities id=${arena.id} world=${world.name} entities={$summary}")
-        }
-        if (removedBanners > 0) plugin.logger.info(
-            "Removed imported arena banners id=${arena.id} world=${world.name} banners=$removedBanners",
-        )
-        val keptDisplays = minOf(importedDisplays.size, settings.arenaRuntime.maxImportedDisplays)
-        if (keptDisplays > 0) plugin.logger.info(
-            "Preserved imported arena displays id=${arena.id} world=${world.name} displays=$keptDisplays",
-        )
-    }
-
     /** Applies only reversible world performance knobs during `/arcevents reload`. */
     fun applyRuntimeTuning(settings: ArcEventsConfig) {
         settings.arenas.filter(ArenaSettings::enabled).forEach { arena ->
@@ -590,11 +654,6 @@ class ArenaWorldProvisioner(private val plugin: Plugin) {
         return resolved
     }
 
-    private fun stagingChild(container: Path, world: String): Path = directChild(
-        container,
-        "${STAGE_PREFIX}${world.take(24)}_${UUID.randomUUID().toString().replace("-", "").take(12)}",
-    )
-
     private fun safeChild(parent: Path, relative: String): Path {
         val candidate = Path.of(relative)
         require(!candidate.isAbsolute && candidate.none { it.toString() == ".." }) { "Invalid packaged arena path" }
@@ -619,14 +678,6 @@ class ArenaWorldProvisioner(private val plugin: Plugin) {
                 Files.walk(directory).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach(Files::deleteIfExists) }
             }
         }
-    }
-
-    private fun deleteOwnedStage(container: Path, stage: Path) {
-        require(stage.parent == container && stage.fileName.toString().startsWith(STAGE_PREFIX)) {
-            "Refusing to remove a path outside the ArcEvents staging namespace"
-        }
-        if (!Files.exists(stage)) return
-        Files.walk(stage).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach(Files::deleteIfExists) }
     }
 
     private fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256")
