@@ -37,6 +37,7 @@ function assertSeeded(player, index) {
 }
 
 async function waitForRestored(player, before) {
+  // Paper can send the restoration message before its player tick sends the XP packet.
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const after = snapshot(player);
     if (JSON.stringify(after.inventory) === JSON.stringify(before.inventory) &&
@@ -214,6 +215,7 @@ test('Gun Game advances through every firearm and finishes on the real knife hit
     await expect(players[0]).toHaveReceivedMessage(new RegExp(`Winners:.*${players[0].username}`, 'i'), { timeout: 15000 });
     await expect(players[0]).toHaveReceivedMessage(/Your pre-event state was restored\./, { timeout: 15000 });
     await expect(players[1]).toHaveReceivedMessage(/Your pre-event state was restored\./, { timeout: 15000 });
+    await Promise.all(players.map((entry, index) => waitForRestored(entry, before[index])));
     players.forEach((entry, index) => assertRestored(entry, before[index]));
   } finally {
     await cleanup(players);
@@ -253,6 +255,7 @@ test('TTT assigns hidden roles, completes a real traitor blade win, and restores
     await qaPlayer(player, traitor, new RegExp(`player=${traitor.username}.*role=traitor.*kills=3`));
     await expect(traitor).toHaveReceivedMessage(/The report is ready/i, { timeout: 10000 });
     for (const entry of players) await expect(entry).toHaveReceivedMessage(/Your pre-event state was restored\./, { timeout: 15000 });
+    await Promise.all(players.map((entry, index) => waitForRestored(entry, before[index])));
     players.forEach((entry, index) => assertRestored(entry, before[index]));
   } finally {
     await cleanup(players);
