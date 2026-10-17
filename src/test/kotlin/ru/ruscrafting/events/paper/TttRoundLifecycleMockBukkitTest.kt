@@ -739,6 +739,24 @@ internal class TttRoundFixture(private val disposable: Boolean = false) : AutoCl
 
     fun currentSettings(): ArcEventsConfig = settings
 
+    fun arcadeWithRecovery(recover: (Player, (Result<PlayerRecovery?>) -> Unit) -> Unit): ArcadeSession {
+        // This harness owns a separate session and its recovery callback. The service's
+        // teleport guard belongs to its own session and must not intercept this fixture.
+        org.bukkit.event.HandlerList.unregisterAll(plugin)
+        lateinit var session: ArcadeSession
+        session = ArcadeSession(
+            plugin, { settings }, locale, items, firearms, arenaPool, network, escrow,
+            teleport = { player, point ->
+                check(player.teleport(Location(requireNotNull(paper.server.getWorld(point.world)), point.x, point.y, point.z)))
+            },
+            recover = recover,
+            recovered = { player, recovery -> session.markRecovered(player, recovery) },
+            clearWeaponState = {},
+            clock = { nowMs },
+        )
+        return session
+    }
+
     fun addOutsider(name: String): Player = paper.addPlayer(name).also { player ->
         nextMessages[player.uniqueId] = player::nextComponentMessage
         player.teleport(Location(world, 0.5, 64.0, 0.5))

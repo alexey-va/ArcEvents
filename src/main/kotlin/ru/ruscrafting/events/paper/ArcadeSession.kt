@@ -140,7 +140,9 @@ class ArcadeSession(
 
     fun tick() {
         val before = current ?: return
-        if (before.phase == MatchPhase.RESTORING) { restorePlayers(); return }
+        // Async recovery can mark the final participant restored between host ticks.
+        // COMPLETED still owns the arena until the durable recovery gate releases it.
+        if (before.phase in setOf(MatchPhase.RESTORING, MatchPhase.COMPLETED)) { restorePlayers(); return }
         if (before.phase == MatchPhase.CANCELLED) { beginRestoration(); return }
         if (before.phase == MatchPhase.RESOLVING) {
             showResult()

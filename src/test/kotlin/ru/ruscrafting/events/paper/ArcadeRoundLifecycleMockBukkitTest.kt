@@ -4,10 +4,54 @@ import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import ru.arc.paper.testing.failOnUnsupportedMockBukkitOperation
 import ru.ruscrafting.events.domain.EventMode
+import ru.ruscrafting.events.domain.MatchEndReason
 import ru.ruscrafting.events.domain.MatchPhase
 import ru.ruscrafting.events.domain.ParticipantStatus
+import ru.ruscrafting.events.network.QueueEntry
+import java.util.UUID
 
 class ArcadeRoundLifecycleMockBukkitTest : FunSpec({
+    test("delayed final recovery releases the completed arcade arena and admits the next match") {
+        failOnUnsupportedMockBukkitOperation {
+            TttRoundFixture().use { fixture ->
+                val completions = linkedMapOf<UUID, (Result<PlayerRecovery?>) -> Unit>()
+                val session = fixture.arcadeWithRecovery { player, complete -> completions[player.uniqueId] = complete }
+                val id = UUID.randomUUID()
+                requireNotNull(fixture.arenaPool.reserve(id, "test", EventMode.GUN_GAME))
+                val entries = fixture.players.map { player ->
+                    QueueEntry(player.uniqueId.toString(), player.name, "parkour", EventMode.GUN_GAME.id,
+                        joinedAtMs = 1L, expiresAtMs = 60_001L)
+                }
+                session.start(id, EventMode.GUN_GAME, entries, fixture.players,
+                    fixture.currentSettings().arcade.rules(EventMode.GUN_GAME)).join()
+                session.cancel(MatchEndReason.ADMIN)
+                session.current?.phase shouldBe MatchPhase.RESTORING
+                completions.size shouldBe fixture.players.size
+                fixture.arenaPool.reserve(UUID.randomUUID(), "test") shouldBe null
+
+                fixture.players.dropLast(1).forEach { player ->
+                    completions.remove(player.uniqueId)!!.invoke(Result.success(fixture.escrow.recover(player)))
+                }
+                session.tick()
+                session.current?.phase shouldBe MatchPhase.RESTORING
+                fixture.escrow.pendingCount(id) shouldBe 1
+                fixture.arenaPool.inUse("test") shouldBe true
+
+                val last = fixture.players.last()
+                completions.remove(last.uniqueId)!!.invoke(Result.success(fixture.escrow.recover(last)))
+                session.current?.phase shouldBe MatchPhase.COMPLETED
+                fixture.escrow.pendingCount(id) shouldBe 0
+                session.tick()
+                session.current shouldBe null
+                fixture.arenaPool.active() shouldBe null
+                fixture.assertOriginalPlayerStateRestored()
+
+                fixture.startReservation()
+                fixture.service.matchState().first shouldBe fixture.reservationMatchId()
+            }
+        }
+    }
+
     test("fishing owns one player and restores original state after defeat") {
         failOnUnsupportedMockBukkitOperation {
             TttRoundFixture().use { fixture ->
