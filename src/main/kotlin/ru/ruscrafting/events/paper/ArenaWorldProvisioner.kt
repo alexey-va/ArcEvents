@@ -162,21 +162,23 @@ class ArenaWorldProvisioner(private val plugin: Plugin,
         } }.thenCompose { releaseChunkLeases(acquired, work) }
     }
 
-    private fun loadChunks(world: World, chunks: List<Pair<Int, Int>>, generate: Boolean,
+    internal fun loadChunks(world: World, chunks: List<Pair<Int, Int>>, generate: Boolean,
         owned: MutableList<ru.arc.paper.chunk.PaperChunkTicketLease>, work: EventWork): java.util.concurrent.CompletableFuture<Unit> {
         var chain = java.util.concurrent.CompletableFuture.completedFuture(Unit)
         chunks.forEach { (x, z) -> chain = chain.thenCompose { work.callNative {
             check(!closed && plugin.server.getWorld(world.uid) === world)
-            world.getChunkAtAsync(x, z, generate)
-        }.thenCompose { it }.thenCompose { chunk -> work.callNative {
-            check(!closed && plugin.server.getWorld(world.uid) === world && chunk != null && world.isChunkLoaded(x, z)) { "Could not load arena chunk $x,$z" }
-            val acquired = tickets.acquire(chunk)
-            val lease = (acquired as? ru.arc.paper.chunk.PaperChunkTicketAcquireResult.Acquired)?.lease
-                ?: error("Could not retain arena chunk $x,$z: $acquired")
-            owned += lease
-            leases += lease
-            Unit
-        } } } }
+            // Paper completes this future on main. Retain its loaded chunk before
+            // yielding to the next tick; an unretained chunk may unload meanwhile.
+            world.getChunkAtAsync(x, z, generate).thenApply { chunk ->
+                check(work.isCurrent() && !closed && plugin.server.getWorld(world.uid) === world && chunk != null && world.isChunkLoaded(x, z)) { "Could not load arena chunk $x,$z" }
+                val acquired = tickets.acquire(chunk)
+                val lease = (acquired as? ru.arc.paper.chunk.PaperChunkTicketAcquireResult.Acquired)?.lease
+                    ?: error("Could not retain arena chunk $x,$z: $acquired")
+                owned += lease
+                leases += lease
+                Unit
+            }
+        }.thenCompose { it } } }
         return chain
     }
 

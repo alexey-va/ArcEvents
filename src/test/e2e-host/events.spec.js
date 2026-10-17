@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { expect, test } from '@drownek/plugwright';
 
 function snapshot(player) {
@@ -48,6 +49,19 @@ async function waitForRestored(player, before) {
 }
 
 const pause = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+async function waitForEventsReady() {
+  // Paper's Done marker precedes asynchronous arena preparation. Admission tests
+  // must wait for the actual ArcEvents generation rather than server startup.
+  const logPath = new URL('../../../build/plugwright-host/logs/latest.log', import.meta.url);
+  for (let attempt = 0; attempt < 240; attempt += 1) {
+    const log = await readFile(logPath, 'utf8');
+    assert.ok(!log.includes('ArcEvents failed closed during startup'), 'ArcEvents startup failed; inspect the Paper log');
+    if (/ArcEvents enabled .*arenaReady=true redisConnected=true/.test(log)) return;
+    await pause(250);
+  }
+  assert.fail('ArcEvents did not publish a ready arena within 60 seconds');
+}
 
 async function waitForFiringPosition(...players) {
   for (let attempt = 0; attempt < 40; attempt += 1) {
@@ -184,6 +198,7 @@ async function shoot(attacker, victim) {
 }
 
 test('Gun Game advances through every firearm and finishes on the real knife hit', async ({ player, createPlayer }) => {
+  await waitForEventsReady();
   const rival = await createConnected(createPlayer, 'Rival');
   const players = [player, rival];
   const firearmIds = ['flintlock', 'revolver', 'hand_cannon', 'double_barrel', 'five_seven', 'g36', 'aek_971', 'rpl_20', 'vepr_12', 'm1_garand', 'vss_vintorez', 'mcmillan'];
@@ -223,6 +238,7 @@ test('Gun Game advances through every firearm and finishes on the real knife hit
 });
 
 test('TTT assigns hidden roles, completes a real traitor blade win, and restores exact state', async ({ player, createPlayer }) => {
+  await waitForEventsReady();
   const players = [
     player,
     await createConnected(createPlayer, 'TttA'),
@@ -263,6 +279,7 @@ test('TTT assigns hidden roles, completes a real traitor blade win, and restores
 });
 
 test('Gun Game disconnect removes one participant while the two-player match stays active, then cleans up', async ({ player, createPlayer }) => {
+  await waitForEventsReady();
   const leaver = await createConnected(createPlayer, 'Leaver');
   const keeper = await createConnected(createPlayer, 'Keeper');
   const players = [player, leaver, keeper];

@@ -48,14 +48,16 @@ class TttLootSpawner(
             var loaded = CompletableFuture.completedFuture(Unit)
             chunks.forEach { (x, z) -> loaded = loaded.thenCompose { tasks.callNative {
                 check(current()) { "Loot preparation superseded" }
-                world.getChunkAtAsync(x, z, true)
-            }.thenCompose { it }.thenCompose { chunk -> tasks.callNative {
-                check(current() && world.isChunkLoaded(x, z)) { "Loot chunk became unavailable" }
-                val lease = (tickets.acquire(chunk) as? ru.arc.paper.chunk.PaperChunkTicketAcquireResult.Acquired)?.lease
-                    ?: error("Could not retain loot chunk $x,$z")
-                owned.leases += lease
-                Unit
-            } } } }
+                // Register on main and retain inside Paper's main-thread completion,
+                // before its temporary load ticket expires between queued steps.
+                world.getChunkAtAsync(x, z, true).thenApply { chunk ->
+                    check(current() && world.isChunkLoaded(x, z)) { "Loot chunk became unavailable" }
+                    val lease = (tickets.acquire(chunk) as? ru.arc.paper.chunk.PaperChunkTicketAcquireResult.Acquired)?.lease
+                        ?: error("Could not retain loot chunk $x,$z")
+                    owned.leases += lease
+                    Unit
+                }
+            }.thenCompose { it } } }
             loaded.thenCompose { tasks.onMain {
                 var index = 0
                 var probe = 0
