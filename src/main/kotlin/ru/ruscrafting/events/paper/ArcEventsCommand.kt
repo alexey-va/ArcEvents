@@ -61,35 +61,52 @@ class ArcEventsCommand(
     }
 
     override fun onTabComplete(sender: CommandSender, command: Command, alias: String, args: Array<out String>): List<String> {
+        if (!sender.hasPermission("arcevents.play")) return emptyList()
+        val root = args.firstOrNull()?.lowercase()
+        if (args.size > 1) {
+            if (root in setOf("admin", "qa", "debug") && !sender.hasPermission("arcevents.$root")) return emptyList()
+            if (root == "debug" && (!settings().debugEnabled ||
+                    args.size > 2 && !settings().debugMutationsAllowed && args[1].lowercase() !in DEBUG_READ_ACTIONS)) return emptyList()
+        }
         val options = when (args.size) {
             1 -> buildList {
-                addAll(listOf("menu", "join", "fishing", "leave", "spawn", "status", "shop", "roster", "report", "team", "help"))
-                if (settings().eventControls.creatorControlsEnabled || sender.hasPermission("arcevents.start")) add("start")
+                if (sender is Player) {
+                    addAll(listOf("menu", "join", "fishing", "leave", "spawn", "status", "shop", "roster", "report", "start"))
+                    if (sender.hasPermission("arcevents.teamchat")) add("team")
+                }
+                add("help")
                 if (sender.hasPermission("arcevents.admin")) addAll(listOf("admin", "reload"))
                 if (sender.hasPermission("arcevents.qa")) add("qa")
-                if (sender.hasPermission("arcevents.debug")) add("debug")
+                if (sender.hasPermission("arcevents.debug") && settings().debugEnabled) add("debug")
             }
             2 -> when (args[0].lowercase()) {
-                "start" -> EventMode.entries.map(EventMode::id)
-                "admin" -> listOf("menu", "status", "player", "network", "arenas", "arena", "weapons", "recovery", "start", "stop", "reload", "recover")
+                "start" -> when {
+                    sender !is Player -> emptyList()
+                    settings().eventControls.creatorControlsEnabled || sender.hasPermission("arcevents.start") || sender.hasPermission("arcevents.admin") -> EventMode.entries.map(EventMode::id)
+                    else -> listOf(EventMode.FISHING.id)
+                }
+                "admin" -> listOf("status", "player", "network", "arenas", "arena", "recovery", "start", "stop", "reload", "recover") +
+                    if (sender is Player) listOf("menu", "weapons") else emptyList()
                 "qa" -> listOf("status", "player", "network", "arenas", "recovery")
-                "debug" -> DEBUG_ACTIONS
+                "debug" -> if (settings().debugMutationsAllowed) DEBUG_ACTIONS else DEBUG_READ_ACTIONS
                 else -> emptyList()
             }
-            else -> nestedCompletions(args)
+            else -> nestedCompletions(sender, args)
         }
         return options.filter { it.startsWith(args.lastOrNull().orEmpty(), ignoreCase = true) }.sorted()
     }
 
-    private fun nestedCompletions(args: Array<out String>): List<String> {
+    private fun nestedCompletions(sender: CommandSender, args: Array<out String>): List<String> {
         val root = args.getOrNull(0)?.lowercase()
         val action = args.getOrNull(1)?.lowercase()
         if (args.size == 3 && root in setOf("qa", "admin") && action == "player") return servicePlayerNames()
-        if (args.size == 3 && root == "admin" && action in setOf("arena", "start")) {
-            val mode = parseMode(args.getOrNull(2)) ?: EventMode.TTT
-            return arenaIds(mode, includeAuto = true)
+        if (root == "admin") {
+            if (args.size == 3 && action == "start") return EventMode.entries.map(EventMode::id)
+            if (args.size == 4 && action == "start") return parseMode(args[2])?.let { arenaIds(it, includeAuto = true) }.orEmpty()
+            if (args.size == 3 && action == "arena") return arenaIds(includeAuto = true)
+            if (args.size == 4 && action == "arena") return EventMode.entries.map(EventMode::id)
+            if (args.size == 3 && action == "weapons" && sender is Player) return ADMIN_WEAPON_ACTIONS
         }
-        if (args.size == 3 && root == "admin" && action == "weapons") return ADMIN_WEAPON_ACTIONS
         if (root != "debug") return emptyList()
         return when (args.size) {
             3 -> when (action) {
@@ -101,7 +118,7 @@ class ArcEventsCommand(
                 else -> emptyList()
             }
             4 -> when (action) {
-                "bootstrap" -> servicePlayerNames().filterNot { it in args.drop(2) }
+                "bootstrap" -> servicePlayerNames().filterNot { name -> args.drop(2).dropLast(1).any { it.equals(name, true) } }
                 "credit" -> listOf("-2", "-1", "1", "2", "16")
                 "role" -> listOf("innocent", "traitor", "detective")
                 "health" -> listOf("1", "10", "20")
@@ -114,11 +131,11 @@ class ArcEventsCommand(
                 else -> emptyList()
             }
             5 -> when (action) {
-                "bootstrap" -> servicePlayerNames().filterNot { it in args.drop(2) }
+                "bootstrap" -> servicePlayerNames().filterNot { name -> args.drop(2).dropLast(1).any { it.equals(name, true) } }
                 "weapon" -> listOf("0", "1", "6", "8", "12", "24")
                 else -> emptyList()
             }
-            else -> if (action == "bootstrap") servicePlayerNames().filterNot { it in args.drop(2) } else emptyList()
+            else -> if (action == "bootstrap") servicePlayerNames().filterNot { name -> args.drop(2).dropLast(1).any { it.equals(name, true) } } else emptyList()
         }
     }
 
@@ -416,8 +433,8 @@ class ArcEventsCommand(
     private fun parseMode(raw: String?): EventMode? = raw?.lowercase()?.let(EventMode::fromId)
 
     companion object {
-        internal val DEBUG_ACTIONS = listOf(
-            "help", "status", "player", "network", "arenas", "recovery", "bodies",
+        private val DEBUG_READ_ACTIONS = listOf("help", "status", "player", "network", "arenas", "recovery", "bodies")
+        internal val DEBUG_ACTIONS = DEBUG_READ_ACTIONS + listOf(
             "start", "bootstrap", "advance", "end", "timer", "credit", "role", "health",
             "weapon", "ammo", "item", "kill", "revive", "discover", "dna", "call",
             "loot", "menu", "close", "cleanup",
