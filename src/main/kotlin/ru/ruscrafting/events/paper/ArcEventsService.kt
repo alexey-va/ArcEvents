@@ -2171,8 +2171,9 @@ class ArcEventsService(
         if (!settings().weapons.enabled) return CompletableFuture.completedFuture(Unit)
         val arena = arenaPool.active() ?: return CompletableFuture.completedFuture(Unit)
         return cleanupLoot().thenCompose { onMain {
-            check(started && match?.matchId == current.matchId && arenaPool.active() === arena) { "Loot preparation superseded" }
-            lootSpawner.spawnAsync(current, arena) { started && match?.matchId == current.matchId && arenaPool.active() === arena }
+            // Config getters return fresh immutable arena values, not a stable object identity.
+            check(started && match?.matchId == current.matchId && arenaPool.active() == arena) { "Loot preparation superseded" }
+            lootSpawner.spawnAsync(current, arena) { started && match?.matchId == current.matchId && arenaPool.active() == arena }
         }.thenCompose { it } }
     }
 

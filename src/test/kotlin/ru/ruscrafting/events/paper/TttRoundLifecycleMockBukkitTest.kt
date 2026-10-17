@@ -9,6 +9,7 @@ import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import io.mockk.verify
 import org.bukkit.GameMode
 import org.bukkit.Location
@@ -47,6 +48,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 
 /**
@@ -58,6 +60,35 @@ import java.util.concurrent.TimeUnit
  * [ArcEventsPlugin.onEnable] bootstrap are outside this host-local test and do not currently have MockBukkit coverage.
  */
 class TttRoundLifecycleMockBukkitTest : FunSpec({
+    test("weapon preparation accepts equal arena settings returned as distinct objects") {
+        TttRoundFixture().use { fixture ->
+            fixture.reloadRuntime { it.replace("weapons:\n  enabled: false", "weapons:\n  enabled: true") }
+            fixture.startActiveRound()
+            val arena = requireNotNull(fixture.arenaPool.active())
+            (fixture.arenaPool.active() === arena) shouldBe false
+            fixture.arenaPool.active() shouldBe arena
+            verify(exactly = 1) { fixture.lootSpawner.spawnAsync(any(), arena, any()) }
+        }
+    }
+
+    test("pending weapon preparation rejects its fence after the match is cancelled") {
+        TttRoundFixture().use { fixture ->
+            fixture.reloadRuntime { it.replace("weapons:\n  enabled: false", "weapons:\n  enabled: true") }
+            val current = slot<() -> Boolean>()
+            val pending = CompletableFuture<Unit>()
+            every { fixture.lootSpawner.spawnAsync(any(), any(), capture(current)) } returns pending
+            val preparation = fixture.startPreparingRound()
+            preparation.isDone shouldBe false
+            current.captured() shouldBe true
+
+            fixture.service.stopByAdmin() shouldBe AdminStopResult.MATCH
+
+            current.captured() shouldBe false
+            pending.complete(Unit)
+            preparation.join() shouldBe DebugMutationResult.INTERNAL_ERROR
+        }
+    }
+
     test("disposable host runs and completes an event without escrow and returns local participants clean") {
         failOnUnsupportedMockBukkitOperation {
             TttRoundFixture(disposable = true).use { fixture ->
@@ -532,6 +563,9 @@ internal class TttRoundFixture(private val disposable: Boolean = false) : AutoCl
     private val locale: ArcEventsLocale
     val items: TttItems
     val firearms: TttFirearms
+    val lootSpawner: TttLootSpawner = mockk(relaxed = true) {
+        every { spawnAsync(any(), any(), any()) } returns CompletableFuture.completedFuture(Unit)
+    }
     val escrow: PlayerStateEscrow
     val network: EventNetworkCoordinator = mockk(relaxed = true) {
         every { stats(any()) } returns PlayerEventStats()
@@ -588,7 +622,7 @@ internal class TttRoundFixture(private val disposable: Boolean = false) : AutoCl
             redisConnected = { true },
             arenaPool = arenaPool,
             weaponPoints = mockk(relaxed = true),
-            lootSpawner = mockk(relaxed = true),
+            lootSpawner = lootSpawner,
             clock = { nowMs },
             clientProtocol = { clientProtocolVersion },
         )
@@ -617,13 +651,16 @@ internal class TttRoundFixture(private val disposable: Boolean = false) : AutoCl
         }
     }
 
-    fun startActiveRound(mode: EventMode = EventMode.TTT) {
+    fun startPreparingRound(mode: EventMode = EventMode.TTT): CompletableFuture<DebugMutationResult> {
         check(!started) { "The fixture owns one TTT round" }
         started = true
         service.start()
         paper.performTicks(1)
+        return service.debugStartLocalAsync(players, "test", mode)
+    }
 
-        service.debugStartLocal(players, "test", mode) shouldBe DebugMutationResult.APPLIED
+    fun startActiveRound(mode: EventMode = EventMode.TTT) {
+        startPreparingRound(mode).join() shouldBe DebugMutationResult.APPLIED
         service.phase() shouldBe MatchPhase.PREPARING
         escrow.pendingCount(requireNotNull(service.currentMatch()).matchId) shouldBe
             if (disposable) 0 else players.size
