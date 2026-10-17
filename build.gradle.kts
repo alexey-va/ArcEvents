@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "ru.ruscrafting"
-version = "0.5.19"
+version = "0.5.20"
 description = "Cross-server custom events for RusCrafting"
 
 val integrationTestSourceSet = sourceSets.create("integrationTest") {
@@ -27,7 +27,7 @@ java { toolchain { languageVersion.set(JavaLanguageVersion.of(25)) } }
 kotlin { jvmToolchain(25) }
 
 val worldEditVersion = "7.3.18"
-val arcCoreVersion = "2.7.30"
+val arcCoreVersion = "2.7.33"
 
 dependencies {
     implementation(kotlin("stdlib"))
