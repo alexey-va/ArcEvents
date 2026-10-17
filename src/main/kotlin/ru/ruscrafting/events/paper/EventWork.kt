@@ -12,6 +12,7 @@ interface EventWork {
     fun <T> callNative(action: () -> T): CompletableFuture<T> = onMain(action)
     fun capture(isCurrent: () -> Boolean, step: () -> Boolean): CompletableFuture<Unit>
     fun isCurrent(): Boolean
+    fun beginShutdown() = Unit
     fun cleanupNative(step: () -> Boolean): CompletableFuture<Unit> = CompletableFuture.failedFuture(UnsupportedOperationException("Native cleanup owner is unavailable"))
     fun cleanupDrain(): CompletableFuture<Unit> = CompletableFuture.completedFuture(Unit)
 }
@@ -27,6 +28,7 @@ internal class RuntimeEventWork(
     private val cleanups = java.util.concurrent.ConcurrentHashMap.newKeySet<CompletableFuture<Unit>>()
     private val cleanupFailure = java.util.concurrent.atomic.AtomicReference<Throwable>()
     private var cleanupSealed = false
+    @Volatile private var shuttingDown = false
     override fun <T> compute(action: () -> T) = io.submit(action)
     override fun <T> onMain(action: () -> T) = scope.callSync(token, action)
     override fun <T> callNative(action: () -> T): CompletableFuture<T> =
@@ -34,10 +36,20 @@ internal class RuntimeEventWork(
     override fun capture(isCurrent: () -> Boolean, step: () -> Boolean) =
         native.submit({ scope.isCurrent(token) && isCurrent() }, step)
     override fun isCurrent() = scope.isCurrent(token)
+    override fun beginShutdown() {
+        check(org.bukkit.Bukkit.isPrimaryThread()) { "Event shutdown must run on the primary server thread" }
+        shuttingDown = true
+    }
     override fun cleanupNative(step: () -> Boolean): CompletableFuture<Unit> {
-        check(!cleanupSealed) { "Native cleanup generation is sealed" }
-        val result = runCatching { cleanup.submit(owner, java.util.function.BooleanSupplier(step)).toCompletableFuture().thenApply { Unit } }
-            .getOrElse { CompletableFuture.failedFuture(it) }
+        val result = if (shuttingDown && org.bukkit.Bukkit.isPrimaryThread()) {
+            runCatching { while (!step()) Unit }.fold(
+                { CompletableFuture.completedFuture(Unit) }, { CompletableFuture.failedFuture(it) },
+            )
+        } else {
+            check(!cleanupSealed) { "Native cleanup generation is sealed" }
+            runCatching { cleanup.submit(owner, java.util.function.BooleanSupplier(step)).toCompletableFuture().thenApply { Unit } }
+                .getOrElse { CompletableFuture.failedFuture(it) }
+        }
         cleanups += result
         result.whenComplete { _, failure ->
             if (failure != null) cleanupFailure.compareAndSet(null, failure)

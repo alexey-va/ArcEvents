@@ -54,11 +54,8 @@ open class ArcEventsPlugin : JavaPlugin() {
     private lateinit var work: EventWork
     private lateinit var chunkTickets: ru.arc.paper.chunk.PaperChunkTicketRegistry
     private val redisLeases = ConcurrentHashMap.newKeySet<PaperRedisClient>()
-    private var shutdownDrain = CompletableFuture.completedFuture(Unit)
-    private var predecessorDrain = CompletableFuture.completedFuture(Unit)
-    private var enableScope: LifecycleTaskScope? = null
-    private var generationOpen = false
-    private var generationStarted = false
+    private var lifecycleOpen = false
+    private var pendingClose = CompletableFuture.completedFuture(Unit)
     private var preparing = false
     private var reloading = false
     private var escrow: PlayerStateEscrow? = null
@@ -73,32 +70,15 @@ open class ArcEventsPlugin : JavaPlugin() {
         ArenaWorldGeneratorRegistry.generatorFor(server.worldContainer.toPath(), worldName)
 
     override fun onEnable() {
-        check(!generationOpen) { "Plugin generation is already open" }
-        generationOpen = true
-        generationStarted = false
-        predecessorDrain = shutdownDrain
-        shutdownDrain = CompletableFuture()
-        val scope = ru.arc.core.LifecycleTaskScope(ru.arc.core.BukkitTaskScheduler(this))
-        enableScope = scope
-        val token = scope.token()
-        predecessorDrain.whenComplete { _, failure ->
-            scope.callSync(token) {
-                if (enableScope !== scope || !generationOpen) return@callSync
-                if (failure != null) {
-                    logger.log(Level.SEVERE, "Previous plugin generation failed to drain; startup remains closed", failure)
-                    server.pluginManager.disablePlugin(this)
-                } else {
-                    generationStarted = true
-                    startGeneration()
-                }
-            }.whenComplete { _, startFailure ->
-                if (startFailure != null) scope.callSync(token) {
-                    if (enableScope === scope && generationOpen) {
-                        logger.log(Level.SEVERE, "Plugin generation startup failed closed", startFailure)
-                        server.pluginManager.disablePlugin(this)
-                    }
-                }
-            }
+        check(!lifecycleOpen) { "Plugin lifecycle is already open" }
+        try {
+            check(pendingClose.isDone) { "Previous native cleanup is still pending" }
+            pendingClose.getNow(Unit)
+            lifecycleOpen = true
+            startGeneration()
+        } catch (failure: Throwable) {
+            logger.log(Level.SEVERE, "ArcEvents startup failed closed", failure)
+            server.pluginManager.disablePlugin(this)
         }
     }
 
@@ -124,61 +104,54 @@ open class ArcEventsPlugin : JavaPlugin() {
             preparing || escrow?.isLocked(player.uniqueId) == true ||
                 (escrow?.pendingPlayers()?.contains(player.uniqueId) == true && service?.isParticipant(player.uniqueId) != true)
         }, this)
-        io.submit {
-            saveDefaultConfig()
-            listOf("lang/ru.yml", "lang/en.yml", "modules/redis.yml").forEach(::saveResourceIfMissing)
-            val candidate = ArcEventsConfig.load(root)
-            val layouts = ArcEventsMenuLayouts(root)
-            ArcEventsLocale.mergeMissingFiles(root)
-            ArcEventsLocale.validateFiles(root)
-            val translated = ArcEventsLocale(root) { settings }
-            val redisConfig = ArcEventsRedisBootstrap.load(root, candidate)
-            val manager = PaperRedisClient.open(redisService, owner, redisConfig.connection(), candidate.serverId).also {
-                redisLeases += it
-                it.retainDuringShutdown()
-                it.init()
+        saveDefaultConfig()
+        listOf("lang/ru.yml", "lang/en.yml", "modules/redis.yml").forEach(::saveResourceIfMissing)
+        settings = ArcEventsConfig.load(root)
+        menuLayouts = ArcEventsMenuLayouts(root)
+        ArcEventsLocale.mergeMissingFiles(root)
+        ArcEventsLocale.validateFiles(root)
+        locale = ArcEventsLocale(root) { settings }
+        val redisConfig = ArcEventsRedisBootstrap.load(root, settings)
+        val manager = PaperRedisClient.open(redisService, owner, redisConfig.connection(), settings.serverId).also {
+            redisLeases += it
+            it.retainDuringShutdown()
+            it.init()
+        }
+        require(manager.healthCheck().get(5, java.util.concurrent.TimeUnit.SECONDS)) { "Redis connection is unavailable" }
+        val recovery = RecoveryBatchStore(root, Gson()).also { if (settings.playerStateMode == PlayerStateMode.PRESERVE) it.prepare() }
+        val points = ArenaWeaponPointStore(root) { failure ->
+            logger.log(Level.WARNING, "ArcEvents mandatory weapon points are unavailable; using random map points", failure)
+        }.also { weaponPointStore = lifecycle.own(it) }
+        if (settings.arenas.any { it.template == TttCitadelBlueprint.TEMPLATE }) TttCitadelLoot.validate()
+        val provisioner = ArenaWorldProvisioner(this, chunkTickets).also { arenaProvisioner = it }
+        // Shared schematic application and Paper chunk loads require native callbacks; never join them on main.
+        provisioner.ensureLoadedAsync(settings, activeWork, mandatoryPoints = points::points).whenComplete { _, failure ->
+            activeWork.onMain {
+                if (pluginRuntime !== lifecycle) return@onMain
+                if (failure != null) {
+                    logger.log(Level.SEVERE, "ArcEvents arena preparation failed closed", failure)
+                    server.pluginManager.disablePlugin(this)
+                } else activate(lifecycle, manager, recovery, points, activeWork)
             }
-            require(manager.healthCheck().get(5, java.util.concurrent.TimeUnit.SECONDS)) { "Redis connection is unavailable" }
-            val recovery = RecoveryBatchStore(root, Gson()).also { if (candidate.playerStateMode == PlayerStateMode.PRESERVE) it.prepare() }
-            val points = ArenaWeaponPointStore(root) { failure ->
-                logger.log(Level.WARNING, "ArcEvents mandatory weapon points are unavailable; using random map points", failure)
-            }
-            Prepared(candidate, translated, layouts, manager, recovery, points)
-        }.thenCompose { prepared -> activeWork.onMain {
-            check(pluginRuntime === lifecycle)
-            settings = prepared.settings
-            locale = prepared.locale
-            menuLayouts = prepared.layouts
-            if (settings.arenas.any { it.template == TttCitadelBlueprint.TEMPLATE }) TttCitadelLoot.validate()
-            val provisioner = ArenaWorldProvisioner(this, chunkTickets).also { arenaProvisioner = it }
-            provisioner.ensureLoadedAsync(settings, activeWork, mandatoryPoints = prepared.points::points).thenCompose { activeWork.onMain {
-                check(pluginRuntime === lifecycle)
-                activate(lifecycle, prepared, activeWork)
-            } }
-        }.thenCompose { it } }.whenComplete { _, failure -> if (failure != null) activeWork.onMain {
-            if (pluginRuntime === lifecycle) {
-                logger.log(Level.SEVERE, "ArcEvents failed closed during startup", failure)
-                server.pluginManager.disablePlugin(this)
-            }
-        } }
+        }
     }
 
-    private data class Prepared(
-        val settings: ArcEventsConfig, val locale: ArcEventsLocale, val layouts: ArcEventsMenuLayouts,
-        val redis: PaperRedisClient, val recovery: RecoveryBatchStore, val points: ArenaWeaponPointStore,
-    )
-
-    private fun activate(lifecycle: PaperPluginRuntime, prepared: Prepared, activeWork: EventWork) {
+    private fun activate(
+        lifecycle: PaperPluginRuntime,
+        manager: PaperRedisClient,
+        recovery: RecoveryBatchStore,
+        points: ArenaWeaponPointStore,
+        activeWork: EventWork,
+    ) {
         try {
-            val manager = prepared.redis
             val repository = RedisEventNetworkRepository(manager, Gson())
             val debug = ArcEventsDebug({ settings.debugEnabled }, logger::info)
-            val escrow = PlayerStateEscrow(prepared.recovery,
+            val escrow = PlayerStateEscrow(recovery,
                 enabled = settings.playerStateMode == PlayerStateMode.PRESERVE, work = activeWork).also { this.escrow = it }
             val items = TttItems(this, locale) { settings }
             val firearms = TttFirearms(this, locale) { settings }
             val lootScene = TttLootScene(this, firearms, activeWork, chunkTickets) { settings }
-            val storedWeaponPoints = lifecycle.own(prepared.points).also { weaponPointStore = it }
+            val storedWeaponPoints = points
             val arenaInspector = ArenaRuntimeInspector(this)
             val arenaPool = ArenaPool(settings = { settings }) { arena, maximumPlayers ->
                 arenaInspector.ready(arena, maximumPlayers) && mandatoryWeaponPointsReady(server, storedWeaponPoints, arena)
@@ -299,17 +272,12 @@ open class ArcEventsPlugin : JavaPlugin() {
     }
 
     override fun onDisable() {
-        if (!generationOpen) return
-        generationOpen = false
-        enableScope?.close()
-        enableScope = null
-        val completion = shutdownDrain
-        val previous = predecessorDrain
-        val retiring = if (generationStarted) runCatching { closeGeneration() }.getOrElse { CompletableFuture.failedFuture(it) }
-            else CompletableFuture.completedFuture(Unit)
-        generationStarted = false
-        CompletableFuture.allOf(previous, retiring).whenComplete { _, failure ->
-            if (failure == null) completion.complete(Unit) else completion.completeExceptionally(failure)
+        if (!lifecycleOpen) return
+        lifecycleOpen = false
+        pendingClose = runCatching { closeGeneration() }.getOrElse { CompletableFuture.failedFuture(it) }
+        // Already queued host-native cleanup is captured and may still need a later Paper tick.
+        pendingClose.whenComplete { _, failure ->
+            if (failure != null) logger.log(Level.SEVERE, "ArcEvents cleanup failed", failure)
         }
     }
 
@@ -321,6 +289,7 @@ open class ArcEventsPlugin : JavaPlugin() {
                 if (nativeFailure == null) nativeFailure = problem else nativeFailure.addSuppressed(problem)
             }
         }
+        detach { if (::work.isInitialized) work.beginShutdown() }
         detach { escrow?.close() }
         detach { chatIsolation?.close() }
         chatIsolation = null
@@ -346,8 +315,10 @@ open class ArcEventsPlugin : JavaPlugin() {
             }
             failure?.let { throw it }
         } else CompletableFuture.completedFuture(Unit)
+        // The storage executor drains only IO actions; every native continuation has already been fenced.
+        detach { drain.join() }
         Tasks.reset()
-        return CompletableFuture.allOf(drain, nativeDrain, retiredArenas?.closeCompletion ?: CompletableFuture.completedFuture(Unit)).handle { _, failure ->
+        return CompletableFuture.allOf(nativeDrain, retiredArenas?.closeCompletion ?: CompletableFuture.completedFuture(Unit)).handle { _, failure ->
             nativeFailure?.let { problem -> failure?.let(problem::addSuppressed); throw problem }
             failure?.let { throw it }
             Unit
