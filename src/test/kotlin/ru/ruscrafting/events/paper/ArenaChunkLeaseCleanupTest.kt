@@ -112,7 +112,7 @@ class ArenaChunkLeaseCleanupTest : FunSpec({
         MockBukkitTestRuntime.open().use { paper ->
             val plugin = paper.createSimplePlugin("ArenaLeaseCleanup")
             val scope = LifecycleTaskScope(BukkitTaskScheduler(plugin))
-            val queue = BudgetedTaskQueue(scope)
+            val queue = BudgetedTaskQueue(scope, maximumSteps = 128)
             var steps = 0
             var removed = 0
             val tickets = PaperChunkTicketRegistry(object : PaperChunkTicketBackend {
