@@ -49,7 +49,8 @@ class ArcEventsServiceCloseTest : FunSpec({
                 })
                 val world = paper.server.addSimpleWorld("service-close")
                 world.getChunkAt(0, 0).load()
-                val scene = TttLootScene(plugin, mockk(relaxed = true), work, tickets) { config }
+                val displays = mockk<ru.arc.paper.display.PaperPacketDisplays>(relaxed = true)
+                val scene = TttLootScene(plugin, mockk(relaxed = true), displays, work, tickets) { config }
                 var removals = 0
                 repeat(300) {
                     scene.register(mockk<Item>(relaxed = true) {
@@ -65,7 +66,7 @@ class ArcEventsServiceCloseTest : FunSpec({
                 val smoke = mockk<TttSmokeGrenades>(relaxed = true)
                 val service = ArcEventsService(plugin, { config }, mockk(relaxed = true), mockk(relaxed = true),
                     mockk(relaxed = true), mockk(relaxed = true), hud, scene, smoke, mockk(relaxed = true),
-                    mockk(relaxed = true), { true }, pool, mockk(relaxed = true), spawner, work = work)
+                    mockk(relaxed = true), { true }, pool, mockk(relaxed = true), spawner, displays, work = work)
                 service.start()
                 val failure = runCatching { service.close() }.exceptionOrNull()
                 failure?.message shouldBe "pool detach failed"

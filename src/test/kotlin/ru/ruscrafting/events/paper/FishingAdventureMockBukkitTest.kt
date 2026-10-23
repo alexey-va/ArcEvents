@@ -215,6 +215,9 @@ class FishingAdventureMockBukkitTest : FunSpec({
             adventure.snapshot().bag.isEmpty() shouldBe true
             world.entities.filterIsInstance<LivingEntity>().count { it !is Player } shouldBe 0
             world.entities.filterIsInstance<org.bukkit.entity.TextDisplay>().size shouldBe 0
+            fixture.packetVisuals.isNotEmpty() shouldBe true
+            fixture.packetVisuals.none { it.isValid } shouldBe true
+            verify(exactly = 0) { fixture.packetDisplays.close(); fixture.packetDisplays.closeAsync() }
             fixture.service.arcadeSnapshot()?.phase shouldBe MatchPhase.RESOLVING
             fixture.service.arcadeSnapshot()?.winners shouldBe setOf(player.uniqueId)
             fixture.advanceTime(9_000)

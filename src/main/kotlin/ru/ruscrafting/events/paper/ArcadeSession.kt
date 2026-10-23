@@ -17,6 +17,7 @@ import org.bukkit.potion.PotionEffect
 import org.bukkit.potion.PotionEffectType
 import org.bukkit.util.Vector
 import ru.arc.core.Tasks
+import ru.arc.paper.display.PaperPacketDisplays
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.config.EventLocation
@@ -45,6 +46,7 @@ class ArcadeSession(
     private val recover: (Player, (Result<PlayerRecovery?>) -> Unit) -> Unit,
     private val recovered: (Player, PlayerRecovery) -> Unit,
     private val clearWeaponState: (UUID) -> Unit,
+    private val packetDisplays: PaperPacketDisplays,
     private val clock: () -> Long,
     private val work: EventWork? = null,
 ) {
@@ -172,7 +174,7 @@ class ArcadeSession(
                                     runtime.completeFishing(player.uniqueId)
                                     showResult()
                                 }
-                            }, clock, work)
+                            }, packetDisplays, clock, work)
                         fishing = adventure
                         adventure.startAsync().whenComplete { _, failure ->
                             if (failure != null && work?.isCurrent() != false && fishing === adventure &&

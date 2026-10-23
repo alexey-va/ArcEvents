@@ -4,19 +4,22 @@ import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.Particle
 import org.bukkit.entity.Display
-import org.bukkit.entity.Entity
 import org.bukkit.entity.Item
 import org.bukkit.entity.ItemDisplay
 import org.bukkit.inventory.ItemStack
 import org.bukkit.plugin.Plugin
+import org.bukkit.util.Transformation
 import org.bukkit.util.Vector
-import org.joml.Matrix4f
+import org.joml.AxisAngle4f
+import org.joml.Vector3f
 import ru.arc.core.ScheduledTask
 import ru.arc.core.Tasks
 import ru.arc.paper.chunk.PaperChunkKey
 import ru.arc.paper.chunk.PaperChunkTicketAcquireResult
 import ru.arc.paper.chunk.PaperChunkTicketLease
 import ru.arc.paper.chunk.PaperChunkTicketRegistry
+import ru.arc.paper.display.PacketItemDisplay
+import ru.arc.paper.display.PaperPacketDisplays
 import java.util.concurrent.CompletableFuture
 import ru.ruscrafting.events.config.ArcEventsConfig
 import java.util.UUID
@@ -26,14 +29,15 @@ import java.util.logging.Level
 class TttLootScene(
     private val plugin: Plugin,
     private val firearms: TttFirearms,
+    private val displays: PaperPacketDisplays,
     private val work: EventWork? = null,
     private val chunkTickets: PaperChunkTicketRegistry = PaperChunkTicketRegistry(plugin),
     private val settings: () -> ArcEventsConfig,
 ) : AutoCloseable {
     private class LootEntity(
         val pickup: Item,
-        var itemDisplay: ItemDisplay?,
-        var effectDisplay: ItemDisplay?,
+        var itemDisplay: PacketItemDisplay?,
+        var effectDisplay: PacketItemDisplay?,
         val chunkLease: PaperChunkTicketLease,
     )
 
@@ -79,8 +83,8 @@ class TttLootScene(
         check(location.world.isChunkLoaded(location.blockX shr 4, location.blockZ shr 4)) { "Loot chunk is not loaded" }
         val chunkLease = (chunkTickets.acquire(PaperChunkKey(location.world.uid, location.blockX shr 4, location.blockZ shr 4))
             as? PaperChunkTicketAcquireResult.Acquired)?.lease ?: error("Could not retain loot chunk")
-        var itemDisplay: ItemDisplay? = null
-        var effectDisplay: ItemDisplay? = null
+        var itemDisplay: PacketItemDisplay? = null
+        var effectDisplay: PacketItemDisplay? = null
         try {
             configurePickup(item, pickupDelay)
             itemDisplay = if (settings().ui.lootDisplays) {
@@ -104,8 +108,8 @@ class TttLootScene(
             if (itemDisplay != null) ensureAnimation()
         } catch (failure: Throwable) {
             entities.remove(item.uniqueId)
-            removeEntity(itemDisplay)
-            removeEntity(effectDisplay)
+            removeDisplay(itemDisplay)
+            removeDisplay(effectDisplay)
             releaseChunk(chunkLease)
             throw failure
         }
@@ -148,8 +152,8 @@ class TttLootScene(
         val pickup = tracked.pickup
         val previousDisplay = tracked.itemDisplay
         val previousEffect = tracked.effectDisplay
-        var candidateDisplay: ItemDisplay? = null
-        var candidateEffect: ItemDisplay? = null
+        var candidateDisplay: PacketItemDisplay? = null
+        var candidateEffect: PacketItemDisplay? = null
         runCatching {
             pickup.itemStack = firearms.refreshItem(pickup.itemStack, null)
             candidateDisplay = if (settings().ui.lootDisplays) createItemDisplay(pickup) else null
@@ -157,20 +161,20 @@ class TttLootScene(
             pickup.setVisibleByDefault(candidateDisplay == null)
             tracked.itemDisplay = candidateDisplay
             tracked.effectDisplay = candidateEffect
-            removeEntity(previousDisplay)
-            removeEntity(previousEffect)
+            removeDisplay(previousDisplay)
+            removeDisplay(previousEffect)
         }.onFailure { failure ->
             logPresentationFailure(effect = false, failure)
-            removeEntity(candidateDisplay)
-            removeEntity(candidateEffect)
+            removeDisplay(candidateDisplay)
+            removeDisplay(candidateEffect)
             runCatching { pickup.setVisibleByDefault(previousDisplay == null) }.onFailure(::logCleanupFailure)
         }
     }
 
     fun consume(itemId: UUID) {
         val tracked = entities.remove(itemId) ?: return
-        removeEntity(tracked.itemDisplay)
-        removeEntity(tracked.effectDisplay)
+        removeDisplay(tracked.itemDisplay)
+        removeDisplay(tracked.effectDisplay)
         releaseChunk(tracked.chunkLease)
         if (entities.isEmpty()) {
             presentationOrder = ArrayDeque()
@@ -190,7 +194,7 @@ class TttLootScene(
         var current: LootEntity? = null
         var phase = 0
         var failure: Throwable? = null
-        // Only concrete native references and leases survive consumer shutdown in this callback.
+        // Only concrete pickup/visual references and leases survive consumer shutdown in this callback.
         val step = {
             if (current == null && iterator.hasNext()) current = iterator.next()
             current?.let { tracked ->
@@ -229,26 +233,13 @@ class TttLootScene(
         item.isPersistent = false
     }
 
-    private fun createItemDisplay(item: Item): ItemDisplay = item.world.spawn(
-        item.location.clone().add(0.0, settings().ui.lootDisplay.height, 0.0),
-        ItemDisplay::class.java,
-    ) { display ->
+    private fun createItemDisplay(item: Item): PacketItemDisplay {
         val presentation = settings().ui.lootDisplay
         val shown = item.itemStack.clone().also { it.amount = 1 }
-        display.setItemStack(shown)
-        display.itemDisplayTransform = ItemDisplay.ItemDisplayTransform.FIXED
-        display.billboard = Display.Billboard.FIXED
-        display.setGravity(false)
-        display.isInvulnerable = true
-        display.isPersistent = false
-        display.isSilent = true
-        display.viewRange = presentation.viewRange.toFloat()
-        display.interpolationDelay = 0
-        display.interpolationDuration = presentation.rotationTicks
-        display.setTransformationMatrix(Matrix4f().scale(presentation.scale.toFloat()))
+        return createDisplay(item.location.clone().add(0.0, presentation.height, 0.0), shown, presentation.scale)
     }
 
-    private fun createEffectDisplay(item: Item): ItemDisplay? {
+    private fun createEffectDisplay(item: Item): PacketItemDisplay? {
         val rarity = firearms.lootRarity(item.itemStack) ?: return null
         val effect = settings().weapons.lootEffect
         if (!effect.enabled) return null
@@ -262,24 +253,35 @@ class TttLootScene(
                 meta.setCustomModelDataComponent(model)
             }
         }
-        return item.world.spawn(
-            item.location.clone().add(0.0, effect.height, 0.0),
-            ItemDisplay::class.java,
-        ) { display ->
-            display.setItemStack(stack)
+        return createDisplay(item.location.clone().add(0.0, effect.height, 0.0), stack, effect.scale,
+            Display.Brightness(15, 15))
+    }
+
+    private fun createDisplay(
+        location: Location,
+        stack: ItemStack,
+        scale: Double,
+        brightness: Display.Brightness? = null,
+    ): PacketItemDisplay {
+        val display = displays.spawnItem(location, stack)
+        try {
             display.itemDisplayTransform = ItemDisplay.ItemDisplayTransform.FIXED
             display.billboard = Display.Billboard.FIXED
-            display.brightness = Display.Brightness(15, 15)
-            display.setGravity(false)
-            display.isInvulnerable = true
-            display.isPersistent = false
-            display.isSilent = true
+            display.brightness = brightness
             display.viewRange = settings().ui.lootDisplay.viewRange.toFloat()
             display.interpolationDelay = 0
             display.interpolationDuration = settings().ui.lootDisplay.rotationTicks
-            display.setTransformationMatrix(Matrix4f().scale(effect.scale.toFloat()))
+            display.transformation = displayTransform(scale, 0f)
+            return display
+        } catch (failure: Throwable) {
+            runCatching(display::remove).exceptionOrNull()?.let(failure::addSuppressed)
+            throw failure
         }
     }
+
+    private fun displayTransform(scale: Double, rotation: Float) = Transformation(
+        Vector3f(), AxisAngle4f(rotation, 0f, 1f, 0f), Vector3f(scale.toFloat()), AxisAngle4f(),
+    )
 
     private fun ensureAnimation() {
         if (animationTask != null) return
@@ -325,13 +327,13 @@ class TttLootScene(
         if (!pickup.isValid) { consume(pickup.uniqueId); return }
         val display = tracked.itemDisplay
         if (display?.isValid != true) {
-            removeEntity(tracked.effectDisplay)
+            removeDisplay(tracked.effectDisplay)
             runCatching { pickup.setVisibleByDefault(true) }.onFailure { logPresentationFailure(effect = false, it) }
             tracked.itemDisplay = null
             tracked.effectDisplay = null
             return
         }
-        val effectDisplay = tracked.effectDisplay?.takeIf(ItemDisplay::isValid)
+        val effectDisplay = tracked.effectDisplay?.takeIf { it.isValid }
         tracked.effectDisplay = effectDisplay
         val presentation = settings().ui.lootDisplay
         runCatching {
@@ -342,20 +344,18 @@ class TttLootScene(
             runCatching {
                 display.interpolationDelay = 0
                 display.interpolationDuration = presentation.rotationTicks
-                display.setTransformationMatrix(Matrix4f().scale(presentation.scale.toFloat()).rotateY(rotation))
+                display.transformation = displayTransform(presentation.scale, rotation)
             }.onFailure { logPresentationFailure(effect = false, it) }
             effectDisplay?.also { animatedEffect ->
                 runCatching {
                     animatedEffect.interpolationDelay = 0
                     animatedEffect.interpolationDuration = presentation.rotationTicks
-                    animatedEffect.setTransformationMatrix(
-                        Matrix4f().scale(settings().weapons.lootEffect.scale.toFloat()).rotateY(-rotation * 0.5f),
-                    )
+                    animatedEffect.transformation = displayTransform(settings().weapons.lootEffect.scale, -rotation * 0.5f)
                 }.onFailure { logPresentationFailure(effect = true, it) }
             }
         }
         if (effectDisplay == null && settings().ui.particles && emitParticle) {
-            runCatching { display.world.spawnParticle(Particle.END_ROD, display.location, 1, 0.12, 0.08, 0.12, 0.001) }
+            runCatching { pickup.world.spawnParticle(Particle.END_ROD, display.location, 1, 0.12, 0.08, 0.12, 0.001) }
                 .onFailure { logPresentationFailure(effect = true, it) }
         }
     }
@@ -367,9 +367,9 @@ class TttLootScene(
         rotation = 0f
     }
 
-    private fun removeEntity(entity: Entity?) {
-        if (entity == null) return
-        runCatching(entity::remove).onFailure(::logCleanupFailure)
+    private fun removeDisplay(display: PacketItemDisplay?) {
+        if (display == null) return
+        runCatching(display::remove).onFailure(::logCleanupFailure)
     }
 
     private fun releaseChunk(lease: PaperChunkTicketLease) {

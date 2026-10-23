@@ -19,6 +19,7 @@ import org.bukkit.plugin.Plugin
 import org.bukkit.util.Vector
 import ru.arc.core.ScheduledTask
 import ru.arc.core.Tasks
+import ru.arc.paper.display.PaperPacketDisplays
 import ru.arc.paper.teleport.ScopedTeleportAuthorizer
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
@@ -119,6 +120,7 @@ class ArcEventsService(
     private val arenaPool: ArenaPool,
     private val weaponPoints: ArenaWeaponPointEditor,
     private val lootSpawner: TttLootSpawner,
+    private val packetDisplays: PaperPacketDisplays,
     private val clock: () -> Long = System::currentTimeMillis,
     private val clientProtocol: (Player) -> Int = ClientProtocolResolver()::resolve,
     private val work: EventWork? = null,
@@ -136,7 +138,8 @@ class ArcEventsService(
     private val match: TttMatch?
         get() = runtime.current
     private val arcade = ArcadeSession(plugin, settings, locale, items, firearms, arenaPool, network, escrow,
-        ::teleport, ::recoverPlayer, { player, recovery -> completeRecovery(player, recovery) }, ::clearWeaponState, clock, work)
+        ::teleport, ::recoverPlayer, { player, recovery -> completeRecovery(player, recovery) }, ::clearWeaponState,
+        packetDisplays, clock, work)
     private var arcadeRules: ArcadeRules? = null
     private var reservation: ReservationBatch? = null
     /** Gameplay and phase clocks are immutable for one reservation and its resulting match. */
@@ -152,7 +155,7 @@ class ArcEventsService(
     private val radarTasks = mutableMapOf<UUID, ScheduledTask>()
     private val teleportAuthorizer = ScopedTeleportAuthorizer()
     private var projectiles = linkedMapOf<UUID, Entity>()
-    private val bodyRegistry = TttBodyRegistry(plugin, locale, clock, work)
+    private val bodyRegistry = TttBodyRegistry(plugin, locale, packetDisplays, clock, work)
     private val shotCooldownUntil = mutableMapOf<UUID, Long>()
     private val reloadTasks = mutableMapOf<UUID, ScheduledTask>()
     private val mapSpawnReturns = mutableMapOf<UUID, MapSpawnReturn>()

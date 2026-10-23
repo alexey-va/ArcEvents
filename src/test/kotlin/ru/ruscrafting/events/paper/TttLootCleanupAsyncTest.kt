@@ -50,7 +50,7 @@ class TttLootCleanupAsyncTest : FunSpec({
                     world.getChunkAt(0, 0).load()
                     var removed = 0
                     val config = mockk<ArcEventsConfig> { every { ui.lootDisplays } returns false }
-                    val scene = TttLootScene(consumerPlugin, mockk(relaxed = true), work, tickets) { config }
+                    val scene = TttLootScene(consumerPlugin, mockk(relaxed = true), mockk(relaxed = true), work, tickets) { config }
                     repeat(300) { index ->
                         val item = mockk<Item>(relaxed = true) {
                             every { uniqueId } returns UUID.randomUUID()

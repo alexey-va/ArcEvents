@@ -15,6 +15,8 @@ import java.util.concurrent.ConcurrentHashMap
 import ru.arc.paper.redis.PaperRedisClient
 import ru.arc.paper.network.BungeeBackendTransfer
 import ru.arc.paper.nameplate.NativePaperNameplateVisibilityPolicy
+import ru.arc.paper.nameplate.PacketPaperNameplateDisplayFactory
+import ru.arc.paper.display.PaperPacketDisplays
 import ru.arc.paper.nameplate.PaperNameplateOptions
 import ru.arc.paper.nameplate.PaperNameplateVisibilityPolicy
 import ru.arc.paper.nameplate.PaperPlayerNameplates
@@ -53,6 +55,8 @@ open class ArcEventsPlugin : JavaPlugin() {
     private lateinit var nativeWork: BudgetedTaskQueue
     private lateinit var work: EventWork
     private lateinit var chunkTickets: ru.arc.paper.chunk.PaperChunkTicketRegistry
+    private lateinit var packetDisplays: PaperPacketDisplays
+    private var displayCleanup = CompletableFuture.completedFuture<Void>(null)
     private val redisLeases = ConcurrentHashMap.newKeySet<PaperRedisClient>()
     private var lifecycleOpen = false
     private var pendingClose = CompletableFuture.completedFuture(Unit)
@@ -95,6 +99,10 @@ open class ArcEventsPlugin : JavaPlugin() {
         nativeWork = BudgetedTaskQueue(workScope)
         val cleanup = requireNotNull(server.servicesManager.load(ru.arc.paper.api.ArcNativeCleanupService::class.java)) { "ARC shared native cleanup service is unavailable" }
         work = RuntimeEventWork(io, workScope, nativeWork, cleanup, name)
+        packetDisplays = PaperPacketDisplays(this, "event-visuals", nativeWork)
+        displayCleanup = CompletableFuture.completedFuture(null)
+        val activeDisplays = packetDisplays
+        lifecycle.own(AutoCloseable { displayCleanup = activeDisplays.closeAsync() })
         chunkTickets = ru.arc.paper.chunk.PaperChunkTicketRegistry(this)
         val activeWork = work
         val root = dataFolder.toPath()
@@ -150,7 +158,7 @@ open class ArcEventsPlugin : JavaPlugin() {
                 enabled = settings.playerStateMode == PlayerStateMode.PRESERVE, work = activeWork).also { this.escrow = it }
             val items = TttItems(this, locale) { settings }
             val firearms = TttFirearms(this, locale) { settings }
-            val lootScene = TttLootScene(this, firearms, activeWork, chunkTickets) { settings }
+            val lootScene = TttLootScene(this, firearms, packetDisplays, activeWork, chunkTickets) { settings }
             val storedWeaponPoints = points
             val arenaInspector = ArenaRuntimeInspector(this)
             val arenaPool = ArenaPool(settings = { settings }) { arena, maximumPlayers ->
@@ -220,6 +228,7 @@ open class ArcEventsPlugin : JavaPlugin() {
                 arenaPool = arenaPool,
                 weaponPoints = weaponPointEditor,
                 lootSpawner = lootSpawner,
+                packetDisplays = packetDisplays,
                 work = activeWork,
             )
             service = activeService
@@ -318,7 +327,8 @@ open class ArcEventsPlugin : JavaPlugin() {
         // The storage executor drains only IO actions; every native continuation has already been fenced.
         detach { drain.join() }
         Tasks.reset()
-        return CompletableFuture.allOf(nativeDrain, retiredArenas?.closeCompletion ?: CompletableFuture.completedFuture(Unit)).handle { _, failure ->
+        return CompletableFuture.allOf(nativeDrain, displayCleanup,
+            retiredArenas?.closeCompletion ?: CompletableFuture.completedFuture(Unit)).handle { _, failure ->
             nativeFailure?.let { problem -> failure?.let(problem::addSuppressed); throw problem }
             failure?.let { throw it }
             Unit
@@ -429,6 +439,7 @@ open class ArcEventsPlugin : JavaPlugin() {
         return PaperPlayerNameplates.open(
             plugin = this,
             options = options,
+            displays = PacketPaperNameplateDisplayFactory(packetDisplays, options),
             visibility = PaperNameplateVisibilityPolicy { viewer, target ->
                 nativeVisibility.canView(viewer, target) &&
                     service?.canViewNameplate(viewer.uniqueId, target.uniqueId) == true

@@ -29,6 +29,11 @@ import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
 import ru.arc.config.ConfigManager
 import ru.arc.core.PaperArcRuntime
 import ru.arc.core.Tasks
+import ru.arc.paper.display.PacketBlockDisplay
+import ru.arc.paper.display.PacketDisplay
+import ru.arc.paper.display.PacketItemDisplay
+import ru.arc.paper.display.PacketTextDisplay
+import ru.arc.paper.display.PaperPacketDisplays
 import ru.arc.paper.testing.MockBukkitTestRuntime
 import ru.arc.paper.testing.failOnUnsupportedMockBukkitOperation
 import ru.ruscrafting.events.config.ArcEventsConfig
@@ -558,6 +563,12 @@ internal class TttRoundFixture(private val disposable: Boolean = false) : AutoCl
     private val debugLines = mutableListOf<String>()
     private val plain = PlainTextComponentSerializer.plainText()
     private val nextMessages = mutableMapOf<UUID, () -> Component?>()
+    val packetVisuals = mutableListOf<PacketDisplay>()
+    val packetDisplays = mockk<PaperPacketDisplays>(relaxed = true) {
+        every { spawnText(any(), any()) } answers { trackDisplay(mockk<PacketTextDisplay>(relaxed = true), firstArg()) }
+        every { spawnItem(any(), any()) } answers { trackDisplay(mockk<PacketItemDisplay>(relaxed = true), firstArg()) }
+        every { spawnBlock(any(), any()) } answers { trackDisplay(mockk<PacketBlockDisplay>(relaxed = true), firstArg()) }
+    }
 
     private var settings: ArcEventsConfig
     private val locale: ArcEventsLocale
@@ -606,7 +617,7 @@ internal class TttRoundFixture(private val disposable: Boolean = false) : AutoCl
         )
         arenaPool = ArenaPool(settings = { settings }, ready = { _, _ -> true })
         firearms = TttFirearms(plugin, locale) { settings }
-        val lootScene = TttLootScene(plugin, firearms) { settings }
+        val lootScene = TttLootScene(plugin, firearms, packetDisplays) { settings }
         service = ArcEventsService(
             plugin = plugin,
             settings = { settings },
@@ -623,6 +634,7 @@ internal class TttRoundFixture(private val disposable: Boolean = false) : AutoCl
             arenaPool = arenaPool,
             weaponPoints = mockk(relaxed = true),
             lootSpawner = lootSpawner,
+            packetDisplays = packetDisplays,
             clock = { nowMs },
             clientProtocol = { clientProtocolVersion },
         )
@@ -789,9 +801,22 @@ internal class TttRoundFixture(private val disposable: Boolean = false) : AutoCl
             recover = recover,
             recovered = { player, recovery -> session.markRecovered(player, recovery) },
             clearWeaponState = {},
+            packetDisplays = packetDisplays,
             clock = { nowMs },
         )
         return session
+    }
+
+    private fun <T : PacketDisplay> trackDisplay(display: T, initial: Location): T {
+        var active = true
+        var location = initial.clone()
+        every { display.uniqueId } returns UUID.randomUUID()
+        every { display.isValid } answers { active }
+        every { display.location } answers { location.clone() }
+        every { display.teleport(any()) } answers { location = firstArg<Location>().clone() }
+        every { display.remove() } answers { active = false }
+        packetVisuals += display
+        return display
     }
 
     fun addOutsider(name: String): Player = paper.addPlayer(name).also { player ->

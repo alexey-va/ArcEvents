@@ -24,7 +24,6 @@ import org.bukkit.entity.PufferFish
 import org.bukkit.entity.Salmon
 import org.bukkit.entity.Silverfish
 import org.bukkit.entity.Spider
-import org.bukkit.entity.TextDisplay
 import org.bukkit.entity.TropicalFish
 import org.bukkit.entity.Villager
 import org.bukkit.event.block.Action
@@ -39,6 +38,8 @@ import org.bukkit.plugin.Plugin
 import org.bukkit.util.Vector
 import ru.arc.core.ScheduledTask
 import ru.arc.core.Tasks
+import ru.arc.paper.display.PacketTextDisplay
+import ru.arc.paper.display.PaperPacketDisplays
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.config.EventLocation
 import ru.ruscrafting.events.domain.FishingCatch
@@ -71,6 +72,7 @@ class FishingAdventure(
     private val teleport: (Player, EventLocation) -> Unit,
     private val hurt: (Player, Double) -> Unit,
     private val complete: () -> Unit,
+    private val displays: PaperPacketDisplays,
     private val clock: () -> Long = System::currentTimeMillis,
     private val work: EventWork? = null,
 ) {
@@ -96,8 +98,8 @@ class FishingAdventure(
     private val fuses = linkedMapOf<UUID, Fuse>()
     private val firearmItems = EnumMap<FishingGear, ItemStack>(FishingGear::class.java)
     private var appliedGear: FishingGear? = null
-    private var travelMarker: TextDisplay? = null
-    private var traderMarker: TextDisplay? = null
+    private var travelMarker: PacketTextDisplay? = null
+    private var traderMarker: PacketTextDisplay? = null
     private var traderNpc: Villager? = null
     private var hookId: UUID? = null
     private var submergedSinceMs = 0L
@@ -909,13 +911,11 @@ class FishingAdventure(
         }
     }
 
-    private fun spawnMarker(location: Location, key: String): TextDisplay = world.spawn(location, TextDisplay::class.java) { display ->
-        display.text(localized(key))
-        display.isPersistent = false
-        display.billboard = org.bukkit.entity.Display.Billboard.CENTER
-        display.isShadowed = true
-        tag(display)
-    }
+    private fun spawnMarker(location: Location, key: String): PacketTextDisplay =
+        displays.spawnText(location, localized(key)).also { display ->
+            display.billboard = org.bukkit.entity.Display.Billboard.CENTER
+            display.isShadowed = true
+        }
 
     private fun enforceStageBounds() {
         if (!inStageBounds(player.location)) {
@@ -989,17 +989,25 @@ class FishingAdventure(
     }
 
     private fun cleanupEntities(stale: Boolean): CompletableFuture<Unit> {
+        var markerFailure: Throwable? = null
+        if (!stale) {
+            listOfNotNull(travelMarker, traderMarker).forEach { marker ->
+                runCatching(marker::remove).onFailure { problem ->
+                    if (markerFailure == null) markerFailure = problem else markerFailure!!.addSuppressed(problem)
+                }
+            }
+            travelMarker = null
+            traderMarker = null
+        }
         val direct = if (stale) emptyList() else buildList {
             hookId?.let { plugin.server.getEntity(it)?.let(::add) }
             fuses.keys.forEach { plugin.server.getEntity(it)?.let(::add) }
-            travelMarker?.let(::add)
-            traderMarker?.let(::add)
             traderNpc?.let(::add)
             addAll(creatures.values)
         }
         hookId = null
         val cancelled = staleCleanupCancelled
-        return cleanupFishingEntities(world, ownerKey, ownerTag, matchKey, if (stale) null else matchIdString,
+        val cleaned = cleanupFishingEntities(world, ownerKey, ownerTag, matchKey, if (stale) null else matchIdString,
             stageKey, if (stale) null else progress.stage, direct, { stale && cancelled.get() }) { step ->
             val scheduled = work?.let {
                 // A cancelled pre-admission sweep leaves only old tagged orphans for the next sweep;
@@ -1011,6 +1019,9 @@ class FishingAdventure(
                 CompletableFuture.completedFuture(Unit)
             }.getOrElse { CompletableFuture.failedFuture(it) }
         }
+        return markerFailure?.let { failure ->
+            CompletableFuture.allOf(cleaned, CompletableFuture.failedFuture<Unit>(failure)).thenApply { Unit }
+        } ?: cleaned
     }
 
     private fun stage(): FishingArenaStage = FishingArenaStage.entries[progress.stage]

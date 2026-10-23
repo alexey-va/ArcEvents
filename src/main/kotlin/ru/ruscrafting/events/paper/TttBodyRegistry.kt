@@ -4,13 +4,11 @@ import net.kyori.adventure.text.Component
 import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.NamespacedKey
-import org.bukkit.entity.BlockDisplay
 import org.bukkit.entity.Display
 import org.bukkit.entity.Entity
 import org.bukkit.entity.Interaction
 import org.bukkit.entity.ItemDisplay
 import org.bukkit.entity.Player
-import org.bukkit.entity.TextDisplay
 import org.bukkit.inventory.ItemStack
 import org.bukkit.inventory.meta.SkullMeta
 import org.bukkit.persistence.PersistentDataType
@@ -20,6 +18,10 @@ import org.joml.AxisAngle4f
 import org.joml.Vector3f
 import ru.arc.core.ScheduledTask
 import ru.arc.core.Tasks
+import ru.arc.paper.display.PacketDisplay
+import ru.arc.paper.display.PacketItemDisplay
+import ru.arc.paper.display.PacketTextDisplay
+import ru.arc.paper.display.PaperPacketDisplays
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.domain.CombatRecord
 import ru.ruscrafting.events.domain.TttParticipant
@@ -71,16 +73,25 @@ data class BodyRecord(
     var detectiveCalled: Boolean = false,
 )
 
-/** Owns the complete Bukkit lifecycle of TTT corpse evidence. */
+/** Owns native corpse evidence and cosmetic handles borrowed from the plugin display owner. */
 class TttBodyRegistry(
     private val plugin: Plugin,
     private val locale: ArcEventsLocale,
+    private val displays: PaperPacketDisplays,
     private val clock: () -> Long = System::currentTimeMillis,
     private val work: EventWork? = null,
 ) : AutoCloseable {
     private val bodyKey = NamespacedKey(plugin, "body_id")
     private val bodies = linkedMapOf<UUID, BodyRecord>()
-    private var entityReferences = linkedMapOf<UUID, List<Entity>>()
+    private class BodyEntities(
+        val anchor: Interaction,
+        val label: PacketTextDisplay,
+        val head: PacketItemDisplay,
+        val visuals: List<PacketDisplay>,
+    ) {
+        fun removals(): List<() -> Unit> = listOf(anchor::remove) + visuals.map { it::remove }
+    }
+    private var entityReferences = linkedMapOf<UUID, BodyEntities>()
     private val despawnTasks = mutableMapOf<UUID, ScheduledTask>()
 
     val size: Int
@@ -112,74 +123,79 @@ class TttBodyRegistry(
             interaction.isPersistent = false
             interaction.persistentDataContainer.set(bodyKey, PersistentDataType.STRING, bodyId.toString())
         }
-        val label = location.world.spawn(location.clone().add(0.0, 0.95, 0.0), TextDisplay::class.java) { display ->
-            display.text(locale.render("body.unidentified", values = mapOf("player" to Component.text("???"))))
-            runCatching { display.billboard = Display.Billboard.CENTER }
-            runCatching { display.isShadowed = true }
-            runCatching { display.isSeeThrough = false }
-            runCatching { display.lineWidth = 180 }
-            runCatching { display.viewRange = 0.7f }
-            display.isPersistent = false
-        }
-        var headEntityId: UUID? = null
-        val visualEntityIds = bodyVisualParts().mapTo(linkedSetOf()) { part ->
-            val partLocation = bodyPartLocation(location, part)
-            if (part.kind == BodyVisualKind.HEAD) {
-                location.world.spawn(partLocation, ItemDisplay::class.java) { display ->
-                    display.setItemStack(ItemStack.of(part.material))
-                    runCatching { display.itemDisplayTransform = ItemDisplay.ItemDisplayTransform.HEAD }
-                    runCatching { display.setRotation(location.yaw, 0f) }
-                    runCatching {
+        val visuals = arrayListOf<PacketDisplay>()
+        try {
+            val label = displays.spawnText(location.clone().add(0.0, 0.95, 0.0),
+                locale.render("body.unidentified", values = mapOf("player" to Component.text("???"))))
+                .also { display ->
+                    visuals.add(display)
+                    display.billboard = Display.Billboard.CENTER
+                    display.isShadowed = true
+                    display.isSeeThrough = false
+                    display.lineWidth = 180
+                    display.viewRange = 0.7f
+                }
+            var head: PacketItemDisplay? = null
+            val visualEntityIds = bodyVisualParts().mapTo(linkedSetOf()) { part ->
+                val partLocation = bodyPartLocation(location, part).also { it.pitch = 0f }
+                if (part.kind == BodyVisualKind.HEAD) {
+                    displays.spawnItem(partLocation, ItemStack.of(part.material)).also { display ->
+                        visuals.add(display)
+                        display.itemDisplayTransform = ItemDisplay.ItemDisplayTransform.HEAD
                         display.transformation = Transformation(
                             Vector3f(),
                             AxisAngle4f(Math.PI.toFloat() / 2f, 1f, 0f, 0f),
                             Vector3f(0.82f, 0.82f, 0.82f),
                             AxisAngle4f(),
                         )
-                    }
-                    configureDisplay(display)
-                    headEntityId = display.uniqueId
-                }.uniqueId
-            } else {
-                location.world.spawn(partLocation, BlockDisplay::class.java) { display ->
-                    display.block = plugin.server.createBlockData(part.material)
-                    runCatching { display.setRotation(location.yaw, 0f) }
-                    runCatching {
+                        configureDisplay(display)
+                        head = display
+                    }.uniqueId
+                } else {
+                    displays.spawnBlock(partLocation, plugin.server.createBlockData(part.material)).also { display ->
+                        visuals.add(display)
                         display.transformation = Transformation(
                             Vector3f(-part.width / 2f, -part.height / 2f, -part.length / 2f),
                             AxisAngle4f(),
                             Vector3f(part.width, part.height, part.length),
                             AxisAngle4f(),
                         )
-                    }
-                    configureDisplay(display)
-                }.uniqueId
+                        configureDisplay(display)
+                    }.uniqueId
+                }
             }
+            val record = BodyRecord(
+                bodyId = bodyId,
+                matchId = matchId,
+                victimId = participant.playerId,
+                victimName = participant.playerName,
+                role = participant.role,
+                killerId = killerId,
+                killedAtMs = clock(),
+                location = location,
+                entityId = anchor.uniqueId,
+                visualEntityIds = visualEntityIds,
+                headEntityId = requireNotNull(head).uniqueId,
+                labelEntityId = label.uniqueId,
+                weaponKey = lethal?.weapon ?: "environment",
+                finalDamage = lethal?.finalDamage ?: 0.0,
+                headshot = lethal?.headshot == true,
+            )
+            entityReferences[bodyId] = BodyEntities(anchor, label, requireNotNull(head), visuals)
+            bodies[bodyId] = record
+            despawnTasks[bodyId] = Tasks.scheduler.runLater(despawnTicks) {
+                despawnTasks.remove(bodyId)
+                remove(bodyId)
+            }
+            return record
+        } catch (failure: Throwable) {
+            bodies.remove(bodyId)
+            entityReferences.remove(bodyId)
+            (listOf(anchor::remove) + visuals.map { it::remove }).forEach { remove ->
+                runCatching(remove).exceptionOrNull()?.let(failure::addSuppressed)
+            }
+            throw failure
         }
-        val record = BodyRecord(
-            bodyId = bodyId,
-            matchId = matchId,
-            victimId = participant.playerId,
-            victimName = participant.playerName,
-            role = participant.role,
-            killerId = killerId,
-            killedAtMs = clock(),
-            location = location,
-            entityId = anchor.uniqueId,
-            visualEntityIds = visualEntityIds,
-            headEntityId = requireNotNull(headEntityId),
-            labelEntityId = label.uniqueId,
-            weaponKey = lethal?.weapon ?: "environment",
-            finalDamage = lethal?.finalDamage ?: 0.0,
-            headshot = lethal?.headshot == true,
-        )
-        entityReferences[bodyId] = listOf(anchor, label) + visualEntityIds.mapNotNull(plugin.server::getEntity)
-        bodies[bodyId] = record
-        despawnTasks[bodyId] = Tasks.scheduler.runLater(despawnTicks) {
-            despawnTasks.remove(bodyId)
-            remove(bodyId)
-        }
-        return record
     }
 
     fun readBodyId(entity: Entity): UUID? = entity.persistentDataContainer
@@ -188,12 +204,13 @@ class TttBodyRegistry(
 
     fun reveal(bodyId: UUID, label: Component) {
         val record = bodies[bodyId] ?: return
-        (plugin.server.getEntity(record.labelEntityId) as? TextDisplay)?.text(label)
+        val entities = entityReferences[bodyId] ?: return
+        entities.label.text(label)
         val head = ItemStack.of(Material.PLAYER_HEAD)
         head.editMeta(SkullMeta::class.java) {
             it.owningPlayer = plugin.server.getOfflinePlayer(record.victimId)
         }
-        (plugin.server.getEntity(record.headEntityId) as? ItemDisplay)?.setItemStack(head)
+        entities.head.itemStack = head
     }
 
     fun removeVictim(victimId: UUID) {
@@ -203,8 +220,10 @@ class TttBodyRegistry(
     fun remove(bodyId: UUID) {
         despawnTasks.remove(bodyId)?.let { task -> runCatching(task::cancel) }
         bodies.remove(bodyId)?.let { record ->
-            runCatching { entityReferences.remove(bodyId).orEmpty().forEach(Entity::remove) }.onFailure { failure ->
-                plugin.logger.warning("ArcEvents could not remove TTT body ${record.bodyId}: ${failure.message}")
+            entityReferences.remove(bodyId)?.removals()?.forEach { remove ->
+                runCatching(remove).onFailure { failure ->
+                    plugin.logger.warning("ArcEvents could not remove TTT body ${record.bodyId}: ${failure.message}")
+                }
             }
         }
     }
@@ -216,14 +235,14 @@ class TttBodyRegistry(
         entityReferences = linkedMapOf()
         bodies.clear()
         val records = detached.values.iterator()
-        var entities = emptyList<Entity>().iterator()
+        var removals = emptyList<() -> Unit>().iterator()
         var failure: Throwable? = null
         val step = {
-            if (!entities.hasNext() && records.hasNext()) entities = records.next().iterator()
-            if (entities.hasNext()) runCatching { entities.next().remove() }.onFailure { problem ->
+            if (!removals.hasNext() && records.hasNext()) removals = records.next().removals().iterator()
+            if (removals.hasNext()) runCatching { removals.next().invoke() }.onFailure { problem ->
                 if (failure == null) failure = problem else failure!!.addSuppressed(problem)
             }
-            val done = !entities.hasNext() && !records.hasNext()
+            val done = !removals.hasNext() && !records.hasNext()
             if (done) failure?.let { throw it }
             done
         }
@@ -237,11 +256,10 @@ class TttBodyRegistry(
 
     override fun close() = clear()
 
-    private fun configureDisplay(display: Display) {
-        runCatching { display.viewRange = 0.8f }
-        runCatching { display.shadowRadius = 0.0f }
-        runCatching { display.shadowStrength = 0.0f }
-        display.isPersistent = false
+    private fun configureDisplay(display: PacketDisplay) {
+        display.viewRange = 0.8f
+        display.shadowRadius = 0.0f
+        display.shadowStrength = 0.0f
     }
 
     private fun bodyPartLocation(origin: Location, part: BodyVisualPart): Location {
@@ -257,6 +275,3 @@ class TttBodyRegistry(
         )
     }
 }
-
-private fun BodyRecord.entityIds(): Set<UUID> =
-    visualEntityIds + entityId + labelEntityId
