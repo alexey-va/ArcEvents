@@ -7,6 +7,7 @@ import net.kyori.adventure.text.format.TextDecoration
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
 import org.bukkit.entity.Player
 import ru.arc.paper.menu.PaperDialogActionId
+import ru.arc.paper.menu.DialogTables
 import ru.arc.paper.menu.PaperDialogBody
 import ru.arc.paper.menu.PaperDialogButton
 import ru.arc.paper.menu.PaperDialogClickHandler
@@ -250,8 +251,17 @@ internal class ArcEventsDialogMenu(
             exitButton = button(player, if (escapeCloses(player)) "menu.common.close-name" else "menu.common.back-name",
                 if (escapeCloses(player)) "menu.common.close-lore" else "menu.common.back-lore", EventsView.Main, -1, width = 200), id = id)
 
-    private fun body(player: Player, nameKey: String, loreKey: String, values: Map<String, Component> = emptyMap()) =
-        PaperDialogBody(nativeText(Component.join(JoinConfiguration.newlines(), listOf(locale.render(nameKey, player, values)) + nativeLore(loreKey, player, values))), 468)
+    private fun body(player: Player, nameKey: String, loreKey: String, values: Map<String, Component> = emptyMap()): PaperDialogBody {
+        val content = nativeText(Component.join(JoinConfiguration.newlines(), listOf(locale.render(nameKey, player, values)) + nativeLore(loreKey, player, values)))
+        return when (nameKey) {
+            "menu.main.title", "menu.event.overview-name" -> DialogTables.filledBody(
+                rows = listOf(listOf(content)), headers = null, width = 400, columnWeights = listOf(1))
+            "menu.stats.summary-name" -> DialogTables.framedBody(content, frame = DialogTables.Frame.COMMON, width = 400)
+            "menu.admin.status-name" -> DialogTables.framedBody(content, frame = DialogTables.Frame.RARE, width = 400)
+            "arcade.fishing-guide-name" -> DialogTables.framedBody(content, frame = DialogTables.Frame.UNCOMMON, width = 400)
+            else -> PaperDialogBody(content, 468)
+        }
+    }
 
     private fun nativeText(value: Component): Component = value
         .color(nativeColor(value.color()))

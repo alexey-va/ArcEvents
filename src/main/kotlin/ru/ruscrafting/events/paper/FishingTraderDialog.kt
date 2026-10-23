@@ -116,7 +116,7 @@ internal class FishingTraderDialog(
             title = clean(text(if (armory) "armory-title" else "title"), GOLD),
             body = buildList {
                 add(PaperDialogBody(clean(locale.render("fishing.island.${FishingArenaStage.entries[state.stage].name.lowercase()}", player), GOLD), 468))
-                add(PaperDialogBody(text("status"), 468))
+                add(DialogTables.filledBody(rows = listOf(listOf(text("status"))), headers = null, width = 400, columnWeights = listOf(1)))
                 add(PaperDialogBody(text(quest), 468))
                 add(PaperDialogBody(text("session-only"), 468))
                 feedback?.let { add(PaperDialogBody(text(it), 468)) }
