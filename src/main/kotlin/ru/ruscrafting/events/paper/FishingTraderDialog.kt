@@ -122,8 +122,12 @@ internal class FishingTraderDialog(
                 feedback?.let { add(PaperDialogBody(text(it), 468)) }
             },
             buttons = buttons,
-            exitButton = PaperDialogButton(PaperDialogActionId.of("back"), clean(locale.render("menu.common.back-name", player), WHITE),
-                width = 200, onClick = PaperDialogClickHandler {}),
+            exitButton = if (armory || escapeCloses(player)) {
+                val closes = escapeCloses(player)
+                PaperDialogButton(PaperDialogActionId.of(if (closes) "close" else "back"),
+                    clean(locale.render(if (closes) "menu.common.close-name" else "menu.common.back-name", player), WHITE),
+                    width = 200, closeDialogBeforeAction = closes, onClick = PaperDialogClickHandler {})
+            } else null,
             columns = 2,
             id = if (armory) "events.fishing.armory" else "events.fishing.trader",
         )

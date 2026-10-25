@@ -298,15 +298,13 @@ menu:
     unavailable-lore:
       - '<#f2f0e6>У мирного нет магазина роли.'
   common:
-    back-name: '<#92bed8><bold>Назад'
-    close-name: '<#aaa49a>Закрыть'
+    back-name: '<#ffffff>‹ Назад'
+    close-name: '<#ffffff>Закрыть'
     unavailable-prefix: '<#aaa49a>[Недоступно] '
     close-lore:
       - '<#aaa49a>Закрыть меню событий.'
     back-lore:
-      - '<#f2f0e6>Вернуться в предыдущее меню.'
-      - ''
-      - '<#92bed8>Нажмите<#f2f0e6>, чтобы вернуться'
+      - '<#e8dfd2>Вернуться в предыдущее меню.'
     previous-name: '<#92bed8><bold>Предыдущая страница'
     previous-lore:
       - '<#f2f0e6>Показать более новые записи.'

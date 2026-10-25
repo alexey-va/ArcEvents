@@ -59,6 +59,8 @@ class ArcEventsDialogMenuModelTest : StringSpec({
             menu.open(player, EventsView.Fishing) shouldBe true
             displayed.size shouldBe 5
             displayed.forEach { (it.exitButton != null) shouldBe true }
+            displayed.first().exitButton!!.closeDialogBeforeAction shouldBe true
+            displayed.drop(1).forEach { it.exitButton!!.closeDialogBeforeAction shouldBe false }
             displayed.map { it.id } shouldBe listOf("events.main", "events.help", "events.stats", "events.ttt", "events.fishing")
             displayed.first().body.isNotEmpty() shouldBe true
             displayed[3].body.first().text.toString().lowercase().let { "loading" in it || "загружаем" in it } shouldBe true

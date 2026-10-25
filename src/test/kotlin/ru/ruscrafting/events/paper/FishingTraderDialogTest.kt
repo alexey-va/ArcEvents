@@ -38,7 +38,8 @@ class FishingTraderDialogTest : StringSpec({
                 trader.buttons.size shouldBe 8
                 armory.buttons.size shouldBe 8
                 listOf(trader, armory).forEach { screen ->
-                    (screen.exitButton != null) shouldBe true
+                    // Core derives the trader's footer from actual entry history; armory has a real parent.
+                    (screen.exitButton != null) shouldBe (screen === armory)
                     screen.buttons.map { it.id }.distinct().size shouldBe screen.buttons.size
                     (screen.buttons.any { it.closeDialogBeforeAction }) shouldBe false
                     (screen.body + ru.arc.paper.menu.PaperDialogBody(screen.title)).forEach { body ->
@@ -48,6 +49,8 @@ class FishingTraderDialogTest : StringSpec({
                     }
                 }
                 plain(armory.buttons.first { it.id.value == "equip_knuckles" }.label) shouldContain "✔"
+                plain(armory.exitButton!!.label) shouldBe if (language.language == "ru") "‹ Назад" else "‹ Back"
+                armory.exitButton!!.width shouldBe 200
                 plain(armory.buttons.first { it.id.value == "buy_pistol" }.label) shouldContain
                     if (language.language == "ru") "Недоступно" else "Unavailable"
                 plain(trader.body[1].text) shouldContain "300"

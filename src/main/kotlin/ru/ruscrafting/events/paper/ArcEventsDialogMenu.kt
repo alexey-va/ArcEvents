@@ -149,7 +149,8 @@ internal class ArcEventsDialogMenu(
     }
 
     private fun show(player: Player, view: EventsView, screen: PaperDialogScreen, reopen: (() -> Unit)? = null, onDismiss: () -> Unit = {}) {
-        present(player, screen, reopen ?: { open(player, view); Unit }, onDismiss, escapeCloses(player))
+        present(player, screen, reopen ?: { open(player, view); Unit }, onDismiss,
+            screen.exitButton?.closeDialogBeforeAction ?: escapeCloses(player))
     }
 
     private fun main(player: Player): PaperDialogScreen {
@@ -246,10 +247,12 @@ internal class ArcEventsDialogMenu(
                 button(player, "menu.admin.recover-name", "menu.admin.recover-lore", EventsView.Admin, 40)), 2, "events.admin")
     }
 
-    private fun screen(player: Player, titleKey: String, bodies: List<PaperDialogBody>, buttons: List<PaperDialogButton>, columns: Int, id: String) =
-        PaperDialogScreen(nativeTint(locale.render(titleKey, player), NATIVE_TITLE_COLORS[titleKey] ?: WHITE_COLOR), body = bodies.map { it.copy(text = nativeText(it.text)) }, buttons = buttons, columns = columns,
-            exitButton = button(player, if (escapeCloses(player)) "menu.common.close-name" else "menu.common.back-name",
-                if (escapeCloses(player)) "menu.common.close-lore" else "menu.common.back-lore", EventsView.Main, -1, width = 200), id = id)
+    private fun screen(player: Player, titleKey: String, bodies: List<PaperDialogBody>, buttons: List<PaperDialogButton>, columns: Int, id: String): PaperDialogScreen {
+        val closes = id == "events.main" || escapeCloses(player)
+        return PaperDialogScreen(nativeTint(locale.render(titleKey, player), NATIVE_TITLE_COLORS[titleKey] ?: WHITE_COLOR), body = bodies.map { it.copy(text = nativeText(it.text)) }, buttons = buttons, columns = columns,
+            exitButton = button(player, if (closes) "menu.common.close-name" else "menu.common.back-name",
+                if (closes) "menu.common.close-lore" else "menu.common.back-lore", EventsView.Main, -1, width = 200), id = id)
+    }
 
     private fun body(player: Player, nameKey: String, loreKey: String, values: Map<String, Component> = emptyMap()): PaperDialogBody {
         val content = nativeText(Component.join(JoinConfiguration.newlines(), listOf(locale.render(nameKey, player, values)) + nativeLore(loreKey, player, values)))
@@ -307,8 +310,9 @@ internal class ArcEventsDialogMenu(
 
     private fun button(player: Player, nameKey: String, loreKey: String, view: EventsView, slot: Int, values: Map<String, Component> = emptyMap(), width: Int = 230): PaperDialogButton {
         val role = nativeRole(nameKey, slot)
-        return PaperDialogButton(PaperDialogActionId.of(if (slot < 0) "back" else "action_" + nameKey.replace(Regex("[^a-z0-9_]"), "_").take(38)), nativeLabel(player, locale.render(nameKey, player, values), role),
+        return PaperDialogButton(PaperDialogActionId.of(if (slot < 0) if (role == NativeButtonRole.CLOSE) "close" else "back" else "action_" + nameKey.replace(Regex("[^a-z0-9_]"), "_").take(38)), nativeLabel(player, locale.render(nameKey, player, values), role),
             tooltip = Component.join(JoinConfiguration.newlines(), nativeLore(loreKey, player, values)), width = width,
+            closeDialogBeforeAction = role == NativeButtonRole.CLOSE,
             onClick = PaperDialogClickHandler { context ->
                 if (slot >= 0 && role != NativeButtonRole.UNAVAILABLE && context.player.isOnline) dispatch(context.player, view, slot)
             })

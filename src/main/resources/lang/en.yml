@@ -298,15 +298,13 @@ menu:
     unavailable-lore:
       - '<#f2f0e6>Innocents do not have a role shop.'
   common:
-    back-name: '<#92bed8><bold>Back'
-    close-name: '<#aaa49a>Close'
+    back-name: '<#ffffff>‹ Back'
+    close-name: '<#ffffff>Close'
     unavailable-prefix: '<#aaa49a>[Unavailable] '
     close-lore:
       - '<#aaa49a>Close the event menu.'
     back-lore:
-      - '<#f2f0e6>Return to the previous menu.'
-      - ''
-      - '<#92bed8>Click<#f2f0e6> to return'
+      - '<#e8dfd2>Return to the previous menu.'
     previous-name: '<#92bed8><bold>Previous page'
     previous-lore:
       - '<#f2f0e6>Show newer records.'
