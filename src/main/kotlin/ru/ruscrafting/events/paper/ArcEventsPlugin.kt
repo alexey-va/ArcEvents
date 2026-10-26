@@ -22,6 +22,7 @@ import ru.arc.paper.nameplate.PaperNameplateVisibilityPolicy
 import ru.arc.paper.nameplate.PaperPlayerNameplates
 import ru.arc.paper.nameplate.ViewAlignedPaperNameplateVisibilityPolicy
 import ru.arc.paper.runtime.PaperPluginRuntime
+import ru.arc.paper.runtime.PaperPluginHotload
 import ru.arc.paper.api.ArcSidebarPriorities
 import ru.arc.paper.api.ArcSidebarService
 import ru.arc.observability.RuntimeHealthContribution
@@ -73,9 +74,19 @@ open class ArcEventsPlugin : JavaPlugin() {
     override fun getDefaultWorldGenerator(worldName: String, id: String?): ChunkGenerator? =
         ArenaWorldGeneratorRegistry.generatorFor(server.worldContainer.toPath(), worldName)
 
+    private val hotload = PaperPluginHotload(this) {
+        // During onDisable Bukkit has already marked the plugin disabled. Ordinary
+        // server shutdown may retain worlds; administrative code replacement may not.
+        val worlds = if (isEnabled) arenaGeneratorReplacementBarrier(server.worlds) else CompletableFuture.completedFuture(Unit)
+        stopRuntime()
+        linkedMapOf("cleanup" to pendingClose, "worlds" to worlds)
+    }
+
     override fun onEnable() {
         check(!lifecycleOpen) { "Plugin lifecycle is already open" }
         try {
+            hotload.beginGeneration()
+            hotload.register()
             check(pendingClose.isDone) { "Previous native cleanup is still pending" }
             pendingClose.getNow(Unit)
             lifecycleOpen = true
@@ -281,6 +292,11 @@ open class ArcEventsPlugin : JavaPlugin() {
     }
 
     override fun onDisable() {
+        hotload.prepare()
+        hotload.close()
+    }
+
+    private fun stopRuntime() {
         if (!lifecycleOpen) return
         lifecycleOpen = false
         pendingClose = runCatching { closeGeneration() }.getOrElse { CompletableFuture.failedFuture(it) }
@@ -326,6 +342,7 @@ open class ArcEventsPlugin : JavaPlugin() {
         } else CompletableFuture.completedFuture(Unit)
         // The storage executor drains only IO actions; every native continuation has already been fenced.
         detach { drain.join() }
+        detach { hotload.retireGameplayRegistrations() }
         Tasks.reset()
         return CompletableFuture.allOf(nativeDrain, displayCleanup,
             retiredArenas?.closeCompletion ?: CompletableFuture.completedFuture(Unit)).handle { _, failure ->
@@ -454,4 +471,16 @@ open class ArcEventsPlugin : JavaPlugin() {
     private companion object {
         const val HEALTH_REPORT_TICKS = 1_200L
     }
+}
+
+/** Loaded worlds retain their generators and therefore this plugin's classloader. */
+internal fun arenaGeneratorReplacementBarrier(worlds: Iterable<org.bukkit.World>): CompletableFuture<Unit> {
+    val retained = worlds.filter { world ->
+        val generator = world.generator
+        generator is FishingArenaGenerator || generator is DisasterArenaGenerator || generator is TttCitadelChunkGenerator || generator is EmptyArenaChunkGenerator
+    }.map { it.name }.sorted()
+    return if (retained.isEmpty()) CompletableFuture.completedFuture(Unit)
+    else CompletableFuture.failedFuture(IllegalStateException(
+        "Code replacement requires coordinated restart or separately validated world evacuation and unload: ${retained.joinToString()}",
+    ))
 }
