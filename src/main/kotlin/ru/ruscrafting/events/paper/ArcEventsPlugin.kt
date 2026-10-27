@@ -10,6 +10,8 @@ import ru.arc.core.LifecycleTaskScope
 import ru.arc.core.BudgetedTaskQueue
 import ru.arc.core.BoundedAsyncExecutor
 import ru.arc.paper.api.ArcRedisService
+import ru.arc.paper.api.ArcNameplateClaim
+import org.bukkit.plugin.ServicePriority
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 import ru.arc.paper.redis.PaperRedisClient
@@ -105,6 +107,12 @@ open class ArcEventsPlugin : JavaPlugin() {
             pluginRuntime = it
             it.start("version" to pluginMeta.version)
         }
+        val nameplateClaim = ArcNameplateClaim { playerId ->
+            preparing || service?.isParticipant(playerId) == true || escrow?.isLocked(playerId) == true ||
+                escrow?.pendingPlayers()?.contains(playerId) == true
+        }
+        server.servicesManager.register(ArcNameplateClaim::class.java, nameplateClaim, this, ServicePriority.Normal)
+        lifecycle.own(AutoCloseable { server.servicesManager.unregister(ArcNameplateClaim::class.java, nameplateClaim) })
         io = BoundedAsyncExecutor("arc-events-storage")
         workScope = LifecycleTaskScope(Tasks.scheduler)
         nativeWork = BudgetedTaskQueue(workScope)
