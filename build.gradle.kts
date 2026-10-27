@@ -129,12 +129,12 @@ val verifyE2eProvider = tasks.register("verifyE2eProvider") {
     inputs.file(e2eArcCoreJar).optional()
     doLast {
         val provider = requireNotNull(e2eArcCoreJar.orNull) {
-            "Supply -Pe2eArcCoreJar=/absolute/path/ArcCore-0.1.12.jar for the real Paper fixture"
+            "Supply -Pe2eArcCoreJar=/absolute/path/ArcCore-0.1.24.jar for the real Paper fixture"
         }
         val digest = MessageDigest.getInstance("SHA-256")
             .digest(provider.readBytes()).joinToString("") { "%02x".format(it) }
-        require(digest == "93158072f30ad3d7d5201acdf9036324841c4455844b4f1b650cfea0d8540502") {
-            "ArcCore 0.1.12 fixture checksum mismatch: $digest"
+        require(digest == "9e2748b54e6acfea9cf8b64811408493c3323fb12196309fc5de7cccb12b9243") {
+            "ArcCore 0.1.24 fixture checksum mismatch: $digest"
         }
     }
 }
