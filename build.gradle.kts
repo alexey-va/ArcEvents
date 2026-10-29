@@ -110,6 +110,7 @@ tasks {
         exclude("ru/arc/paper/metrics/PaperArcMetricsProvider*.class")
         exclude("ru/arc/paper/runtime/PaperNativeCleanupServiceProvider*.class")
         exclude("ru/arc/paper/packet/PaperVisualPacketRuntime*.class")
+        exclude("ru/arc/paper/display/PaperDisplayPassengerServiceProvider*.class")
         exclude("ru/arc/paper/api/**")
         // ARC is the sole native sidebar host; consumers share only its API class identity.
         exclude("ru/arc/paper/sidebar/**")
