@@ -93,8 +93,8 @@ jobs:
         shell: bash
         run: |
           mkdir -p build/e2e-runtime
-          curl --fail --location --retry 3 --output build/e2e-runtime/ArcCore-0.1.24.jar https://repo.rus-crafting.ru/grocermc/ru/ruscrafting/ArcCore/0.1.24/ArcCore-0.1.24.jar
-          echo '9e2748b54e6acfea9cf8b64811408493c3323fb12196309fc5de7cccb12b9243  build/e2e-runtime/ArcCore-0.1.24.jar' | sha256sum --check --strict
+          curl --fail --location --retry 3 --output build/e2e-runtime/ArcCore-0.1.28.jar https://repo.rus-crafting.ru/grocermc/ru/ruscrafting/ArcCore/0.1.28/ArcCore-0.1.28.jar
+          echo 'fb136467b825648025322f9252cd203874ac7864dc769112932380015a57466a  build/e2e-runtime/ArcCore-0.1.28.jar' | sha256sum --check --strict
       - name: Build ARC runtime
         working-directory: e2e-arc
         run: ./gradlew --no-daemon shadowJar
@@ -107,7 +107,7 @@ jobs:
           mkdir -p build
           arc_jar="$(find "$GITHUB_WORKSPACE/e2e-arc/build/libs" -maxdepth 1 -type f -name 'ARC-*.jar' ! -name '*-plain.jar' -print -quit)"
           test -n "$arc_jar"
-          ./gradlew --no-daemon plugwrightTest -Pe2eArcJar="$arc_jar" -Pe2eArcCoreJar=build/e2e-runtime/ArcCore-0.1.24.jar 2>&1 | tee build/plugwright-e2e.log
+          ./gradlew --no-daemon plugwrightTest -Pe2eArcJar="$arc_jar" -Pe2eArcCoreJar=build/e2e-runtime/ArcCore-0.1.28.jar 2>&1 | tee build/plugwright-e2e.log
           git diff --exit-code -- src/test/e2e/package-lock.json
       - name: Test hosted GunGame and TTT on real Paper
         shell: bash
@@ -116,7 +116,7 @@ jobs:
           sed -i 's/16379/6379/g' src/test/e2e/fixtures/host-redis.yml
           arc_jar="$(find "$GITHUB_WORKSPACE/e2e-arc/build/libs" -maxdepth 1 -type f -name 'ARC-*.jar' ! -name '*-plain.jar' -print -quit)"
           test -n "$arc_jar"
-          ARC_EVENTS_E2E_HOST=1 ./gradlew --no-daemon plugwrightTest -Pe2eArcJar="$arc_jar" -Pe2eArcCoreJar=build/e2e-runtime/ArcCore-0.1.24.jar 2>&1 | tee build/plugwright-host-e2e.log
+          ARC_EVENTS_E2E_HOST=1 ./gradlew --no-daemon plugwrightTest -Pe2eArcJar="$arc_jar" -Pe2eArcCoreJar=build/e2e-runtime/ArcCore-0.1.28.jar 2>&1 | tee build/plugwright-host-e2e.log
           git diff --exit-code -- src/test/e2e-host/package-lock.json
       - name: Upload E2E results and Paper logs
         if: always()
