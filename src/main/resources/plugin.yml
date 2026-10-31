@@ -5,7 +5,7 @@ api-version: '1.21.11'
 authors: [RusCrafting]
 description: Cross-server custom events for RusCrafting
 depend: [ARC, packetevents]
-softdepend: [LuckPerms, WorldEdit, WorldGuard, ViaVersion]
+softdepend: [LuckPerms, WorldEdit, WorldGuard, ViaVersion, ItemsAdder]
 commands:
   arcevents:
     description: RusCrafting events
@@ -24,4 +24,7 @@ permissions:
   arcevents.debug:
     default: op
   arcevents.qa:
+    default: op
+  arcevents.scope-preview:
+    description: Preview known weapon sights outside events on the host
     default: op

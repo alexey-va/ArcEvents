@@ -125,6 +125,7 @@ class ArcEventsService(
     private val clientProtocol: (Player) -> Int = ClientProtocolResolver()::resolve,
     private val work: EventWork? = null,
     private val scopes: TttScopes? = null,
+    private val scopePreviewItemId: (ItemStack) -> String? = { null },
 ) : ArcEventsGameplayBoundary, AutoCloseable {
     private val localChat = TttLocalChat(plugin.server, settings, locale)
     private data class MapSpawnReturn(
@@ -1091,6 +1092,27 @@ class ArcEventsService(
         return FirearmScopeTarget(state.matchId, state.id, player.inventory.heldItemSlot)
     }
 
+    private fun previewScopeTarget(player: Player): FirearmScopeTarget? {
+        if (settings().nodeMode != NodeMode.HOST || matchIdentity() != null || phase() != null ||
+            isParticipant(player.uniqueId) || !player.hasPermission(SCOPE_PREVIEW_PERMISSION)
+        ) return null
+        val held = player.inventory.itemInMainHand
+        if (held.isEmpty || items.kind(held) != null) return null
+        val firearm = scopePreviewFirearm(scopePreviewItemId(held)) ?: return null
+        return FirearmScopeTarget(null, firearm, player.inventory.heldItemSlot)
+    }
+
+    internal fun isScopeAuthorized(player: Player, target: FirearmScopeTarget): Boolean =
+        (if (target.matchId == null) previewScopeTarget(player) else scopeTarget(player)) == target
+
+    override fun toggleScopePreview(player: Player): Boolean {
+        val target = previewScopeTarget(player) ?: run {
+            if (scopes?.isPreview(player.uniqueId) == true) clearFirearmScope(player.uniqueId)
+            return false
+        }
+        return scopes?.toggle(player, target) == true
+    }
+
     override fun toggleFirearmScope(player: Player): Boolean {
         val target = scopeTarget(player)
         if (target == null) {
@@ -1103,6 +1125,8 @@ class ArcEventsService(
     override fun clearFirearmScope(playerId: UUID) {
         scopes?.clear(playerId)
     }
+
+    override fun isScopePreview(playerId: UUID): Boolean = scopes?.isPreview(playerId) == true
 
     override fun canDropLoot(player: Player, item: ItemStack?): Boolean {
         if (arcade.current?.mode == EventMode.FISHING && arcade.isParticipant(player.uniqueId)) return false
@@ -1239,6 +1263,8 @@ class ArcEventsService(
             "reserve" to (player?.let { activeMatchId()?.let { matchId -> firearms.reserveAmmo(it, matchId) } } ?: 0),
             "reloading" to (player?.uniqueId in reloadTasks),
             "scope" to (player?.uniqueId?.let { scopes?.zoom(it) } ?: 0),
+            "scope_preview" to (player?.uniqueId?.let { scopes?.isPreview(it) } == true),
+            "aiming" to (player?.uniqueId?.let { scopes?.isAiming(it) } == true),
             "recovery" to (player?.let { hasPendingRecovery(it.uniqueId) } ?: false),
         )
     }
@@ -1898,7 +1924,7 @@ class ArcEventsService(
     }
 
     private fun tick() {
-        scopes?.validate { player, target -> scopeTarget(player) == target }
+        scopes?.validate(::isScopeAuthorized)
         // Cancelled/failed arrivals keep their host escrow and retry before any return transfer.
         arrivalPlayers.toList().filter { it !in arrivals && participant(it) == null && !arcade.isParticipant(it) }
             .mapNotNull(plugin.server::getPlayer).forEach { player ->

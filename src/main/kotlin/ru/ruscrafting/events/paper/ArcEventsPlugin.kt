@@ -178,7 +178,9 @@ open class ArcEventsPlugin : JavaPlugin() {
                 enabled = settings.playerStateMode == PlayerStateMode.PRESERVE, work = activeWork).also { this.escrow = it }
             val items = TttItems(this, locale) { settings }
             val firearms = TttFirearms(this, locale) { settings }
-            val scopeRuntime = TttScopes.open().also { scopes = it }
+            lateinit var activeService: ArcEventsService
+            val scopeRuntime = TttScopes.open { player, target -> activeService.isScopeAuthorized(player, target) }
+                .also { scopes = it }
             val lootScene = TttLootScene(this, firearms, packetDisplays, activeWork, chunkTickets) { settings }
             val storedWeaponPoints = points
             val arenaInspector = ArenaRuntimeInspector(this)
@@ -188,7 +190,6 @@ open class ArcEventsPlugin : JavaPlugin() {
             val weaponPointEditor = ArenaWeaponPointEditor({ settings }, arenaPool, storedWeaponPoints, activeWork,
                 requireNotNull(arenaProvisioner)::refreshReadinessAsync)
             val lootSpawner = TttLootSpawner(this, lootScene, firearms, weaponPointEditor, debug, activeWork, chunkTickets)
-            lateinit var activeService: ArcEventsService
             val smokeGrenades = TttSmokeGrenades(
                 plugin = this,
                 settings = { settings },
@@ -252,6 +253,7 @@ open class ArcEventsPlugin : JavaPlugin() {
                 packetDisplays = packetDisplays,
                 work = activeWork,
                 scopes = scopeRuntime,
+                scopePreviewItemId = scopePreviewItemIdentity(this),
             )
             service = activeService
             lifecycle.own(activeService)

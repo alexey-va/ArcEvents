@@ -30,6 +30,7 @@ import org.bukkit.event.inventory.InventoryClickEvent
 import org.bukkit.event.inventory.InventoryDragEvent
 import org.bukkit.event.inventory.InventoryOpenEvent
 import org.bukkit.event.inventory.InventoryCloseEvent
+import org.bukkit.event.inventory.InventoryCreativeEvent
 import org.bukkit.event.player.PlayerCommandPreprocessEvent
 import org.bukkit.event.player.PlayerBucketEmptyEvent
 import org.bukkit.event.player.PlayerBucketFillEvent
@@ -76,7 +77,9 @@ interface ArcEventsGameplayBoundary {
     fun useFirearm(player: Player): Boolean
     fun reloadFirearm(player: Player): Boolean
     fun toggleFirearmScope(player: Player): Boolean
+    fun toggleScopePreview(player: Player): Boolean
     fun clearFirearmScope(playerId: UUID)
+    fun isScopePreview(playerId: UUID): Boolean
     fun canDropLoot(player: Player, item: org.bukkit.inventory.ItemStack?): Boolean
     fun registerDroppedLoot(item: org.bukkit.entity.Item)
     fun canPickupLoot(player: Player, item: org.bukkit.entity.Item): Boolean
@@ -218,7 +221,12 @@ class ArcEventsListener(
             return
         }
         if (service.handleFishingInteract(event)) return
-        val kind = itemResolver.kind(event.item) ?: return
+        val kind = itemResolver.kind(event.item) ?: run {
+            if (event.hand == EquipmentSlot.HAND && event.action in setOf(Action.RIGHT_CLICK_AIR, Action.RIGHT_CLICK_BLOCK) &&
+                service.toggleScopePreview(player)
+            ) event.isCancelled = true
+            return
+        }
         if (!service.belongsToCurrentMatch(player.uniqueId, event.item)) {
             event.isCancelled = true
             service.clearFirearmScope(player.uniqueId)
@@ -317,6 +325,13 @@ class ArcEventsListener(
 
     @EventHandler fun onMenuClick(event: InventoryClickEvent) {
         val player = event.whoClicked as? Player ?: return
+        if (event is InventoryCreativeEvent &&
+            (service.isScopePreview(player.uniqueId) || isScopeViewmodelItem(event.cursor))
+        ) {
+            event.isCancelled = true
+            service.clearFirearmScope(player.uniqueId)
+            return
+        }
         service.clearFirearmScope(player.uniqueId)
         if (player.bypassesEventProtection() && !service.isFishingParticipant(player.uniqueId)) return
         if (event.view.topInventory.location?.let(service::withinProtectedArena) == true ||

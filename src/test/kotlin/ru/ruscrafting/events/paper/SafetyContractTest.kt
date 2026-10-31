@@ -27,6 +27,9 @@ import org.bukkit.command.CommandSender
 import net.kyori.adventure.text.Component
 import org.bukkit.inventory.EquipmentSlot
 import org.bukkit.inventory.ItemStack
+import org.bukkit.inventory.meta.ItemMeta
+import org.bukkit.NamespacedKey
+import org.bukkit.event.inventory.InventoryCreativeEvent
 import ru.ruscrafting.events.domain.MatchPhase
 import java.util.UUID
 
@@ -118,6 +121,61 @@ class SafetyContractTest : StringSpec({
 
         event.isCancelled shouldBe true
         verify(exactly = 1) { service.useFirearm(player) }
+    }
+
+    "raw preview handles main-hand RMB only and never routes into firing" {
+        val service = mockk<ArcEventsGameplayBoundary>(relaxed = true)
+        val player = mockk<Player>(relaxed = true)
+        val item = mockk<ItemStack>()
+        val items = mockk<EventItemResolver>()
+        every { items.kind(item) } returns null
+        every { service.toggleScopePreview(player) } returns true
+        val listener = ArcEventsListener(service, mockk(), items)
+        val main = PlayerInteractEvent(player, Action.RIGHT_CLICK_AIR, item, null, BlockFace.SELF, EquipmentSlot.HAND)
+        listener.onInteract(main)
+        main.useItemInHand() shouldBe Event.Result.DENY
+        listener.onInteract(PlayerInteractEvent(player, Action.LEFT_CLICK_AIR, item, null, BlockFace.SELF, EquipmentSlot.HAND))
+        listener.onInteract(PlayerInteractEvent(player, Action.RIGHT_CLICK_AIR, item, null, BlockFace.SELF, EquipmentSlot.OFF_HAND))
+        verify(exactly = 1) { service.toggleScopePreview(player) }
+        verify(exactly = 0) { service.useFirearm(any()) }
+        verify(exactly = 0) { service.toggleFirearmScope(any()) }
+    }
+
+    "creative preview copies and queued transient cursors are denied while unrelated creative items remain usable" {
+        val service = mockk<ArcEventsGameplayBoundary>(relaxed = true)
+        val player = mockk<Player>(relaxed = true)
+        val playerId = UUID.randomUUID()
+        var preview = true
+        every { player.uniqueId } returns playerId
+        every { player.hasPermission(ArcEventsListener.ADMIN_BYPASS_PERMISSION) } returns true
+        every { service.isScopePreview(playerId) } answers { preview }
+        every { service.clearFirearmScope(playerId) } answers { preview = false }
+        fun cursor(model: String?): ItemStack = mockk {
+            every { isEmpty } returns false
+            every { itemMeta } returns mockk<ItemMeta> {
+                every { itemModel } returns model?.let(NamespacedKey::fromString)
+            }
+        }
+        fun creative(item: ItemStack) = mockk<InventoryCreativeEvent>(relaxed = true) {
+            every { whoClicked } returns player
+            every { cursor } returns item
+        }
+        val listener = ArcEventsListener(service, mockk(), mockk())
+        val first = creative(cursor(null))
+        listener.onMenuClick(first)
+        verify(exactly = 1) { first.isCancelled = true }
+        preview shouldBe false
+        for (frame in listOf("hip", "raise_1", "raise_2", "raise_3", "aim")) {
+            val queued = creative(cursor("arc:event_sights/vss_vintorez_$frame"))
+            listener.onMenuClick(queued)
+            verify(exactly = 1) { queued.isCancelled = true }
+        }
+        val ordinary = creative(cursor("minecraft:stone"))
+        listener.onMenuClick(ordinary)
+        verify(exactly = 0) { ordinary.isCancelled = true }
+        val unrelatedModel = creative(cursor("arc:event_sights/unrelated_aim"))
+        listener.onMenuClick(unrelatedModel)
+        verify(exactly = 0) { unrelatedModel.isCancelled = true }
     }
 
     "admin participants reload instead of swapping hands" {

@@ -12,12 +12,64 @@ import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
 import org.bukkit.inventory.ItemStack
 import org.bukkit.entity.Player
 import org.bukkit.World
+import org.bukkit.GameMode
+import org.bukkit.Material
 import org.bukkit.util.RayTraceResult
 import org.bukkit.event.entity.EntityDamageByEntityEvent
 import ru.ruscrafting.events.domain.FirearmId
 import java.util.UUID
 
 class TttScopeGameplayMockBukkitTest : StringSpec({
+    "OP creative raw-item preview is host-only and never creates firearm state or bypasses an owned event" {
+        val scopes = mockk<TttScopes>(relaxed = true)
+        every { scopes.toggle(any(), any()) } returns true
+        var itemId: String? = "gold_guns:gold_g36"
+        TttRoundFixture(scopes = scopes, scopePreviewItemId = { itemId }).use { f ->
+            val player = f.players.first()
+            player.inventory.setItemInMainHand(ItemStack.of(Material.PAPER))
+            player.gameMode = GameMode.CREATIVE
+            f.service.toggleScopePreview(player) shouldBe false
+            player.isOp = true
+            player.hasPermission(SCOPE_PREVIEW_PERMISSION) shouldBe true
+            val original = player.inventory.itemInMainHand.clone()
+            f.service.toggleScopePreview(player) shouldBe true
+            verify(exactly = 1) { scopes.toggle(player, FirearmScopeTarget(null, FirearmId.G36, player.inventory.heldItemSlot)) }
+            player.inventory.itemInMainHand shouldBe original
+            f.firearms.state(player.inventory.itemInMainHand) shouldBe null
+            f.service.useFirearm(player) shouldBe false
+            itemId = "gold_guns:gold_rpg_7"
+            f.service.toggleScopePreview(player) shouldBe false
+            itemId = "gold_guns:gold_g36"
+            f.reloadRuntime { it.replace("node-mode: HOST", "node-mode: RELAY") }
+            f.service.toggleScopePreview(player) shouldBe false
+            f.reloadRuntime { it.replace("node-mode: RELAY", "node-mode: HOST") }
+            f.startPreparingRound().join() shouldBe DebugMutationResult.APPLIED
+            player.inventory.setItemInMainHand(ItemStack.of(Material.PAPER))
+            f.service.toggleScopePreview(player) shouldBe false
+            f.service.debugAdvance()
+            f.service.debugAdvance()
+            f.service.toggleScopePreview(player) shouldBe false
+            verify(exactly = 1) { scopes.toggle(any(), any()) }
+        }
+    }
+
+    "event-tagged items cannot use raw preview and scope permission is rechecked during motion" {
+        val scopes = mockk<TttScopes>(relaxed = true)
+        every { scopes.toggle(any(), any()) } returns true
+        TttRoundFixture(scopes = scopes, scopePreviewItemId = { "gold_guns:gold_g36" }).use { f ->
+            val player = f.players.first()
+            player.isOp = true
+            player.inventory.setItemInMainHand(f.firearms.firearmItem(FirearmId.G36, player, "stale-match"))
+            f.service.toggleScopePreview(player) shouldBe false
+            player.inventory.setItemInMainHand(ItemStack.of(Material.PAPER))
+            val target = FirearmScopeTarget(null, FirearmId.G36, player.inventory.heldItemSlot)
+            f.service.isScopeAuthorized(player, target) shouldBe true
+            player.isOp = false
+            f.service.isScopeAuthorized(player, target) shouldBe false
+            verify(exactly = 0) { scopes.toggle(any(), any()) }
+        }
+    }
+
     "physical entity attack fires one ray whose synthetic damage still reaches the match damage lifecycle" {
         TttRoundFixture().use { f ->
             f.reloadRuntime { it.replace("weapons:\n  enabled: false", "weapons:\n  enabled: true") }

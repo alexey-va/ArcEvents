@@ -569,7 +569,7 @@ hud:
   preparing-tips:
     - '<#e3b341>Preparation  <#f2f0e6>explore the map and collect weapons'
     - '<#d87a82>Roles hidden  <#f2f0e6>damage is disabled'
-    - '<#92bed8>LMB <#f2f0e6>— fire   <#92bed8>RMB <#f2f0e6>— scope or throw   <#92bed8>F <#f2f0e6>— reload'
+    - '<#92bed8>LMB <#f2f0e6>— fire   <#92bed8>RMB <#f2f0e6>— aim or throw   <#92bed8>F <#f2f0e6>— reload'
 
 nameplate:
   lines:
