@@ -124,6 +124,7 @@ class ArcEventsService(
     private val clock: () -> Long = System::currentTimeMillis,
     private val clientProtocol: (Player) -> Int = ClientProtocolResolver()::resolve,
     private val work: EventWork? = null,
+    private val scopes: TttScopes? = null,
 ) : ArcEventsGameplayBoundary, AutoCloseable {
     private val localChat = TttLocalChat(plugin.server, settings, locale)
     private data class MapSpawnReturn(
@@ -376,6 +377,7 @@ class ArcEventsService(
     fun leaveQueue(player: Player) = network.leave(player)
 
     fun leave(player: Player) {
+        clearWeaponState(player.uniqueId)
         if (player.uniqueId in arrivalPlayers && participant(player.uniqueId) == null && !arcade.isParticipant(player.uniqueId)) {
             arrivals.remove(player.uniqueId)
             recoverPlayer(player) { recoveryResult -> recoveryResult.onSuccess { recovery ->
@@ -526,6 +528,7 @@ class ArcEventsService(
     }
 
     override fun handleQuit(player: Player) {
+        clearWeaponState(player.uniqueId)
         val quitRecovery = if (disposablePlayerState()) disposableRecovery(player.uniqueId) else null
         if (disposablePlayerState() && isParticipant(player.uniqueId)) resetDisposablePlayer(player)
         arrivals.remove(player.uniqueId)
@@ -596,6 +599,7 @@ class ArcEventsService(
 
     /** Reconciles every live consumer after the plugin atomically swaps its settings snapshot. */
     fun reconfigureRuntime() {
+        scopes?.clearAll()
         arenaPool.reconfigure()
         network.reconfigure()
         val current = match
@@ -738,6 +742,7 @@ class ArcEventsService(
     }
 
     override fun eliminate(player: Player, killerId: UUID?) {
+        clearFirearmScope(player.uniqueId)
         if (arcade.current != null) { arcade.eliminate(player, killerId); return }
         val current = match ?: return
         if (current.phase != MatchPhase.ACTIVE || current.participant(player.uniqueId)?.status != ParticipantStatus.ALIVE) return
@@ -973,14 +978,11 @@ class ArcEventsService(
     }
 
     override fun useFirearm(player: Player): Boolean {
-        val matchId = activeMatchId() ?: return false
-        if (!isAlive(player.uniqueId) || phase() != MatchPhase.ACTIVE || currentMode() == EventMode.DISASTERS) return false
+        val state = authorizedFirearm(player) ?: return false
+        val matchId = state.matchId
         val held = player.inventory.itemInMainHand
-        val state = firearms.state(held) ?: return false
-        if (!settings().weapons.enabled || phase() != MatchPhase.ACTIVE || !isAlive(player.uniqueId) ||
-            state.matchId != matchId || !hasSelectedFishingFirearm(player, state.id, matchId)
-        ) return false
         if (reloadTasks.containsKey(player.uniqueId)) {
+            clearFirearmScope(player.uniqueId)
             player.sendEventActionBar(locale.render("weapon.reloading-actionbar", player))
             return false
         }
@@ -1032,12 +1034,9 @@ class ArcEventsService(
     }
 
     override fun reloadFirearm(player: Player): Boolean {
-        val matchId = activeMatchId() ?: return false
-        if (!isAlive(player.uniqueId) || phase() != MatchPhase.ACTIVE || currentMode() == EventMode.DISASTERS) return false
-        val state = firearms.state(player.inventory.itemInMainHand) ?: return false
-        if (phase() != MatchPhase.ACTIVE || !isAlive(player.uniqueId) || state.matchId != matchId ||
-            !hasSelectedFishingFirearm(player, state.id, matchId)
-        ) return false
+        clearFirearmScope(player.uniqueId)
+        val state = authorizedFirearm(player) ?: return false
+        val matchId = state.matchId
         val spec = firearms.spec(state.id)
         if (state.loaded >= spec.magazineSize) {
             player.sendEventActionBar(locale.render("weapon.magazine-full-actionbar", player))
@@ -1071,6 +1070,38 @@ class ArcEventsService(
             if (settings().ui.sounds) player.playSound(player.location, Sound.BLOCK_IRON_TRAPDOOR_CLOSE, 0.55f, 1.5f)
         }
         return true
+    }
+
+    private fun authorizedFirearm(player: Player): FirearmState? {
+        val matchId = activeMatchId()
+        val state = firearms.state(player.inventory.itemInMainHand)
+        if (!settings().weapons.enabled || phase() != MatchPhase.ACTIVE || !isAlive(player.uniqueId) ||
+            currentMode() == EventMode.DISASTERS || state == null || state.matchId != matchId ||
+            !hasSelectedFishingFirearm(player, state.id, state.matchId)
+        ) {
+            clearFirearmScope(player.uniqueId)
+            return null
+        }
+        return state
+    }
+
+    private fun scopeTarget(player: Player): FirearmScopeTarget? {
+        val state = authorizedFirearm(player) ?: return null
+        if (reloadTasks.containsKey(player.uniqueId)) return null
+        return FirearmScopeTarget(state.matchId, state.id, player.inventory.heldItemSlot)
+    }
+
+    override fun toggleFirearmScope(player: Player): Boolean {
+        val target = scopeTarget(player)
+        if (target == null) {
+            clearFirearmScope(player.uniqueId)
+            return false
+        }
+        return scopes?.toggle(player, target) == true
+    }
+
+    override fun clearFirearmScope(playerId: UUID) {
+        scopes?.clear(playerId)
     }
 
     override fun canDropLoot(player: Player, item: ItemStack?): Boolean {
@@ -1207,6 +1238,7 @@ class ArcEventsService(
             "loaded" to (firearm?.loaded ?: 0),
             "reserve" to (player?.let { activeMatchId()?.let { matchId -> firearms.reserveAmmo(it, matchId) } } ?: 0),
             "reloading" to (player?.uniqueId in reloadTasks),
+            "scope" to (player?.uniqueId?.let { scopes?.zoom(it) } ?: 0),
             "recovery" to (player?.let { hasPendingRecovery(it.uniqueId) } ?: false),
         )
     }
@@ -1554,6 +1586,7 @@ class ArcEventsService(
     fun arenaBounds(): EventBounds? = arenaPool.active()?.bounds
 
     private fun clearWeaponState(playerId: UUID) {
+        clearFirearmScope(playerId)
         reloadTasks.remove(playerId)?.cancel()
         shotCooldownUntil.remove(playerId)
     }
@@ -1865,6 +1898,7 @@ class ArcEventsService(
     }
 
     private fun tick() {
+        scopes?.validate { player, target -> scopeTarget(player) == target }
         // Cancelled/failed arrivals keep their host escrow and retry before any return transfer.
         arrivalPlayers.toList().filter { it !in arrivals && participant(it) == null && !arcade.isParticipant(it) }
             .mapNotNull(plugin.server::getPlayer).forEach { player ->
@@ -1920,6 +1954,7 @@ class ArcEventsService(
 
     private fun resolve(current: TttMatch) {
         if (current.phase != MatchPhase.RESOLVING) return
+        scopes?.clearAll()
         runtime.replace(current)
         cancelMatchTasks(keepMainTick = true)
         runCatching(hud::close).onFailure { failure ->
@@ -1979,6 +2014,7 @@ class ArcEventsService(
     private fun cancel(reason: MatchEndReason) {
         val current = match ?: return
         if (current.phase in setOf(MatchPhase.COMPLETED, MatchPhase.RESTORING)) return
+        scopes?.clearAll()
         val cancelled = runCatching { runtime.cancel(reason) }.getOrElse {
             current.copy(revision = current.revision + 1, phase = MatchPhase.CANCELLED, endReason = reason)
         }
@@ -2181,6 +2217,7 @@ class ArcEventsService(
     }
 
     private fun cleanupLoot(): CompletableFuture<Unit> {
+        scopes?.clearAll()
         lootSpawner.cancel()
         val cleaned = runCatching { lootScene.clearAsync() }.getOrElse { CompletableFuture.failedFuture(it) }
         cleaned.whenComplete { _, failure ->
@@ -2343,6 +2380,7 @@ class ArcEventsService(
     }
 
     private fun recoverPlayer(player: Player, complete: (Result<PlayerRecovery?>) -> Unit) {
+        clearWeaponState(player.uniqueId)
         if (!disposablePlayerState() && escrow.isLocked(player.uniqueId)) return
         val operation = if (disposablePlayerState()) {
             runCatching { recoverPlayer(player) }.fold(CompletableFuture<PlayerRecovery?>::completedFuture, CompletableFuture<PlayerRecovery?>::failedFuture)
@@ -2547,6 +2585,7 @@ class ArcEventsService(
                 if (failure == null) failure = problem else failure.addSuppressed(problem)
             }
         }
+        detach { scopes?.clearAll() }
         detach { arcade.cancel(MatchEndReason.SHUTDOWN) }
         detach { reservation?.let { pending ->
             val arrivedPlayers = arrivals.keys.mapNotNull(plugin.server::getPlayer)

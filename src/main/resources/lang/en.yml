@@ -177,7 +177,7 @@ menu:
       - '<#f2f0e6>The number of placements depends on the arena.'
       - '<#8c8c8c>The loot effect pattern signals its rarity.'
       - ''
-      - '<#8c8c8c>Right-click — fire <#8c8c8c>F — reload'
+      - '<#8c8c8c>LMB — fire <#8c8c8c>F — reload'
     controls-name: '<#92bed8><bold>Commands'
     controls-lore:
       - '<#8c8c8c>/arcevents shop <#f2f0e6>— role shop'
@@ -490,7 +490,7 @@ match:
     <#8fa6b8>   <#f2f0e6>The countdown starts after role reveal.
     <#8fa6b8>   <#f2f0e6>Normal chat reaches nearby players.
     <#8fa6b8>   <#f2f0e6>Eliminated players hear spectators only.
-    <#8fa6b8>   <#92bed8>Right-click <#f2f0e6>— fire   <#92bed8>F <#f2f0e6>— reload
+    <#8fa6b8>   <#92bed8>LMB <#f2f0e6>— fire   <#92bed8>F <#f2f0e6>— reload
   countdown-title: '<#ffcc33><bold><seconds>'
   countdown-subtitle: '<#ffffff>Get ready for the round'
   started: '<#55ff88><bold>Round started  <#ffffff>find bodies and evidence.'
@@ -569,7 +569,7 @@ hud:
   preparing-tips:
     - '<#e3b341>Preparation  <#f2f0e6>explore the map and collect weapons'
     - '<#d87a82>Roles hidden  <#f2f0e6>damage is disabled'
-    - '<#92bed8>Right-click <#f2f0e6>— fire or throw   <#92bed8>F <#f2f0e6>— reload'
+    - '<#92bed8>LMB <#f2f0e6>— fire   <#92bed8>RMB <#f2f0e6>— scope or throw   <#92bed8>F <#f2f0e6>— reload'
 
 nameplate:
   lines:
@@ -625,7 +625,7 @@ weapon:
     - '<#8c8c8c>Magazine: <#f2f0e6><loaded>/<#f2f0e6><magazine>'
     - '<#8c8c8c>Damage: <#f2f0e6><damage> <#8c8c8c>range: <#f2f0e6><range>'
     - ''
-    - '<#e3b341>Right-click<#f2f0e6> — fire <#e3b341>F<#f2f0e6> — reload'
+    - '<#e3b341>LMB<#f2f0e6> — fire  <#e3b341>RMB<#f2f0e6> — toggle aim  <#e3b341>F<#f2f0e6> — reload'
   rarity:
     common: '<#8c8c8c>Common weapon'
     uncommon: '<#7bd88f>Uncommon weapon'

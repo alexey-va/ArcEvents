@@ -235,6 +235,31 @@ runtime maps those contracts to stable custom-model-data IDs from the
 `voxelspawns_megaflintlocks` and `gold_guns` ItemsAdder namespaces; bundled
 defaults remain dependency-free vanilla items.
 
+All firearms fire with LMB, RMB toggles aiming and F still reloads. Pistols,
+the double barrel, G36 and M1 Garand use iron sights (1.15×); AEK-971,
+RPL-20 and Vepr-12 use a collimator (1.35×); VSS Vintorez (3×) and McMillan
+(5×) use sniper optics. `TttScopes` owns transient client-only abilities,
+held-item model and optional helmet-slot packets; it never changes real
+equipment, movement speed, damage or spread. Aimed models use
+`arc:event_sights/<firearm>_aim`; only sniper optics use the camera overlay
+`arc:misc/event_scope`. These resource-pack item models require a 1.21.4+ client.
+Zoom follows the client's FOV Effects setting; use first person for the overlay.
+Native abilities updates retain every other flag and the latest baseline is
+restored on exit. Scope admission uses the same active-match, living participant,
+weapon ownership and selected fishing-loadout checks as firing.
+
+Changing slot/weapon, reloading, observed inventory opens/actions/closes,
+teleporting, elimination, quitting/leaving, recovery, round end and plugin
+shutdown clear the scope. The existing service tick rechecks authorization.
+Creative and spectator modes cannot scope. Merely opening the ordinary personal
+inventory with E is client-local in vanilla and cannot be detected until an
+inventory action/close reaches the server. No scope state enters player escrow
+or persists into another match. `qa player` reports the active `scope` level
+(0, 1.15, 1.35, 3 or 5). Aiming rewrites a copy of each native held-item update,
+so firing retains its latest ammo, PDC, count and other components. Exiting
+restores the current real item from the original hotbar slot. Native-client
+appearance and FOV remain separate acceptance checks.
+
 Large arena layouts guarantee one of every firearm before filling remaining
 weapon points from the weighted rarity pool. Ammo remains universal and
 match-scoped. `lemon_vfxdrop` model IDs 2–6 render the animated rarity beam

@@ -4,6 +4,7 @@ import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import io.papermc.paper.event.player.AsyncChatEvent
+import io.papermc.paper.event.player.PrePlayerAttackEntityEvent
 import net.kyori.adventure.audience.Audience
 import ru.arc.paper.teleport.ScopedTeleportAuthorizer
 import io.mockk.every
@@ -80,6 +81,43 @@ class SafetyContractTest : StringSpec({
 
         handler.ignoreCancelled shouldBe false
         handler.priority shouldBe EventPriority.HIGHEST
+    }
+
+    "firearms dispatch LMB in air or blocks and reserve RMB for scope only in the main hand" {
+        val service = mockk<ArcEventsGameplayBoundary>(relaxed = true)
+        val player = mockk<Player>()
+        val item = mockk<ItemStack>()
+        val items = mockk<EventItemResolver>()
+        every { player.uniqueId } returns UUID.randomUUID()
+        every { items.kind(item) } returns EventItemKind.FIREARM
+        every { service.belongsToCurrentMatch(player.uniqueId, item) } returns true
+        val listener = ArcEventsListener(service, mockk(), items)
+        for (action in listOf(Action.LEFT_CLICK_AIR, Action.LEFT_CLICK_BLOCK, Action.RIGHT_CLICK_AIR, Action.RIGHT_CLICK_BLOCK)) {
+            for (hand in listOf(EquipmentSlot.HAND, EquipmentSlot.OFF_HAND)) {
+                val event = PlayerInteractEvent(player, action, item, null, BlockFace.SELF, hand)
+                listener.onInteract(event)
+                event.useItemInHand() shouldBe Event.Result.DENY
+            }
+        }
+        verify(exactly = 2) { service.useFirearm(player) }
+        verify(exactly = 2) { service.toggleFirearmScope(player) }
+    }
+
+    "LMB entity attacks fire once through the firearm gate and never apply vanilla melee" {
+        val service = mockk<ArcEventsGameplayBoundary>(relaxed = true)
+        val player = mockk<Player>(relaxed = true)
+        val item = mockk<ItemStack>()
+        val items = mockk<EventItemResolver>()
+        every { player.uniqueId } returns UUID.randomUUID()
+        every { player.inventory.itemInMainHand } returns item
+        every { items.kind(item) } returns EventItemKind.FIREARM
+        every { service.belongsToCurrentMatch(player.uniqueId, item) } returns true
+        val event = PrePlayerAttackEntityEvent(player, mockk(), true)
+
+        ArcEventsListener(service, mockk(), items).onFirearmAttack(event)
+
+        event.isCancelled shouldBe true
+        verify(exactly = 1) { service.useFirearm(player) }
     }
 
     "admin participants reload instead of swapping hands" {

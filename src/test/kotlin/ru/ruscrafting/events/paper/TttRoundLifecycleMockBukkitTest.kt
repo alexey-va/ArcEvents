@@ -549,7 +549,7 @@ class TttRoundLifecycleMockBukkitTest : FunSpec({
     }
 })
 
-internal class TttRoundFixture(private val disposable: Boolean = false) : AutoCloseable {
+internal class TttRoundFixture(private val disposable: Boolean = false, scopes: TttScopes? = null) : AutoCloseable {
     var rejectRecovery = false
     var clientProtocolVersion = MIN_DIALOG_PROTOCOL
     val paper = MockBukkitTestRuntime.open()
@@ -637,6 +637,7 @@ internal class TttRoundFixture(private val disposable: Boolean = false) : AutoCl
             packetDisplays = packetDisplays,
             clock = { nowMs },
             clientProtocol = { clientProtocolVersion },
+            scopes = scopes,
         )
         paper.server.pluginManager.registerEvents(
             ArcEventsListener(service, mockk(relaxed = true), items),

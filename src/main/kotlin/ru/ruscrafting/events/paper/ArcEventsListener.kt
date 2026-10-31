@@ -1,6 +1,7 @@
 package ru.ruscrafting.events.paper
 
 import io.papermc.paper.event.player.AsyncChatEvent
+import io.papermc.paper.event.player.PrePlayerAttackEntityEvent
 import net.kyori.adventure.text.Component
 import org.bukkit.Material
 import org.bukkit.Location
@@ -24,8 +25,11 @@ import org.bukkit.event.entity.EntityExplodeEvent
 import org.bukkit.event.entity.FoodLevelChangeEvent
 import org.bukkit.event.entity.ProjectileHitEvent
 import org.bukkit.event.entity.ProjectileLaunchEvent
+import org.bukkit.event.entity.PlayerDeathEvent
 import org.bukkit.event.inventory.InventoryClickEvent
 import org.bukkit.event.inventory.InventoryDragEvent
+import org.bukkit.event.inventory.InventoryOpenEvent
+import org.bukkit.event.inventory.InventoryCloseEvent
 import org.bukkit.event.player.PlayerCommandPreprocessEvent
 import org.bukkit.event.player.PlayerBucketEmptyEvent
 import org.bukkit.event.player.PlayerBucketFillEvent
@@ -35,6 +39,8 @@ import org.bukkit.event.player.PlayerInteractAtEntityEvent
 import org.bukkit.event.player.PlayerInteractEntityEvent
 import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.event.player.PlayerJoinEvent
+import org.bukkit.event.player.PlayerItemHeldEvent
+import org.bukkit.event.player.PlayerGameModeChangeEvent
 import org.bukkit.event.player.PlayerMoveEvent
 import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.event.player.PlayerSwapHandItemsEvent
@@ -69,6 +75,8 @@ interface ArcEventsGameplayBoundary {
     fun useSpecialItem(player: Player, kind: EventItemKind): Boolean
     fun useFirearm(player: Player): Boolean
     fun reloadFirearm(player: Player): Boolean
+    fun toggleFirearmScope(player: Player): Boolean
+    fun clearFirearmScope(playerId: UUID)
     fun canDropLoot(player: Player, item: org.bukkit.inventory.ItemStack?): Boolean
     fun registerDroppedLoot(item: org.bukkit.entity.Item)
     fun canPickupLoot(player: Player, item: org.bukkit.entity.Item): Boolean
@@ -213,6 +221,7 @@ class ArcEventsListener(
         val kind = itemResolver.kind(event.item) ?: return
         if (!service.belongsToCurrentMatch(player.uniqueId, event.item)) {
             event.isCancelled = true
+            service.clearFirearmScope(player.uniqueId)
             return
         }
         when (kind) {
@@ -238,8 +247,12 @@ class ArcEventsListener(
             }
             EventItemKind.FIREARM -> {
                 event.isCancelled = true
-                if (event.hand == EquipmentSlot.HAND && event.action in setOf(Action.RIGHT_CLICK_AIR, Action.RIGHT_CLICK_BLOCK)) {
-                    service.useFirearm(player)
+                if (event.hand == EquipmentSlot.HAND) {
+                    when (event.action) {
+                        Action.LEFT_CLICK_AIR, Action.LEFT_CLICK_BLOCK -> service.useFirearm(player)
+                        Action.RIGHT_CLICK_AIR, Action.RIGHT_CLICK_BLOCK -> service.toggleFirearmScope(player)
+                        else -> Unit
+                    }
                 }
             }
             EventItemKind.ROUND_REPORT -> {
@@ -251,6 +264,30 @@ class ArcEventsListener(
             else -> Unit
         }
     }
+
+    // Attacking a nearby entity does not emit PlayerInteractEvent's left-click route.
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    fun onFirearmAttack(event: PrePlayerAttackEntityEvent) {
+        val player = event.player
+        val held = player.inventory.itemInMainHand
+        if (itemResolver.kind(held) != EventItemKind.FIREARM) return
+        event.isCancelled = true
+        if (service.belongsToCurrentMatch(player.uniqueId, held)) service.useFirearm(player)
+        else service.clearFirearmScope(player.uniqueId)
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    fun onHeldSlot(event: PlayerItemHeldEvent) = service.clearFirearmScope(event.player.uniqueId)
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    fun onInventoryOpen(event: InventoryOpenEvent) = service.clearFirearmScope(event.player.uniqueId)
+
+    @EventHandler fun onInventoryClose(event: InventoryCloseEvent) = service.clearFirearmScope(event.player.uniqueId)
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    fun onGameModeChange(event: PlayerGameModeChangeEvent) = service.clearFirearmScope(event.player.uniqueId)
+
+    @EventHandler fun onDeath(event: PlayerDeathEvent) = service.clearFirearmScope(event.player.uniqueId)
 
     @EventHandler(ignoreCancelled = true)
     fun onInteractEntity(event: PlayerInteractEntityEvent) {
@@ -280,6 +317,7 @@ class ArcEventsListener(
 
     @EventHandler fun onMenuClick(event: InventoryClickEvent) {
         val player = event.whoClicked as? Player ?: return
+        service.clearFirearmScope(player.uniqueId)
         if (player.bypassesEventProtection() && !service.isFishingParticipant(player.uniqueId)) return
         if (event.view.topInventory.location?.let(service::withinProtectedArena) == true ||
             service.isParticipant(player.uniqueId) && service.phase() in CONTROLLED_PHASES
@@ -288,6 +326,7 @@ class ArcEventsListener(
 
     @EventHandler fun onMenuDrag(event: InventoryDragEvent) {
         val player = event.whoClicked as? Player ?: return
+        service.clearFirearmScope(player.uniqueId)
         if (player.bypassesEventProtection() && !service.isFishingParticipant(player.uniqueId)) return
         if (event.view.topInventory.location?.let(service::withinProtectedArena) == true ||
             service.isParticipant(player.uniqueId) && service.phase() in CONTROLLED_PHASES
@@ -295,6 +334,7 @@ class ArcEventsListener(
     }
 
     @EventHandler(ignoreCancelled = true) fun onDrop(event: PlayerDropItemEvent) {
+        service.clearFirearmScope(event.player.uniqueId)
         if (event.player.bypassesEventProtection() && !service.isFishingParticipant(event.player.uniqueId)) return
         if (service.canDropLoot(event.player, event.itemDrop.itemStack)) {
             service.registerDroppedLoot(event.itemDrop)
@@ -383,6 +423,7 @@ class ArcEventsListener(
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onTeleport(event: PlayerTeleportEvent) {
+        service.clearFirearmScope(event.player.uniqueId)
         if (event.player.bypassesEventProtection()) return
         val participant = service.isParticipant(event.player.uniqueId)
         if (service.isInternalTeleport(event.player.uniqueId, event.to)) return

@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "ru.ruscrafting"
-version = "0.5.29"
+version = "0.5.30"
 description = "Cross-server custom events for RusCrafting"
 
 val integrationTestSourceSet = sourceSets.create("integrationTest") {
@@ -57,6 +57,7 @@ dependencies {
     testImplementation("net.luckperms:api:5.5")
     testImplementation("com.github.retrooper:packetevents-spigot:2.12.1") { exclude(group = "io.netty") }
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testRuntimeOnly("io.netty:netty-buffer:4.2.7.Final")
     "integrationTestImplementation"(sourceSets.test.get().output)
     "integrationTestImplementation"("ru.ruscrafting.arc:arc-core-integration-testing:$arcCoreVersion")
     configurations["integrationTestImplementation"].extendsFrom(configurations["testImplementation"])

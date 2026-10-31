@@ -52,6 +52,7 @@ open class ArcEventsPlugin : JavaPlugin() {
     private var weaponPointStore: ArenaWeaponPointStore? = null
     private var nameplates: TttNameplateRuntime? = null
     private var chatIsolation: AutoCloseable? = null
+    private var scopes: TttScopes? = null
     private var arenaProvisioner: ArenaWorldProvisioner? = null
     private lateinit var io: BoundedAsyncExecutor
     private lateinit var workScope: LifecycleTaskScope
@@ -177,6 +178,7 @@ open class ArcEventsPlugin : JavaPlugin() {
                 enabled = settings.playerStateMode == PlayerStateMode.PRESERVE, work = activeWork).also { this.escrow = it }
             val items = TttItems(this, locale) { settings }
             val firearms = TttFirearms(this, locale) { settings }
+            val scopeRuntime = TttScopes.open().also { scopes = it }
             val lootScene = TttLootScene(this, firearms, packetDisplays, activeWork, chunkTickets) { settings }
             val storedWeaponPoints = points
             val arenaInspector = ArenaRuntimeInspector(this)
@@ -249,6 +251,7 @@ open class ArcEventsPlugin : JavaPlugin() {
                 lootSpawner = lootSpawner,
                 packetDisplays = packetDisplays,
                 work = activeWork,
+                scopes = scopeRuntime,
             )
             service = activeService
             lifecycle.own(activeService)
@@ -329,6 +332,9 @@ open class ArcEventsPlugin : JavaPlugin() {
         val retiring = pluginRuntime
         pluginRuntime = null
         detach { retiring?.close() }
+        var scopeDrain = CompletableFuture.completedFuture(Unit)
+        detach { scopeDrain = scopes?.closeAsync() ?: scopeDrain }
+        scopes = null
         val retiredArenas = arenaProvisioner
         arenaProvisioner = null
         detach { retiredArenas?.close() }
@@ -352,7 +358,7 @@ open class ArcEventsPlugin : JavaPlugin() {
         detach { drain.join() }
         detach { hotload.retireGameplayRegistrations() }
         Tasks.reset()
-        return CompletableFuture.allOf(nativeDrain, displayCleanup,
+        return CompletableFuture.allOf(nativeDrain, displayCleanup, scopeDrain,
             retiredArenas?.closeCompletion ?: CompletableFuture.completedFuture(Unit)).handle { _, failure ->
             nativeFailure?.let { problem -> failure?.let(problem::addSuppressed); throw problem }
             failure?.let { throw it }
