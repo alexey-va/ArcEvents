@@ -245,20 +245,37 @@ Zoom follows the client's FOV Effects setting.
 
 `TttScopes` owns transient client-only abilities and held-item model packets.
 It does not write real equipment or alter damage/spread. Models use
-`arc:event_sights/<firearm>_{hip,raise_1,raise_2,raise_3,aim}`. Raise/lower uses
-three 50 ms steps (150 ms); the physical optic remains attached in every pose.
-Normal RMB-off settles on `_hip` with baseline abilities so the client does not
-play an unrelated equip dip. GUI and third-person views keep the vendor model.
-The implementation uses neither a fullscreen camera overlay nor fake equipment.
-Native abilities updates retain the other flags and the latest baseline is
-restored on exit. Match aiming uses the same living-participant, weapon ownership
+`arc:event_sights/<firearm>_{hip,aim}`. A temporary `_equip_hip` or `_equip_aim`
+alias uses the native client's render-interpolated down-and-up equip animation
+instead of four server-tick model steps. After six ticks the same geometry
+settles on `_hip` or `_aim`, with swap animation disabled so ammunition/lore
+updates cannot replay it. Each toggle sends two item packets. The physical
+optic remains attached in both poses.
+Nearby observers receive a cosmetic charged-crossbow holding pose with the
+original weapon model; the real inventory remains unchanged. GUI views retain
+the vendor model. The shooter's own F5 arm pose remains unchanged because
+replacing their local item type would also change client input behavior.
+Zoom packets preserve the current authoritative flight flags
+and speeds. Match aiming uses the same living-participant, weapon ownership
 and selected fishing-loadout checks as firing.
 
-For an operator-only visual trial outside an event, use an event `HOST` or
+While aiming, VSS Vintorez projects a thin red laser and a small contact marker,
+visible to its owner and nearby observers. Two stable client-only block displays
+update every two ticks with native interpolation. The cosmetic eye ray stops at
+the first solid/entity hit or before an unloaded chunk, up to 32 blocks; firing
+range, spread and damage remain authoritative and unchanged. Aim-off and the
+ordinary scope invalidation paths remove both parts.
+
+Publish the pack's new `_equip_*` definitions before activating 0.5.34. Existing
+item definitions remain unchanged, so the new pack remains compatible with
+0.5.33 during the transition. Native motion, observer alignment and laser
+appearance still need an actual Minecraft client observation.
+
+For a cosmetic visual trial outside an event, use an event `HOST` or
 `RELAY` node with no local match, obtain one of the 12 mapped vendor guns through
 the ordinary `/arc items` catalog, hold it in the main hand, switch to first person and click
 RMB. A second click lowers it. This requires `arcevents.scope-preview` (default
-`op`) and an exact supported ItemsAdder identity from `gold_guns` or
+`true`, with explicit permission denials still respected) and an exact supported ItemsAdder identity from `gold_guns` or
 `voxelspawns_megaflintlocks`; renaming an unrelated item does not qualify.
 When ItemsAdder is not enabled, the same 12 vendor items are recognized from
 their saved `minecraft:custom_data` compound `itemsadder.{namespace,id}` through

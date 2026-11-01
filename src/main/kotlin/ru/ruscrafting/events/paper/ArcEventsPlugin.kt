@@ -179,7 +179,7 @@ open class ArcEventsPlugin : JavaPlugin() {
             val items = TttItems(this, locale) { settings }
             val firearms = TttFirearms(this, locale) { settings }
             lateinit var activeService: ArcEventsService
-            val scopeRuntime = TttScopes.open { player, target -> activeService.isScopeAuthorized(player, target) }
+            val scopeRuntime = TttScopes.open(packetDisplays) { player, target -> activeService.isScopeAuthorized(player, target) }
                 .also { scopes = it }
             val lootScene = TttLootScene(this, firearms, packetDisplays, activeWork, chunkTickets) { settings }
             val storedWeaponPoints = points

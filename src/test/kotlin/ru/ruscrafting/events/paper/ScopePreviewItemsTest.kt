@@ -71,12 +71,12 @@ class ScopePreviewItemsTest : StringSpec({
         }
     }
 
-    "scope preview permission defaults to OP and declares its optional provider" {
+    "cosmetic scope preview is available to ordinary players and declares its optional provider" {
         val descriptor = requireNotNull(ScopePreviewItemsTest::class.java.getResourceAsStream("/plugin.yml")).use {
             Yaml().load<Map<String, Any>>(it)
         }
         val permissions = descriptor["permissions"] as Map<*, *>
-        (permissions[SCOPE_PREVIEW_PERMISSION] as Map<*, *>)["default"] shouldBe "op"
+        (permissions[SCOPE_PREVIEW_PERMISSION] as Map<*, *>)["default"] shouldBe true
         (descriptor["softdepend"] as List<*>).contains("ItemsAdder") shouldBe true
     }
 })
