@@ -266,9 +266,21 @@ an actual Minecraft client observation.
 
 The optional VSS laser is controlled by `weapons.scope-laser.enabled` in
 `plugins/ArcEvents/config.yml` (default `false`). Set it to `true` and use the
-normal `/arcevents reload` path to enable it. Its ray/contact marker refreshes
-every tick without added display interpolation; network and server-tick latency
-remain, so turning responsiveness is not a native-client acceptance claim.
+normal `/arcevents reload` path to enable it. Both audiences use native
+client-only passengers attached to the player, so movement follows the client
+carrier without independently teleported world anchors. The shooter's own
+first-person beam uses native camera billboarding: its direction follows the
+current local camera yaw and pitch every rendered frame. Observers use a
+separate fixed-orientation beam driven by the reported head direction; their
+camera never steers somebody else's laser.
+
+Ray length/contact distance remains server-resolved every tick and clipped
+before unloaded chunks. This does not make new wall contact instantaneous.
+The camera-space eye/passenger offset is compensated from the latest server
+pose; rapid pose/angle changes can briefly shift that small offset. Front-facing
+third-person camera mode is not a first-person sight and has different camera
+orientation. Native player attachment and billboarding are source-verified;
+client smoothness and these view/pose transitions still need native acceptance.
 
 Shots use shared swept-segment bullet flight, gravity, walls/entity collision
 and a loaded-chunk boundary. Automatic trigger groups release rounds on

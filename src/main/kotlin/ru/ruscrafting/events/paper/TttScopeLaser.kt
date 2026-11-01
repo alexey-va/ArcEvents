@@ -2,7 +2,6 @@ package ru.ruscrafting.events.paper
 
 import org.bukkit.FluidCollisionMode
 import org.bukkit.GameMode
-import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.entity.Display
 import org.bukkit.entity.LivingEntity
@@ -12,30 +11,45 @@ import org.bukkit.util.Vector
 import org.joml.Quaternionf
 import org.joml.Vector3f
 import ru.arc.paper.display.PacketBlockDisplay
+import ru.arc.paper.display.PacketDisplayAudienceGroup
 import ru.arc.paper.display.PaperPacketDisplays
+import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.min
+import kotlin.math.sin
 
-/** Two client-only parts; the existing display owner handles budgets, viewers and packet cleanup. */
+/** Two parts per viewer: camera-directed for the owner, server-directed for observers. */
 internal class TttScopeLaser(private val shooter: Player, displays: PaperPacketDisplays) : AutoCloseable {
     private val world = shooter.world
-    private val audience = displays.createAudienceGroup { viewer -> viewer.canSee(shooter) }
+    private val audiences = arrayListOf<PacketDisplayAudienceGroup>()
     private val parts = arrayListOf<PacketBlockDisplay>()
     private var closed = false
 
     init {
         try {
-            repeat(2) {
-                parts += displays.spawnBlock(shooter.eyeLocation, Material.RED_CONCRETE.createBlockData()).also { display ->
-                    display.audienceGroup = audience
-                    display.brightness = Display.Brightness(15, 15)
-                    // Use the latest server look sample directly; interpolation would trail a moving crosshair.
-                    display.interpolationDuration = 0
-                    display.teleportDuration = 0
-                    display.viewRange = .75f
-                    display.shadowRadius = 0f
-                    display.shadowStrength = 0f
-                    display.pauseWhenNotObserved = false
+            val origin = shooter.eyeLocation.apply { yaw = 0f; pitch = 0f }
+            val block = Material.RED_CONCRETE.createBlockData()
+            for (ownerView in listOf(true, false)) {
+                val audience = displays.createAudienceGroup { viewer ->
+                    val owner = viewer.uniqueId == shooter.uniqueId
+                    ownerView == owner && (owner || viewer.canSee(shooter))
+                }.also(audiences::add)
+                repeat(2) {
+                    val display = displays.spawnBlock(origin, block).also(parts::add)
+                    display.apply {
+                        audienceGroup = audience
+                        billboard = if (ownerView) Display.Billboard.CENTER else Display.Billboard.FIXED
+                        brightness = Display.Brightness(15, 15)
+                        interpolationDuration = 0
+                        teleportDuration = 0
+                        viewRange = .75f
+                        shadowRadius = 0f
+                        shadowStrength = 0f
+                        pauseWhenNotObserved = false
+                        isVisibleByDefault = false
+                        // The client moves passengers with their carrier; no per-tick world teleports.
+                        attachTo(shooter)
+                    }
                 }
             }
         } catch (failure: Exception) {
@@ -60,20 +74,27 @@ internal class TttScopeLaser(private val shooter: Player, displays: PaperPacketD
         }
         val endpoint = hit?.hitPosition ?: eye.toVector().add(direction.clone().multiply(range))
         val distance = eye.toVector().distance(endpoint)
-        // Keep the near end beyond the camera, on the same ray; never draw through near cover.
-        val start = eye.toVector().add(direction.clone().multiply(min(.7, distance * .25)))
-        parts[0].apply {
-            isVisibleByDefault = true
-            teleport(Location(world, start.x, start.y, start.z))
-            transformation = scopeLaserBeamTransform(endpoint.clone().subtract(start), .012f)
-        }
-        parts[1].apply {
-            isVisibleByDefault = hit != null
-            if (hit != null) {
-                // Pull the tiny contact marker just in front of the hit surface to avoid z-fighting.
-                val contact = endpoint.clone().subtract(direction.clone().multiply(.025))
-                teleport(Location(world, contact.x, contact.y, contact.z))
-                transformation = Transformation(Vector3f(-.025f), Quaternionf(), Vector3f(.05f), Quaternionf())
+        val near = min(.7, distance * .25)
+        val eyeOffset = (shooter.eyeHeight - shooter.height).toFloat()
+        for (view in 0..1) {
+            // 1.21.11 DisplayRenderer CENTER uses the local camera, with -Z pointing forward.
+            // This is a first-person optic: F5 front view reverses that camera. Ray length/contact
+            // remain server-resolved; the small eye/head compensation uses the latest server pitch.
+            val localDirection = if (view == 0) Vector(0, 0, -1) else direction
+            val localEye = if (view == 0) scopeLaserCameraEyeOffset(eyeOffset, eye.pitch) else Vector3f(0f, eyeOffset, 0f)
+            val start = Vector3f(localEye).add(localDirection.toVector3f().mul(near.toFloat()))
+            val end = Vector3f(localEye).add(localDirection.toVector3f().mul(distance.toFloat()))
+            parts[view * 2].apply {
+                isVisibleByDefault = true
+                transformation = scopeLaserBeamTransform(localDirection.clone().multiply(distance - near), .012f, start)
+            }
+            parts[view * 2 + 1].apply {
+                isVisibleByDefault = hit != null
+                if (hit != null) {
+                    // Pull the tiny marker toward the eye to avoid z-fighting at the sampled contact.
+                    val contact = end.sub(localDirection.toVector3f().mul(.025f)).sub(.025f, .025f, .025f)
+                    transformation = Transformation(contact, Quaternionf(), Vector3f(.05f), Quaternionf())
+                }
             }
         }
     }
@@ -83,7 +104,8 @@ internal class TttScopeLaser(private val shooter: Player, displays: PaperPacketD
         closed = true
         parts.forEach(PacketBlockDisplay::remove)
         parts.clear()
-        audience.close()
+        audiences.forEach(PacketDisplayAudienceGroup::close)
+        audiences.clear()
     }
 }
 
@@ -109,9 +131,15 @@ internal fun scopeLaserLoadedRange(origin: Vector, direction: Vector, maximum: D
     return maximum
 }
 
-internal fun scopeLaserBeamTransform(delta: Vector, width: Float): Transformation {
+/** Inverse CENTER rotation of a world-vertical eye offset; yaw does not affect this vector. */
+internal fun scopeLaserCameraEyeOffset(height: Float, pitch: Float): Vector3f {
+    val radians = Math.toRadians(pitch.toDouble())
+    return Vector3f(0f, height * cos(radians).toFloat(), height * sin(radians).toFloat())
+}
+
+internal fun scopeLaserBeamTransform(delta: Vector, width: Float, origin: Vector3f = Vector3f()): Transformation {
     val length = delta.length().toFloat()
     val rotation = if (length > 0f) Quaternionf().rotationTo(Vector3f(0f, 0f, 1f), delta.toVector3f().normalize()) else Quaternionf()
-    val offset = rotation.transform(Vector3f(-width / 2, -width / 2, 0f))
+    val offset = rotation.transform(Vector3f(-width / 2, -width / 2, 0f)).add(origin)
     return Transformation(offset, rotation, Vector3f(width, width, length), Quaternionf())
 }
