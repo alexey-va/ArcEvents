@@ -254,14 +254,15 @@ Native abilities updates retain the other flags and the latest baseline is
 restored on exit. Match aiming uses the same living-participant, weapon ownership
 and selected fishing-loadout checks as firing.
 
-For an operator-only visual trial outside an event, use an event `HOST` with no
-active match, obtain one of the 12 mapped vendor guns through the ordinary
-`/arc items` catalog, hold it in the main hand, switch to first person and click
+For an operator-only visual trial outside an event, use an event `HOST` or
+`RELAY` node with no local match, obtain one of the 12 mapped vendor guns through
+the ordinary `/arc items` catalog, hold it in the main hand, switch to first person and click
 RMB. A second click lowers it. This requires `arcevents.scope-preview` (default
 `op`) and an exact supported ItemsAdder identity from `gold_guns` or
 `voxelspawns_megaflintlocks`; renaming an unrelated item does not qualify.
-The preview supports Survival, Adventure and Creative, is unavailable on RELAY
-nodes and does not enable firing, ammo consumption or damage outside an event.
+The preview supports Survival, Adventure and Creative on both node roles and
+does not enable firing, ammo consumption or damage outside an event. A RELAY
+retains its routing role and cannot create a local match.
 
 Changing slot/weapon, reloading, observed inventory opens/actions/closes,
 teleporting, elimination, quitting/leaving, recovery, round end and plugin

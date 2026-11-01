@@ -14,13 +14,20 @@ import org.bukkit.entity.Player
 import org.bukkit.World
 import org.bukkit.GameMode
 import org.bukkit.Material
+import org.bukkit.block.BlockFace
 import org.bukkit.util.RayTraceResult
+import org.bukkit.event.Event
+import org.bukkit.event.block.Action
 import org.bukkit.event.entity.EntityDamageByEntityEvent
+import org.bukkit.event.player.PlayerInteractEvent
+import org.bukkit.inventory.EquipmentSlot
+import ru.ruscrafting.events.config.NodeMode
 import ru.ruscrafting.events.domain.FirearmId
+import ru.ruscrafting.events.network.ReservationBatch
 import java.util.UUID
 
 class TttScopeGameplayMockBukkitTest : StringSpec({
-    "OP creative raw-item preview is host-only and never creates firearm state or bypasses an owned event" {
+    "HOST OP creative raw-item preview never creates firearm state or bypasses an owned event" {
         val scopes = mockk<TttScopes>(relaxed = true)
         every { scopes.toggle(any(), any()) } returns true
         var itemId: String? = "gold_guns:gold_g36"
@@ -40,9 +47,6 @@ class TttScopeGameplayMockBukkitTest : StringSpec({
             itemId = "gold_guns:gold_rpg_7"
             f.service.toggleScopePreview(player) shouldBe false
             itemId = "gold_guns:gold_g36"
-            f.reloadRuntime { it.replace("node-mode: HOST", "node-mode: RELAY") }
-            f.service.toggleScopePreview(player) shouldBe false
-            f.reloadRuntime { it.replace("node-mode: RELAY", "node-mode: HOST") }
             f.startPreparingRound().join() shouldBe DebugMutationResult.APPLIED
             player.inventory.setItemInMainHand(ItemStack.of(Material.PAPER))
             f.service.toggleScopePreview(player) shouldBe false
@@ -53,6 +57,54 @@ class TttScopeGameplayMockBukkitTest : StringSpec({
         }
     }
 
+    "RELAY starts OP raw-item preview from RMB without gameplay authority or inventory changes" {
+        val scopes = mockk<TttScopes>(relaxed = true)
+        val authorization = slot<(Player, FirearmScopeTarget) -> Boolean>()
+        every { scopes.toggle(any(), any()) } returns true
+        every { scopes.validate(capture(authorization)) } returns Unit
+        TttRoundFixture(scopes = scopes, scopePreviewItemId = { "gold_guns:gold_g36" }).use { f ->
+            f.reloadRuntime {
+                it.replace("node-mode: HOST", "node-mode: RELAY")
+                    .replace("weapons:\n  enabled: false", "weapons:\n  enabled: true")
+            }
+            f.startPreparingRound().join() shouldBe DebugMutationResult.WRONG_NODE
+            f.service.snapshot().nodeMode shouldBe NodeMode.RELAY
+            f.firearms.enabled shouldBe true
+            val player = f.players.first()
+            player.inventory.setItemInMainHand(ItemStack.of(Material.PAPER))
+            player.gameMode = GameMode.CREATIVE
+            f.service.toggleScopePreview(player) shouldBe false
+            player.isOp = true
+            val original = player.inventory.contents.map { it?.clone() }
+            val target = FirearmScopeTarget(null, FirearmId.G36, player.inventory.heldItemSlot)
+            val click = PlayerInteractEvent(player, Action.RIGHT_CLICK_AIR, player.inventory.itemInMainHand,
+                null, BlockFace.SELF, EquipmentSlot.HAND)
+
+            f.paper.callEvent(click)
+
+            click.useItemInHand() shouldBe Event.Result.DENY
+            verify(exactly = 1) { scopes.toggle(player, target) }
+            f.service.onReservation(ReservationBatch(UUID.randomUUID(), emptyList())) shouldBe false
+            f.service.matchIdentity() shouldBe null
+            f.service.phase() shouldBe null
+            f.service.useFirearm(player) shouldBe false
+            f.service.reloadFirearm(player) shouldBe false
+            f.service.toggleFirearmScope(player) shouldBe false
+            f.firearms.state(player.inventory.itemInMainHand) shouldBe null
+            f.advanceTime(1_000)
+            authorization.captured(player, target) shouldBe true
+            player.isOp = false
+            f.advanceTime(1_000)
+            authorization.captured(player, target) shouldBe false
+            player.inventory.contents.toList() shouldBe original
+            player.gameMode shouldBe GameMode.CREATIVE
+            f.paper.playerDataSaveCount(player) shouldBe 0
+            clearMocks(scopes, answers = false)
+            f.service.close()
+            verify(atLeast = 1) { scopes.clearAll() }
+        }
+    }
+
     "event-tagged items cannot use raw preview and scope permission is rechecked during motion" {
         val scopes = mockk<TttScopes>(relaxed = true)
         every { scopes.toggle(any(), any()) } returns true
@@ -60,6 +112,8 @@ class TttScopeGameplayMockBukkitTest : StringSpec({
             val player = f.players.first()
             player.isOp = true
             player.inventory.setItemInMainHand(f.firearms.firearmItem(FirearmId.G36, player, "stale-match"))
+            f.service.toggleScopePreview(player) shouldBe false
+            f.reloadRuntime { it.replace("node-mode: HOST", "node-mode: RELAY") }
             f.service.toggleScopePreview(player) shouldBe false
             player.inventory.setItemInMainHand(ItemStack.of(Material.PAPER))
             val target = FirearmScopeTarget(null, FirearmId.G36, player.inventory.heldItemSlot)

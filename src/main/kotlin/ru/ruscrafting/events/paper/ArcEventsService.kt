@@ -1093,7 +1093,7 @@ class ArcEventsService(
     }
 
     private fun previewScopeTarget(player: Player): FirearmScopeTarget? {
-        if (settings().nodeMode != NodeMode.HOST || matchIdentity() != null || phase() != null ||
+        if (matchIdentity() != null || phase() != null ||
             isParticipant(player.uniqueId) || !player.hasPermission(SCOPE_PREVIEW_PERMISSION)
         ) return null
         val held = player.inventory.itemInMainHand

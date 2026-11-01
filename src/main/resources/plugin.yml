@@ -26,5 +26,5 @@ permissions:
   arcevents.qa:
     default: op
   arcevents.scope-preview:
-    description: Preview known weapon sights outside events on the host
+    description: Preview known weapon sights outside events on host or relay nodes
     default: op
