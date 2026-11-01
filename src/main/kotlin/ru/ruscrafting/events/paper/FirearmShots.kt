@@ -265,10 +265,9 @@ class FirearmShots(
     }
 
     private fun contact(shot: Shot, result: RayTraceResult, direction: Vector) {
-        if (!particles()) return
         val block = result.hitBlock ?: return
         val point = result.hitPosition.subtract(direction.clone().multiply(.025)).toLocation(shot.world)
-        shot.world.spawnParticle(Particle.BLOCK, point, 5, .045, .045, .045, .08, block.blockData)
+        if (particles()) shot.world.spawnParticle(Particle.BLOCK, point, 5, .045, .045, .045, .08, block.blockData)
         if (sounds()) shot.world.playSound(point, block.blockData.soundGroup.hitSound, .35f, 1.2f)
     }
 

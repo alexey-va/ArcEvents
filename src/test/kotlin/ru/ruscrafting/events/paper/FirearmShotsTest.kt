@@ -13,8 +13,11 @@ import io.mockk.mockk
 import io.mockk.verify
 import org.bukkit.FluidCollisionMode
 import org.bukkit.Location
+import org.bukkit.Particle
+import org.bukkit.Sound
 import org.bukkit.World
 import org.bukkit.block.Block
+import org.bukkit.block.data.BlockData
 import org.bukkit.entity.Entity
 import org.bukkit.entity.Player
 import org.bukkit.inventory.MainHand
@@ -173,6 +176,20 @@ class FirearmShotsTest : StringSpec({
         }
     }
 
+    "wall impact sound remains enabled when particles are disabled" {
+        withShotFixture { f ->
+            f.soundsEnabled = true
+            val wall = mockk<Block>(relaxed = true)
+            every { wall.blockData.soundGroup.hitSound } returns Sound.BLOCK_STONE_HIT
+            f.ray = { origin, direction, _ -> RayTraceResult(origin.toVector().add(direction.clone()), wall, null) }
+            f.fire() shouldBe true
+            f.until { f.rays.isNotEmpty() }
+            verify(exactly = 1) { f.world.playSound(any<Location>(), Sound.BLOCK_STONE_HIT, .35f, 1.2f) }
+            verify(exactly = 0) { f.world.spawnParticle(any<Particle>(), any<Location>(), any<Int>(), any<Double>(), any<Double>(), any<Double>(), any<Double>()) }
+            verify(exactly = 0) { f.world.spawnParticle(any<Particle>(), any<Location>(), any<Int>(), any<Double>(), any<Double>(), any<Double>(), any<Double>(), any<BlockData>()) }
+        }
+    }
+
     "mixed head and body pellets retain collision-time weights when the target moves before aggregation" {
         for (headFirst in listOf(true, false)) withShotFixture { f ->
             val shotgun = f.spec.copy(pellets = 2, damagePerPellet = 3.0)
@@ -255,7 +272,8 @@ private class ShotFixture(val scheduler: TestTaskScheduler) : AutoCloseable {
     val player = mockk<Player>(relaxed = true)
     val target = mockk<Player>(relaxed = true)
     val displays = mockk<PaperPacketDisplays>(relaxed = true)
-    val shots = FirearmShots(displays, { false }, { false })
+    var soundsEnabled = false
+    val shots = FirearmShots(displays, { false }, { soundsEnabled })
     val spec: FirearmSpec = TttFirearmCatalog.specs.getValue(FirearmId.VSS_VINTOREZ).copy(spreadDegrees = 0.0)
     var eye = Location(world, 0.0, 64.0, 0.0)
     var valid = true
