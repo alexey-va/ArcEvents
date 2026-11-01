@@ -189,7 +189,7 @@ async function shoot(attacker, victim) {
   const eliminatedSince = victim.getMessageBufferIndex();
   attacker.bot.setQuickBarSlot(0);
   await pause(250);
-  await attacker.bot.lookAt(victim.bot.entity.position.offset(0, 1.2, 0), true);
+  await attacker.bot.lookAt(victim.bot.entity.position.offset(0, 1.2, 0));
   attacker.bot.attack(victim.bot.entity);
   await expect(victim).toHaveReceivedMessage(/You were eliminated\. Respawning in 1s\./, { since: eliminatedSince, timeout: 10000 });
   const respawnSince = victim.getMessageBufferIndex();
