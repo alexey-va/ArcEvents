@@ -1,5 +1,8 @@
 package ru.ruscrafting.events.paper
 
+import com.github.retrooper.packetevents.protocol.nbt.NBTCompound
+import com.github.retrooper.packetevents.protocol.nbt.NBTInt
+import com.github.retrooper.packetevents.protocol.nbt.NBTString
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import org.bukkit.Material
@@ -24,21 +27,46 @@ class ScopePreviewItemsTest : StringSpec({
             "gold_guns:gold_vss_vintorez" to FirearmId.VSS_VINTOREZ,
             "gold_guns:gold_mcmillan_new" to FirearmId.MCMILLAN,
         )
-        ids.forEach { (id, firearm) -> scopePreviewFirearm(id) shouldBe firearm }
+        ids.forEach { (id, firearm) ->
+            scopePreviewFirearm(id) shouldBe firearm
+            nativeScopePreviewItemIdentity(itemsAdderCustomData(id.substringBefore(':'), id.substringAfter(':'))) shouldBe id
+        }
         ids.values.toSet() shouldBe FirearmId.entries.toSet()
         listOf(null, "gold_guns:gold_m79", "gold_guns:gold_rpg_7", "gold_guns:gold_beretta_arx200",
             "voxelspawns_megaflintlocks:vs_pistol3", "gold_g36", " gold_guns:gold_g36", "GOLD_GUNS:GOLD_G36")
             .forEach { scopePreviewFirearm(it) shouldBe null }
     }
 
-    "optional ItemsAdder absence leaves preview lookup and listener discovery usable" {
+    "native preview rejects missing malformed wrong-type and unsupported item identities" {
+        listOf(null, NBTCompound(), NBTCompound().also { it.setTag("itemsadder", NBTString("gold_guns:gold_g36")) },
+            NBTCompound().also { it.setTag("namespace", NBTString("gold_guns")); it.setTag("id", NBTString("gold_g36")) },
+        ).forEach { nativeScopePreviewItemIdentity(it) shouldBe null }
+        listOf("namespace", "id").forEach { key ->
+            val missing = itemsAdderCustomData("gold_guns", "gold_g36")
+            missing.getCompoundTagOrThrow("itemsadder").removeTag(key)
+            nativeScopePreviewItemIdentity(missing) shouldBe null
+            val wrongType = itemsAdderCustomData("gold_guns", "gold_g36")
+            wrongType.getCompoundTagOrThrow("itemsadder").setTag(key, NBTInt(1))
+            nativeScopePreviewItemIdentity(wrongType) shouldBe null
+        }
+        listOf("" to "gold_g36", "gold_guns" to "", "other" to "gold_g36",
+            "gold_guns" to "gold_rpg_7", "GOLD_GUNS" to "gold_g36", "gold_guns" to " gold_g36",
+        ).forEach { (namespace, id) -> nativeScopePreviewItemIdentity(itemsAdderCustomData(namespace, id)) shouldBe null }
+    }
+
+    "optional ItemsAdder absence uses native identity and leaves listener discovery usable" {
         MockBukkitTestRuntime.open().use { paper ->
             val plugin = paper.createSimplePlugin("ScopePreviewWithoutItemsAdder")
             val item = ItemStack.of(Material.PAPER)
-            scopePreviewItemIdentity(plugin)(item) shouldBe null
+            scopePreviewItemIdentity(plugin) { null }(item) shouldBe null
+            val original = item.clone()
+            val customData = itemsAdderCustomData("gold_guns", "gold_g36")
+            scopePreviewItemIdentity(plugin) { customData }(item) shouldBe "gold_guns:gold_g36"
+            item shouldBe original
             // Also cover a plugin present by name without its optional API classes.
             paper.createSimplePlugin("ItemsAdder")
-            scopePreviewItemIdentity(plugin)(item) shouldBe null
+            scopePreviewItemIdentity(plugin) { customData }(item) shouldBe "gold_guns:gold_g36"
+            scopePreviewItemIdentity(plugin) { error("Unavailable native converter") }(item) shouldBe null
             ArcEventsListener::class.java.declaredMethods.isNotEmpty() shouldBe true
         }
     }
@@ -52,3 +80,10 @@ class ScopePreviewItemsTest : StringSpec({
         (descriptor["softdepend"] as List<*>).contains("ItemsAdder") shouldBe true
     }
 })
+
+private fun itemsAdderCustomData(namespace: String, id: String) = NBTCompound().also { data ->
+    data.setTag("itemsadder", NBTCompound().also { identity ->
+        identity.setTag("namespace", NBTString(namespace))
+        identity.setTag("id", NBTString(id))
+    })
+}

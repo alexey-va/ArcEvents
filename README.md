@@ -260,6 +260,10 @@ the ordinary `/arc items` catalog, hold it in the main hand, switch to first per
 RMB. A second click lowers it. This requires `arcevents.scope-preview` (default
 `op`) and an exact supported ItemsAdder identity from `gold_guns` or
 `voxelspawns_megaflintlocks`; renaming an unrelated item does not qualify.
+When ItemsAdder is not enabled, the same 12 vendor items are recognized from
+their saved `minecraft:custom_data` compound `itemsadder.{namespace,id}` through
+PacketEvents. This does not require installing ItemsAdder on that node; obtain
+the vendor item on a node that provides its catalog.
 The preview supports Survival, Adventure and Creative on both node roles and
 does not enable firing, ammo consumption or damage outside an event. A RELAY
 retains its routing role and cannot create a local match.

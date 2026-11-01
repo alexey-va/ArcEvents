@@ -436,6 +436,25 @@ class ArcEventsConfigTest : StringSpec({
         }
     }
 
+    "Slimefun relay profile preserves its identity and disabled arena when defaults merge" {
+        val root = Files.createTempDirectory("arcevents-slimefun-profile-")
+        try {
+            Files.copy(opsRoot().resolve("slimefun/configuration/plugins/ArcEvents/config.yml"), root.resolve("config.yml"))
+            listOf(ArcEventsConfig.inspect(root), ArcEventsConfig.load(root)).forEach { config ->
+                config.serverId shouldBe "slimefun"
+                config.hostServer shouldBe "parkour"
+                config.nodeMode shouldBe NodeMode.RELAY
+                config.playerStateMode shouldBe PlayerStateMode.PRESERVE
+                config.network.allowedOrigins shouldBe setOf("spawn", "survival", "parkour", "slimefun")
+                config.arenas.any { it.enabled } shouldBe false
+                config.packetChatIsolationEnabled shouldBe false
+                config.ui.lootDisplays shouldBe false
+            }
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
     "loading every reviewed runtime profile is byte stable" {
         listOf(
             "classic/plugins/ArcEvents/config.yml",
