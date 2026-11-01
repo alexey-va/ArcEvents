@@ -15,7 +15,7 @@ import org.bukkit.World
 import org.bukkit.GameMode
 import org.bukkit.Material
 import org.bukkit.block.BlockFace
-import org.bukkit.util.RayTraceResult
+import org.bukkit.entity.Entity
 import org.bukkit.event.Event
 import org.bukkit.event.block.Action
 import org.bukkit.event.entity.EntityDamageByEntityEvent
@@ -124,13 +124,18 @@ class TttScopeGameplayMockBukkitTest : StringSpec({
         }
     }
 
-    "physical entity attack fires one ray whose synthetic damage still reaches the match damage lifecycle" {
-        TttRoundFixture().use { f ->
+    "physical entity attack reserves one shot and its later impact reaches the match damage lifecycle" {
+        val shots = mockk<FirearmShots>(relaxed = true)
+        val impact = slot<(Entity, FirearmHit, Double) -> Unit>()
+        every { shots.fire(any(), any(), any(), any(), any(), any(), capture(impact)) } returns true
+        TttRoundFixture(shots = shots).use { f ->
             f.reloadRuntime { it.replace("weapons:\n  enabled: false", "weapons:\n  enabled: true") }
             f.startActiveRound()
             val matchId = requireNotNull(f.service.currentMatch()).matchId.toString()
-            val originalShooter = f.players[0]
-            val originalTarget = f.players[1]
+            val originalShooter = f.players.first {
+                f.service.participant(it.uniqueId)?.role == ru.ruscrafting.events.domain.TttRole.TRAITOR
+            }
+            val originalTarget = f.players.first { it.uniqueId != originalShooter.uniqueId }
             originalShooter.inventory.setItemInMainHand(f.firearms.firearmItem(FirearmId.VSS_VINTOREZ, originalShooter, matchId))
             val world = mockk<World>(relaxed = true)
             val shooter = mockk<Player>(relaxed = true)
@@ -149,16 +154,20 @@ class TttScopeGameplayMockBukkitTest : StringSpec({
             every { target.damage(any<Double>(), shooter) } answers {
                 damageEvent = f.meleeHit(shooter, target, firstArg())
             }
-            every { world.rayTrace(any(), any(), any(), any(), any(), any(), any()) } returns
-                RayTraceResult(originalTarget.eyeLocation.toVector(), target)
-
             val attack = f.paper.callEvent(PrePlayerAttackEntityEvent(shooter, target, true))
 
             attack.isCancelled shouldBe true
-            verify(exactly = 1) { target.damage(any<Double>(), shooter) }
-            requireNotNull(damageEvent).isCancelled shouldBe false
+            verify(exactly = 1) { shots.fire(shooter, any(), any(), any(), any(), any(), any()) }
+            verify(exactly = 0) { target.damage(any<Double>(), shooter) }
             val weapon = requireNotNull(f.firearms.state(originalShooter.inventory.itemInMainHand))
             weapon.loaded shouldBe f.firearms.spec(FirearmId.VSS_VINTOREZ).magazineSize - 1
+            // Changing the held weapon while a bullet travels cannot turn its impact into an instant knife kill.
+            originalShooter.inventory.setItemInMainHand(f.items.purchasedItem(EventItemKind.TRAITOR_BLADE, originalShooter, matchId))
+            impact.captured(target, FirearmHit(originalTarget.eyeLocation.toVector(), true), 8.5)
+            verify(exactly = 1) { target.damage(any<Double>(), shooter) }
+            requireNotNull(damageEvent).isCancelled shouldBe false
+            requireNotNull(f.service.participant(originalTarget.uniqueId)).status shouldBe
+                ru.ruscrafting.events.domain.ParticipantStatus.ALIVE
             (requireNotNull(f.service.participant(originalShooter.uniqueId)).damageDealt > 0.0) shouldBe true
         }
     }

@@ -405,6 +405,9 @@ arcade:
 
 weapons:
   enabled: true
+  # Optional VSS aiming laser. Reload applies this to an already raised sight.
+  scope-laser:
+    enabled: false
   dna-seconds: 90
   # Complete balance catalog. It can be reloaded while idle; an active roster
   # keeps its current weapon contract so loaded magazines never become invalid.

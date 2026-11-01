@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "title": "Ordinary-world firearms: existing iron nuggets as consumable ammunition",
+  "assumptions": [
+    "2026-11-01: scenario assumptions, not telemetry: 1/5/20 participating players, 1/2/4 active hours per day, 100/500/2500 expended rounds per active hour.",
+    "Raw guns start empty, one ordinary iron nugget loads one round. Event ammo never loads ordinary guns. No new money, XP, loot or reward payout is introduced.",
+    "Iron nuggets can come from existing inventories/farms; shop purchase is optional, not an assumed new money sink. Configured EconomyShopGUI buy 2.22 vault/nugget, sell -1, is unverified live.",
+    "Existing EconomyShopGUI SELL remains in the current scenario; planned SELL-to-contract transition is future and is not counted as active replacement income.",
+    "New ranged access can change manual mob-kill efficiency. Existing native armour, hurt immunity, reward eligibility and protection cancellation remain; the incremental kill/reward rate is unknown and not represented as measured zero."
+  ],
+  "participants": [
+    1,
+    5,
+    20
+  ],
+  "currencies": {
+    "vault": {
+      "minor_per_unit": 100,
+      "disposable_per_player_day": {
+        "before": [
+          "0",
+          "0",
+          "0"
+        ],
+        "after": [
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      "flows": []
+    },
+    "tokens": {
+      "minor_per_unit": 1,
+      "disposable_per_player_day": {
+        "before": [
+          "0",
+          "0",
+          "0"
+        ],
+        "after": [
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      "flows": []
+    },
+    "iron_nugget": {
+      "minor_per_unit": 1,
+      "disposable_per_player_day": {
+        "before": [
+          "0",
+          "0",
+          "0"
+        ],
+        "after": [
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      "flows": [
+        {
+          "id": "world_firearm_ammunition_consumption",
+          "kind": "item",
+          "source": "ArcEvents/src/main/kotlin/ru/ruscrafting/events/paper/WorldFirearms.kt:finishReload",
+          "basis": "Items consumed from existing inventory into persistent weapon magazines; not money issuance or a currency exchange. Daily use scenarios are assumptions.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              100,
+              1000,
+              10000
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              100,
+              1000,
+              10000
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

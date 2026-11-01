@@ -29,8 +29,9 @@ internal class TttScopeLaser(private val shooter: Player, displays: PaperPacketD
                 parts += displays.spawnBlock(shooter.eyeLocation, Material.RED_CONCRETE.createBlockData()).also { display ->
                     display.audienceGroup = audience
                     display.brightness = Display.Brightness(15, 15)
-                    display.interpolationDuration = 2
-                    display.teleportDuration = 2
+                    // Use the latest server look sample directly; interpolation would trail a moving crosshair.
+                    display.interpolationDuration = 0
+                    display.teleportDuration = 0
                     display.viewRange = .75f
                     display.shadowRadius = 0f
                     display.shadowStrength = 0f

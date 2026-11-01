@@ -3,7 +3,6 @@ package ru.ruscrafting.events.paper
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.title.Title
 import org.bukkit.GameMode
-import org.bukkit.FluidCollisionMode
 import org.bukkit.Location
 import org.bukkit.NamespacedKey
 import org.bukkit.Particle
@@ -35,11 +34,9 @@ import ru.ruscrafting.events.domain.EventRecoveryGate
 import ru.ruscrafting.events.domain.ParticipantStatus
 import ru.ruscrafting.events.domain.PlayerEventStats
 import ru.ruscrafting.events.domain.CombatRecord
-import ru.ruscrafting.events.domain.FirearmSpread
 import ru.ruscrafting.events.domain.FirearmId
 import ru.ruscrafting.events.domain.RosterEntry
 import ru.ruscrafting.events.domain.RosterStatus
-import ru.ruscrafting.events.domain.ShotDirection
 import ru.ruscrafting.events.domain.RoleAllocationSettings
 import ru.ruscrafting.events.domain.QueuedPlayer
 import ru.ruscrafting.events.domain.TttMatch
@@ -126,6 +123,7 @@ class ArcEventsService(
     private val work: EventWork? = null,
     private val scopes: TttScopes? = null,
     private val scopePreviewItemId: (ItemStack) -> String? = { null },
+    private val shots: FirearmShots = FirearmShots(packetDisplays, { settings().ui.particles }, { settings().ui.sounds }),
 ) : ArcEventsGameplayBoundary, AutoCloseable {
     private val localChat = TttLocalChat(plugin.server, settings, locale)
     private data class MapSpawnReturn(
@@ -600,7 +598,7 @@ class ArcEventsService(
 
     /** Reconciles every live consumer after the plugin atomically swaps its settings snapshot. */
     fun reconfigureRuntime() {
-        scopes?.clearAll()
+        scopes?.validate(::isScopeAuthorized)
         arenaPool.reconfigure()
         network.reconfigure()
         val current = match
@@ -722,6 +720,8 @@ class ArcEventsService(
     }
 
     override fun useTraitorBlade(attacker: Player, victim: Player): Boolean {
+        // A bullet keeps its accepted weapon even if the inventory later equips a knife.
+        if (pendingHit?.let { it.attackerId == attacker.uniqueId && it.victimId == victim.uniqueId } == true) return false
         if (arcade.current != null) return arcade.useKnife(attacker, victim)
         val current = match ?: return false
         val attackerState = current.participant(attacker.uniqueId) ?: return false
@@ -996,35 +996,17 @@ class ArcEventsService(
             if (settings().ui.sounds) player.playSound(player.location, Sound.BLOCK_LEVER_CLICK, 0.7f, 1.7f)
             return false
         }
+        val worldId = player.world.uid
+        if (!shots.fire(player, spec, scopes?.isAiming(player.uniqueId) == true,
+                valid = { player.isOnline && !player.isDead && player.world.uid == worldId &&
+                    activeMatchId() == matchId && phase() == MatchPhase.ACTIVE && isAlive(player.uniqueId) },
+                target = { entity -> eventFirearmTarget(player, entity, matchId) },
+                headshotMultiplier = settings().gameplay.headshotMultiplier,
+                hit = { entity, position, damage -> hitByFirearm(player, state.id.name.lowercase(), entity, position, damage, matchId) },
+            )) return false
         shotCooldownUntil[player.uniqueId] = now + spec.cooldownTicks * 50L
         val loaded = state.loaded - spec.roundsPerShot
         player.inventory.setItemInMainHand(firearms.updateLoaded(held, player, loaded))
-        val eye = player.eyeLocation.clone()
-        val base = eye.direction.normalize()
-        val random = Random(now xor player.uniqueId.mostSignificantBits xor runtime.combatRecordCount().toLong())
-        repeat(spec.pellets) {
-            val yaw = (random.nextDouble() * 2.0 - 1.0) * spec.spreadDegrees
-            val pitch = (random.nextDouble() * 2.0 - 1.0) * spec.spreadDegrees
-            val spread = FirearmSpread.apply(ShotDirection(base.x, base.y, base.z), yaw, pitch)
-            fireRay(player, state.id.name.lowercase(), eye, Vector(spread.x, spread.y, spread.z), spec.range, spec.damagePerPellet)
-        }
-        if (settings().ui.sounds) {
-            val (sound, volume, pitch) = when (state.id) {
-                FirearmId.FLINTLOCK -> Triple(Sound.ENTITY_FIREWORK_ROCKET_BLAST, 0.9f, 0.82f)
-                FirearmId.REVOLVER -> Triple(Sound.ENTITY_FIREWORK_ROCKET_BLAST, 0.82f, 1.0f)
-                FirearmId.FIVE_SEVEN -> Triple(Sound.ENTITY_FIREWORK_ROCKET_BLAST, 0.75f, 1.18f)
-                FirearmId.G36 -> Triple(Sound.ENTITY_FIREWORK_ROCKET_LARGE_BLAST, 0.8f, 1.02f)
-                FirearmId.AEK_971 -> Triple(Sound.ENTITY_FIREWORK_ROCKET_LARGE_BLAST, 0.86f, 0.92f)
-                FirearmId.RPL_20 -> Triple(Sound.ENTITY_FIREWORK_ROCKET_LARGE_BLAST, 0.95f, 0.76f)
-                FirearmId.DOUBLE_BARREL -> Triple(Sound.ENTITY_GENERIC_EXPLODE, 0.95f, 0.72f)
-                FirearmId.VEPR_12 -> Triple(Sound.ENTITY_GENERIC_EXPLODE, 0.82f, 0.86f)
-                FirearmId.HAND_CANNON -> Triple(Sound.ENTITY_GENERIC_EXPLODE, 1.05f, 0.62f)
-                FirearmId.M1_GARAND -> Triple(Sound.ENTITY_FIREWORK_ROCKET_TWINKLE_FAR, 0.9f, 1.05f)
-                FirearmId.VSS_VINTOREZ -> Triple(Sound.ENTITY_FIREWORK_ROCKET_TWINKLE_FAR, 0.72f, 1.28f)
-                FirearmId.MCMILLAN -> Triple(Sound.ENTITY_FIREWORK_ROCKET_TWINKLE_FAR, 1.0f, 0.72f)
-            }
-            player.world.playSound(player.location, sound, volume, pitch)
-        }
         player.sendEventActionBar(locale.render("weapon.ammo-actionbar", player, mapOf(
             "weapon" to locale.render("weapon.${state.id.name.lowercase()}-name", player),
             "loaded" to locale.text(loaded),
@@ -1093,8 +1075,8 @@ class ArcEventsService(
     }
 
     private fun previewScopeTarget(player: Player): FirearmScopeTarget? {
-        if (matchIdentity() != null || phase() != null ||
-            isParticipant(player.uniqueId) || !player.hasPermission(SCOPE_PREVIEW_PERMISSION)
+        if (isParticipant(player.uniqueId) || withinProtectedArena(player.location) ||
+            !player.hasPermission(SCOPE_PREVIEW_PERMISSION)
         ) return null
         val held = player.inventory.itemInMainHand
         if (held.isEmpty || items.kind(held) != null) return null
@@ -2261,52 +2243,31 @@ class ArcEventsService(
         return fishingAdventure(player)?.snapshot()?.equippedGear?.firearmId == firearmId
     }
 
-    private fun fireRay(
+    private fun eventFirearmTarget(shooter: Player, entity: Entity, matchId: String): Boolean {
+        if (activeMatchId() != matchId) return false
+        return if (currentMode() == EventMode.FISHING) {
+            fishingAdventure(shooter)?.isFirearmTarget(shooter, entity, matchId) == true
+        } else entity is Player && entity.uniqueId != shooter.uniqueId && isAlive(entity.uniqueId)
+    }
+
+    private fun hitByFirearm(
         shooter: Player,
         firearmId: String,
-        origin: Location,
-        direction: Vector,
-        range: Double,
+        entity: Entity,
+        impact: FirearmHit,
         baseDamage: Double,
+        matchId: String,
     ) {
-        val matchId = activeMatchId() ?: return
-        val fishingMode = currentMode() == EventMode.FISHING
-        val fishingAdventure = if (fishingMode) fishingAdventure(shooter) else null
-        val result = shooter.world.rayTrace(
-            origin,
-            direction,
-            range,
-            FluidCollisionMode.NEVER,
-            true,
-            0.12,
-        ) { entity ->
-            if (fishingMode) {
-                activeMatchId() == matchId && fishingAdventure?.isFirearmTarget(shooter, entity, matchId) == true
-            } else {
-                entity is Player && entity.uniqueId != shooter.uniqueId &&
-                    isAlive(entity.uniqueId) && activeMatchId() == matchId
-            }
-        }
-        val endpoint = result?.hitPosition ?: origin.toVector().add(direction.clone().multiply(range))
-        if (settings().ui.particles) {
-            val distance = origin.toVector().distance(endpoint)
-            var travelled = 1.0
-            while (travelled < distance && travelled < 90.0) {
-                val point = origin.clone().add(direction.clone().multiply(travelled))
-                shooter.world.spawnParticle(Particle.CRIT, point, 1, 0.0, 0.0, 0.0, 0.0)
-                travelled += 1.5
-            }
-        }
-        val hitEntity = result?.hitEntity ?: return
-        if (fishingMode) {
-            if (activeMatchId() == matchId) fishingAdventure?.hitByFirearm(shooter, hitEntity, baseDamage, matchId)
+        if (!eventFirearmTarget(shooter, entity, matchId)) return
+        if (currentMode() == EventMode.FISHING) {
+            fishingAdventure(shooter)?.hitByFirearm(shooter, entity, baseDamage, matchId)
             return
         }
-        val target = hitEntity as? Player ?: return
-        val headshot = result.hitPosition.y >= target.eyeLocation.y - 0.38
+        val target = entity as? Player ?: return
+        val headshot = impact.headshot
         pendingHit = PendingHitContext(shooter.uniqueId, target.uniqueId, "firearm.$firearmId", headshot)
         try {
-            target.damage(baseDamage * if (headshot) settings().gameplay.headshotMultiplier else 1.0, shooter)
+            target.damage(baseDamage, shooter)
         } finally {
             pendingHit = null
         }
@@ -2612,6 +2573,7 @@ class ArcEventsService(
             }
         }
         detach { scopes?.clearAll() }
+        detach(shots::close)
         detach { arcade.cancel(MatchEndReason.SHUTDOWN) }
         detach { reservation?.let { pending ->
             val arrivedPlayers = arrivals.keys.mapNotNull(plugin.server::getPlayer)

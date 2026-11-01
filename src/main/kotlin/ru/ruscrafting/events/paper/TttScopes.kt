@@ -99,6 +99,7 @@ class TttScopes internal constructor(
     },
     private val observers: (Player) -> Collection<Player> = { it.trackedBy },
     private val createLaser: ((Player) -> TttScopeLaser)? = null,
+    private val laserEnabled: () -> Boolean = { false },
 ) : PacketListenerAbstract(PacketListenerPriority.HIGHEST) {
     private data class Client(val playerId: UUID, val entityId: Int)
     private data class Frame(val model: String, val zoom: Float?)
@@ -116,6 +117,7 @@ class TttScopes internal constructor(
         var task: ScheduledTask? = null
         var settleTask: ScheduledTask? = null
         var laser: TttScopeLaser? = null
+        var laserFailed = false
         @Volatile var frame = Frame(model(target.firearm, "hip"), null)
     }
 
@@ -168,6 +170,7 @@ class TttScopes internal constructor(
     private fun present(scope: Scope) {
         ++scope.motion
         stopLaser(scope)
+        scope.laserFailed = false
         stopSettle(scope)
         if (active[scope.playerId] !== scope) return
         // Transition aliases enable vanilla's render-interpolated equip motion between the two poses.
@@ -186,7 +189,16 @@ class TttScopes internal constructor(
         }
         sendObserverEquipment(scope, held)
         settle(scope, scope.motion)
-        if (scope.aiming && scope.target.firearm == FirearmId.VSS_VINTOREZ && createLaser != null) {
+        syncLaser(scope)
+    }
+
+    private fun syncLaser(scope: Scope) {
+        if (!scope.aiming || scope.target.firearm != FirearmId.VSS_VINTOREZ || !laserEnabled()) {
+            stopLaser(scope)
+            scope.laserFailed = false
+            return
+        }
+        if (scope.laser == null && !scope.laserFailed && createLaser != null) {
             try {
                 scope.laser = createLaser.invoke(scope.player)
                 updateLaser(scope, scope.motion)
@@ -252,6 +264,7 @@ class TttScopes internal constructor(
     }
 
     private fun updateLaser(scope: Scope, motion: Long) {
+        if (!laserEnabled()) { stopLaser(scope); return }
         try {
             scope.laser?.update() ?: return
         } catch (failure: Exception) {
@@ -259,7 +272,7 @@ class TttScopes internal constructor(
             return
         }
         var task: ScheduledTask? = null
-        val accepted = schedule(2L) {
+        val accepted = schedule(1L) {
             task?.let(scheduled::remove)
             drainDisconnected()
             if (active[scope.playerId] !== scope || scope.motion != motion) return@schedule
@@ -274,6 +287,7 @@ class TttScopes internal constructor(
 
     private fun laserFailed(scope: Scope, failure: Exception) {
         stopLaser(scope)
+        scope.laserFailed = true
         Bukkit.getLogger().log(Level.WARNING, "ArcEvents scope laser failed for player=${scope.playerId}", failure)
     }
 
@@ -319,6 +333,7 @@ class TttScopes internal constructor(
         drainDisconnected()
         active.entries.toList().forEach { (playerId, scope) ->
             if (!valid(scope) || !authorized(scope.player, scope.target)) clear(playerId)
+            else syncLaser(scope)
         }
     }
 
@@ -432,7 +447,7 @@ class TttScopes internal constructor(
 
         private fun model(id: FirearmId, frame: String) = "arc:event_sights/${id.name.lowercase()}_$frame"
 
-        internal fun open(displays: PaperPacketDisplays, authorized: (Player, FirearmScopeTarget) -> Boolean): TttScopes = TttScopes(connection = { player ->
+        internal fun open(displays: PaperPacketDisplays, laserEnabled: () -> Boolean, authorized: (Player, FirearmScopeTarget) -> Boolean): TttScopes = TttScopes(connection = { player ->
             PacketEvents.getAPI().playerManager.getUser(player)?.let { user ->
                 ScopeConnection(user.entityId, user.clientVersion.protocolVersion, user::sendPacketSilently) { action ->
                     val completion = CompletableFuture<Unit>()
@@ -443,7 +458,7 @@ class TttScopes internal constructor(
                     completion
                 }
             }
-        }, authorized = authorized, createLaser = { TttScopeLaser(it, displays) }).also { scopes ->
+        }, authorized = authorized, createLaser = { TttScopeLaser(it, displays) }, laserEnabled = laserEnabled).also { scopes ->
             PacketEvents.getAPI().eventManager.registerListener(scopes)
             scopes.unregister = { PacketEvents.getAPI().eventManager.unregisterListener(scopes) }
         }

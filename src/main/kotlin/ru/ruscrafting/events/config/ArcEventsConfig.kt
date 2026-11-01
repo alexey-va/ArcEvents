@@ -222,6 +222,7 @@ data class WeaponSettings(
     val specs: Map<FirearmId, FirearmSpec>,
     val visuals: Map<FirearmId, FirearmVisualSettings>,
     val lootEffect: LootEffectSettings,
+    val scopeLaserEnabled: Boolean = false,
 ) {
     fun spec(id: FirearmId): FirearmSpec = specs.getValue(id)
     fun visual(id: FirearmId): FirearmVisualSettings = visuals.getValue(id)
@@ -464,6 +465,7 @@ class ArcEventsConfig(private val config: Config) {
     val weapons: WeaponSettings
         get() = WeaponSettings(
             enabled = config.bool("weapons.enabled", true),
+            scopeLaserEnabled = config.bool("weapons.scope-laser.enabled", false),
             dnaSeconds = config.int("weapons.dna-seconds", 90),
             specs = FirearmId.entries.associateWith { id ->
                 firearmSpec("weapons.catalog.${id.name.lowercase()}", TttFirearmCatalog.specs.getValue(id))

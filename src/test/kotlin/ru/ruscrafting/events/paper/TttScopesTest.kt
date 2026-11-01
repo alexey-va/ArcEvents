@@ -248,7 +248,7 @@ class TttScopesTest : StringSpec({
         }
     }
 
-    "shutdown cancels the laser and waits for accepted restore packets before completing" {
+    "shutdown cancels settling and waits for accepted restore packets before completing" {
         ScopeFixture(queued = true).use { f ->
             f.baseline()
             f.scopes.toggle(f.player, f.target)
@@ -269,7 +269,7 @@ class TttScopesTest : StringSpec({
         ScopeFixture().use { f ->
             f.baseline()
             f.scopes.toggle(f.player, f.target)
-            f.pendingTimers() shouldBe 2
+            f.pendingTimers() shouldBe 1
             f.scopes.onUserDisconnect(UserDisconnectEvent(mockk<User> {
                 every { uuid } returns f.playerId
                 every { entityId } returns f.entityId
@@ -340,22 +340,48 @@ class TttScopesTest : StringSpec({
         }
     }
 
-    "only VSS owns a laser and world invalidation releases its timer and parts" {
+    "VSS keeps its zoom and model with no laser work while the setting is disabled" {
+        ScopeFixture().use { f ->
+            f.baseline()
+            f.scopes.toggle(f.player, f.target) shouldBe true
+            f.pendingTimers() shouldBe 1
+            f.tick(6)
+            f.pendingTimers() shouldBe 0
+            f.scopes.zoom(f.playerId) shouldBe 3f
+            f.models().last() shouldBe "arc:event_sights/vss_vintorez_aim"
+            verify(exactly = 0) { f.laser.update() }
+        }
+    }
+
+    "laser reload reconciles an already aimed VSS each tick without rebuilding its scope" {
         ScopeFixture().use { f ->
             f.baseline()
             f.scopes.toggle(f.player, f.target.copy(firearm = FirearmId.G36))
+            f.laserEnabled = true
+            f.scopes.validate { _, _ -> true }
             f.tick(6)
             f.pendingTimers() shouldBe 0
             verify(exactly = 0) { f.laser.update() }
             f.scopes.toggle(f.player, f.target)
             f.pendingTimers() shouldBe 2
-            f.tick(2)
+            f.tick(1)
             verify(exactly = 2) { f.laser.update() }
+            f.laserEnabled = false
+            f.scopes.validate { _, _ -> true }
+            verify(exactly = 1) { f.laser.close() }
+            f.tick(5)
+            f.pendingTimers() shouldBe 0
+            f.scopes.isAiming(f.playerId) shouldBe true
+            f.laserEnabled = true
+            f.scopes.validate { _, _ -> true }
+            f.pendingTimers() shouldBe 1
+            f.tick(1)
+            verify(exactly = 4) { f.laser.update() }
             f.worldId = UUID.randomUUID()
-            f.tick(2)
+            f.tick(1)
             f.pendingTimers() shouldBe 0
             f.scopes.isAiming(f.playerId) shouldBe false
-            verify(exactly = 1) { f.laser.close() }
+            verify(exactly = 2) { f.laser.close() }
         }
     }
 
@@ -393,6 +419,7 @@ private class ScopeFixture(private val queued: Boolean = false, protocol: Int = 
     var tracked = false
     val observerPackets = mutableListOf<PacketWrapper<*>>()
     val laser = mockk<TttScopeLaser>(relaxed = true)
+    var laserEnabled = false
     var real = PacketItemStack.builder().type(ItemTypes.NETHERITE_SHOVEL).build()
     private val heldNative = mockk<ItemStack>()
     val packets = mutableListOf<PacketWrapper<*>>()
@@ -431,9 +458,9 @@ private class ScopeFixture(private val queued: Boolean = false, protocol: Int = 
             if (recipient === observer) ScopeConnection(99, protocol, observerPackets::add, execute)
             else ScopeConnection(entityId, protocol, packets::add, execute)
         }, { real }, schedule = { ticks, action ->
-            (ticks in setOf(2L, 6L)) shouldBe true
+            (ticks in setOf(1L, 6L)) shouldBe true
             Timer(timers.size, now + ticks, action).also(timers::add)
-        }, observers = { if (tracked) listOf(observer) else emptyList() }, createLaser = { laser })
+        }, observers = { if (tracked) listOf(observer) else emptyList() }, createLaser = { laser }, laserEnabled = { laserEnabled })
     }
 
     fun baseline(value: ScopeAbilities = ScopeAbilities(false, false, false, false, .05f, .1f)) {

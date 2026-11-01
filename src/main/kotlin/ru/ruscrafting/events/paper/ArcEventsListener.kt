@@ -46,6 +46,7 @@ import org.bukkit.event.player.PlayerMoveEvent
 import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.event.player.PlayerSwapHandItemsEvent
 import org.bukkit.event.player.PlayerTeleportEvent
+import org.bukkit.event.player.PlayerChangedWorldEvent
 import org.bukkit.event.server.BroadcastMessageEvent
 import org.bukkit.inventory.EquipmentSlot
 import ru.arc.core.Tasks
@@ -99,11 +100,20 @@ class ArcEventsListener(
     private val service: ArcEventsGameplayBoundary,
     private val menu: ArcEventsMenu,
     private val itemResolver: EventItemResolver,
+    private val worldFirearms: WorldFirearms? = null,
 ) : Listener {
     private val pendingEliminations = mutableSetOf<UUID>()
 
+    private fun clearWeaponState(playerId: UUID) {
+        worldFirearms?.cancel(playerId)
+        service.clearFirearmScope(playerId)
+    }
+
     @EventHandler fun onJoin(event: PlayerJoinEvent) = service.handleJoin(event.player)
-    @EventHandler fun onQuit(event: PlayerQuitEvent) = service.handleQuit(event.player)
+    @EventHandler fun onQuit(event: PlayerQuitEvent) {
+        worldFirearms?.forget(event.player.uniqueId)
+        service.handleQuit(event.player)
+    }
 
     // Cancel event-owned vanilla rewards before unrelated reward listeners observe a catch.
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)
@@ -222,6 +232,7 @@ class ArcEventsListener(
         }
         if (service.handleFishingInteract(event)) return
         val kind = itemResolver.kind(event.item) ?: run {
+            if (worldFirearms?.interact(event) == true) return
             if (event.hand == EquipmentSlot.HAND && event.action in setOf(Action.RIGHT_CLICK_AIR, Action.RIGHT_CLICK_BLOCK) &&
                 service.toggleScopePreview(player)
             ) event.isCancelled = true
@@ -229,7 +240,7 @@ class ArcEventsListener(
         }
         if (!service.belongsToCurrentMatch(player.uniqueId, event.item)) {
             event.isCancelled = true
-            service.clearFirearmScope(player.uniqueId)
+            clearWeaponState(player.uniqueId)
             return
         }
         when (kind) {
@@ -276,26 +287,29 @@ class ArcEventsListener(
     // Attacking a nearby entity does not emit PlayerInteractEvent's left-click route.
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onFirearmAttack(event: PrePlayerAttackEntityEvent) {
+        if (worldFirearms?.attack(event) == true) return
         val player = event.player
         val held = player.inventory.itemInMainHand
         if (itemResolver.kind(held) != EventItemKind.FIREARM) return
         event.isCancelled = true
         if (service.belongsToCurrentMatch(player.uniqueId, held)) service.useFirearm(player)
-        else service.clearFirearmScope(player.uniqueId)
+        else clearWeaponState(player.uniqueId)
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    fun onHeldSlot(event: PlayerItemHeldEvent) = service.clearFirearmScope(event.player.uniqueId)
+    fun onHeldSlot(event: PlayerItemHeldEvent) = clearWeaponState(event.player.uniqueId)
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    fun onInventoryOpen(event: InventoryOpenEvent) = service.clearFirearmScope(event.player.uniqueId)
+    fun onInventoryOpen(event: InventoryOpenEvent) = clearWeaponState(event.player.uniqueId)
 
-    @EventHandler fun onInventoryClose(event: InventoryCloseEvent) = service.clearFirearmScope(event.player.uniqueId)
+    @EventHandler fun onInventoryClose(event: InventoryCloseEvent) = clearWeaponState(event.player.uniqueId)
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    fun onGameModeChange(event: PlayerGameModeChangeEvent) = service.clearFirearmScope(event.player.uniqueId)
+    fun onGameModeChange(event: PlayerGameModeChangeEvent) = clearWeaponState(event.player.uniqueId)
 
-    @EventHandler fun onDeath(event: PlayerDeathEvent) = service.clearFirearmScope(event.player.uniqueId)
+    @EventHandler fun onDeath(event: PlayerDeathEvent) = clearWeaponState(event.player.uniqueId)
+
+    @EventHandler fun onChangedWorld(event: PlayerChangedWorldEvent) = clearWeaponState(event.player.uniqueId)
 
     @EventHandler(ignoreCancelled = true)
     fun onInteractEntity(event: PlayerInteractEntityEvent) {
@@ -329,10 +343,10 @@ class ArcEventsListener(
             (service.isScopePreview(player.uniqueId) || isScopeViewmodelItem(event.cursor))
         ) {
             event.isCancelled = true
-            service.clearFirearmScope(player.uniqueId)
+            clearWeaponState(player.uniqueId)
             return
         }
-        service.clearFirearmScope(player.uniqueId)
+        clearWeaponState(player.uniqueId)
         if (player.bypassesEventProtection() && !service.isFishingParticipant(player.uniqueId)) return
         if (event.view.topInventory.location?.let(service::withinProtectedArena) == true ||
             service.isParticipant(player.uniqueId) && service.phase() in CONTROLLED_PHASES
@@ -341,7 +355,7 @@ class ArcEventsListener(
 
     @EventHandler fun onMenuDrag(event: InventoryDragEvent) {
         val player = event.whoClicked as? Player ?: return
-        service.clearFirearmScope(player.uniqueId)
+        clearWeaponState(player.uniqueId)
         if (player.bypassesEventProtection() && !service.isFishingParticipant(player.uniqueId)) return
         if (event.view.topInventory.location?.let(service::withinProtectedArena) == true ||
             service.isParticipant(player.uniqueId) && service.phase() in CONTROLLED_PHASES
@@ -349,7 +363,7 @@ class ArcEventsListener(
     }
 
     @EventHandler(ignoreCancelled = true) fun onDrop(event: PlayerDropItemEvent) {
-        service.clearFirearmScope(event.player.uniqueId)
+        clearWeaponState(event.player.uniqueId)
         if (event.player.bypassesEventProtection() && !service.isFishingParticipant(event.player.uniqueId)) return
         if (service.canDropLoot(event.player, event.itemDrop.itemStack)) {
             service.registerDroppedLoot(event.itemDrop)
@@ -374,6 +388,7 @@ class ArcEventsListener(
         }
     }
     @EventHandler(ignoreCancelled = true) fun onSwap(event: PlayerSwapHandItemsEvent) {
+        if (worldFirearms?.swap(event) == true) return
         if (service.isParticipant(event.player.uniqueId) && service.phase() in CONTROLLED_PHASES) {
             event.isCancelled = true
             if (service.phase() == MatchPhase.ACTIVE) service.reloadFirearm(event.player)
@@ -438,7 +453,7 @@ class ArcEventsListener(
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onTeleport(event: PlayerTeleportEvent) {
-        service.clearFirearmScope(event.player.uniqueId)
+        clearWeaponState(event.player.uniqueId)
         if (event.player.bypassesEventProtection()) return
         val participant = service.isParticipant(event.player.uniqueId)
         if (service.isInternalTeleport(event.player.uniqueId, event.to)) return

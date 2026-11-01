@@ -179,8 +179,9 @@ open class ArcEventsPlugin : JavaPlugin() {
             val items = TttItems(this, locale) { settings }
             val firearms = TttFirearms(this, locale) { settings }
             lateinit var activeService: ArcEventsService
-            val scopeRuntime = TttScopes.open(packetDisplays) { player, target -> activeService.isScopeAuthorized(player, target) }
+            val scopeRuntime = TttScopes.open(packetDisplays, { settings.weapons.scopeLaserEnabled }) { player, target -> activeService.isScopeAuthorized(player, target) }
                 .also { scopes = it }
+            val shotRuntime = FirearmShots(packetDisplays, { settings.ui.particles }, { settings.ui.sounds })
             val lootScene = TttLootScene(this, firearms, packetDisplays, activeWork, chunkTickets) { settings }
             val storedWeaponPoints = points
             val arenaInspector = ArenaRuntimeInspector(this)
@@ -254,6 +255,7 @@ open class ArcEventsPlugin : JavaPlugin() {
                 work = activeWork,
                 scopes = scopeRuntime,
                 scopePreviewItemId = scopePreviewItemIdentity(this),
+                shots = shotRuntime,
             )
             service = activeService
             lifecycle.own(activeService)
@@ -276,7 +278,16 @@ open class ArcEventsPlugin : JavaPlugin() {
                 setExecutor(command)
                 tabCompleter = command
             }
-            server.pluginManager.registerEvents(ArcEventsListener(activeService, menu, items), this)
+            val worldFirearms = WorldFirearms(this, firearms, locale, scopeRuntime, scopePreviewItemIdentity(this),
+                allowed = { player -> !preparing && !escrow.isLocked(player.uniqueId) && player.uniqueId !in escrow.pendingPlayers() &&
+                    !activeService.isParticipant(player.uniqueId) && !activeService.withinProtectedArena(player.location) },
+                canTarget = { _, entity -> !activeService.withinProtectedArena(entity.location) &&
+                    (entity !is org.bukkit.entity.Player || !activeService.isParticipant(entity.uniqueId) &&
+                        !escrow.isLocked(entity.uniqueId) && entity.uniqueId !in escrow.pendingPlayers()) },
+                shots = shotRuntime,
+            )
+            lifecycle.own(worldFirearms)
+            server.pluginManager.registerEvents(ArcEventsListener(activeService, menu, items, worldFirearms), this)
             coordinator.start()
             activeService.start()
             preparing = false

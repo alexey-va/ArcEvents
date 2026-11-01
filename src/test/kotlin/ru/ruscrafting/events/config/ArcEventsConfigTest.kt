@@ -12,6 +12,20 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 class ArcEventsConfigTest : StringSpec({
+    "cosmetic VSS laser can reload during an active round" {
+        val root = Files.createTempDirectory("arcevents-scope-laser-")
+        try {
+            val current = ArcEventsConfig.load(root)
+            val configFile = root.resolve("config.yml")
+            Files.writeString(configFile, Files.readString(configFile).replace(
+                "scope-laser:\n    enabled: false", "scope-laser:\n    enabled: true",
+            ))
+            val candidate = ArcEventsConfig.inspect(root)
+            candidate.weapons.scopeLaserEnabled shouldBe true
+            shouldNotThrowAny { ArcEventsReloadPolicy.validate(current, candidate, true, "default") }
+        } finally { root.toFile().deleteRecursively() }
+    }
+
     "disposable player state is host-only and restart-only" {
         val root = Files.createTempDirectory("arcevents-player-state-mode-")
         try {
@@ -104,6 +118,7 @@ class ArcEventsConfigTest : StringSpec({
             config.arena.template shouldBe ""
             config.arena.operational(config.ttt.maximumPlayers) shouldBe false
             config.weapons.enabled shouldBe true
+            config.weapons.scopeLaserEnabled shouldBe false
             config.weapons.dnaSeconds shouldBe 90
             config.weapons.visual(FirearmId.MCMILLAN).material shouldBe "NETHERITE_SHOVEL"
             config.weapons.visual(FirearmId.MCMILLAN).customModelData shouldBe 0

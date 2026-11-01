@@ -259,20 +259,39 @@ Zoom packets preserve the current authoritative flight flags
 and speeds. Match aiming uses the same living-participant, weapon ownership
 and selected fishing-loadout checks as firing.
 
-While aiming, VSS Vintorez projects a thin red laser and a small contact marker,
-visible to its owner and nearby observers. Two stable client-only block displays
-update every two ticks with native interpolation. The cosmetic eye ray stops at
-the first solid/entity hit or before an unloaded chunk, up to 32 blocks; firing
-range, spread and damage remain authoritative and unchanged. Aim-off and the
-ordinary scope invalidation paths remove both parts.
-
 Publish the pack's new `_equip_*` definitions before activating 0.5.34. Existing
 item definitions remain unchanged, so the new pack remains compatible with
-0.5.33 during the transition. Native motion, observer alignment and laser
-appearance still need an actual Minecraft client observation.
+0.5.33 during the transition. Native motion and observer alignment still need
+an actual Minecraft client observation.
 
-For a cosmetic visual trial outside an event, use an event `HOST` or
-`RELAY` node with no local match, obtain one of the 12 mapped vendor guns through
+The optional VSS laser is controlled by `weapons.scope-laser.enabled` in
+`plugins/ArcEvents/config.yml` (default `false`). Set it to `true` and use the
+normal `/arcevents reload` path to enable it. Its ray/contact marker refreshes
+every tick without added display interpolation; network and server-tick latency
+remain, so turning responsiveness is not a native-client acceptance claim.
+
+Shots use shared swept-segment bullet flight, gravity, walls/entity collision
+and a loaded-chunk boundary. Automatic trigger groups release rounds on
+successive ticks; shotgun pellets share one volley. Short moving brass tracers,
+compact muzzle flash/smoke, material contact particles and weapon-specific
+sounds accompany actual shots. Relative camera kick and damped recovery use
+Minecraft 1.21.9+ rotation packets without restoring an old mouse direction.
+Older clients omit camera recoil. Native armour and hurt immunity remain.
+
+Ordinary-world guns use LMB to fire, RMB to aim and F to reload. A new
+magazine starts empty; one ordinary iron nugget loads one round. Event ammo
+and other custom nuggets do not qualify. Split stacked guns into individual
+items first. Loaded rounds persist on the same vendor item. A cancelled reload
+consumes nothing; Creative uses the same ammunition rules.
+
+Outside events, native `damage(amount, shooter)` keeps the real player as the
+source so WorldGuard, Lands, JustTeams and other protection listeners may cancel
+the hit. World PvP-off and event boundaries are checked separately. This path
+never clears a cancelled damage event or breaks blocks. See the
+[ammunition assessment](docs/economy/world-firearms-20261101.md).
+
+For aiming outside an event, use an event `HOST` or
+`RELAY` node outside protected event areas, obtain one of the 12 mapped vendor guns through
 the ordinary `/arc items` catalog, hold it in the main hand, switch to first person and click
 RMB. A second click lowers it. This requires `arcevents.scope-preview` (default
 `true`, with explicit permission denials still respected) and an exact supported ItemsAdder identity from `gold_guns` or
@@ -282,7 +301,7 @@ their saved `minecraft:custom_data` compound `itemsadder.{namespace,id}` through
 PacketEvents. This does not require installing ItemsAdder on that node; obtain
 the vendor item on a node that provides its catalog.
 The preview supports Survival, Adventure and Creative on both node roles and
-does not enable firing, ammo consumption or damage outside an event. A RELAY
+supports ordinary-world shooting as described above. A RELAY
 retains its routing role and cannot create a local match.
 
 Changing slot/weapon, reloading, observed inventory opens/actions/closes,

@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "ru.ruscrafting"
-version = "0.5.34"
+version = "0.5.35"
 description = "Cross-server custom events for RusCrafting"
 
 val integrationTestSourceSet = sourceSets.create("integrationTest") {

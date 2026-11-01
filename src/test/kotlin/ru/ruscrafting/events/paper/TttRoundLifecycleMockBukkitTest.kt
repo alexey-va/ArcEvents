@@ -553,6 +553,7 @@ internal class TttRoundFixture(
     private val disposable: Boolean = false,
     scopes: TttScopes? = null,
     scopePreviewItemId: (ItemStack) -> String? = { null },
+    shots: FirearmShots? = null,
 ) : AutoCloseable {
     var rejectRecovery = false
     var clientProtocolVersion = MIN_DIALOG_PROTOCOL
@@ -643,6 +644,7 @@ internal class TttRoundFixture(
             clientProtocol = { clientProtocolVersion },
             scopes = scopes,
             scopePreviewItemId = scopePreviewItemId,
+            shots = shots ?: FirearmShots(packetDisplays, { false }, { false }),
         )
         paper.server.pluginManager.registerEvents(
             ArcEventsListener(service, mockk(relaxed = true), items),
