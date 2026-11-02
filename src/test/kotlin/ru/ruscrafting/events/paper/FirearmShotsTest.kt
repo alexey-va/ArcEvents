@@ -85,6 +85,21 @@ class FirearmShotsTest : StringSpec({
         }
     }
 
+    "closest points use the complete swept segment including zero length and the near miss boundary" {
+        val start = Vector(0.0, 64.0, 0.0)
+        val end = Vector(0.0, 64.0, 10.0)
+        firearmClosestPointOnSegment(Vector(1.0, 65.0, 5.0), start, end) shouldBe Vector(0.0, 64.0, 5.0)
+        firearmClosestPointOnSegment(Vector(0.0, 64.0, -1.0), start, end) shouldBe start
+        firearmClosestPointOnSegment(Vector(0.0, 64.0, 11.0), start, end) shouldBe end
+        firearmClosestPointOnSegment(Vector(1.0, 65.0, 5.0), start, start) shouldBe start
+        for ((offset, inside) in listOf(2.0 to true, 2.0001 to false)) {
+            val eye = Vector(offset, 64.0, 5.0)
+            (eye.distanceSquared(firearmClosestPointOnSegment(eye, start, end)) <= 4.0) shouldBe inside
+        }
+        start shouldBe Vector(0.0, 64.0, 0.0)
+        end shouldBe Vector(0.0, 64.0, 10.0)
+    }
+
     "recoil packets add only their delta and recovery preserves independent mouse movement" {
         withShotFixture { f ->
             val kick = firearmRecoilPacket(.2f, -2f)
@@ -242,6 +257,7 @@ class FirearmShotsTest : StringSpec({
 
     "a protected living body collides with the bullet without receiving a damage callback" {
         withShotFixture { f ->
+            f.soundsEnabled = true
             val protected = mockk<Player>(relaxed = true)
             every { protected.isDead } returns false
             f.ray = { origin, direction, _ -> RayTraceResult(origin.toVector().add(direction), protected) }
@@ -251,11 +267,15 @@ class FirearmShotsTest : StringSpec({
             f.scheduler.tick(4)
             f.rays.size shouldBe 1
             f.hits.isEmpty() shouldBe true
+            verify(exactly = 1) {
+                f.world.playSound(any<Location>(), "arc:bullet_impact", SoundCategory.PLAYERS, .8f, 1f)
+            }
         }
     }
 
     "one shotgun volley aggregates all target pellets before invoking native damage" {
         withShotFixture { f ->
+            f.soundsEnabled = true
             val shotgun = TttFirearmCatalog.specs.getValue(FirearmId.DOUBLE_BARREL).copy(spreadDegrees = 0.0)
             f.ray = { origin, direction, _ -> RayTraceResult(origin.toVector().add(direction.clone()), f.target) }
             f.fire(shotgun) shouldBe true
@@ -263,6 +283,9 @@ class FirearmShotsTest : StringSpec({
             f.rays.size shouldBe shotgun.pellets
             f.hits.size shouldBe 1
             f.hits.single().second shouldBe ((shotgun.pellets * shotgun.damagePerPellet) plusOrMinus 1e-8)
+            verify(exactly = 1) {
+                f.world.playSound(any<Location>(), "arc:bullet_impact", SoundCategory.PLAYERS, .8f, 1f)
+            }
         }
     }
 
@@ -272,7 +295,7 @@ class FirearmShotsTest : StringSpec({
             f.fire() shouldBe true
             f.until { f.rays.isNotEmpty() }
             verify(exactly = 1) {
-                f.world.playSound(any<Location>(), "arc:weapon_vss_fire", SoundCategory.PLAYERS, 1f, 1f)
+                f.world.playSound(any<Location>(), "arc:weapon_vss_fire", SoundCategory.PLAYERS, 4f, 1f)
             }
             verify(exactly = 0) {
                 f.world.playSound(any<Location>(), Sound.ENTITY_ARROW_SHOOT, any<Float>(), any<Float>())
@@ -312,9 +335,125 @@ class FirearmShotsTest : StringSpec({
             f.ray = { origin, direction, _ -> RayTraceResult(origin.toVector().add(direction.clone()), wall, null) }
             f.fire() shouldBe true
             f.until { f.rays.isNotEmpty() }
+            verify(exactly = 1) { f.world.playSound(any<Location>(), "arc:bullet_impact", SoundCategory.PLAYERS, .8f, 1f) }
             verify(exactly = 1) { f.world.playSound(any<Location>(), Sound.BLOCK_STONE_HIT, .35f, 1.2f) }
             verify(exactly = 0) { f.world.spawnParticle(any<Particle>(), any<Location>(), any<Int>(), any<Double>(), any<Double>(), any<Double>(), any<Double>()) }
             verify(exactly = 0) { f.world.spawnParticle(any<Particle>(), any<Location>(), any<Int>(), any<Double>(), any<Double>(), any<Double>(), any<Double>(), any<BlockData>()) }
+        }
+    }
+
+    "empty air flybys reach only nearby eligible eyes and each projectile plays once per listener" {
+        withShotFixture { f ->
+            f.soundsEnabled = true
+            val near = f.listener(Location(f.world, 0.0, 64.0, 8.0))
+            val far = f.listener(Location(f.world, 0.0, 64.0, 8.0))
+            val shooter = f.listener(Location(f.world, 0.0, 64.0, 8.0))
+            every { shooter.uniqueId } returns f.player.uniqueId
+            val offline = f.listener(Location(f.world, 0.0, 64.0, 8.0))
+            every { offline.isOnline } returns false
+            val invalid = f.listener(Location(f.world, 0.0, 64.0, 8.0))
+            every { invalid.isValid } returns false
+            val elsewhere = f.listener(Location(f.world, 0.0, 64.0, 8.0))
+            every { elsewhere.world } returns mockk { every { uid } returns UUID.randomUUID() }
+            f.ray = { origin, direction, _ ->
+                val along = origin.toVector().add(direction.clone().multiply(8.0))
+                val side = Vector(direction.z, 0.0, -direction.x).normalize()
+                every { near.eyeLocation } returns along.clone().add(side.clone().multiply(1.99)).toLocation(f.world)
+                every { far.eyeLocation } returns along.clone().add(side.clone().multiply(2.01)).toLocation(f.world)
+                null
+            }
+            f.fire() shouldBe true
+            f.until { f.rays.size >= 2 }
+            verify(exactly = 1) {
+                near.playSound(any<Location>(), "arc:bullet_flyby", SoundCategory.PLAYERS, .8f, 1f)
+            }
+            for (listener in listOf(far, shooter, offline, invalid, elsewhere)) verify(exactly = 0) {
+                listener.playSound(any<Location>(), any<String>(), any<SoundCategory>(), any<Float>(), any<Float>())
+            }
+            verify(exactly = 0) {
+                f.world.playSound(any<Location>(), "arc:bullet_flyby", any<SoundCategory>(), any<Float>(), any<Float>())
+            }
+            f.hits.isEmpty() shouldBe true
+        }
+    }
+
+    "flybys skip the muzzle and clip at the actual wall contact" {
+        withShotFixture { f ->
+            f.soundsEnabled = true
+            val atMuzzle = f.listener(f.eye)
+            val beforeWall = f.listener(f.eye)
+            val beyondWall = f.listener(f.eye)
+            var contact = Vector()
+            val wall = mockk<Block>(relaxed = true)
+            f.ray = { origin, direction, _ ->
+                every { atMuzzle.eyeLocation } returns origin.clone()
+                every { beforeWall.eyeLocation } returns origin.toVector().add(direction.clone().multiply(4.0)).toLocation(f.world)
+                every { beyondWall.eyeLocation } returns origin.toVector().add(direction.clone().multiply(12.0)).toLocation(f.world)
+                contact = origin.toVector().add(direction.clone().multiply(8.0))
+                RayTraceResult(contact.clone(), wall, null)
+            }
+            f.fire() shouldBe true
+            f.until { f.rays.isNotEmpty() }
+            verify(exactly = 1) {
+                beforeWall.playSound(any<Location>(), "arc:bullet_flyby", SoundCategory.PLAYERS, .8f, 1f)
+            }
+            for (listener in listOf(atMuzzle, beyondWall)) verify(exactly = 0) {
+                listener.playSound(any<Location>(), any<String>(), any<SoundCategory>(), any<Float>(), any<Float>())
+            }
+            verify(exactly = 1) {
+                f.world.playSound(match<Location> { it.toVector().distanceSquared(contact) < 1e-8 },
+                    "arc:bullet_impact", SoundCategory.PLAYERS, .8f, 1f)
+            }
+            f.hits.isEmpty() shouldBe true
+        }
+    }
+
+    "flybys stop at the loaded segment and the global sound toggle disables both new cues" {
+        withShotFixture { f ->
+            f.soundsEnabled = true
+            f.eye = Location(f.world, 0.0, 64.0, 4.0)
+            every { f.world.isChunkLoaded(any<Int>(), any<Int>()) } answers { secondArg<Int>() == 0 }
+            val near = f.listener(f.eye)
+            val beyond = f.listener(f.eye)
+            f.ray = { origin, direction, distance ->
+                val end = origin.toVector().add(direction.clone().multiply(distance))
+                every { near.eyeLocation } returns end.clone().subtract(direction.clone().multiply(3.0)).toLocation(f.world)
+                every { beyond.eyeLocation } returns end.clone().add(direction.clone().multiply(3.0)).toLocation(f.world)
+                null
+            }
+            f.fire() shouldBe true
+            f.until { f.rays.isNotEmpty() }
+            f.scheduler.tick(3)
+            f.rays.size shouldBe 1
+            verify(exactly = 1) { near.playSound(any<Location>(), "arc:bullet_flyby", SoundCategory.PLAYERS, .8f, 1f) }
+            verify(exactly = 0) { beyond.playSound(any<Location>(), any<String>(), any<SoundCategory>(), any<Float>(), any<Float>()) }
+            verify(exactly = 0) { f.world.loadChunk(any<Int>(), any<Int>()) }
+        }
+        withShotFixture { f ->
+            val listener = f.listener(Location(f.world, 0.0, 64.0, 6.0))
+            f.ray = { origin, direction, _ -> RayTraceResult(origin.toVector().add(direction.clone().multiply(8.0)), f.target) }
+            f.fire() shouldBe true
+            f.until { f.hits.isNotEmpty() }
+            verify(exactly = 0) {
+                f.world.getNearbyPlayers(any<Location>(), any<Double>(), any<Double>(), any<Double>())
+                listener.playSound(any<Location>(), any<String>(), any<SoundCategory>(), any<Float>(), any<Float>())
+                f.world.playSound(any<Location>(), any<String>(), any<SoundCategory>(), any<Float>(), any<Float>())
+            }
+        }
+    }
+
+    "shotgun pellets share one physical wall impact sound and retain its material layer" {
+        withShotFixture { f ->
+            f.soundsEnabled = true
+            val shotgun = TttFirearmCatalog.specs.getValue(FirearmId.DOUBLE_BARREL).copy(spreadDegrees = 0.0)
+            val wall = mockk<Block>(relaxed = true)
+            every { wall.blockData.soundGroup.hitSound } returns Sound.BLOCK_STONE_HIT
+            f.ray = { origin, direction, _ -> RayTraceResult(origin.toVector().add(direction.clone().multiply(8.0)), wall, null) }
+            f.fire(shotgun) shouldBe true
+            f.until { f.rays.size == shotgun.pellets }
+            verify(exactly = 1) { f.world.playSound(any<Location>(), "arc:bullet_impact", SoundCategory.PLAYERS, .8f, 1f) }
+            verify(exactly = 1) { f.world.playSound(any<Location>(), Sound.BLOCK_STONE_HIT, .35f, 1.2f) }
+            f.hits.isEmpty() shouldBe true
         }
     }
 
@@ -423,6 +562,7 @@ private class ShotFixture(val scheduler: TestTaskScheduler) : AutoCloseable {
     private var launchQueries = 0
     val hits = mutableListOf<Pair<Vector, Double>>()
     val hitDetails = mutableListOf<FirearmHit>()
+    val nearbyPlayers = mutableListOf<Player>()
     var ray: (Location, Vector, Double) -> RayTraceResult? = { _, _, _ -> null }
 
     init {
@@ -430,6 +570,7 @@ private class ShotFixture(val scheduler: TestTaskScheduler) : AutoCloseable {
         every { world.minHeight } returns -64
         every { world.maxHeight } returns 320
         every { world.isChunkLoaded(any<Int>(), any<Int>()) } returns true
+        every { world.getNearbyPlayers(any<Location>(), any<Double>(), any<Double>(), any<Double>()) } answers { nearbyPlayers.toList() }
         every { player.uniqueId } returns UUID.randomUUID()
         every { player.entityId } returns 5
         every { player.isOnline } returns true
@@ -455,6 +596,16 @@ private class ShotFixture(val scheduler: TestTaskScheduler) : AutoCloseable {
                 }
             }
         }
+    }
+
+    fun listener(eye: Location): Player = mockk<Player>(relaxed = true).also { listener ->
+        every { listener.uniqueId } returns UUID.randomUUID()
+        every { listener.isOnline } returns true
+        every { listener.isValid } returns true
+        every { listener.isDead } returns false
+        every { listener.world } returns world
+        every { listener.eyeLocation } answers { eye.clone() }
+        nearbyPlayers += listener
     }
 
     fun enableVisuals() {

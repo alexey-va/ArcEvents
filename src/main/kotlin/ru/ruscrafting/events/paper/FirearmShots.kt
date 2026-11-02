@@ -67,10 +67,12 @@ class FirearmShots(
     private class Round(val shot: Shot, val pellets: Int, val due: Long) {
         var remaining = pellets
         val impacts = linkedMapOf<UUID, Impact>()
+        val soundedContacts = mutableListOf<Vector>()
     }
     private class Bullet(val round: Round, val position: Vector, val velocity: Vector, val born: Long) {
         var remaining = round.shot.spec.range
         var display: PacketBlockDisplay? = null
+        val heardFlyby = mutableSetOf<UUID>()
     }
     private data class Impact(val shot: Shot, val entity: Entity, val position: Vector, var headshot: Boolean, var damage: Double)
     private data class Retired(val display: PacketBlockDisplay, val due: Long)
@@ -86,6 +88,7 @@ class FirearmShots(
     private val recoils = linkedMapOf<UUID, Recoil>()
     private var reserved = 0
     private var tick = 0L
+    private var soundWork = 0
     private var task: ScheduledTask? = null
     private var closed = false
     private val logger = Logger.getLogger("Minecraft")
@@ -121,6 +124,7 @@ class FirearmShots(
     private fun advance() {
         if (closed) return
         tick++
+        soundWork = 0
         while (retired.firstOrNull()?.due?.let { it <= tick } == true) retired.removeFirst().display.remove()
         recoverRecoil()
         val deadline = System.nanoTime() + TICK_BUDGET_NANOS
@@ -206,13 +210,14 @@ class FirearmShots(
         val origin = bullet.position.toLocation(shot.world)
         val result = trace(shot, origin, direction, loaded)
         val end = result?.hitPosition ?: bullet.position.clone().add(direction.clone().multiply(loaded))
+        cosmetic(shot, "flyby") { flyby(bullet, end, direction) }
         bullet.remaining -= bullet.position.distance(end)
         bullet.position.copy(end)
         // Gravity is in blocks/tick²; retain the same swept segment at every speed, never point-test a bullet.
         velocity.y -= BULLET_GRAVITY
         cosmetic(shot, "tracer") { presentBullet(bullet, direction, result != null) }
         if (result != null) {
-            cosmetic(shot, "contact") { contact(shot, result, direction) }
+            cosmetic(shot, "contact") { contact(bullet.round, result, direction) }
             result.hitEntity?.takeIf(shot.target)?.let { entity ->
                 val headshot = entity is Player && end.y >= entity.eyeLocation.y - .38
                 val damage = shot.spec.damagePerPellet * if (headshot) shot.headshotMultiplier else 1.0
@@ -288,11 +293,50 @@ class FirearmShots(
         }
     }
 
-    private fun contact(shot: Shot, result: RayTraceResult, direction: Vector) {
-        val block = result.hitBlock ?: return
-        val point = result.hitPosition.subtract(direction.clone().multiply(.025)).toLocation(shot.world)
-        if (particles()) shot.world.spawnParticle(Particle.BLOCK, point, 5, .045, .045, .045, .08, block.blockData)
-        if (sounds()) shot.world.playSound(point, block.blockData.soundGroup.hitSound, .35f, 1.2f)
+    private fun flyby(bullet: Bullet, end: Vector, direction: Vector) {
+        if (!sounds()) return
+        val travelled = bullet.round.shot.spec.range - bullet.remaining
+        val skip = (MIN_FLYBY_TRAVEL - travelled).coerceAtLeast(0.0)
+        if (bullet.position.distanceSquared(end) <= skip * skip) return
+        val start = bullet.position.clone().add(direction.clone().multiply(skip))
+        val shot = bullet.round.shot
+        if (!claimSoundWork()) return
+        val delta = end.clone().subtract(start)
+        val center = start.clone().add(end).multiply(.5).toLocation(shot.world)
+        // Native spatial lookup is one indivisible call; candidate checks and sends share the tick cap.
+        for (listener in shot.world.getNearbyPlayers(center, abs(delta.x) * .5 + FLYBY_RADIUS,
+            abs(delta.y) * .5 + FLYBY_RADIUS, abs(delta.z) * .5 + FLYBY_RADIUS)) {
+            if (!claimSoundWork()) break
+            val id = listener.uniqueId
+            if (id == shot.shooter.uniqueId || id in bullet.heardFlyby || !listener.isOnline || !listener.isValid ||
+                listener.isDead || listener.world.uid != shot.world.uid) continue
+            val eye = listener.eyeLocation.toVector()
+            val closest = firearmClosestPointOnSegment(eye, start, end)
+            if (eye.distanceSquared(closest) > FLYBY_RADIUS * FLYBY_RADIUS) continue
+            if (!claimSoundWork()) break
+            listener.playSound(closest.toLocation(shot.world), "arc:bullet_flyby", SoundCategory.PLAYERS, .8f, 1f)
+            bullet.heardFlyby += id
+        }
+    }
+
+    private fun contact(round: Round, result: RayTraceResult, direction: Vector) {
+        val shot = round.shot
+        val block = result.hitBlock
+        val contact = result.hitPosition
+        val point = contact.clone().subtract(direction.clone().multiply(.025)).toLocation(shot.world)
+        if (particles() && block != null) shot.world.spawnParticle(Particle.BLOCK, point, 5, .045, .045, .045, .08, block.blockData)
+        if (!sounds() || round.soundedContacts.any { it.distanceSquared(contact) < IMPACT_SPACING * IMPACT_SPACING } ||
+            !claimSoundWork()) return
+        round.soundedContacts += contact.clone()
+        // Physical contact is audible even when native protection later rejects damage.
+        shot.world.playSound(contact.toLocation(shot.world), "arc:bullet_impact", SoundCategory.PLAYERS, .8f, 1f)
+        if (block != null && claimSoundWork()) shot.world.playSound(point, block.blockData.soundGroup.hitSound, .35f, 1.2f)
+    }
+
+    private fun claimSoundWork(): Boolean {
+        if (soundWork >= MAX_SOUND_WORK_PER_TICK) return false
+        soundWork++
+        return true
     }
 
     private fun kick(shot: Shot) {
@@ -378,9 +422,13 @@ class FirearmShots(
     companion object {
         private const val MAX_BULLETS = 192
         private const val MAX_STEPS_PER_TICK = 96
+        private const val MAX_SOUND_WORK_PER_TICK = MAX_STEPS_PER_TICK / 3
         private const val TICK_BUDGET_NANOS = 2_000_000L
         private const val MAX_LIFETIME_TICKS = 40L
         private const val BULLET_GRAVITY = .025
+        private const val FLYBY_RADIUS = 2.0
+        private const val MIN_FLYBY_TRAVEL = 3.0
+        private const val IMPACT_SPACING = 1.5
     }
 }
 
@@ -397,7 +445,7 @@ internal fun firearmFlightProfile(id: FirearmId): FirearmFlightProfile = when (i
     FirearmId.RPL_20 -> FirearmFlightProfile(41.0, 1.1f, .95f, .86f)
     FirearmId.VEPR_12 -> FirearmFlightProfile(24.0, 2.7f, .82f, .86f)
     FirearmId.M1_GARAND -> FirearmFlightProfile(43.0, 2.5f, .9f, .9f)
-    FirearmId.VSS_VINTOREZ -> FirearmFlightProfile(15.0, .9f, 1f, 1f)
+    FirearmId.VSS_VINTOREZ -> FirearmFlightProfile(15.0, .9f, 4f, 1f)
     FirearmId.MCMILLAN -> FirearmFlightProfile(45.0, 3.8f, 1.0f, .72f)
 }
 
@@ -415,6 +463,14 @@ internal fun firearmRecoilKick(currentPitch: Float, strength: Float, recoveryDeb
 internal fun firearmBulletTransform(direction: Vector): Transformation {
     val rotation = Quaternionf().rotationTo(Vector3f(0f, 0f, 1f), direction.toVector3f().normalize())
     return Transformation(rotation.transform(Vector3f(-.012f, -.012f, -.65f)), rotation, Vector3f(.024f, .024f, .65f), Quaternionf())
+}
+
+internal fun firearmClosestPointOnSegment(point: Vector, start: Vector, end: Vector): Vector {
+    val delta = end.clone().subtract(start)
+    val lengthSquared = delta.lengthSquared()
+    if (lengthSquared == 0.0) return start.clone()
+    val fraction = point.clone().subtract(start).dot(delta).div(lengthSquared).coerceIn(0.0, 1.0)
+    return start.clone().add(delta.multiply(fraction))
 }
 
 /** Exact chunk traversal, including negative coordinates and an endpoint exactly on a chunk edge. */
