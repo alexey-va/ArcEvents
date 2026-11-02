@@ -7,10 +7,14 @@ import com.github.retrooper.packetevents.event.UserDisconnectEvent
 import com.github.retrooper.packetevents.manager.server.ServerManager
 import com.github.retrooper.packetevents.manager.server.ServerVersion
 import com.github.retrooper.packetevents.protocol.component.ComponentTypes
+import com.github.retrooper.packetevents.protocol.component.builtin.item.ItemModel
+import com.github.retrooper.packetevents.protocol.component.builtin.item.ItemSwingAnimation
 import com.github.retrooper.packetevents.protocol.item.ItemStack as PacketItemStack
 import com.github.retrooper.packetevents.protocol.item.type.ItemTypes
 import com.github.retrooper.packetevents.protocol.nbt.NBTCompound
 import com.github.retrooper.packetevents.protocol.nbt.NBTInt
+import com.github.retrooper.packetevents.protocol.nbt.NBTString
+import com.github.retrooper.packetevents.resources.ResourceLocation
 import com.github.retrooper.packetevents.protocol.packettype.PacketType
 import com.github.retrooper.packetevents.protocol.player.Equipment
 import com.github.retrooper.packetevents.protocol.player.EquipmentSlot
@@ -20,6 +24,7 @@ import com.github.retrooper.packetevents.wrapper.PacketWrapper
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityEquipment
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerPlayerAbilities
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSetPlayerInventory
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSetCursorItem
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSetSlot
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerWindowItems
 import io.github.retrooper.packetevents.impl.netty.NettyManagerImpl
@@ -38,6 +43,173 @@ import java.util.UUID
 import java.util.concurrent.CompletableFuture
 
 class TttScopesTest : StringSpec({
+    "reload samples all twelve mechanical model sequences at authoritative gameplay ticks" {
+        ScopeFixture().use { f ->
+            f.real = gunPacketItem()
+            f.baseline()
+            for (id in FirearmId.entries) {
+                f.packets.clear()
+                val authoritativeBefore = f.real.copy()
+                val duration = if (id == FirearmId.FIVE_SEVEN) 28 else 64
+                val handle = f.scopes.animateReload(f.player, f.target.copy(firearm = id), duration) { true }
+                f.models().single() shouldBe "arc:event_sights/${id.name.lowercase()}_reload_00"
+                f.scopes.isAiming(f.playerId) shouldBe false
+                f.scopes.projectedZoom(f.playerId) shouldBe null
+                f.tick(duration - 1)
+                f.models().last() shouldBe "arc:event_sights/${id.name.lowercase()}_reload_39"
+                (f.models().size <= minOf(duration, 40)) shouldBe true
+                f.tick(1)
+                f.models().last() shouldBe "arc:event_sights/${id.name.lowercase()}_hip"
+                f.pendingTimers() shouldBe 0
+                handle.close()
+                f.real shouldBe authoritativeBefore
+                f.scopes.clear(f.playerId)
+            }
+        }
+    }
+
+    "reload uses the gameplay lease while ordinary aim authorization is temporarily false" {
+        ScopeFixture().use { f ->
+            f.real = gunPacketItem()
+            f.baseline()
+            f.scopeAuthorized = false
+            var current = true
+            f.scopes.animateReload(f.player, f.target, 42) { current }
+            f.scopes.validate { _, _ -> false }
+            f.tick(5)
+            f.models().last().contains("_reload_") shouldBe true
+            current = false
+            f.real = PacketItemStack.builder().type(ItemTypes.GOLDEN_HOE).build()
+            f.tick(1)
+            f.pendingTimers() shouldBe 0
+            (f.packets.last() as WrapperPlayServerSetPlayerInventory).stack shouldBe f.real
+            f.runCancelled()
+            (f.packets.last() as WrapperPlayServerSetPlayerInventory).stack shouldBe f.real
+        }
+    }
+
+    "reload inventory projection preserves metadata and never covers a replacement item" {
+        ScopeFixture().use { f ->
+            f.real = gunPacketItem()
+            f.scopes.animateReload(f.player, f.target.copy(matchId = null), 42) { true }
+            f.tick(9)
+            val held = f.filter(WrapperPlayServerSetPlayerInventory(2, f.real)) as WrapperPlayServerSetPlayerInventory
+            held.stack.getComponent(ComponentTypes.ITEM_MODEL).get().modelLocation.toString() shouldBe f.models().last()
+            held.stack.getComponent(ComponentTypes.CUSTOM_DATA) shouldBe f.real.getComponent(ComponentTypes.CUSTOM_DATA)
+            val replacement = PacketItemStack.builder().type(ItemTypes.DIAMOND).build()
+            val updated = f.filter(WrapperPlayServerSetPlayerInventory(2, replacement)) as WrapperPlayServerSetPlayerInventory
+            updated.stack shouldBe replacement
+            val otherSlot = f.filter(WrapperPlayServerSetPlayerInventory(3, f.real)) as WrapperPlayServerSetPlayerInventory
+            otherSlot.stack.getComponent(ComponentTypes.ITEM_MODEL) shouldBe f.real.getComponent(ComponentTypes.ITEM_MODEL)
+        }
+    }
+
+    "cancelled queued reload frames and old handles cannot overwrite a newer scope" {
+        ScopeFixture(queued = true).use { f ->
+            f.real = gunPacketItem()
+            f.baseline()
+            val old = f.scopes.animateReload(f.player, f.target, 42) { true }
+            f.tick(5)
+            f.scopes.cancelReload(f.playerId)
+            f.scopes.toggle(f.player, f.target.copy(firearm = FirearmId.G36)) shouldBe true
+            old.close()
+            old.close()
+            f.runCancelled()
+            f.runQueued()
+            f.models() shouldBe listOf("arc:event_sights/g36_equip_aim")
+            f.scopes.cancelReload(f.playerId)
+            f.tick(6)
+            f.runQueued()
+            f.models().last() shouldBe "arc:event_sights/g36_aim"
+        }
+    }
+
+    "Creative manual reload remains cosmetic and a slot or death invalidation cleans up" {
+        ScopeFixture().use { f ->
+            f.real = gunPacketItem()
+            f.gameMode = GameMode.CREATIVE
+            f.scopes.animateReload(f.player, f.target.copy(matchId = null), 28) { true }
+            f.tick(5)
+            f.models().last().contains("_reload_") shouldBe true
+            f.scopes.cancelReload(f.playerId)
+            f.pendingTimers() shouldBe 0
+            f.scopes.hasViewmodel(f.playerId) shouldBe false
+            f.scopes.animateReload(f.player, f.target.copy(matchId = null), 28) { true }
+            f.heldSlot = 3
+            f.tick(1)
+            f.pendingTimers() shouldBe 0
+            f.heldSlot = 2
+            f.scopes.animateReload(f.player, f.target.copy(matchId = null), 28) { true }
+            f.dead = true
+            f.tick(1)
+            f.pendingTimers() shouldBe 0
+            f.scopes.hasViewmodel(f.playerId) shouldBe false
+        }
+    }
+
+    "native swing suppression preserves item identity and metadata and leaves crossbows and other items alone" {
+        ScopeFixture().use {
+            val native = gunPacketItem()
+            val model = ItemModel(ResourceLocation("arc:gold_guns/gold_g36"))
+            native.setComponent(ComponentTypes.ITEM_MODEL, model)
+            val data = native.getComponent(ComponentTypes.CUSTOM_DATA).get()
+            val originalAnimation = native.getComponent(ComponentTypes.SWING_ANIMATION)
+            val quiet = firearmWithoutSwing(native, ClientVersion.V_1_21_11.protocolVersion)
+            quiet.type shouldBe native.type
+            quiet.amount shouldBe native.amount
+            quiet.getComponent(ComponentTypes.ITEM_MODEL).get() shouldBe model
+            quiet.getComponent(ComponentTypes.CUSTOM_DATA).get() shouldBe data
+            quiet.getComponent(ComponentTypes.SWING_ANIMATION).get().type shouldBe ItemSwingAnimation.Type.NONE
+            quiet.getComponent(ComponentTypes.SWING_ANIMATION).get().duration shouldBe 6
+            native.getComponent(ComponentTypes.SWING_ANIMATION) shouldBe originalAnimation
+            (firearmWithoutSwing(quiet, ClientVersion.V_1_21_11.protocolVersion) === quiet) shouldBe true
+            (firearmWithoutSwing(native, ClientVersion.V_1_21_4.protocolVersion) === native) shouldBe true
+            val crossbow = gunPacketItem(crossbow = true)
+            (firearmWithoutSwing(crossbow, ClientVersion.V_1_21_11.protocolVersion) === crossbow) shouldBe true
+            val vanilla = PacketItemStack.builder().type(ItemTypes.NETHERITE_SHOVEL).build()
+            (firearmWithoutSwing(vanilla, ClientVersion.V_1_21_11.protocolVersion) === vanilla) shouldBe true
+        }
+    }
+
+    "unscoped raw and event guns receive the component in inventory and cursor packets before first use" {
+        ScopeFixture().use { f ->
+            for (native in listOf(gunPacketItem(), gunPacketItem(event = true))) {
+                val inventory = f.filter(WrapperPlayServerSetPlayerInventory(2, native)) as WrapperPlayServerSetPlayerInventory
+                val slot = f.filter(WrapperPlayServerSetSlot(0, 11, 38, native)) as WrapperPlayServerSetSlot
+                val window = f.filter(WrapperPlayServerWindowItems(2, 12, listOf(native), native)) as WrapperPlayServerWindowItems
+                val cursor = f.filter(WrapperPlayServerSetCursorItem(native)) as WrapperPlayServerSetCursorItem
+                listOf(inventory.stack, slot.item, window.items.single(), window.carriedItem.get(), cursor.stack).forEach { shown ->
+                    shown.getComponent(ComponentTypes.SWING_ANIMATION).get().type shouldBe ItemSwingAnimation.Type.NONE
+                    shown.getComponent(ComponentTypes.CUSTOM_DATA) shouldBe native.getComponent(ComponentTypes.CUSTOM_DATA)
+                    shown.type shouldBe native.type
+                }
+                slot.stateId shouldBe 11
+                window.stateId shouldBe 12
+            }
+            f.packets.isEmpty() shouldBe true
+            f.pendingTimers() shouldBe 0
+        }
+    }
+
+    "aimed silent sends and ordinary clear retain suppression while close restores authoritative inventory" {
+        ScopeFixture().use { f ->
+            f.real = gunPacketItem()
+            f.baseline()
+            f.scopes.toggle(f.player, f.target)
+            f.tick(6)
+            f.scopes.clear(f.playerId)
+            f.packets.filterIsInstance<WrapperPlayServerSetPlayerInventory>().forEach {
+                it.stack.getComponent(ComponentTypes.SWING_ANIMATION).get().type shouldBe ItemSwingAnimation.Type.NONE
+            }
+            f.scopes.toggle(f.player, f.target)
+            f.scopes.closeAsync().join()
+            f.inventoryRefreshes shouldBe 1
+            (f.packets.last() as WrapperPlayServerSetPlayerInventory).stack shouldBe f.real
+            val afterClose = f.filter(WrapperPlayServerSetPlayerInventory(2, f.real)) as WrapperPlayServerSetPlayerInventory
+            afterClose.stack shouldBe f.real
+        }
+    }
+
     "aiming restores the latest native abilities and current held item without ever replacing a helmet" {
         ScopeFixture().use { f ->
             val original = ScopeAbilities(false, false, false, false, .05f, .1f)
@@ -387,6 +559,26 @@ class TttScopesTest : StringSpec({
 
 })
 
+private fun gunPacketItem(event: Boolean = false, crossbow: Boolean = false): PacketItemStack {
+    val data = NBTCompound()
+    if (event) {
+        data.setTag("PublicBukkitValues", NBTCompound().also {
+            it.setTag("arcevents:event_item", NBTString("FIREARM"))
+            it.setTag("arcevents:firearm", NBTString("G36"))
+            it.setTag("arcevents:loaded_rounds", NBTInt(7))
+        })
+    } else {
+        data.setTag("itemsadder", NBTCompound().also {
+            it.setTag("namespace", NBTString(if (crossbow) "voxelspawns_megaflintlocks" else "gold_guns"))
+            it.setTag("id", NBTString(if (crossbow) "vs_pistol" else "gold_g36"))
+        })
+        data.setTag("PublicBukkitValues", NBTCompound().also { it.setTag("arcevents:world_loaded_rounds", NBTInt(7)) })
+    }
+    return PacketItemStack.builder().type(if (crossbow) ItemTypes.CROSSBOW else ItemTypes.PAPER).amount(1).build().also {
+        it.setComponent(ComponentTypes.CUSTOM_DATA, data)
+    }
+}
+
 private class ScopeFixture(private val queued: Boolean = false, protocol: Int = ClientVersion.V_1_21_11.protocolVersion) : AutoCloseable {
     private val previousApi = PacketEvents.getAPI()
     init {
@@ -421,6 +613,10 @@ private class ScopeFixture(private val queued: Boolean = false, protocol: Int = 
     val laser = mockk<TttScopeLaser>(relaxed = true)
     var laserEnabled = false
     var real = PacketItemStack.builder().type(ItemTypes.NETHERITE_SHOVEL).build()
+    var inventoryRefreshes = 0
+    var scopeAuthorized = true
+    var heldSlot = 2
+    var dead = false
     private val heldNative = mockk<ItemStack>()
     val packets = mutableListOf<PacketWrapper<*>>()
     private val queue = mutableListOf<() -> Unit>()
@@ -437,6 +633,7 @@ private class ScopeFixture(private val queued: Boolean = false, protocol: Int = 
     init {
         every { player.uniqueId } returns playerId
         every { player.isOnline } returns true
+        every { player.isDead } answers { dead }
         every { player.gameMode } answers { gameMode }
         every { player.inventory } returns inventory
         every { player.world.uid } answers { worldId }
@@ -447,6 +644,7 @@ private class ScopeFixture(private val queued: Boolean = false, protocol: Int = 
         every { observer.uniqueId } returns observerId
         every { observer.canSee(player) } returns true
         every { inventory.itemInMainHand } returns heldNative
+        every { inventory.heldItemSlot } answers { heldSlot }
         every { inventory.getItem(any<Int>()) } returns heldNative
         val execute: (() -> Unit) -> CompletableFuture<Unit> = { action ->
             val completion = CompletableFuture<Unit>()
@@ -457,10 +655,11 @@ private class ScopeFixture(private val queued: Boolean = false, protocol: Int = 
         scopes = TttScopes({ recipient ->
             if (recipient === observer) ScopeConnection(99, protocol, observerPackets::add, execute)
             else ScopeConnection(entityId, protocol, packets::add, execute)
-        }, { real }, schedule = { ticks, action ->
+        }, { real }, authorized = { _, _ -> scopeAuthorized }, schedule = { ticks, action ->
             (ticks in setOf(1L, 6L)) shouldBe true
             Timer(timers.size, now + ticks, action).also(timers::add)
-        }, observers = { if (tracked) listOf(observer) else emptyList() }, createLaser = { laser }, laserEnabled = { laserEnabled })
+        }, observers = { if (tracked) listOf(observer) else emptyList() }, createLaser = { laser }, laserEnabled = { laserEnabled },
+            refreshInventories = { inventoryRefreshes++ })
     }
 
     fun baseline(value: ScopeAbilities = ScopeAbilities(false, false, false, false, .05f, .1f)) {

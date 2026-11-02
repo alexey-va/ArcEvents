@@ -637,6 +637,7 @@ weapon:
     - '<#8c8c8c>Количество: <#f2f0e6><rounds>'
     - '<#f2f0e6>Подходят ко всему оружию раунда.'
   ammo-actionbar: '<weapon>  <#ffffff><loaded>/<#ffffff><magazine>  <#32d6ff>запас <#ffffff><reserve>'
+  creative-ammo-actionbar: '<weapon>  <#ffffff>∞  <#aaaaaa>Боеприпасы не расходуются'
   world-ammo-actionbar: '<weapon>  <#ffffff><loaded>/<magazine>  <#aaaaaa>запас <reserve>  F — перезарядка'
   world-empty-actionbar: '<#ffcc33>Магазин пуст. F — зарядить железные самородки'
   world-no-ammo-actionbar: '<#ffcc33>Для перезарядки нужны обычные железные самородки'

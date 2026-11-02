@@ -10,9 +10,13 @@ import io.kotest.matchers.doubles.plusOrMinus
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
 import io.mockk.verify
+import org.bukkit.Bukkit
 import org.bukkit.FluidCollisionMode
 import org.bukkit.Location
+import org.bukkit.Material
 import org.bukkit.Particle
 import org.bukkit.Sound
 import org.bukkit.World
@@ -22,11 +26,13 @@ import org.bukkit.entity.Entity
 import org.bukkit.entity.Player
 import org.bukkit.inventory.MainHand
 import org.bukkit.util.RayTraceResult
+import org.bukkit.util.Transformation
 import org.bukkit.util.Vector
 import org.joml.Vector3f
 import ru.arc.core.Tasks
 import ru.arc.core.TestTaskScheduler
 import ru.arc.paper.display.PaperPacketDisplays
+import ru.arc.paper.display.PacketBlockDisplay
 import ru.ruscrafting.events.domain.FirearmId
 import ru.ruscrafting.events.domain.FirearmSpec
 import ru.ruscrafting.events.domain.TttFirearmCatalog
@@ -66,14 +72,16 @@ class FirearmShotsTest : StringSpec({
         }
     }
 
-    "muzzle stays on the configured hand in the camera frame including vertical aim" {
-        firearmMuzzleOffset(Vector(0, 0, 1), 0f, false, false) shouldBe Vector(-.18, -.16, .72)
-        firearmMuzzleOffset(Vector(0, 0, 1), 0f, false, true) shouldBe Vector(.18, -.16, .72)
-        firearmMuzzleOffset(Vector(0, 0, 1), 0f, true, false).x shouldBe -.035
-        val west = firearmMuzzleOffset(Vector(-1, 0, 0), 90f, false, false)
-        west.x shouldBe (-.72 plusOrMinus 1e-8)
-        west.z shouldBe (-.18 plusOrMinus 1e-8)
-        firearmMuzzleOffset(Vector(0, 1, 0), 0f, false, false) shouldBe Vector(-.18, .72, .16)
+    "point blank zeroing keeps the muzzle before contact and never reverses or produces NaN" {
+        val direction = Vector(0, 0, 1)
+        val offset = Vector(-.5, -.2, 2.0)
+        for (distance in listOf(0.0, .01, .2, 2.0, 30.0)) {
+            val clipped = firearmMuzzleBeforeContact(offset, direction, distance)
+            (clipped.z <= (distance - .03).coerceAtLeast(0.0) + 1e-8) shouldBe true
+            val velocity = firearmZeroingDirection(clipped, direction.clone().multiply(distance), direction)
+            velocity.length() shouldBe (1.0 plusOrMinus 1e-8)
+            (velocity.dot(direction) > 0.0) shouldBe true
+        }
     }
 
     "recoil packets add only their delta and recovery preserves independent mouse movement" {
@@ -132,10 +140,10 @@ class FirearmShotsTest : StringSpec({
             f.until { f.hits.isNotEmpty() }
             f.rays.size shouldBe 2
             f.rays[0].distance shouldBe 15.0
-            f.rays[1].origin.z shouldBe 15.0
-            (f.rays[1].direction.y < 0.0) shouldBe true
+            f.rays[1].origin.distance(f.rays[0].origin) shouldBe (15.0 plusOrMinus 1e-8)
+            (f.rays[1].direction.y < f.rays[0].direction.y) shouldBe true
             f.hits.single().second shouldBe f.spec.damagePerPellet
-            f.hits.single().first.z shouldBe (18.0 plusOrMinus .001)
+            f.hits.single().first.distance(f.rays[1].origin.toVector()) shouldBe (3.0 plusOrMinus 1e-8)
             f.scheduler.tick(4)
             f.hits.size shouldBe 1
             verify(exactly = 0) { f.world.loadChunk(any<Int>(), any<Int>()) }
@@ -153,12 +161,93 @@ class FirearmShotsTest : StringSpec({
             f.hits.isEmpty() shouldBe true
         }
         withShotFixture { f ->
-            f.eye = Location(f.world, 0.0, 64.0, 15.5)
+            f.eye = Location(f.world, 0.0, 64.0, 14.0)
             every { f.world.isChunkLoaded(any<Int>(), any<Int>()) } answers { secondArg<Int>() == 0 }
             f.fire() shouldBe true
             f.until { f.rays.isNotEmpty() }
-            f.rays.single().distance shouldBe (.49 plusOrMinus 1e-8)
+            val ray = f.rays.single()
+            val endpoint = ray.origin.toVector().add(ray.direction.clone().multiply(ray.distance))
+            endpoint.z shouldBe ((16.0 - .01 * ray.direction.z) plusOrMinus 1e-8)
             f.scheduler.tick(3)
+            f.rays.size shouldBe 1
+            f.hits.isEmpty() shouldBe true
+        }
+    }
+
+    "muzzle birth and swept flight share their origin and each spread heading without root double rotation" {
+        withShotFixture { f ->
+            f.enableVisuals()
+            f.eye = Location(f.world, 4.0, 64.0, 5.0, 123f, -37f)
+            f.fire(f.spec.copy(pellets = 2, spreadDegrees = 3.0)) shouldBe true
+            f.until { f.rays.size >= 2 }
+            f.births.size shouldBe 2
+            f.births.forEach { (_, location) -> location.yaw shouldBe 0f; location.pitch shouldBe 0f }
+            f.frames.take(2).zip(f.rays.take(2)).forEach { (frame, ray) ->
+                frame.position.toVector().distance(ray.origin.toVector()) shouldBe (0.0 plusOrMinus 1e-8)
+                val heading = frame.transform.leftRotation.transform(Vector3f(0f, 0f, 1f))
+                heading.distance(ray.direction.toVector3f()).toDouble() shouldBe (0.0 plusOrMinus 1e-6)
+            }
+        }
+    }
+
+    "near crosshair contact and a blocked barrel retract the shared origin before the obstruction" {
+        withShotFixture { f ->
+            f.aimHit = RayTraceResult(Vector(0.0, 64.0, .2), f.target)
+            f.fire() shouldBe true
+            f.until { f.rays.isNotEmpty() }
+            (f.rays.first().origin.z <= .17 + 1e-8) shouldBe true
+            (f.rays.first().direction.z > 0.0) shouldBe true
+        }
+        withShotFixture { f ->
+            f.barrelHit = { origin, direction, _ -> RayTraceResult(origin.toVector().add(direction.clone().multiply(.3)), mockk<Block>(), null) }
+            f.fire() shouldBe true
+            f.until { f.rays.isNotEmpty() }
+            f.rays.first().origin.distance(f.eye) shouldBe (.27 plusOrMinus 1e-8)
+        }
+    }
+
+    "flame leaves the same model muzzle as the bullet with a directed emission" {
+        withShotFixture { f ->
+            f.enableVisuals()
+            f.fire(TttFirearmCatalog.specs.getValue(FirearmId.FIVE_SEVEN).copy(spreadDegrees = 0.0)) shouldBe true
+            f.until { f.rays.isNotEmpty() }
+            val birth = f.births.single().second
+            val direction = f.rays.first().direction
+            verify(exactly = 1) {
+                f.world.spawnParticle(Particle.SMALL_FLAME, match<Location> { it.distance(birth) < 1e-8 }, 0,
+                    match<Double> { kotlin.math.abs(it - direction.x) < 1e-8 },
+                    match<Double> { kotlin.math.abs(it - direction.y) < 1e-8 },
+                    match<Double> { kotlin.math.abs(it - direction.z) < 1e-8 }, .015)
+            }
+        }
+    }
+
+    "queued burst rounds use the current muzzle pose after an aim toggle" {
+        withShotFixture { f ->
+            f.enableVisuals()
+            f.scopedViewmodel = true
+            f.zoom = 3f
+            every { f.world.rayTrace(any(), any(), any(), FluidCollisionMode.NEVER, true, .12, any()) } returns null
+            f.fire(f.spec.copy(roundsPerShot = 2, pellets = 2), aiming = true) shouldBe true
+            f.until { f.births.size == 1 }
+            val first = firearmMuzzleOffset(f.spec.id, f.eye.direction, f.eye.yaw, true, false, true, 3f)
+            f.births[0].second.toVector().distance(f.eye.toVector().add(first)) shouldBe (0.0 plusOrMinus 1e-8)
+            f.zoom = null // RMB lowered the current scoped model before the next round launches.
+            f.until { f.births.size == 2 }
+            val second = firearmMuzzleOffset(f.spec.id, f.eye.direction, f.eye.yaw, false, false, true)
+            f.births[1].second.toVector().distance(f.eye.toVector().add(second)) shouldBe (0.0 plusOrMinus 1e-8)
+        }
+    }
+
+    "a protected living body collides with the bullet without receiving a damage callback" {
+        withShotFixture { f ->
+            val protected = mockk<Player>(relaxed = true)
+            every { protected.isDead } returns false
+            f.ray = { origin, direction, _ -> RayTraceResult(origin.toVector().add(direction), protected) }
+            f.fire() shouldBe true
+            f.until { f.rays.isNotEmpty() }
+            f.filters.last().test(protected) shouldBe true
+            f.scheduler.tick(4)
             f.rays.size shouldBe 1
             f.hits.isEmpty() shouldBe true
         }
@@ -229,6 +318,7 @@ class FirearmShotsTest : StringSpec({
 
     "representative VSS flight exports the actual swept frames for optional motion review" {
         withShotFixture { f ->
+            f.enableVisuals()
             f.fire(f.spec.copy(range = 76.0)) shouldBe true
             f.until { f.scheduler.timerCount() == 0 }
             f.rays.size shouldBe 6
@@ -273,7 +363,11 @@ private class ShotFixture(val scheduler: TestTaskScheduler) : AutoCloseable {
     val target = mockk<Player>(relaxed = true)
     val displays = mockk<PaperPacketDisplays>(relaxed = true)
     var soundsEnabled = false
-    val shots = FirearmShots(displays, { false }, { soundsEnabled })
+    var particlesEnabled = false
+    var scopedViewmodel = false
+    var zoom: Float? = null
+    private var mockedBukkit = false
+    val shots = FirearmShots(displays, { particlesEnabled }, { soundsEnabled }, { scopedViewmodel }, { zoom })
     val spec: FirearmSpec = TttFirearmCatalog.specs.getValue(FirearmId.VSS_VINTOREZ).copy(spreadDegrees = 0.0)
     var eye = Location(world, 0.0, 64.0, 0.0)
     var valid = true
@@ -282,6 +376,12 @@ private class ShotFixture(val scheduler: TestTaskScheduler) : AutoCloseable {
     data class Ray(val tick: Int, val origin: Location, val direction: Vector, val distance: Double)
     val rays = mutableListOf<Ray>()
     val births = mutableListOf<Pair<Int, Location>>()
+    data class Frame(val position: Location, val transform: Transformation)
+    val frames = mutableListOf<Frame>()
+    val filters = mutableListOf<java.util.function.Predicate<Entity>>()
+    var aimHit: RayTraceResult? = null
+    var barrelHit: (Location, Vector, Double) -> RayTraceResult? = { _, _, _ -> null }
+    private var launchQueries = 0
     val hits = mutableListOf<Pair<Vector, Double>>()
     val hitDetails = mutableListOf<FirearmHit>()
     var ray: (Location, Vector, Double) -> RayTraceResult? = { _, _, _ -> null }
@@ -302,21 +402,39 @@ private class ShotFixture(val scheduler: TestTaskScheduler) : AutoCloseable {
         every { target.isValid } returns true
         every { target.isDead } returns false
         every { target.eyeLocation } answers { Location(world, 0.0, targetEyeY, 1.0) }
-        every { world.rayTraceBlocks(any(), any(), any(), FluidCollisionMode.NEVER, true) } answers {
-            births += tick to firstArg<Location>().clone().add(secondArg<Vector>().clone().normalize().multiply(thirdArg<Double>()))
-            null
-        }
         every { world.rayTrace(any(), any(), any(), FluidCollisionMode.NEVER, true, .12, any()) } answers {
             val origin = firstArg<Location>()
             val direction = secondArg<Vector>()
             val distance = thirdArg<Double>()
-            rays += Ray(tick, origin.clone(), direction.clone(), distance)
-            ray(origin, direction, distance)
+            filters += arg<java.util.function.Predicate<Entity>>(6)
+            when (launchQueries++) {
+                0 -> aimHit
+                1 -> barrelHit(origin, direction, distance)
+                else -> {
+                    rays += Ray(tick, origin.clone(), direction.clone(), distance)
+                    ray(origin, direction, distance)
+                }
+            }
         }
     }
 
-    fun fire(spec: FirearmSpec = this.spec, headshotMultiplier: Double = 1.0): Boolean =
-        shots.fire(player, spec, false, { valid }, { it === target }, headshotMultiplier) { _, details, damage ->
+    fun enableVisuals() {
+        mockkStatic(Bukkit::class)
+        mockedBukkit = true
+        every { Bukkit.createBlockData(Material.YELLOW_CONCRETE) } returns mockk(relaxed = true)
+        every { displays.spawnBlock(any(), any()) } answers {
+            var position = firstArg<Location>().clone()
+            births += tick to position.clone()
+            mockk<PacketBlockDisplay>(relaxed = true).also { display ->
+                every { display.teleport(any()) } answers { position = firstArg<Location>().clone() }
+                every { display.transformation = any() } answers { frames += Frame(position.clone(), firstArg()) }
+            }
+        }
+        particlesEnabled = true
+    }
+
+    fun fire(spec: FirearmSpec = this.spec, headshotMultiplier: Double = 1.0, aiming: Boolean = false): Boolean =
+        shots.fire(player, spec, aiming, { valid }, { it === target }, headshotMultiplier) { _, details, damage ->
         hits += details.position.clone() to damage
         hitDetails += details
     }
@@ -332,6 +450,7 @@ private class ShotFixture(val scheduler: TestTaskScheduler) : AutoCloseable {
 
     override fun close() {
         shots.close()
+        if (mockedBukkit) unmockkStatic(Bukkit::class)
         PacketEvents.setAPI(previousApi)
     }
 }

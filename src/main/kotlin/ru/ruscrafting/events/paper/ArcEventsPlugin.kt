@@ -181,7 +181,8 @@ open class ArcEventsPlugin : JavaPlugin() {
             lateinit var activeService: ArcEventsService
             val scopeRuntime = TttScopes.open(packetDisplays, { settings.weapons.scopeLaserEnabled }) { player, target -> activeService.isScopeAuthorized(player, target) }
                 .also { scopes = it }
-            val shotRuntime = FirearmShots(packetDisplays, { settings.ui.particles }, { settings.ui.sounds })
+            val shotRuntime = FirearmShots(packetDisplays, { settings.ui.particles }, { settings.ui.sounds },
+                scopedModel = scopeRuntime::hasViewmodel, scopeZoom = scopeRuntime::projectedZoom)
             val lootScene = TttLootScene(this, firearms, packetDisplays, activeWork, chunkTickets) { settings }
             val storedWeaponPoints = points
             val arenaInspector = ArenaRuntimeInspector(this)
@@ -285,6 +286,7 @@ open class ArcEventsPlugin : JavaPlugin() {
                     (entity !is org.bukkit.entity.Player || !activeService.isParticipant(entity.uniqueId) &&
                         !escrow.isLocked(entity.uniqueId) && entity.uniqueId !in escrow.pendingPlayers()) },
                 shots = shotRuntime,
+                reloadSounds = { settings.ui.sounds },
             )
             lifecycle.own(worldFirearms)
             server.pluginManager.registerEvents(ArcEventsListener(activeService, menu, items, worldFirearms), this)

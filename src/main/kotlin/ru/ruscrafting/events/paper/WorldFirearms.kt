@@ -35,6 +35,7 @@ class WorldFirearms(
     private val canTarget: (Player, Entity) -> Boolean,
     private val shots: FirearmShots,
     private val clock: () -> Long = { System.nanoTime() / 1_000_000L },
+    private val reloadSounds: () -> Boolean = { true },
 ) : AutoCloseable {
     private class Reload(
         val worldId: UUID,
@@ -43,6 +44,7 @@ class WorldFirearms(
         val state: WorldFirearmState,
     ) {
         var task: ScheduledTask? = null
+        var presentation: AutoCloseable? = null
     }
 
     private val eventItemKey = NamespacedKey(plugin, "event_item")
@@ -122,20 +124,23 @@ class WorldFirearms(
     private fun fire(player: Player): Boolean {
         val state = authorizedState(player) ?: return false
         val playerId = player.uniqueId
+        val creative = player.gameMode == GameMode.CREATIVE
+        if (creative) cancel(playerId)
         if (playerId in reloads) {
             feedback(player, "reloading-actionbar")
             return false
         }
+        scopes.cancelReload(playerId)
         val now = clock()
         if (now < (cooldownUntil[playerId] ?: Long.MIN_VALUE)) return false
         val spec = firearms.spec(state.id)
-        if (state.loaded < spec.roundsPerShot) {
+        if (!creative && state.loaded < spec.roundsPerShot) {
             cooldownUntil[playerId] = now + 350L
             feedback(player, "world-empty-actionbar")
             return false
         }
-        val loaded = state.loaded - spec.roundsPerShot
-        val replacement = withLoaded(player.inventory.itemInMainHand, state.id, loaded)
+        val loaded = if (creative) state.loaded else state.loaded - spec.roundsPerShot
+        val replacement = if (creative) null else withLoaded(player.inventory.itemInMainHand, state.id, loaded)
         val worldId = player.world.uid
         val valid = { eligible(player) && player.world.uid == worldId }
         val target: (Entity) -> Boolean = { entity ->
@@ -156,7 +161,13 @@ class WorldFirearms(
             return false
         }
         cooldownUntil[playerId] = now + spec.cooldownTicks * 50L
-        player.inventory.setItemInMainHand(replacement)
+        if (creative) {
+            player.sendEventActionBar(locale.render("weapon.creative-ammo-actionbar", player, mapOf(
+                "weapon" to locale.render("weapon.${state.id.name.lowercase()}-name", player),
+            )))
+            return true
+        }
+        player.inventory.setItemInMainHand(requireNotNull(replacement))
         player.sendEventActionBar(locale.render("weapon.world-ammo-actionbar", player, mapOf(
             "weapon" to locale.render("weapon.${state.id.name.lowercase()}-name", player),
             "loaded" to locale.text(loaded),
@@ -167,12 +178,28 @@ class WorldFirearms(
     }
 
     private fun reload(player: Player): Boolean {
-        scopes.clear(player.uniqueId)
         val state = authorizedState(player) ?: return false
+        if (player.gameMode == GameMode.CREATIVE) {
+            cancel(player.uniqueId)
+            scopes.clear(player.uniqueId)
+            val snapshot = player.inventory.itemInMainHand.clone()
+            val slot = player.inventory.heldItemSlot
+            val worldId = player.world.uid
+            scopes.animateReload(player, FirearmScopeTarget(null, state.id, slot), firearms.spec(state.id).reloadTicks,
+                sounds = reloadSounds(), stillCurrent = {
+                    eligible(player) && player.gameMode == GameMode.CREATIVE && player.world.uid == worldId &&
+                        player.inventory.heldItemSlot == slot && player.inventory.itemInMainHand == snapshot
+                })
+            player.sendEventActionBar(locale.render("weapon.creative-ammo-actionbar", player, mapOf(
+                "weapon" to locale.render("weapon.${state.id.name.lowercase()}-name", player),
+            )))
+            return true
+        }
         if (player.uniqueId in reloads) {
             feedback(player, "reloading-actionbar")
             return false
         }
+        scopes.clear(player.uniqueId)
         val spec = firearms.spec(state.id)
         if (state.loaded >= spec.magazineSize) {
             feedback(player, "magazine-full-actionbar")
@@ -194,13 +221,29 @@ class WorldFirearms(
             feedback(player, "world-busy-actionbar")
             return false
         }
+        pending.presentation = scopes.animateReload(player, FirearmScopeTarget(null, state.id, pending.slot), spec.reloadTicks,
+            sounds = reloadSounds(), stillCurrent = {
+                reloads[player.uniqueId] === pending && eligible(player) && player.gameMode != GameMode.CREATIVE &&
+                    player.world.uid == pending.worldId && player.inventory.heldItemSlot == pending.slot &&
+                    player.inventory.itemInMainHand == pending.snapshot
+            })
         feedback(player, "reloading-actionbar")
         return true
     }
 
     private fun finishReload(player: Player, pending: Reload) {
         if (!reloads.remove(player.uniqueId, pending)) return
-        if (!eligible(player) || player.world.uid != pending.worldId || player.inventory.heldItemSlot != pending.slot) return
+        try {
+            completeReload(player, pending)
+        } finally {
+            pending.presentation?.close()
+        }
+    }
+
+    private fun completeReload(player: Player, pending: Reload) {
+        if (!eligible(player) || player.gameMode == GameMode.CREATIVE || player.world.uid != pending.worldId ||
+            player.inventory.heldItemSlot != pending.slot
+        ) return
         val contents = player.inventory.storageContents
         val held = contents.getOrNull(pending.slot) ?: return
         if (held != pending.snapshot || state(held) != pending.state) return
@@ -244,7 +287,11 @@ class WorldFirearms(
 
     /** Inventory/scope changes cancel reloads without resetting the cross-weapon cooldown. */
     fun cancel(playerId: UUID) {
-        reloads.remove(playerId)?.task?.cancel()
+        reloads.remove(playerId)?.let { pending ->
+            pending.task?.cancel()
+            pending.presentation?.close()
+        }
+        scopes.cancelReload(playerId)
     }
 
     fun forget(playerId: UUID) {
@@ -254,7 +301,10 @@ class WorldFirearms(
 
     override fun close() {
         closed = true
-        reloads.values.forEach { it.task?.cancel() }
+        reloads.values.forEach {
+            it.task?.cancel()
+            it.presentation?.close()
+        }
         reloads.clear()
         cooldownUntil.clear()
     }

@@ -255,9 +255,113 @@ class WorldFirearmsTest : FunSpec({
         }
     }
 
-    test("survival adventure and creative all consume reserve and shutdown cancels reloads and impacts") {
+    test("creative fires without ammunition and preserves the magazine through game mode changes") {
         WorldFirearmFixture().use { f ->
-            listOf(GameMode.SURVIVAL, GameMode.ADVENTURE, GameMode.CREATIVE).forEach { mode ->
+            f.player.gameMode = GameMode.CREATIVE
+            listOf(f.gun(), f.gun(loaded = 0)).forEach { original ->
+                f.player.inventory.setItemInMainHand(original)
+                val before = f.accepted.size
+                f.click() shouldBe true
+                f.accepted.size shouldBe before + 1
+                f.player.inventory.itemInMainHand shouldBe original
+                f.vanillaReserve() shouldBe 0
+                f.reload() shouldBe true
+                f.advance(f.reloadTicks)
+                f.player.inventory.itemInMainHand shouldBe original
+            }
+            f.player.gameMode = GameMode.SURVIVAL
+            f.click() shouldBe true
+            f.accepted.size shouldBe 2
+            f.runtime.state(f.player.inventory.itemInMainHand)?.loaded shouldBe 0
+
+            val original = f.gun(loaded = 2)
+            f.player.inventory.setItemInMainHand(original)
+            f.player.inventory.setItem(10, ItemStack.of(Material.IRON_NUGGET, 4))
+            f.player.gameMode = GameMode.CREATIVE
+            f.advance(f.reloadTicks)
+            f.click() shouldBe true
+            f.accepted.size shouldBe 3
+            f.reload() shouldBe true
+            f.advance(f.reloadTicks)
+            f.player.inventory.itemInMainHand shouldBe original
+            f.vanillaReserve() shouldBe 4
+            f.player.gameMode = GameMode.ADVENTURE
+            f.click() shouldBe true
+            f.accepted.size shouldBe 4
+            f.runtime.state(f.player.inventory.itemInMainHand)?.loaded shouldBe 1
+            f.vanillaReserve() shouldBe 4
+        }
+    }
+
+    test("creative cannot complete or carry a pending survival reload back into survival") {
+        WorldFirearmFixture().use { f ->
+            val transitions: List<() -> Unit> = listOf(
+                { f.player.gameMode = GameMode.CREATIVE },
+                {
+                    f.player.gameMode = GameMode.CREATIVE
+                    f.reload() shouldBe true
+                    f.player.gameMode = GameMode.SURVIVAL
+                },
+                {
+                    f.player.gameMode = GameMode.CREATIVE
+                    val before = f.accepted.size
+                    f.click() shouldBe true
+                    f.accepted.size shouldBe before + 1
+                    f.player.gameMode = GameMode.SURVIVAL
+                },
+            )
+            transitions.forEach { transition ->
+                f.player.gameMode = GameMode.SURVIVAL
+                f.player.inventory.setItemInMainHand(f.gun())
+                f.player.inventory.setItem(10, ItemStack.of(Material.IRON_NUGGET, 6))
+                f.reload() shouldBe true
+                transition()
+                f.advance(f.reloadTicks)
+                f.runtime.state(f.player.inventory.itemInMainHand)?.loaded shouldBe 0
+                f.vanillaReserve() shouldBe 6
+            }
+        }
+    }
+
+    test("reload presentation follows the exact pending inventory and closes after completion or cancellation") {
+        WorldFirearmFixture().use { f ->
+            var closes = 0
+            var stillCurrent: () -> Boolean = { false }
+            every { f.scopes.animateReload(any(), any(), any(), any(), any()) } answers {
+                stillCurrent = arg(4)
+                AutoCloseable { closes++ }
+            }
+            f.player.inventory.setItemInMainHand(f.gun())
+            f.player.inventory.setItem(10, ItemStack.of(Material.IRON_NUGGET, 6))
+            f.reload() shouldBe true
+            stillCurrent() shouldBe true
+            f.vanillaReserve() shouldBe 6
+            f.reload() shouldBe true
+            closes shouldBe 0
+            stillCurrent() shouldBe true
+            f.advance(f.reloadTicks)
+            stillCurrent() shouldBe false
+            closes shouldBe 1
+            f.runtime.state(f.player.inventory.itemInMainHand)?.loaded shouldBe 6
+            f.vanillaReserve() shouldBe 0
+
+            f.player.inventory.setItemInMainHand(f.gun())
+            f.player.inventory.setItem(10, ItemStack.of(Material.IRON_NUGGET, 6))
+            f.reload() shouldBe true
+            stillCurrent() shouldBe true
+            f.player.inventory.setItemInMainHand(ItemStack.of(Material.STONE))
+            stillCurrent() shouldBe false
+            f.runtime.cancel(f.player.uniqueId)
+            f.advance(f.reloadTicks)
+            closes shouldBe 2
+            f.vanillaReserve() shouldBe 6
+            f.player.inventory.itemInMainHand.type shouldBe Material.STONE
+        }
+    }
+
+    test("survival and adventure consume reserve and shutdown cancels reloads and impacts") {
+        WorldFirearmFixture().use { f ->
+            listOf(GameMode.SURVIVAL, GameMode.ADVENTURE).forEach { mode ->
                 f.player.gameMode = mode
                 f.player.inventory.clear()
                 f.player.inventory.setItemInMainHand(f.gun())
@@ -303,6 +407,7 @@ private class WorldFirearmFixture : AutoCloseable {
     val firearms: TttFirearms
     val runtime: WorldFirearms
     val accepted = mutableListOf<WorldShot>()
+    val scopes = mockk<TttScopes>(relaxed = true)
     var actionsAllowed = true
     var targetsAllowed = true
     var admission = true
@@ -330,7 +435,7 @@ private class WorldFirearmFixture : AutoCloseable {
                 true
             } else false
         }
-        runtime = WorldFirearms(plugin, firearms, locale, mockk(relaxed = true),
+        runtime = WorldFirearms(plugin, firearms, locale, scopes,
             { it.itemMeta.persistentDataContainer.get(identityKey, PersistentDataType.STRING) },
             { actionsAllowed }, { _, _ -> targetsAllowed }, shots, { now })
         player.teleport(Location(world, 0.0, 64.0, 0.0))

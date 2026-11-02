@@ -1,5 +1,8 @@
 # Ordinary-world firearm ammunition, 2026-11-01
 
+Historical baseline: [the 2026-11-02 Creative exception](creative-firearms-20261102.md)
+supersedes this document's all-mode ammunition requirement for Creative only.
+
 Before this change the 12 mapped vendor guns only offered cosmetic aiming outside events. Afterward their existing firearm specifications drive actual shooting. The new world magazine starts empty; one ordinary iron nugget loads one round. Guns are usable individually, retain their vendor metadata and persisted rounds, and cannot load from event ammunition. Reload consumption and the resulting magazine are committed in one owning-thread inventory write after revalidation. Cancelled reloads consume nothing. No free magazine, cash award, shop, recipe, exchange or automatic refund is added.
 
 ## Separate units and scenarios

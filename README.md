@@ -294,13 +294,52 @@ Ordinary-world guns use LMB to fire, RMB to aim and F to reload. A new
 magazine starts empty; one ordinary iron nugget loads one round. Event ammo
 and other custom nuggets do not qualify. Split stacked guns into individual
 items first. Loaded rounds persist on the same vendor item. A cancelled reload
-consumes nothing; Creative uses the same ammunition rules.
+consumes nothing. Creative fires without ammunition or reloading, including an
+empty gun; it neither consumes reserve items nor adds free persisted rounds.
+Returning to Survival or Adventure restores the unchanged magazine rules.
+In Creative, F may play a cosmetic reload; LMB interrupts it immediately and
+fires without spending ammunition. It does not impose a reload requirement.
+
+Fire mode is fixed per weapon. The current catalog fires three-round groups
+for G36 and AEK-971, four-round groups for RPL-20, and one round per trigger
+for the other weapons (shotgun pellets share that one round). These are finite
+groups per LMB press. Continuous automatic fire while holding LMB is not
+implemented: the vanilla 1.21.11 client sends no air-attack release/held state,
+so a server timer cannot safely infer that the trigger remains pressed.
+
+Minecraft 1.21.11 inventory presentation disables the native first-person
+attack swing for recognized guns with `minecraft:swing_animation` type `none`.
+Ordinary projection preserves the authoritative item, vendor identity and
+magazine data. Creative inventory copies may retain the cosmetic `none`
+component, without adding ammunition or changing the vendor model. The client's
+special crossbow renderer ignores this type: the four vendor guns backed by a
+crossbow retain their native swing. No crossbow material conversion or client
+mod is included. Actual first-person playback still needs native acceptance.
+
+Each firearm has its own first-person reload sequence. Articulated native item
+models move the appropriate magazine, cylinder, barrel hinge, bolt or feed lid;
+40 pose samples are resampled to the existing authoritative reload duration.
+Mechanical cues follow those beats. Inventory, ammunition and reload acceptance
+remain with the event or ordinary-world owner. Cancelling or replacing the held
+gun invalidates its presentation, and completion restores the current item.
+Publish the additive `arc:event_sights/*_reload_*` pack assets before activating
+this version; the generator and validation live in the ops sight asset recipe.
+
+Muzzle positions use the actual catalog barrel faces and native hip/aim item
+transforms, with separate left-hand and scoped poses. Flash, tracer birth and
+the simulated bullet share one safe muzzle origin. The projectile converges
+on the camera ray, then retains configured spread and gravity. Tracer display
+roots stay unrotated so their world-direction transform is applied once.
+Calibration assumes the native settled standing pose and default 70-degree
+world FOV, correcting the known server zoom. Client FOV settings, bobbing and
+view/zoom transitions remain native-client acceptance limits.
 
 Outside events, native `damage(amount, shooter)` keeps the real player as the
 source so WorldGuard, Lands, JustTeams and other protection listeners may cancel
 the hit. World PvP-off and event boundaries are checked separately. This path
 never clears a cancelled damage event or breaks blocks. See the
-[ammunition assessment](docs/economy/world-firearms-20261101.md).
+[ammunition assessment](docs/economy/world-firearms-20261101.md) and the
+[Creative exception](docs/economy/creative-firearms-20261102.md).
 
 For aiming outside an event, use an event `HOST` or
 `RELAY` node outside protected event areas, obtain one of the 12 mapped vendor guns through

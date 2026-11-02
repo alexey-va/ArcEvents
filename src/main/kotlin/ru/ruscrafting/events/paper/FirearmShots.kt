@@ -4,6 +4,7 @@ import com.github.retrooper.packetevents.PacketEvents
 import com.github.retrooper.packetevents.protocol.player.ClientVersion
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerPlayerRotation
 import org.bukkit.FluidCollisionMode
+import org.bukkit.GameMode
 import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.Particle
@@ -11,6 +12,7 @@ import org.bukkit.Sound
 import org.bukkit.World
 import org.bukkit.entity.Display
 import org.bukkit.entity.Entity
+import org.bukkit.entity.LivingEntity
 import org.bukkit.entity.Player
 import org.bukkit.inventory.MainHand
 import org.bukkit.util.RayTraceResult
@@ -30,10 +32,8 @@ import java.util.UUID
 import java.util.logging.Level
 import java.util.logging.Logger
 import kotlin.math.abs
-import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.min
-import kotlin.math.sin
 import kotlin.random.Random
 
 data class FirearmHit(val position: Vector, val headshot: Boolean)
@@ -43,6 +43,8 @@ class FirearmShots(
     private val displays: PaperPacketDisplays,
     private val particles: () -> Boolean = { true },
     private val sounds: () -> Boolean = { true },
+    private val scopedModel: (UUID) -> Boolean = { false },
+    private val scopeZoom: (UUID) -> Float? = { null },
 ) : AutoCloseable {
     private class Shot(
         val shooter: Player,
@@ -170,19 +172,24 @@ class FirearmShots(
             reserved -= round.pellets
             return
         }
-        val direction = eye.direction.normalize()
-        val muzzle = muzzleLocation(shot, eye, direction)
+        val eyeDirection = eye.direction.normalize()
+        val aimRange = firearmLoadedRange(eye.toVector(), eyeDirection, shot.spec.range, shot.world::isChunkLoaded)
+        val aim = if (aimRange > .001) trace(shot, eye, eyeDirection, aimRange) else null
+        // An unloaded boundary limits the query, not the weapon's zeroing distance.
+        val aimPoint = aim?.hitPosition ?: eye.toVector().add(eyeDirection.clone().multiply(shot.spec.range))
+        val muzzle = muzzleLocation(shot, eye, eyeDirection, eye.toVector().distance(aimPoint))
+        val direction = firearmZeroingDirection(muzzle.toVector(), aimPoint, eyeDirection)
         // Build the entire round before publishing it to the active queue.
         val created = List(round.pellets) {
             val spread = FirearmSpread.apply(ShotDirection(direction.x, direction.y, direction.z),
                 Random.nextDouble(-1.0, 1.0) * shot.spec.spreadDegrees,
                 Random.nextDouble(-1.0, 1.0) * shot.spec.spreadDegrees)
-            Bullet(round, eye.toVector(), Vector(spread.x, spread.y, spread.z).multiply(shot.profile.speed), tick)
+            Bullet(round, muzzle.toVector(), Vector(spread.x, spread.y, spread.z).multiply(shot.profile.speed), tick)
         }
         bullets.addAll(created)
         // Publish a birth frame before the first swept step; otherwise the first display would appear 15–45 m away.
-        cosmetic(shot, "tracer") { created.forEach { presentBullet(it, direction, false, muzzle) } }
-        cosmetic(shot, "muzzle") { muzzle(shot, muzzle) }
+        cosmetic(shot, "tracer") { created.forEach { presentBullet(it, it.velocity.clone().normalize(), false) } }
+        cosmetic(shot, "muzzle") { muzzle(shot, muzzle, direction) }
         cosmetic(shot, "recoil") { kick(shot) }
     }
 
@@ -196,9 +203,7 @@ class FirearmShots(
         val loaded = firearmLoadedRange(bullet.position, direction, distance, shot.world::isChunkLoaded)
         if (loaded <= .001) return false
         val origin = bullet.position.toLocation(shot.world)
-        val result = shot.world.rayTrace(origin, direction, loaded, FluidCollisionMode.NEVER, true, .12) { entity ->
-            entity != shot.shooter && !entity.isDead && shot.target(entity)
-        }
+        val result = trace(shot, origin, direction, loaded)
         val end = result?.hitPosition ?: bullet.position.clone().add(direction.clone().multiply(loaded))
         bullet.remaining -= bullet.position.distance(end)
         bullet.position.copy(end)
@@ -207,7 +212,7 @@ class FirearmShots(
         cosmetic(shot, "tracer") { presentBullet(bullet, direction, result != null) }
         if (result != null) {
             cosmetic(shot, "contact") { contact(shot, result, direction) }
-            result.hitEntity?.let { entity ->
+            result.hitEntity?.takeIf(shot.target)?.let { entity ->
                 val headshot = entity is Player && end.y >= entity.eyeLocation.y - .38
                 val damage = shot.spec.damagePerPellet * if (headshot) shot.headshotMultiplier else 1.0
                 val previous = bullet.round.impacts[entity.uniqueId]
@@ -222,9 +227,18 @@ class FirearmShots(
         return loaded >= distance && bullet.remaining > .001
     }
 
-    private fun presentBullet(bullet: Bullet, direction: Vector, contact: Boolean, position: Location = bullet.position.toLocation(bullet.round.shot.world)) {
+    private fun trace(shot: Shot, origin: Location, direction: Vector, distance: Double) =
+        shot.world.rayTrace(origin, direction, distance, FluidCollisionMode.NEVER, true, .12) { entity ->
+            // Protection rejects damage, never lets a bullet pass through a living body.
+            entity != shot.shooter && !entity.isDead && !(entity is Player && entity.gameMode == GameMode.SPECTATOR) &&
+                (entity is LivingEntity || shot.target(entity))
+        }
+
+    private fun presentBullet(bullet: Bullet, direction: Vector, contact: Boolean) {
         if (!particles()) { bullet.display?.remove(); bullet.display = null; return }
         val shot = bullet.round.shot
+        // The quaternion below already contains the world heading: root yaw/pitch must stay zero.
+        val position = bullet.position.toLocation(shot.world)
         val display = bullet.display ?: displays.spawnBlock(position, Material.YELLOW_CONCRETE.createBlockData()).also {
             bullet.display = it
             it.brightness = Display.Brightness(15, 15)
@@ -240,19 +254,25 @@ class FirearmShots(
         display.transformation = firearmBulletTransform(direction)
     }
 
-    private fun muzzleLocation(shot: Shot, eye: Location, direction: Vector): Location {
-        val desired = firearmMuzzleOffset(direction, eye.yaw, shot.aiming, shot.shooter.mainHand == MainHand.LEFT)
-        val safe = firearmLoadedRange(eye.toVector(), desired.clone().normalize(), desired.length(), shot.world::isChunkLoaded)
-        val wall = if (safe > .001) shot.world.rayTraceBlocks(eye, desired, safe, FluidCollisionMode.NEVER, true) else null
-        return if (wall != null) wall.hitPosition.subtract(desired.clone().normalize().multiply(.03)).toLocation(shot.world)
-            else eye.clone().add(desired.multiply(if (desired.length() > 0) safe / desired.length() else 0.0))
+    private fun muzzleLocation(shot: Shot, eye: Location, direction: Vector, contactDistance: Double): Location {
+        val zoom = scopeZoom(shot.shooter.uniqueId)
+        val desired = firearmMuzzleBeforeContact(firearmMuzzleOffset(shot.spec.id, direction, eye.yaw, zoom != null,
+            shot.shooter.mainHand == MainHand.LEFT, scopedModel(shot.shooter.uniqueId), zoom),
+            direction, contactDistance)
+        if (desired.lengthSquared() <= .000001) return eye.toVector().toLocation(shot.world)
+        val barrelDirection = desired.clone().normalize()
+        val safe = firearmLoadedRange(eye.toVector(), barrelDirection, desired.length(), shot.world::isChunkLoaded)
+        val obstacle = if (safe > .001) trace(shot, eye, barrelDirection, safe) else null
+        val distance = if (obstacle == null) safe else (eye.toVector().distance(obstacle.hitPosition) - .03).coerceAtLeast(0.0)
+        return eye.toVector().add(barrelDirection.multiply(distance)).toLocation(shot.world)
     }
 
-    private fun muzzle(shot: Shot, location: Location) {
+    private fun muzzle(shot: Shot, location: Location, direction: Vector) {
         if (particles()) {
             if (shot.spec.id != FirearmId.VSS_VINTOREZ) {
-                shot.world.spawnParticle(Particle.SMALL_FLAME, location, 1, .015, .015, .015, .005)
-                shot.world.spawnParticle(Particle.ELECTRIC_SPARK, location, 2, .035, .035, .035, .02)
+                // count=0 sends one directional particle; positive counts randomize its spawn and velocity.
+                shot.world.spawnParticle(Particle.SMALL_FLAME, location, 0, direction.x, direction.y, direction.z, .015)
+                shot.world.spawnParticle(Particle.ELECTRIC_SPARK, location, 0, direction.x, direction.y, direction.z, .18)
             }
             shot.world.spawnParticle(Particle.SMOKE, location, if (shot.spec.id == FirearmId.FLINTLOCK) 5 else 1, .035, .025, .035, .015)
         }
@@ -387,14 +407,6 @@ internal fun firearmRecoilPacket(yaw: Float, pitch: Float) = WrapperPlayServerPl
 internal fun firearmRecoilRecovery(remaining: Float): Float = if (abs(remaining) < .04f) remaining else remaining * .38f
 internal fun firearmRecoilKick(currentPitch: Float, strength: Float, recoveryDebt: Float): Float =
     -minOf(strength.coerceAtLeast(0f), (currentPitch + 90f).coerceAtLeast(0f), (9f - recoveryDebt).coerceAtLeast(0f))
-
-internal fun firearmMuzzleOffset(direction: Vector, yaw: Float, aiming: Boolean, leftHand: Boolean): Vector {
-    val heading = Math.toRadians(yaw.toDouble())
-    val right = Vector(-cos(heading), 0.0, -sin(heading))
-    val up = right.clone().crossProduct(direction).normalize()
-    val lateral = (if (aiming) .035 else .18) * if (leftHand) -1 else 1
-    return direction.clone().multiply(.72).add(right.multiply(lateral)).subtract(up.multiply(.16))
-}
 
 internal fun firearmBulletTransform(direction: Vector): Transformation {
     val rotation = Quaternionf().rotationTo(Vector3f(0f, 0f, 1f), direction.toVector3f().normalize())

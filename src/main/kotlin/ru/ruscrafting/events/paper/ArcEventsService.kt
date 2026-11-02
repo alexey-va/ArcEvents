@@ -982,15 +982,17 @@ class ArcEventsService(
         val state = authorizedFirearm(player) ?: return false
         val matchId = state.matchId
         val held = player.inventory.itemInMainHand
+        val creative = player.gameMode == GameMode.CREATIVE
+        if (creative) reloadTasks.remove(player.uniqueId)?.cancel()
         if (reloadTasks.containsKey(player.uniqueId)) {
-            clearFirearmScope(player.uniqueId)
             player.sendEventActionBar(locale.render("weapon.reloading-actionbar", player))
             return false
         }
+        scopes?.cancelReload(player.uniqueId)
         val spec = firearms.spec(state.id)
         val now = clock()
         if (now < (shotCooldownUntil[player.uniqueId] ?: 0L)) return false
-        if (state.loaded < spec.roundsPerShot) {
+        if (!creative && state.loaded < spec.roundsPerShot) {
             shotCooldownUntil[player.uniqueId] = now + 350L
             player.sendEventActionBar(locale.render("weapon.empty-actionbar", player))
             if (settings().ui.sounds) player.playSound(player.location, Sound.BLOCK_LEVER_CLICK, 0.7f, 1.7f)
@@ -1005,6 +1007,12 @@ class ArcEventsService(
                 hit = { entity, position, damage -> hitByFirearm(player, state.id.name.lowercase(), entity, position, damage, matchId) },
             )) return false
         shotCooldownUntil[player.uniqueId] = now + spec.cooldownTicks * 50L
+        if (creative) {
+            player.sendEventActionBar(locale.render("weapon.creative-ammo-actionbar", player, mapOf(
+                "weapon" to locale.render("weapon.${state.id.name.lowercase()}-name", player),
+            )))
+            return true
+        }
         val loaded = state.loaded - spec.roundsPerShot
         player.inventory.setItemInMainHand(firearms.updateLoaded(held, player, loaded))
         player.sendEventActionBar(locale.render("weapon.ammo-actionbar", player, mapOf(
@@ -1017,8 +1025,26 @@ class ArcEventsService(
     }
 
     override fun reloadFirearm(player: Player): Boolean {
-        clearFirearmScope(player.uniqueId)
         val state = authorizedFirearm(player) ?: return false
+        if (player.gameMode == GameMode.CREATIVE) {
+            reloadTasks.remove(player.uniqueId)?.cancel()
+            clearFirearmScope(player.uniqueId)
+            val snapshot = player.inventory.itemInMainHand.clone()
+            val slot = player.inventory.heldItemSlot
+            val worldId = player.world.uid
+            scopes?.animateReload(player, FirearmScopeTarget(state.matchId, state.id, slot), firearms.spec(state.id).reloadTicks,
+                sounds = settings().ui.sounds, stillCurrent = {
+                    player.gameMode == GameMode.CREATIVE && player.world.uid == worldId &&
+                        player.inventory.heldItemSlot == slot && player.inventory.itemInMainHand == snapshot &&
+                        authorizedFirearm(player) == state
+                })
+            player.sendEventActionBar(locale.render("weapon.creative-ammo-actionbar", player, mapOf(
+                "weapon" to locale.render("weapon.${state.id.name.lowercase()}-name", player),
+            )))
+            return true
+        }
+        if (reloadTasks.containsKey(player.uniqueId)) return false
+        clearFirearmScope(player.uniqueId)
         val matchId = state.matchId
         val spec = firearms.spec(state.id)
         if (state.loaded >= spec.magazineSize) {
@@ -1029,29 +1055,48 @@ class ArcEventsService(
             player.sendEventActionBar(locale.render("weapon.no-ammo-actionbar", player))
             return false
         }
-        if (reloadTasks.containsKey(player.uniqueId)) return false
         player.sendEventActionBar(locale.render("weapon.reloading-actionbar", player))
-        if (settings().ui.sounds) player.playSound(player.location, Sound.ITEM_ARMOR_EQUIP_IRON, 0.5f, 1.4f)
-        reloadTasks[player.uniqueId] = Tasks.scheduler.runLater(spec.reloadTicks.toLong()) {
-            reloadTasks.remove(player.uniqueId)
-            val liveId = activeMatchId()
-            val held = player.inventory.itemInMainHand
-            val latest = firearms.state(held)
-            if (!player.isOnline || liveId != matchId || phase() != MatchPhase.ACTIVE || !isAlive(player.uniqueId) ||
-                latest?.id != state.id || latest.matchId != state.matchId ||
-                !hasSelectedFishingFirearm(player, state.id, matchId)
-            ) return@runLater
-            val needed = spec.magazineSize - latest.loaded
-            val consumed = firearms.consumeReserve(player, latest.matchId, needed)
-            if (consumed <= 0) return@runLater
-            player.inventory.setItemInMainHand(firearms.updateLoaded(held, player, latest.loaded + consumed))
-            player.sendEventActionBar(locale.render("weapon.reload-complete-actionbar", player, mapOf(
-                "loaded" to locale.text(latest.loaded + consumed),
-                "magazine" to locale.text(spec.magazineSize),
-                "reserve" to locale.text(firearms.reserveAmmo(player, latest.matchId)),
-            )))
-            if (settings().ui.sounds) player.playSound(player.location, Sound.BLOCK_IRON_TRAPDOOR_CLOSE, 0.55f, 1.5f)
+        val snapshot = player.inventory.itemInMainHand.clone()
+        val slot = player.inventory.heldItemSlot
+        var presentation: AutoCloseable? = null
+        lateinit var owner: ScheduledTask
+        val scheduled = Tasks.scheduler.runLater(spec.reloadTicks.toLong()) {
+            if (!reloadTasks.remove(player.uniqueId, owner)) return@runLater
+            try {
+                val liveId = activeMatchId()
+                val held = player.inventory.itemInMainHand
+                val latest = firearms.state(held)
+                if (!player.isOnline || player.gameMode == GameMode.CREATIVE || liveId != matchId ||
+                    phase() != MatchPhase.ACTIVE || !isAlive(player.uniqueId) ||
+                    latest?.id != state.id || latest.matchId != state.matchId ||
+                    !hasSelectedFishingFirearm(player, state.id, matchId)
+                ) return@runLater
+                val needed = spec.magazineSize - latest.loaded
+                val consumed = firearms.consumeReserve(player, latest.matchId, needed)
+                if (consumed <= 0) return@runLater
+                player.inventory.setItemInMainHand(firearms.updateLoaded(held, player, latest.loaded + consumed))
+                player.sendEventActionBar(locale.render("weapon.reload-complete-actionbar", player, mapOf(
+                    "loaded" to locale.text(latest.loaded + consumed),
+                    "magazine" to locale.text(spec.magazineSize),
+                    "reserve" to locale.text(firearms.reserveAmmo(player, latest.matchId)),
+                )))
+            } finally {
+                presentation?.close()
+            }
         }
+        owner = object : ScheduledTask by scheduled {
+            override fun cancel() {
+                scheduled.cancel()
+                presentation?.close()
+            }
+        }
+        reloadTasks[player.uniqueId] = owner
+        presentation = scopes?.animateReload(player, FirearmScopeTarget(matchId, state.id, slot), spec.reloadTicks,
+            sounds = settings().ui.sounds, stillCurrent = {
+                reloadTasks[player.uniqueId] === owner && player.gameMode != GameMode.CREATIVE &&
+                    player.inventory.heldItemSlot == slot && player.inventory.itemInMainHand == snapshot &&
+                    authorizedFirearm(player) == state
+            })
         return true
     }
 

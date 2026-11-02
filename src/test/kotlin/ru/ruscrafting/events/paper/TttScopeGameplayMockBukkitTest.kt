@@ -172,6 +172,81 @@ class TttScopeGameplayMockBukkitTest : StringSpec({
         }
     }
 
+    "creative event firearms use no ammunition and preserve the magazine when returning to adventure" {
+        val shots = mockk<FirearmShots>(relaxed = true)
+        every { shots.fire(any(), any(), any(), any(), any(), any(), any()) } returns true
+        TttRoundFixture(shots = shots).use { f ->
+            f.reloadRuntime { it.replace("weapons:\n  enabled: false", "weapons:\n  enabled: true") }
+            f.startActiveRound()
+            val player = f.players.first()
+            val matchId = requireNotNull(f.service.currentMatch()).matchId.toString()
+            player.inventory.clear()
+            val empty = f.firearms.firearmItem(FirearmId.REVOLVER, player, matchId, 0)
+            player.inventory.setItemInMainHand(empty)
+            player.gameMode = GameMode.CREATIVE
+
+            f.service.useFirearm(player) shouldBe true
+            f.service.reloadFirearm(player) shouldBe true
+            f.advanceTime(1_000)
+            player.inventory.itemInMainHand shouldBe empty
+            f.firearms.reserveAmmo(player, matchId) shouldBe 0
+            player.gameMode = GameMode.ADVENTURE
+            f.service.useFirearm(player) shouldBe false
+            verify(exactly = 1) { shots.fire(player, any(), any(), any(), any(), any(), any()) }
+
+            val loaded = f.firearms.firearmItem(FirearmId.REVOLVER, player, matchId, 2)
+            player.inventory.setItemInMainHand(loaded)
+            player.inventory.setItem(10, f.firearms.ammunition(player, matchId, 4))
+            player.gameMode = GameMode.CREATIVE
+            f.advanceTime(1_000)
+            f.service.useFirearm(player) shouldBe true
+            f.service.reloadFirearm(player) shouldBe true
+            f.advanceTime(1_000)
+            player.inventory.itemInMainHand shouldBe loaded
+            f.firearms.reserveAmmo(player, matchId) shouldBe 4
+            player.gameMode = GameMode.ADVENTURE
+            f.service.useFirearm(player) shouldBe true
+            f.firearms.state(player.inventory.itemInMainHand)?.loaded shouldBe 1
+            f.firearms.reserveAmmo(player, matchId) shouldBe 4
+            verify(exactly = 3) { shots.fire(player, any(), any(), any(), any(), any(), any()) }
+        }
+    }
+
+    "creative cancels event reloads and completion rechecks the game mode before consuming ammunition" {
+        val shots = mockk<FirearmShots>(relaxed = true)
+        every { shots.fire(any(), any(), any(), any(), any(), any(), any()) } returns true
+        TttRoundFixture(shots = shots).use { f ->
+            f.reloadRuntime { it.replace("weapons:\n  enabled: false", "weapons:\n  enabled: true") }
+            f.startActiveRound()
+            val player = f.players.first()
+            val matchId = requireNotNull(f.service.currentMatch()).matchId.toString()
+            val transitions: List<() -> Unit> = listOf(
+                { player.gameMode = GameMode.CREATIVE },
+                {
+                    player.gameMode = GameMode.CREATIVE
+                    f.service.reloadFirearm(player) shouldBe true
+                    player.gameMode = GameMode.ADVENTURE
+                },
+                {
+                    player.gameMode = GameMode.CREATIVE
+                    f.service.useFirearm(player) shouldBe true
+                    player.gameMode = GameMode.ADVENTURE
+                },
+            )
+            transitions.forEach { transition ->
+                player.gameMode = GameMode.ADVENTURE
+                player.inventory.clear()
+                player.inventory.setItemInMainHand(f.firearms.firearmItem(FirearmId.REVOLVER, player, matchId, 0))
+                player.inventory.setItem(10, f.firearms.ammunition(player, matchId, 6))
+                f.service.reloadFirearm(player) shouldBe true
+                transition()
+                repeat(2) { f.advanceTime(1_000) }
+                f.firearms.state(player.inventory.itemInMainHand)?.loaded shouldBe 0
+                f.firearms.reserveAmmo(player, matchId) shouldBe 6
+            }
+        }
+    }
+
     "aiming uses the firearm participant phase and match gates for the firearm catalog" {
         val scopes = mockk<TttScopes>(relaxed = true)
         every { scopes.toggle(any(), any()) } returns true

@@ -637,6 +637,7 @@ weapon:
     - '<#8c8c8c>Rounds: <#f2f0e6><rounds>'
     - '<#f2f0e6>Compatible with every round firearm.'
   ammo-actionbar: '<weapon>  <#ffffff><loaded>/<#ffffff><magazine>  <#32d6ff>reserve <#ffffff><reserve>'
+  creative-ammo-actionbar: '<weapon>  <#ffffff>∞  <#aaaaaa>Ammo is unlimited'
   world-ammo-actionbar: '<weapon>  <#ffffff><loaded>/<magazine>  <#aaaaaa>reserve <reserve>  F to reload'
   world-empty-actionbar: '<#ffcc33>Empty magazine. F to load iron nuggets'
   world-no-ammo-actionbar: '<#ffcc33>Reloading requires ordinary iron nuggets'

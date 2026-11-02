@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "title": "Creative firearm ammunition exemption",
+  "assumptions": [
+    "2026-11-02 owner-requested Creative exception; Survival and Adventure ammunition rules remain unchanged.",
+    "Low/base/high are hypothetical Creative users: 1/5/20 participants, 1/2/4 hours/day, 100/500/2500 rounds/hour. These are scenarios, not observed demand.",
+    "Before: one plain iron nugget per ordinary-world round loaded. After: Creative shots neither debit ammunition nor add persisted magazine rounds; returning to Survival preserves the original magazine.",
+    "Creative access and its existing native inventory duplication powers are unchanged. No new item, currency, XP, reward rate, shop price or permission is introduced.",
+    "Read-only spawn leader ledger: exact 168h window 1793005179630..1793609979632, 4594 records/4724 operations/17 players. Currency rows are separate: vault 4698 operations, tokens 26. Classified amount coverage is 0.378657788; no firearm-item or Creative demand measurement is available. Mixed-currency totals are not used.",
+    "Existing SELL and the planned SELL-to-contract transition are unchanged. Optional ammunition purchase is not a guaranteed currency burn. Incremental kill/reward throughput from Creative shooting is unmeasured; reward eligibility and protection remain unchanged."
+  ],
+  "participants": [1, 5, 20],
+  "currencies": {
+    "vault": {
+      "minor_per_unit": 100,
+      "disposable_per_player_day": {"before": ["0", "0", "0"], "after": ["0", "0", "0"]},
+      "flows": []
+    },
+    "tokens": {
+      "minor_per_unit": 1,
+      "disposable_per_player_day": {"before": ["0", "0", "0"], "after": ["0", "0", "0"]},
+      "flows": []
+    },
+    "iron_nugget": {
+      "minor_per_unit": 1,
+      "disposable_per_player_day": {"before": ["0", "0", "0"], "after": ["0", "0", "0"]},
+      "flows": [{
+        "id": "creative_world_firearm_ammunition_consumption",
+        "kind": "item",
+        "source": "ArcEvents/WorldFirearms.kt:fire,reload,finishReload",
+        "basis": "Steady-state rounds loaded from reserve before; no reserve consumption or persisted free rounds after.",
+        "before": {"enabled": true, "amount_per_event": {"value": "1", "unit": "major"}, "events_per_player_day": [100, 1000, 10000]},
+        "after": {"enabled": false, "amount_per_event": {"value": "1", "unit": "major"}, "events_per_player_day": [100, 1000, 10000]}
+      }]
+    }
+  }
+}

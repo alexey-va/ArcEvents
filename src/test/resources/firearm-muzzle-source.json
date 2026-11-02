@@ -1,0 +1,937 @@
+{
+  "source_manifest_sha256": "514596bf9c4979b010059b62c61da2b6ac9f47967d1b5241d94fcf1fe9d08da9",
+  "client_sha1": "ba2df812c2d12e0219c489c4cd9a5e1f0760f5bd",
+  "contract": "Steady native first-person transform; 70 degree hand projection. Default standing world FOV only. No bob/equip/recoil or third-person arm emulation.",
+  "weapons": [
+    {
+      "weapon": "flintlock",
+      "model": "voxelspawns_megaflintlocks:item/vs_pistol",
+      "model_sha256": "63911a11af45ae3fc6e0fec9a85c2e431ec422493b23123208f46fac1e03c5a8",
+      "element": 4,
+      "anchor_model": [
+        8.0,
+        1.5,
+        2.0
+      ],
+      "transforms": {
+        "hip_right": {
+          "rotation": [
+            5,
+            5,
+            0
+          ],
+          "translation": [
+            2.0,
+            7.5,
+            0.5
+          ],
+          "scale": [
+            0.6,
+            0.6,
+            0.6
+          ]
+        },
+        "raw_hip_left": {
+          "rotation": [
+            5,
+            5,
+            0
+          ],
+          "translation": [
+            2,
+            7.5,
+            0.5
+          ],
+          "scale": [
+            0.6,
+            0.6,
+            0.6
+          ]
+        },
+        "scoped_hip_left": {
+          "rotation": [
+            5,
+            5,
+            0
+          ],
+          "translation": [
+            2.0,
+            7.5,
+            0.5
+          ],
+          "scale": [
+            0.6,
+            0.6,
+            0.6
+          ]
+        },
+        "aim": {
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "translation": [
+            -8.96,
+            11.8825,
+            1.995
+          ],
+          "scale": [
+            0.75,
+            0.75,
+            0.75
+          ]
+        }
+      }
+    },
+    {
+      "weapon": "revolver",
+      "model": "voxelspawns_megaflintlocks:item/vs_revolver",
+      "model_sha256": "daa5c1fdb0c01e7df99ed12999aaffbea059f7f2176941e58715c76fd76da38c",
+      "element": 4,
+      "anchor_model": [
+        8.0,
+        1.0,
+        0.0
+      ],
+      "transforms": {
+        "hip_right": {
+          "rotation": [
+            5,
+            5,
+            0
+          ],
+          "translation": [
+            2.0,
+            7.5,
+            0.5
+          ],
+          "scale": [
+            0.6,
+            0.6,
+            0.6
+          ]
+        },
+        "raw_hip_left": {
+          "rotation": [
+            5,
+            5,
+            0
+          ],
+          "translation": [
+            2,
+            7.5,
+            0.5
+          ],
+          "scale": [
+            0.6,
+            0.6,
+            0.6
+          ]
+        },
+        "scoped_hip_left": {
+          "rotation": [
+            5,
+            5,
+            0
+          ],
+          "translation": [
+            2.0,
+            7.5,
+            0.5
+          ],
+          "scale": [
+            0.6,
+            0.6,
+            0.6
+          ]
+        },
+        "aim": {
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "translation": [
+            -8.96,
+            11.68,
+            1.92
+          ],
+          "scale": [
+            0.75,
+            0.75,
+            0.75
+          ]
+        }
+      }
+    },
+    {
+      "weapon": "hand_cannon",
+      "model": "voxelspawns_megaflintlocks:item/vs_cannon",
+      "model_sha256": "3725805d4a4803e3305e8895a69133379a0e4e35521221ef6c65031771c6c746",
+      "element": [
+        1,
+        2
+      ],
+      "anchor_model": [
+        8.0,
+        1.4596194077712559,
+        -1.0004999999999997
+      ],
+      "transforms": {
+        "hip_right": {
+          "rotation": [
+            5,
+            5,
+            0
+          ],
+          "translation": [
+            2.0,
+            7.5,
+            0.5
+          ],
+          "scale": [
+            0.6,
+            0.6,
+            0.6
+          ]
+        },
+        "raw_hip_left": {
+          "rotation": [
+            5,
+            5,
+            0
+          ],
+          "translation": [
+            2,
+            7.5,
+            0.5
+          ],
+          "scale": [
+            0.6,
+            0.6,
+            0.6
+          ]
+        },
+        "scoped_hip_left": {
+          "rotation": [
+            5,
+            5,
+            0
+          ],
+          "translation": [
+            2.0,
+            7.5,
+            0.5
+          ],
+          "scale": [
+            0.6,
+            0.6,
+            0.6
+          ]
+        },
+        "aim": {
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "translation": [
+            -8.96,
+            11.142,
+            1.496
+          ],
+          "scale": [
+            0.68,
+            0.68,
+            0.68
+          ]
+        }
+      }
+    },
+    {
+      "weapon": "double_barrel",
+      "model": "voxelspawns_megaflintlocks:item/vs_rifle_double",
+      "model_sha256": "b2a4428b2e99998d4da77011e8a0c9a52b9cc9dbefad01ebfaf612f256037237",
+      "element": 6,
+      "anchor_model": [
+        8.73137135623731,
+        1.9999999999999996,
+        -8.0
+      ],
+      "transforms": {
+        "hip_right": {
+          "rotation": [
+            5,
+            5,
+            0
+          ],
+          "translation": [
+            2.0,
+            7.5,
+            0.5
+          ],
+          "scale": [
+            0.6,
+            0.6,
+            0.6
+          ]
+        },
+        "raw_hip_left": {
+          "rotation": [
+            5,
+            5,
+            0
+          ],
+          "translation": [
+            2,
+            7.5,
+            0.5
+          ],
+          "scale": [
+            0.6,
+            0.6,
+            0.6
+          ]
+        },
+        "scoped_hip_left": {
+          "rotation": [
+            5,
+            5,
+            0
+          ],
+          "translation": [
+            2.0,
+            7.5,
+            0.5
+          ],
+          "scale": [
+            0.6,
+            0.6,
+            0.6
+          ]
+        },
+        "aim": {
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "translation": [
+            -8.96,
+            11.584,
+            1.564
+          ],
+          "scale": [
+            0.68,
+            0.68,
+            0.68
+          ]
+        }
+      }
+    },
+    {
+      "weapon": "five_seven",
+      "model": "gold_guns:item/gold_five_seven",
+      "model_sha256": "cb167e62b83ba01d8f6ba82b20b71bc0184a8014bd9cd6de9473d3f403cf4742",
+      "element": 3,
+      "anchor_model": [
+        8.0,
+        9.5,
+        -2.0
+      ],
+      "transforms": {
+        "hip_right": {
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "translation": [
+            -1.5,
+            3.25,
+            -1.0
+          ],
+          "scale": [
+            0.6,
+            0.6,
+            0.6
+          ]
+        },
+        "raw_hip_left": {
+          "translation": [
+            -1.5,
+            3.25,
+            -1
+          ],
+          "scale": [
+            0.6,
+            0.6,
+            0.6
+          ]
+        },
+        "scoped_hip_left": {
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "translation": [
+            -1.5,
+            3.25,
+            -1.0
+          ],
+          "scale": [
+            0.6,
+            0.6,
+            0.6
+          ]
+        },
+        "aim": {
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "translation": [
+            -8.96,
+            5.8175,
+            -0.23
+          ],
+          "scale": [
+            0.65,
+            0.65,
+            0.65
+          ]
+        }
+      }
+    },
+    {
+      "weapon": "g36",
+      "model": "gold_guns:item/gold_g36",
+      "model_sha256": "d0443b7acad65d6975a25f7b569f7d9d26c76b52533a3b9f3032d462932dfad2",
+      "element": 30,
+      "anchor_model": [
+        7.472928932188134,
+        9.257781745930519,
+        -13.0
+      ],
+      "transforms": {
+        "hip_right": {
+          "rotation": [
+            0,
+            0,
+            3
+          ],
+          "translation": [
+            -1.0,
+            3.5,
+            0.25
+          ],
+          "scale": [
+            0.6,
+            0.6,
+            0.6
+          ]
+        },
+        "raw_hip_left": {
+          "translation": [
+            -9.32,
+            5.25,
+            1
+          ],
+          "scale": [
+            0.6,
+            0.6,
+            0.6
+          ]
+        },
+        "scoped_hip_left": {
+          "rotation": [
+            0,
+            0,
+            3
+          ],
+          "translation": [
+            -1.0,
+            3.5,
+            0.25
+          ],
+          "scale": [
+            0.6,
+            0.6,
+            0.6
+          ]
+        },
+        "aim": {
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "translation": [
+            -8.67348,
+            4.898,
+            -2.0
+          ],
+          "scale": [
+            0.58,
+            0.58,
+            0.58
+          ]
+        }
+      }
+    },
+    {
+      "weapon": "aek_971",
+      "model": "gold_guns:item/gold_aek_971",
+      "model_sha256": "db73925114196cb56d422250a14fb385922bd9f1efdc682a65c92a5aca0d1fea",
+      "element": 27,
+      "anchor_model": [
+        7.84,
+        9.61172,
+        -13.1
+      ],
+      "transforms": {
+        "hip_right": {
+          "rotation": [
+            0,
+            0,
+            3
+          ],
+          "translation": [
+            -1.0,
+            3.5,
+            -2.0
+          ],
+          "scale": [
+            0.6,
+            0.6,
+            0.6
+          ]
+        },
+        "raw_hip_left": {
+          "translation": [
+            -9,
+            5.25,
+            1
+          ],
+          "scale": [
+            0.6,
+            0.6,
+            0.6
+          ]
+        },
+        "scoped_hip_left": {
+          "rotation": [
+            0,
+            0,
+            3
+          ],
+          "translation": [
+            -1.0,
+            3.5,
+            -2.0
+          ],
+          "scale": [
+            0.6,
+            0.6,
+            0.6
+          ]
+        },
+        "aim": {
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "translation": [
+            -9.0064,
+            3.622,
+            -2.856
+          ],
+          "scale": [
+            0.58,
+            0.58,
+            0.58
+          ]
+        }
+      }
+    },
+    {
+      "weapon": "rpl_20",
+      "model": "gold_guns:item/gold_rpl20",
+      "model_sha256": "3aa8abd5b93d1b41806af130b08c39a76a7c29e68c80b7e40728cf5ea217d380",
+      "element": 16,
+      "anchor_model": [
+        8.1,
+        7.317157287525381,
+        -12.4
+      ],
+      "transforms": {
+        "hip_right": {
+          "rotation": [
+            0,
+            0,
+            3
+          ],
+          "translation": [
+            -0.5,
+            4.5,
+            -3.75
+          ],
+          "scale": [
+            0.8,
+            0.8,
+            0.8
+          ]
+        },
+        "raw_hip_left": {
+          "translation": [
+            -9,
+            7.25,
+            -2.25
+          ],
+          "scale": [
+            0.7,
+            0.7,
+            0.7
+          ]
+        },
+        "scoped_hip_left": {
+          "rotation": [
+            0,
+            0,
+            3
+          ],
+          "translation": [
+            -0.5,
+            4.5,
+            -3.75
+          ],
+          "scale": [
+            0.8,
+            0.8,
+            0.8
+          ]
+        },
+        "aim": {
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "translation": [
+            -9.022,
+            5.320266,
+            -3.864
+          ],
+          "scale": [
+            0.62,
+            0.62,
+            0.62
+          ]
+        }
+      }
+    },
+    {
+      "weapon": "vepr_12",
+      "model": "gold_guns:item/gold_vepr_12",
+      "model_sha256": "b4f10d8ea3c360444dc47dafa7afb1f9d04a7898fe172c69c02b404e51bc12d4",
+      "element": 23,
+      "anchor_model": [
+        8.496653203435597,
+        8.376173203435597,
+        -13.1
+      ],
+      "transforms": {
+        "hip_right": {
+          "rotation": [
+            0,
+            0,
+            3
+          ],
+          "translation": [
+            0.25,
+            3.0,
+            -4.75
+          ],
+          "scale": [
+            0.78,
+            0.78,
+            0.78
+          ]
+        },
+        "raw_hip_left": {
+          "translation": [
+            -8.72,
+            6,
+            3.25
+          ],
+          "scale": [
+            0.6,
+            0.6,
+            0.6
+          ]
+        },
+        "scoped_hip_left": {
+          "rotation": [
+            0,
+            0,
+            3
+          ],
+          "translation": [
+            0.25,
+            3.0,
+            -4.75
+          ],
+          "scale": [
+            0.78,
+            0.78,
+            0.78
+          ]
+        },
+        "aim": {
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "translation": [
+            -9.31167,
+            4.244405,
+            -3.146
+          ],
+          "scale": [
+            0.62,
+            0.62,
+            0.62
+          ]
+        }
+      }
+    },
+    {
+      "weapon": "m1_garand",
+      "model": "gold_guns:item/gold_m1_garand",
+      "model_sha256": "ce068cf2daedea960abc7a4d97bcd45d25890427feb64551e817b89bc0e0418c",
+      "element": 8,
+      "anchor_model": [
+        9.600000000000001,
+        3.288600000000001,
+        -12.8
+      ],
+      "transforms": {
+        "hip_right": {
+          "rotation": [
+            0,
+            0,
+            8.25
+          ],
+          "translation": [
+            -3.0,
+            8.5,
+            -2.75
+          ],
+          "scale": [
+            0.7,
+            0.7,
+            0.7
+          ]
+        },
+        "raw_hip_left": {
+          "translation": [
+            -7.6,
+            11.25,
+            -0.25
+          ],
+          "scale": [
+            0.9,
+            0.9,
+            0.9
+          ]
+        },
+        "scoped_hip_left": {
+          "rotation": [
+            0,
+            0,
+            8.25
+          ],
+          "translation": [
+            -3.0,
+            8.5,
+            -2.75
+          ],
+          "scale": [
+            0.7,
+            0.7,
+            0.7
+          ]
+        },
+        "aim": {
+          "rotation": [
+            0,
+            0,
+            0.0
+          ],
+          "translation": [
+            -9.952,
+            10.397,
+            -3.0
+          ],
+          "scale": [
+            0.62,
+            0.62,
+            0.62
+          ]
+        }
+      }
+    },
+    {
+      "weapon": "vss_vintorez",
+      "model": "gold_guns:item/gold_vss_vintorez",
+      "model_sha256": "bc2f362c2314e6d2c76880f47b5a55c3adab0905e5849e9e19bc619ac8782c44",
+      "element": 8,
+      "anchor_model": [
+        8.35,
+        3.4530200000000004,
+        -15.8
+      ],
+      "transforms": {
+        "hip_right": {
+          "rotation": [
+            0,
+            0,
+            8.25
+          ],
+          "translation": [
+            -2.25,
+            7.25,
+            -2.75
+          ],
+          "scale": [
+            0.7,
+            0.7,
+            0.7
+          ]
+        },
+        "raw_hip_left": {
+          "translation": [
+            -8.75,
+            8.75,
+            -1
+          ]
+        },
+        "scoped_hip_left": {
+          "rotation": [
+            0,
+            0,
+            8.25
+          ],
+          "translation": [
+            -2.25,
+            7.25,
+            -2.75
+          ],
+          "scale": [
+            0.7,
+            0.7,
+            0.7
+          ]
+        },
+        "aim": {
+          "rotation": [
+            0,
+            0,
+            0.0
+          ],
+          "translation": [
+            -9.177,
+            7.39,
+            -1.5064
+          ],
+          "scale": [
+            0.62,
+            0.62,
+            0.62
+          ]
+        }
+      }
+    },
+    {
+      "weapon": "mcmillan",
+      "model": "gold_guns:item/gold_mcmillan_new",
+      "model_sha256": "966195fcc8578156dd40650c162cafea29835ab860790b6d3d578884d4a6b7fa",
+      "element": 17,
+      "anchor_model": [
+        7.9799999999999995,
+        9.180588745030457,
+        -14.6
+      ],
+      "transforms": {
+        "hip_right": {
+          "rotation": [
+            0,
+            0,
+            3
+          ],
+          "translation": [
+            -1.0,
+            3.5,
+            -3.5
+          ],
+          "scale": [
+            0.7,
+            0.7,
+            0.7
+          ]
+        },
+        "raw_hip_left": {
+          "translation": [
+            -9.05,
+            4.75,
+            -0.25
+          ],
+          "scale": [
+            0.7,
+            0.7,
+            0.7
+          ]
+        },
+        "scoped_hip_left": {
+          "rotation": [
+            0,
+            0,
+            3
+          ],
+          "translation": [
+            -1.0,
+            3.5,
+            -3.5
+          ],
+          "scale": [
+            0.7,
+            0.7,
+            0.7
+          ]
+        },
+        "aim": {
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "translation": [
+            -8.947,
+            3.77,
+            -2.75
+          ],
+          "scale": [
+            0.65,
+            0.65,
+            0.65
+          ]
+        }
+      }
+    }
+  ]
+}

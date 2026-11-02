@@ -51,6 +51,20 @@ class LocaleContractTest : StringSpec({
         }
     }
 
+    "creative firearm feedback exposes unlimited ammunition without reload guidance" {
+        val root = Files.createTempDirectory("arcevents-creative-ammo-")
+        try {
+            listOf("ru", "en").forEach { language ->
+                val text = Config(root, "lang/$language.yml").string("weapon.creative-ammo-actionbar")
+                text.contains("<weapon>") shouldBe true
+                text.contains("∞") shouldBe true
+                listOf("<loaded>", "<magazine>", "<reserve>", "F ").any(text::contains) shouldBe false
+            }
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
     "catalog does not opt GUI text into italics or shouting caps" {
         val root = Files.createTempDirectory("arcevents-style-")
         try {
