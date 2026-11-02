@@ -101,16 +101,19 @@ class ArcEventsListener(
     private val menu: ArcEventsMenu,
     private val itemResolver: EventItemResolver,
     private val worldFirearms: WorldFirearms? = null,
+    private val clearFirearmHud: (UUID) -> Unit = {},
 ) : Listener {
     private val pendingEliminations = mutableSetOf<UUID>()
 
     private fun clearWeaponState(playerId: UUID) {
+        clearFirearmHud(playerId)
         worldFirearms?.cancel(playerId)
         service.clearFirearmScope(playerId)
     }
 
     @EventHandler fun onJoin(event: PlayerJoinEvent) = service.handleJoin(event.player)
     @EventHandler fun onQuit(event: PlayerQuitEvent) {
+        clearFirearmHud(event.player.uniqueId)
         worldFirearms?.forget(event.player.uniqueId)
         service.handleQuit(event.player)
     }

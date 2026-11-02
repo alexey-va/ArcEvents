@@ -279,7 +279,8 @@ open class ArcEventsPlugin : JavaPlugin() {
                 setExecutor(command)
                 tabCompleter = command
             }
-            val worldFirearms = WorldFirearms(this, firearms, locale, scopeRuntime, scopePreviewItemIdentity(this),
+            val worldGunIdentity = scopePreviewItemIdentity(this)
+            val worldFirearms = WorldFirearms(this, firearms, locale, scopeRuntime, worldGunIdentity,
                 allowed = { player -> !preparing && !escrow.isLocked(player.uniqueId) && player.uniqueId !in escrow.pendingPlayers() &&
                     !activeService.isParticipant(player.uniqueId) && !activeService.withinProtectedArena(player.location) },
                 canTarget = { _, entity -> !activeService.withinProtectedArena(entity.location) &&
@@ -289,7 +290,19 @@ open class ArcEventsPlugin : JavaPlugin() {
                 reloadSounds = { settings.ui.sounds },
             )
             lifecycle.own(worldFirearms)
-            server.pluginManager.registerEvents(ArcEventsListener(activeService, menu, items, worldFirearms), this)
+            val firearmItems = lifecycle.own(FirearmItems(
+                isFirearm = { item -> firearms.state(item) != null || scopePreviewFirearm(worldGunIdentity(item)) != null },
+                allowed = { player -> !preparing && !escrow.isLocked(player.uniqueId) &&
+                    (player.uniqueId !in escrow.pendingPlayers() || activeService.isParticipant(player.uniqueId)) },
+            ))
+            server.pluginManager.registerEvents(firearmItems, this)
+            server.onlinePlayers.forEach(firearmItems::refreshLater)
+            val firearmHud = lifecycle.own(FirearmAmmoHud(packetDisplays, locale) { player ->
+                if (preparing || escrow.isLocked(player.uniqueId)) null
+                else activeService.ammoHudState(player) ?: worldFirearms.ammoHudState(player)
+            })
+            lifecycle.tasks.runTimer(1, 1) { firearmHud.tick(server.onlinePlayers) }
+            server.pluginManager.registerEvents(ArcEventsListener(activeService, menu, items, worldFirearms, firearmHud::clear), this)
             coordinator.start()
             activeService.start()
             preparing = false

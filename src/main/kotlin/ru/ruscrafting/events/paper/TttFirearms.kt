@@ -39,6 +39,7 @@ class TttFirearms(
         val material = Material.matchMaterial(visual.material)?.takeIf(Material::isItem) ?: fallback(id)
         return ItemStack.of(material).also { item ->
             item.editMeta { meta ->
+                meta.setMaxStackSize(1)
                 meta.displayName(TttItems.nonItalic(locale.render("weapon.${id.name.lowercase()}-name", player)))
                 meta.lore(locale.lore("weapon.firearm-lore", player, values(spec, loaded, player)).map(TttItems::nonItalic))
                 meta.persistentDataContainer.set(itemKindKey, PersistentDataType.STRING, EventItemKind.FIREARM.name)

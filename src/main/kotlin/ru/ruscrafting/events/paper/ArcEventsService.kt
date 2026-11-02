@@ -1007,20 +1007,9 @@ class ArcEventsService(
                 hit = { entity, position, damage -> hitByFirearm(player, state.id.name.lowercase(), entity, position, damage, matchId) },
             )) return false
         shotCooldownUntil[player.uniqueId] = now + spec.cooldownTicks * 50L
-        if (creative) {
-            player.sendEventActionBar(locale.render("weapon.creative-ammo-actionbar", player, mapOf(
-                "weapon" to locale.render("weapon.${state.id.name.lowercase()}-name", player),
-            )))
-            return true
-        }
+        if (creative) return true
         val loaded = state.loaded - spec.roundsPerShot
         player.inventory.setItemInMainHand(firearms.updateLoaded(held, player, loaded))
-        player.sendEventActionBar(locale.render("weapon.ammo-actionbar", player, mapOf(
-            "weapon" to locale.render("weapon.${state.id.name.lowercase()}-name", player),
-            "loaded" to locale.text(loaded),
-            "magazine" to locale.text(spec.magazineSize),
-            "reserve" to locale.text(firearms.reserveAmmo(player, matchId)),
-        )))
         return true
     }
 
@@ -1100,6 +1089,23 @@ class ArcEventsService(
         return true
     }
 
+    internal fun ammoHudState(player: Player): FirearmAmmoHudState? {
+        if (player.inventory.itemInMainHand.amount != 1) return null
+        val state = firearms.state(player.inventory.itemInMainHand) ?: return null
+        if (!settings().weapons.enabled || phase() != MatchPhase.ACTIVE || !isAlive(player.uniqueId) ||
+            currentMode() == EventMode.DISASTERS || state.matchId != activeMatchId() ||
+            !hasSelectedFishingFirearm(player, state.id, state.matchId)
+        ) return null
+        return FirearmAmmoHudState(
+            loaded = state.loaded,
+            capacity = firearms.spec(state.id).magazineSize,
+            reserve = firearms.reserveAmmo(player, state.matchId),
+            creative = player.gameMode == GameMode.CREATIVE,
+            reloading = player.uniqueId in reloadTasks || scopes?.isReloading(player.uniqueId) == true,
+            zoom = scopes?.projectedZoom(player.uniqueId) ?: 1f,
+        )
+    }
+
     private fun authorizedFirearm(player: Player): FirearmState? {
         val matchId = activeMatchId()
         val state = firearms.state(player.inventory.itemInMainHand)
@@ -1110,6 +1116,13 @@ class ArcEventsService(
             clearFirearmScope(player.uniqueId)
             return null
         }
+        val held = player.inventory.itemInMainHand
+        if (held.amount != 1) {
+            player.sendEventActionBar(locale.render("weapon.world-stacked-actionbar", player))
+            clearFirearmScope(player.uniqueId)
+            return null
+        }
+        if (held.maxStackSize != 1) player.inventory.setItemInMainHand(singleFirearm(held))
         return state
     }
 

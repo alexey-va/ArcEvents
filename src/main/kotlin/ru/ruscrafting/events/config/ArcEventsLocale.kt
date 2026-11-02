@@ -86,6 +86,8 @@ class ArcEventsLocale(
             "loadout.blade", "loadout.crossbow", "loadout.rations", "loadout.ammunition",
             "body.unidentified", "body.identified", "body.discovered", "body.dna", "body.unavailable",
             "weapon.ammunition-name", "weapon.ammo-actionbar", "weapon.creative-ammo-actionbar", "weapon.pickup-ammo-actionbar", "weapon.reload-complete-actionbar",
+            "weapon.ammo-hud-count", "weapon.ammo-hud-reserve", "weapon.ammo-hud-creative",
+            "weapon.ammo-hud-controls", "weapon.ammo-hud-reload", "weapon.ammo-hud-reloading", "weapon.ammo-hud-empty",
             "roster.status.alive", "roster.status.missing", "roster.status.confirmed_dead", "roster.role-hidden",
             "report.item-name", "report.ready", "report.unavailable", "report.winner-innocents",
             "shop.bought", "shop.insufficient", "shop.unavailable", "team.message",

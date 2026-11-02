@@ -185,6 +185,9 @@ class TttScopeGameplayMockBukkitTest : StringSpec({
             player.inventory.setItemInMainHand(empty)
             player.gameMode = GameMode.CREATIVE
 
+            empty.maxStackSize shouldBe 1
+            f.service.ammoHudState(player) shouldBe FirearmAmmoHudState(0, 6, 0, creative = true)
+
             f.service.useFirearm(player) shouldBe true
             f.service.reloadFirearm(player) shouldBe true
             f.advanceTime(1_000)
@@ -208,6 +211,7 @@ class TttScopeGameplayMockBukkitTest : StringSpec({
             f.service.useFirearm(player) shouldBe true
             f.firearms.state(player.inventory.itemInMainHand)?.loaded shouldBe 1
             f.firearms.reserveAmmo(player, matchId) shouldBe 4
+            f.service.ammoHudState(player) shouldBe FirearmAmmoHudState(1, 6, 4)
             verify(exactly = 3) { shots.fire(player, any(), any(), any(), any(), any(), any()) }
         }
     }

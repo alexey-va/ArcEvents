@@ -56,16 +56,35 @@ private val SCOPE_MODEL_FRAMES = listOf("hip", "raise_1", "raise_2", "raise_3", 
 private val SCOPE_MODEL_KEYS = FirearmId.entries.flatMap { id ->
     SCOPE_MODEL_FRAMES.map { frame -> "arc:event_sights/${id.name.lowercase()}_$frame" }
 }.toSet() + FirearmReloadAnimation.modelKeys
-private val FIREARM_IDS = FirearmId.entries.map { it.name }.toSet()
+private val FIREARMS_BY_ID = FirearmId.entries.associateBy { it.name }
+
+private fun packetFirearm(item: PacketItemStack): FirearmId? {
+    val data = item.getComponent(ComponentTypes.CUSTOM_DATA).orElse(null)
+    val event = data?.getCompoundTagOrNull("PublicBukkitValues")
+    return scopePreviewFirearm(nativeScopePreviewItemIdentity(data)) ?: if (
+        event?.getStringTagValueOrNull("arcevents:event_item") == EventItemKind.FIREARM.name
+    ) FIREARMS_BY_ID[event.getStringTagValueOrNull("arcevents:firearm")] else null
+}
+
+/** Raw aliases keep the vendor geometry but disable the separate native equip-height dip. */
+internal fun firearmClientItem(item: PacketItemStack, protocol: Int): PacketItemStack {
+    if (protocol < ClientVersion.V_1_21_11.protocolVersion || item.isEmpty) return item
+    val firearm = packetFirearm(item)
+    val model = item.getComponent(ComponentTypes.ITEM_MODEL).orElse(null)?.modelLocation
+    val vendorModel = nativeScopePreviewItemIdentity(item.getComponent(ComponentTypes.CUSTOM_DATA).orElse(null)) != null ||
+        item.getComponent(ComponentTypes.CUSTOM_MODEL_DATA_LISTS).orElse(null)?.floats?.firstOrNull()?.let { it.isFinite() && it > 0f } == true
+    // Preserve operator-owned custom models and all temporary scope/reload frames.
+    // Bundled event guns without resource-pack model data retain their portable vanilla fallback.
+    val displayed = if (firearm != null && vendorModel && (model == null || model == item.type.name)) item.copy().also {
+        it.setComponent(ComponentTypes.ITEM_MODEL, ItemModel(ResourceLocation("arc:event_sights/${firearm.name.lowercase()}_raw")))
+    } else item
+    return firearmWithoutSwing(displayed, protocol)
+}
 
 /** 1.21.11 skips the local whack transform for NONE, but its separate CROSSBOW branch ignores it. */
 internal fun firearmWithoutSwing(item: PacketItemStack, protocol: Int): PacketItemStack {
     if (protocol < ClientVersion.V_1_21_11.protocolVersion || item.isEmpty || item.type == ItemTypes.CROSSBOW) return item
-    val data = item.getComponent(ComponentTypes.CUSTOM_DATA).orElse(null)
-    val event = data?.getCompoundTagOrNull("PublicBukkitValues")
-    val firearm = nativeScopePreviewItemIdentity(data) != null ||
-        (event?.getStringTagValueOrNull("arcevents:event_item") == EventItemKind.FIREARM.name &&
-            event.getStringTagValueOrNull("arcevents:firearm") in FIREARM_IDS) ||
+    val firearm = packetFirearm(item) != null ||
         item.getComponent(ComponentTypes.ITEM_MODEL).orElse(null)?.modelLocation?.toString() in SCOPE_MODEL_KEYS
     if (!firearm) return item
     val animation = item.getComponent(ComponentTypes.SWING_ANIMATION).orElse(null)
@@ -167,6 +186,7 @@ class TttScopes internal constructor(
 
     fun zoom(playerId: UUID): Float? = active[playerId]?.frame?.zoom
     fun isAiming(playerId: UUID): Boolean = active[playerId]?.let { it.aiming && it.frame.zoom != null } == true
+    fun isReloading(playerId: UUID): Boolean = active[playerId]?.reload != null
     fun isPreview(playerId: UUID): Boolean = active[playerId]?.preview == true
     fun hasViewmodel(playerId: UUID): Boolean = active.containsKey(playerId)
     fun projectedZoom(playerId: UUID): Float? {
@@ -466,7 +486,7 @@ class TttScopes internal constructor(
         stopReload(scope)
         refreshMovement(scope)
         val realHeld = packetItem(scope.player.inventory.getItem(scope.target.heldSlot) ?: ItemStack.of(Material.AIR)).let {
-            if (closed) it else firearmWithoutSwing(it, scope.connection.protocol)
+            if (closed) it else firearmClientItem(it, scope.connection.protocol)
         }
         dispatch(scope.connection) {
             val replacement = active[playerId]
@@ -571,7 +591,7 @@ class TttScopes internal constructor(
             val reload = scope?.reload
             val sameReloadItem = reload == null || (item.type == reload.sourceItem.type &&
                 item.getComponent(ComponentTypes.CUSTOM_DATA) == reload.sourceItem.getComponent(ComponentTypes.CUSTOM_DATA))
-            val projected = if (held && scope != null && sameReloadItem) aimedItem(item, scope.frame, protocol) else firearmWithoutSwing(item, protocol)
+            val projected = if (held && scope != null && sameReloadItem) aimedItem(item, scope.frame, protocol) else firearmClientItem(item, protocol)
             changed = changed || projected !== item
             return projected
         }

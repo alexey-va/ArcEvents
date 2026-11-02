@@ -34,6 +34,33 @@ import java.nio.file.Files
 import java.util.UUID
 
 class WorldFirearmsTest : FunSpec({
+    test("first reload normalizes a paper gun before capturing its magazine lease") {
+        WorldFirearmFixture().use { f ->
+            val gun = f.gun(identity = WORLD_GUN_IDS.getValue(FirearmId.G36)).also { it.type = Material.PAPER }
+            gun.maxStackSize shouldBe 64
+            f.player.inventory.setItemInMainHand(gun)
+            f.player.inventory.setItem(10, ItemStack.of(Material.IRON_NUGGET, 4))
+            f.reload() shouldBe true
+            f.player.inventory.itemInMainHand.maxStackSize shouldBe 1
+            f.advance(f.firearms.spec(FirearmId.G36).reloadTicks.toLong())
+            f.runtime.state(f.player.inventory.itemInMainHand) shouldBe WorldFirearmState(FirearmId.G36, 4)
+            f.vanillaReserve() shouldBe 0
+        }
+    }
+
+    test("world hologram reads magazine authority and hides when firearm use is unavailable") {
+        WorldFirearmFixture().use { f ->
+            f.player.inventory.setItemInMainHand(f.gun(loaded = 3))
+            f.player.inventory.setItem(10, ItemStack.of(Material.IRON_NUGGET, 8))
+            f.runtime.ammoHudState(f.player) shouldBe FirearmAmmoHudState(3, 6, 8)
+            f.player.gameMode = GameMode.CREATIVE
+            f.runtime.ammoHudState(f.player) shouldBe FirearmAmmoHudState(3, 6, 8, creative = true)
+            f.actionsAllowed = false
+            f.runtime.ammoHudState(f.player) shouldBe null
+            f.runtime.state(f.player.inventory.itemInMainHand)?.loaded shouldBe 3
+        }
+    }
+
     test("all mapped raw guns start empty on a relay independently of event weapon enablement") {
         WorldFirearmFixture().use { f ->
             f.settings.nodeMode shouldBe NodeMode.RELAY
@@ -416,6 +443,7 @@ private class WorldFirearmFixture : AutoCloseable {
 
     init {
         PaperArcRuntime.installScheduling(plugin)
+        every { scopes.projectedZoom(any()) } returns null
         ConfigManager.clear()
         listOf("config.yml", "lang/ru.yml", "lang/en.yml").forEach { resource ->
             val destination = dataRoot.resolve(resource)

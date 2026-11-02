@@ -7,6 +7,7 @@ import com.github.retrooper.packetevents.event.UserDisconnectEvent
 import com.github.retrooper.packetevents.manager.server.ServerManager
 import com.github.retrooper.packetevents.manager.server.ServerVersion
 import com.github.retrooper.packetevents.protocol.component.ComponentTypes
+import com.github.retrooper.packetevents.protocol.component.builtin.item.ItemCustomModelData
 import com.github.retrooper.packetevents.protocol.component.builtin.item.ItemModel
 import com.github.retrooper.packetevents.protocol.component.builtin.item.ItemSwingAnimation
 import com.github.retrooper.packetevents.protocol.item.ItemStack as PacketItemStack
@@ -52,6 +53,7 @@ class TttScopesTest : StringSpec({
                 val authoritativeBefore = f.real.copy()
                 val duration = if (id == FirearmId.FIVE_SEVEN) 28 else 64
                 val handle = f.scopes.animateReload(f.player, f.target.copy(firearm = id), duration) { true }
+                f.scopes.isReloading(f.playerId) shouldBe true
                 f.models().single() shouldBe "arc:event_sights/${id.name.lowercase()}_reload_00"
                 f.scopes.isAiming(f.playerId) shouldBe false
                 f.scopes.projectedZoom(f.playerId) shouldBe null
@@ -59,6 +61,7 @@ class TttScopesTest : StringSpec({
                 f.models().last() shouldBe "arc:event_sights/${id.name.lowercase()}_reload_39"
                 (f.models().size <= minOf(duration, 40)) shouldBe true
                 f.tick(1)
+                f.scopes.isReloading(f.playerId) shouldBe false
                 f.models().last() shouldBe "arc:event_sights/${id.name.lowercase()}_hip"
                 f.pendingTimers() shouldBe 0
                 handle.close()
@@ -100,7 +103,7 @@ class TttScopesTest : StringSpec({
             val updated = f.filter(WrapperPlayServerSetPlayerInventory(2, replacement)) as WrapperPlayServerSetPlayerInventory
             updated.stack shouldBe replacement
             val otherSlot = f.filter(WrapperPlayServerSetPlayerInventory(3, f.real)) as WrapperPlayServerSetPlayerInventory
-            otherSlot.stack.getComponent(ComponentTypes.ITEM_MODEL) shouldBe f.real.getComponent(ComponentTypes.ITEM_MODEL)
+            otherSlot.stack.getComponent(ComponentTypes.ITEM_MODEL).get().modelLocation.toString() shouldBe "arc:event_sights/g36_raw"
         }
     }
 
@@ -180,6 +183,7 @@ class TttScopesTest : StringSpec({
                 val cursor = f.filter(WrapperPlayServerSetCursorItem(native)) as WrapperPlayServerSetCursorItem
                 listOf(inventory.stack, slot.item, window.items.single(), window.carriedItem.get(), cursor.stack).forEach { shown ->
                     shown.getComponent(ComponentTypes.SWING_ANIMATION).get().type shouldBe ItemSwingAnimation.Type.NONE
+                    shown.getComponent(ComponentTypes.ITEM_MODEL).get().modelLocation.toString() shouldBe "arc:event_sights/g36_raw"
                     shown.getComponent(ComponentTypes.CUSTOM_DATA) shouldBe native.getComponent(ComponentTypes.CUSTOM_DATA)
                     shown.type shouldBe native.type
                 }
@@ -188,6 +192,48 @@ class TttScopesTest : StringSpec({
             }
             f.packets.isEmpty() shouldBe true
             f.pendingTimers() shouldBe 0
+        }
+    }
+
+    "raw aliases preserve native state and custom models through repeated client projection" {
+        ScopeFixture().use {
+            val protocol = ClientVersion.V_1_21_11.protocolVersion
+            for (id in FirearmId.entries) {
+                val native = gunPacketItem(event = true)
+                native.getComponent(ComponentTypes.CUSTOM_DATA).get().getCompoundTagOrNull("PublicBukkitValues")!!
+                    .setTag("arcevents:firearm", NBTString(id.name))
+                val displayed = firearmClientItem(native, protocol)
+                displayed.getComponent(ComponentTypes.ITEM_MODEL).get().modelLocation.toString() shouldBe
+                    "arc:event_sights/${id.name.lowercase()}_raw"
+                displayed.getComponent(ComponentTypes.CUSTOM_DATA) shouldBe native.getComponent(ComponentTypes.CUSTOM_DATA)
+                displayed.type shouldBe native.type
+                displayed.amount shouldBe native.amount
+                (firearmClientItem(displayed, protocol) === displayed) shouldBe true
+                (firearmClientItem(native, ClientVersion.V_1_21_4.protocolVersion) === native) shouldBe true
+            }
+            val crossbow = gunPacketItem(crossbow = true)
+            crossbow.setComponent(ComponentTypes.ITEM_MODEL, ItemModel(crossbow.type.name))
+            val displayed = firearmClientItem(crossbow, protocol)
+            displayed.type shouldBe ItemTypes.CROSSBOW
+            displayed.getComponent(ComponentTypes.ITEM_MODEL).get().modelLocation.toString() shouldBe "arc:event_sights/flintlock_raw"
+            displayed.getComponent(ComponentTypes.SWING_ANIMATION) shouldBe crossbow.getComponent(ComponentTypes.SWING_ANIMATION)
+            displayed.getComponent(ComponentTypes.CUSTOM_DATA) shouldBe crossbow.getComponent(ComponentTypes.CUSTOM_DATA)
+            (firearmClientItem(displayed, protocol) === displayed) shouldBe true
+            val custom = gunPacketItem()
+            val model = ItemModel(ResourceLocation("operator:custom_gun"))
+            custom.setComponent(ComponentTypes.ITEM_MODEL, model)
+            firearmClientItem(custom, protocol).getComponent(ComponentTypes.ITEM_MODEL).get() shouldBe model
+            for (modelData in listOf(null, 0)) {
+                val fallback = gunPacketItem(event = true)
+                if (modelData == null) fallback.unsetComponent(ComponentTypes.CUSTOM_MODEL_DATA_LISTS)
+                else fallback.setComponent(ComponentTypes.CUSTOM_MODEL_DATA_LISTS, ItemCustomModelData(modelData))
+                val shown = firearmClientItem(fallback, protocol)
+                shown.getComponent(ComponentTypes.ITEM_MODEL) shouldBe fallback.getComponent(ComponentTypes.ITEM_MODEL)
+                shown.getComponent(ComponentTypes.CUSTOM_DATA) shouldBe fallback.getComponent(ComponentTypes.CUSTOM_DATA)
+                shown.getComponent(ComponentTypes.SWING_ANIMATION).get().type shouldBe ItemSwingAnimation.Type.NONE
+            }
+            val unrelated = PacketItemStack.builder().type(ItemTypes.PAPER).build()
+            (firearmClientItem(unrelated, protocol) === unrelated) shouldBe true
         }
     }
 
@@ -512,6 +558,15 @@ class TttScopesTest : StringSpec({
         }
     }
 
+    "stable raw vendor aliases remain movable through the creative inventory boundary" {
+        for (id in FirearmId.entries) {
+            val item = mockk<ItemStack>()
+            every { item.isEmpty } returns false
+            every { item.itemMeta.itemModel } returns org.bukkit.NamespacedKey("arc", "event_sights/${id.name.lowercase()}_raw")
+            isScopeViewmodelItem(item) shouldBe false
+        }
+    }
+
     "VSS keeps its zoom and model with no laser work while the setting is disabled" {
         ScopeFixture().use { f ->
             f.baseline()
@@ -576,6 +631,7 @@ private fun gunPacketItem(event: Boolean = false, crossbow: Boolean = false): Pa
     }
     return PacketItemStack.builder().type(if (crossbow) ItemTypes.CROSSBOW else ItemTypes.PAPER).amount(1).build().also {
         it.setComponent(ComponentTypes.CUSTOM_DATA, data)
+        it.setComponent(ComponentTypes.CUSTOM_MODEL_DATA_LISTS, ItemCustomModelData(if (crossbow) 2100101 else 2100003))
     }
 }
 

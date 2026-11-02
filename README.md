@@ -236,6 +236,12 @@ runtime maps those contracts to stable custom-model-data IDs from the
 defaults remain dependency-free vanilla items.
 
 All firearms fire with LMB, RMB toggles the raised aiming pose, and F reloads.
+A private magazine hologram displays one vertical cartridge mark per round,
+the exact count, reserve and these controls. It follows the player through
+Core's native passenger attachment with a camera-facing local transform,
+like the staff HUD; movement is not reproduced with world teleports. Empty
+and reloading states are explicit, and Creative shows infinity instead of a
+consumable magazine. It is removed on weapon/state exits and runtime cleanup.
 Pistols, the double barrel, G36 and M1 Garand use iron sights (1.15×);
 AEK-971, RPL-20 and Vepr-12 use physical reflex sights (1.35×); VSS Vintorez
 (3×) and McMillan (5×) use hollow 3D optics. The world stays visible through
@@ -246,10 +252,11 @@ Zoom follows the client's FOV Effects setting.
 `TttScopes` owns transient client-only abilities and held-item model packets.
 It does not write real equipment or alter damage/spread. Models use
 `arc:event_sights/<firearm>_{hip,aim}`. A temporary `_equip_hip` or `_equip_aim`
-alias uses the native client's render-interpolated down-and-up equip animation
-instead of four server-tick model steps. After six ticks the same geometry
-settles on `_hip` or `_aim`, with swap animation disabled so ammunition/lore
-updates cannot replay it. Each toggle sends two item packets. The physical
+alias uses the native client's render-interpolated incoming equip raise
+instead of four server-tick model steps. The outgoing pose remains fixed.
+After six ticks the same geometry settles on `_hip` or `_aim`, with both
+replacement animation and equip displacement disabled so ammunition/lore
+updates or attacks cannot replay the downward dip. Each toggle sends two item packets. The physical
 optic remains attached in both poses.
 Nearby observers receive a cosmetic charged-crossbow holding pose with the
 original weapon model; the real inventory remains unchanged. GUI views retain
@@ -292,8 +299,12 @@ Older clients omit camera recoil. Native armour and hurt immunity remain.
 
 Ordinary-world guns use LMB to fire, RMB to aim and F to reload. A new
 magazine starts empty; one ordinary iron nugget loads one round. Event ammo
-and other custom nuggets do not qualify. Split stacked guns into individual
-items first. Loaded rounds persist on the same vendor item. A cancelled reload
+and other custom nuggets do not qualify. Real gun items use Minecraft's native
+maximum stack size of one. Previously issued stacks are split into available
+storage slots, preserving each item's metadata and magazine. If inventory is
+full, remaining legacy guns stay in their original stack until space is freed;
+the migration never drops overflow or deletes an item. Loaded rounds persist
+on the same vendor item. A cancelled reload
 consumes nothing. Creative fires without ammunition or reloading, including an
 empty gun; it neither consumes reserve items nor adds free persisted rounds.
 Returning to Survival or Adventure restores the unchanged magazine rules.
@@ -315,6 +326,15 @@ component, without adding ammunition or changing the vendor model. The client's
 special crossbow renderer ignores this type: the four vendor guns backed by a
 crossbow retain their native swing. No crossbow material conversion or client
 mod is included. Actual first-person playback still needs native acceptance.
+
+The attack-driven equip-height dip is a separate native transform. Since
+0.5.38, stable sight/reload definitions and twelve private `_raw` aliases use
+`swap_animation_scale: 0`; deliberate `_equip_*` aliases retain scale one.
+Raw aliases preserve the vendor model tree, charged/pull variants and GUI
+properties. They are projected only for recognized packed guns with the
+default item model; portable vanilla fallback and explicit custom item models
+are retained. Publish these pack assets before activating 0.5.38. This change
+does not suppress the separate crossbow whack branch or camera recoil.
 
 Each firearm has its own first-person reload sequence. Articulated native item
 models move the appropriate magazine, cylinder, barrel hinge, bolt or feed lid;

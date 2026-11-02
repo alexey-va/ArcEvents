@@ -95,6 +95,19 @@ class WorldFirearms(
         return WorldFirearmState(id, loaded).takeIf { loaded in 0..firearms.spec(id).magazineSize }
     }
 
+    internal fun ammoHudState(player: Player): FirearmAmmoHudState? {
+        val state = state(player.inventory.itemInMainHand) ?: return null
+        if (!eligible(player)) return null
+        return FirearmAmmoHudState(
+            loaded = state.loaded,
+            capacity = firearms.spec(state.id).magazineSize,
+            reserve = reserve(player.inventory.storageContents),
+            creative = player.gameMode == GameMode.CREATIVE,
+            reloading = player.uniqueId in reloads || scopes.isReloading(player.uniqueId),
+            zoom = scopes.projectedZoom(player.uniqueId) ?: 1f,
+        )
+    }
+
     private fun firearmId(item: ItemStack?): FirearmId? {
         if (item == null || item.isEmpty || item.itemMeta.persistentDataContainer.has(eventItemKey)) return null
         return scopePreviewFirearm(itemIdentity(item))
@@ -115,10 +128,13 @@ class WorldFirearms(
             feedback(player, "world-stacked-actionbar")
             return null
         }
-        return state(held) ?: run {
+        val state = state(held) ?: run {
             feedback(player, "world-invalid-actionbar")
-            null
+            return null
         }
+        // Normalize before a reload captures its exact item snapshot, never during that lease.
+        if (held.maxStackSize != 1) player.inventory.setItemInMainHand(singleFirearm(held))
+        return state
     }
 
     private fun fire(player: Player): Boolean {
@@ -161,19 +177,8 @@ class WorldFirearms(
             return false
         }
         cooldownUntil[playerId] = now + spec.cooldownTicks * 50L
-        if (creative) {
-            player.sendEventActionBar(locale.render("weapon.creative-ammo-actionbar", player, mapOf(
-                "weapon" to locale.render("weapon.${state.id.name.lowercase()}-name", player),
-            )))
-            return true
-        }
+        if (creative) return true
         player.inventory.setItemInMainHand(requireNotNull(replacement))
-        player.sendEventActionBar(locale.render("weapon.world-ammo-actionbar", player, mapOf(
-            "weapon" to locale.render("weapon.${state.id.name.lowercase()}-name", player),
-            "loaded" to locale.text(loaded),
-            "magazine" to locale.text(spec.magazineSize),
-            "reserve" to locale.text(reserve(player.inventory.storageContents)),
-        )))
         return true
     }
 
