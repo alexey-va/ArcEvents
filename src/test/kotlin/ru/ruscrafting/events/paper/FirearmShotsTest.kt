@@ -19,6 +19,7 @@ import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.Particle
 import org.bukkit.Sound
+import org.bukkit.SoundCategory
 import org.bukkit.World
 import org.bukkit.block.Block
 import org.bukkit.block.data.BlockData
@@ -262,6 +263,44 @@ class FirearmShotsTest : StringSpec({
             f.rays.size shouldBe shotgun.pellets
             f.hits.size shouldBe 1
             f.hits.single().second shouldBe ((shotgun.pellets * shotgun.damagePerPellet) plusOrMinus 1e-8)
+        }
+    }
+
+    "VSS fires its recorded rifle sample once at the muzzle independently of particles and hits" {
+        withShotFixture { f ->
+            f.soundsEnabled = true
+            f.fire() shouldBe true
+            f.until { f.rays.isNotEmpty() }
+            verify(exactly = 1) {
+                f.world.playSound(any<Location>(), "arc:weapon_vss_fire", SoundCategory.PLAYERS, 1f, 1f)
+            }
+            verify(exactly = 0) {
+                f.world.playSound(any<Location>(), Sound.ENTITY_ARROW_SHOOT, any<Float>(), any<Float>())
+                f.world.playSound(any<Location>(), Sound.BLOCK_IRON_TRAPDOOR_CLOSE, any<Float>(), any<Float>())
+            }
+            f.hits.isEmpty() shouldBe true
+        }
+        withShotFixture { f ->
+            f.fire() shouldBe true
+            f.until { f.rays.isNotEmpty() }
+            verify(exactly = 0) {
+                f.world.playSound(any<Location>(), any<String>(), any<SoundCategory>(), any<Float>(), any<Float>())
+            }
+        }
+    }
+
+    "other rifle sounds retain their original vanilla layers" {
+        withShotFixture { f ->
+            f.soundsEnabled = true
+            f.fire(TttFirearmCatalog.specs.getValue(FirearmId.MCMILLAN)) shouldBe true
+            f.until { f.rays.isNotEmpty() }
+            verify(exactly = 1) {
+                f.world.playSound(any<Location>(), Sound.ENTITY_FIREWORK_ROCKET_BLAST, 1f, .72f)
+                f.world.playSound(any<Location>(), Sound.BLOCK_IRON_TRAPDOOR_CLOSE, .24f, 1.7f)
+            }
+            verify(exactly = 0) {
+                f.world.playSound(any<Location>(), any<String>(), any<SoundCategory>(), any<Float>(), any<Float>())
+            }
         }
     }
 

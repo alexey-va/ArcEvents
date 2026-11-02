@@ -236,6 +236,11 @@ runtime maps those contracts to stable custom-model-data IDs from the
 defaults remain dependency-free vanilla items.
 
 All firearms fire with LMB, RMB toggles the raised aiming pose, and F reloads.
+VSS firing uses the resource-pack event `arc:weapon_vss_fire`: a recorded rifle
+shot at its authored pitch, replacing the quiet vanilla arrow and trapdoor
+layers. The existing sound toggle still applies, and the other firearms keep
+their sound profiles. Publish the matching Arc sound assets before activating
+0.5.39; the shot is positioned at the same muzzle as the bullet.
 A private magazine hologram displays one vertical cartridge mark per round,
 the exact count, reserve and these controls. It follows the player through
 Core's native passenger attachment with a camera-facing local transform,

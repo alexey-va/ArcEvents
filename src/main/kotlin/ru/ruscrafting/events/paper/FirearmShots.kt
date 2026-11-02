@@ -9,6 +9,7 @@ import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.Particle
 import org.bukkit.Sound
+import org.bukkit.SoundCategory
 import org.bukkit.World
 import org.bukkit.entity.Display
 import org.bukkit.entity.Entity
@@ -277,10 +278,13 @@ class FirearmShots(
             shot.world.spawnParticle(Particle.SMOKE, location, if (shot.spec.id == FirearmId.FLINTLOCK) 5 else 1, .035, .025, .035, .015)
         }
         if (sounds()) {
-            val suppressed = shot.spec.id == FirearmId.VSS_VINTOREZ
-            shot.world.playSound(location, if (suppressed) Sound.ENTITY_ARROW_SHOOT else Sound.ENTITY_FIREWORK_ROCKET_BLAST,
-                if (suppressed) .35f else shot.profile.volume, shot.profile.pitch)
-            shot.world.playSound(location, Sound.BLOCK_IRON_TRAPDOOR_CLOSE, .24f, 1.7f)
+            if (shot.spec.id == FirearmId.VSS_VINTOREZ) {
+                shot.world.playSound(location, "arc:weapon_vss_fire", SoundCategory.PLAYERS,
+                    shot.profile.volume, shot.profile.pitch)
+            } else {
+                shot.world.playSound(location, Sound.ENTITY_FIREWORK_ROCKET_BLAST, shot.profile.volume, shot.profile.pitch)
+                shot.world.playSound(location, Sound.BLOCK_IRON_TRAPDOOR_CLOSE, .24f, 1.7f)
+            }
         }
     }
 
@@ -393,7 +397,7 @@ internal fun firearmFlightProfile(id: FirearmId): FirearmFlightProfile = when (i
     FirearmId.RPL_20 -> FirearmFlightProfile(41.0, 1.1f, .95f, .86f)
     FirearmId.VEPR_12 -> FirearmFlightProfile(24.0, 2.7f, .82f, .86f)
     FirearmId.M1_GARAND -> FirearmFlightProfile(43.0, 2.5f, .9f, .9f)
-    FirearmId.VSS_VINTOREZ -> FirearmFlightProfile(15.0, .9f, .35f, 1.35f)
+    FirearmId.VSS_VINTOREZ -> FirearmFlightProfile(15.0, .9f, 1f, 1f)
     FirearmId.MCMILLAN -> FirearmFlightProfile(45.0, 3.8f, 1.0f, .72f)
 }
 
