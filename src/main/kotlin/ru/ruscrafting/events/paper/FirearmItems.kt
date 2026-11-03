@@ -1,6 +1,7 @@
 package ru.ruscrafting.events.paper
 
 import io.papermc.paper.event.player.PlayerInventorySlotChangeEvent
+import io.papermc.paper.event.player.PlayerArmSwingEvent
 import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
@@ -11,17 +12,26 @@ import org.bukkit.event.inventory.InventoryCloseEvent
 import org.bukkit.event.inventory.InventoryClickEvent
 import org.bukkit.event.inventory.InventoryDragEvent
 import org.bukkit.event.player.PlayerJoinEvent
+import org.bukkit.inventory.EquipmentSlot
 import org.bukkit.inventory.ItemStack
 import ru.arc.core.LifecycleTaskScope
 import java.util.UUID
 
-/** Native stack limits on real guns, including ItemsAdder items issued by another plugin. */
+/** Native item behaviour on real guns, including ItemsAdder items issued by another plugin. */
 internal class FirearmItems(
     private val isFirearm: (ItemStack) -> Boolean,
     private val allowed: (Player) -> Boolean = { true },
 ) : Listener, AutoCloseable {
     private val tasks = LifecycleTaskScope()
     private val pending = mutableSetOf<UUID>()
+
+    // SWING_ANIMATION.NONE only changes first-person rendering; Paper still broadcasts the arm swing.
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    fun onSwing(event: PlayerArmSwingEvent) {
+        if (event.hand == EquipmentSlot.HAND && isFirearm(event.player.inventory.itemInMainHand)) {
+            event.isCancelled = true
+        }
+    }
 
     @EventHandler(priority = EventPriority.MONITOR)
     fun onJoin(event: PlayerJoinEvent) = refreshLater(event.player)

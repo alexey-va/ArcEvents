@@ -107,6 +107,57 @@ class TttScopesTest : StringSpec({
         }
     }
 
+    "tracked and late observers receive reload mechanisms in a native two-handed pose then restore" {
+        ScopeFixture().use { f ->
+            f.real = gunPacketItem()
+            f.baseline()
+            f.tracked = true
+            val original = f.real.copy()
+            f.scopes.animateReload(f.player, f.target, 42) { true }
+            fun shown() = (f.observerPackets.last() as WrapperPlayServerEntityEquipment).equipment.single().item
+            shown().type shouldBe ItemTypes.CROSSBOW
+            shown().getComponent(ComponentTypes.ITEM_MODEL).get().modelLocation.toString() shouldBe "arc:event_sights/vss_vintorez_reload_00"
+            f.tick(20)
+            shown().getComponent(ComponentTypes.ITEM_MODEL).get().modelLocation.toString() shouldBe f.models().last()
+            val replay = f.filter(WrapperPlayServerEntityEquipment(f.entityId,
+                listOf(Equipment(EquipmentSlot.MAIN_HAND, f.real), Equipment(EquipmentSlot.OFF_HAND, f.real))),
+                99, f.observerId) as WrapperPlayServerEntityEquipment
+            replay.equipment[0].item shouldBe shown()
+            replay.equipment[1].item shouldBe original
+            val replacement = PacketItemStack.builder().type(ItemTypes.DIAMOND).build()
+            val changed = f.filter(WrapperPlayServerEntityEquipment(f.entityId,
+                listOf(Equipment(EquipmentSlot.MAIN_HAND, replacement))), 99, f.observerId) as WrapperPlayServerEntityEquipment
+            changed.equipment.single().item shouldBe replacement
+            f.tick(22)
+            shown() shouldBe original
+            f.real shouldBe original
+            f.packets.filterIsInstance<WrapperPlayServerSetPlayerInventory>().forEach { it.stack.type shouldBe original.type }
+            verify(exactly = 0) { f.observer.inventory }
+        }
+    }
+
+    "cancelled queued observer reload frames cannot overwrite a newer aim pose" {
+        ScopeFixture(queued = true).use { f ->
+            f.real = gunPacketItem()
+            f.baseline()
+            f.tracked = true
+            val old = f.scopes.animateReload(f.player, f.target, 42) { true }
+            f.tick(8)
+            f.scopes.cancelReload(f.playerId)
+            f.scopes.toggle(f.player, f.target) shouldBe true
+            old.close()
+            f.tick(6)
+            f.runCancelled()
+            f.runQueued()
+            val shown = f.observerPackets.filterIsInstance<WrapperPlayServerEntityEquipment>().map { it.equipment.single().item }
+            shown.size shouldBe 1
+            shown.single().getComponent(ComponentTypes.ITEM_MODEL).get().modelLocation.toString() shouldBe "arc:event_sights/vss_vintorez_aim"
+            f.scopes.clear(f.playerId)
+            f.runQueued()
+            (f.observerPackets.last() as WrapperPlayServerEntityEquipment).equipment.single().item shouldBe f.real
+        }
+    }
+
     "cancelled queued reload frames and old handles cannot overwrite a newer scope" {
         ScopeFixture(queued = true).use { f ->
             f.real = gunPacketItem()

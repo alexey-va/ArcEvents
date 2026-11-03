@@ -2,16 +2,47 @@ package ru.ruscrafting.events.paper
 
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
+import io.papermc.paper.event.player.PlayerArmSwingEvent
 import net.kyori.adventure.text.Component
 import org.bukkit.Material
 import org.bukkit.NamespacedKey
 import org.bukkit.inventory.ItemStack
+import org.bukkit.inventory.EquipmentSlot
 import org.bukkit.persistence.PersistentDataType
 import ru.arc.core.PaperArcRuntime
 import ru.arc.core.Tasks
 import ru.arc.paper.testing.MockBukkitTestRuntime
 
 class FirearmItemsTest : FunSpec({
+    test("only recognized main-hand guns suppress the native arm animation for observers") {
+        MockBukkitTestRuntime.open().use { paper ->
+            val plugin = paper.createSimplePlugin("FirearmSwingTest")
+            PaperArcRuntime.installScheduling(plugin)
+            try {
+                val player = paper.addPlayer("Shooter")
+                val gun = fixtureStackedGun(1)
+                FirearmItems({ it.itemMeta?.persistentDataContainer?.has(LOADED_FIXTURE_KEY) == true }).use { policy ->
+                    paper.server.pluginManager.registerEvents(policy, plugin)
+                    player.inventory.setItemInMainHand(gun)
+                    paper.callEvent(PlayerArmSwingEvent(player, EquipmentSlot.HAND)).isCancelled shouldBe true
+                    paper.callEvent(PlayerArmSwingEvent(player, EquipmentSlot.OFF_HAND)).isCancelled shouldBe false
+                    player.inventory.itemInMainHand shouldBe gun
+
+                    player.inventory.setItemInOffHand(gun)
+                    for (material in listOf(Material.IRON_SWORD, Material.NETHERITE_HOE, Material.IRON_HORSE_ARMOR, Material.PAPER, Material.AIR)) {
+                        player.inventory.setItemInMainHand(ItemStack.of(material))
+                        paper.callEvent(PlayerArmSwingEvent(player, EquipmentSlot.HAND)).isCancelled shouldBe false
+                        paper.callEvent(PlayerArmSwingEvent(player, EquipmentSlot.OFF_HAND)).isCancelled shouldBe false
+                    }
+                    val denied = PlayerArmSwingEvent(player, EquipmentSlot.HAND).also { it.isCancelled = true }
+                    paper.callEvent(denied).isCancelled shouldBe true
+                }
+            } finally {
+                Tasks.reset()
+            }
+        }
+    }
+
     test("native limit splits old guns and preserves every magazine and unrelated item") {
         MockBukkitTestRuntime.open().use {
             val gun = fixtureStackedGun(4)

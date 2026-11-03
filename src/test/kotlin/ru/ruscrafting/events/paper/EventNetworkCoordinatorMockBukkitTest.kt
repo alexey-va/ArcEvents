@@ -14,6 +14,7 @@ import ru.arc.network.BackendServerId
 import ru.arc.paper.network.BackendTransferResult
 import ru.arc.paper.network.BackendTransfer
 import ru.arc.redis.InMemoryRedis
+import ru.arc.redis.RedisOperations
 import ru.arc.paper.redis.PaperRedisClient
 import ru.arc.redis.ServerIdentity
 import ru.arc.paper.testing.MockBukkitTestRuntime
@@ -21,6 +22,7 @@ import ru.arc.paper.testing.failOnUnsupportedMockBukkitOperation
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.domain.EventMode
+import ru.ruscrafting.events.domain.FirearmSoundPreset
 import ru.ruscrafting.events.network.EventNetworkMessage
 import ru.ruscrafting.events.network.EventNetworkSignal
 import ru.ruscrafting.events.network.HostNode
@@ -34,6 +36,84 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 
 class EventNetworkCoordinatorMockBukkitTest : FunSpec({
+    test("shared firearm sound loads on startup propagates trusted invalidations and repairs missed messages") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture().use { fixture ->
+                fixture.persistSound(FirearmSoundPreset.SHARP)
+                fixture.start()
+                fixture.coordinator.firearmSoundPreset() shouldBe FirearmSoundPreset.SHARP
+
+                fixture.persistSound(FirearmSoundPreset.HEAVY)
+                fixture.publishSoundChange("unknown")
+                fixture.tick(2)
+                fixture.coordinator.firearmSoundPreset() shouldBe FirearmSoundPreset.SHARP
+                fixture.publishSoundChange("spawn")
+                fixture.tick(2)
+                fixture.coordinator.firearmSoundPreset() shouldBe FirearmSoundPreset.HEAVY
+
+                fixture.persistSound(FirearmSoundPreset.ECHO)
+                fixture.coordinator.reconfigure()
+                fixture.tick(2)
+                fixture.coordinator.firearmSoundPreset() shouldBe FirearmSoundPreset.ECHO
+            }
+        }
+    }
+
+    test("firearm selection waits for durable completion and reads the authoritative value after reordered acknowledgements") {
+        failOnUnsupportedMockBukkitOperation {
+            lateinit var controlled: ControlledFirearmSoundRedis
+            EventNetworkCoordinatorFixture(repositoryRedis = { ControlledFirearmSoundRedis(it).also { value -> controlled = value } }).use { fixture ->
+                fixture.start()
+                controlled.delayWrites = true
+                val first = fixture.coordinator.selectFirearmSound(FirearmSoundPreset.SHARP)
+                controlled.awaitStoredWrite(0)
+                val second = fixture.coordinator.selectFirearmSound(FirearmSoundPreset.HEAVY)
+                controlled.awaitStoredWrite(1)
+                first.isDone shouldBe false
+                second.isDone shouldBe false
+                fixture.coordinator.firearmSoundPreset() shouldBe FirearmSoundPreset.ORIGINAL
+                controlled.writes[1].complete(Unit)
+                second.join() shouldBe FirearmSoundPreset.HEAVY
+                controlled.writes[0].complete(Unit)
+                first.join() shouldBe FirearmSoundPreset.HEAVY
+                fixture.coordinator.firearmSoundPreset() shouldBe FirearmSoundPreset.HEAVY
+
+                val failed = fixture.coordinator.selectFirearmSound(FirearmSoundPreset.ECHO)
+                controlled.awaitStoredWrite(2)
+                controlled.writes[2].completeExceptionally(IllegalStateException("Redis write failed"))
+                failed.isCompletedExceptionally shouldBe true
+                fixture.coordinator.firearmSoundPreset() shouldBe FirearmSoundPreset.HEAVY
+            }
+        }
+    }
+
+    test("stale firearm refreshes and completions after close cannot overwrite the active sound") {
+        failOnUnsupportedMockBukkitOperation {
+            lateinit var controlled: ControlledFirearmSoundRedis
+            EventNetworkCoordinatorFixture(repositoryRedis = { ControlledFirearmSoundRedis(it).also { value -> controlled = value } }).use { fixture ->
+                fixture.start()
+                fixture.persistSound(FirearmSoundPreset.SHARP)
+                controlled.delayReads = true
+                fixture.coordinator.reconfigure()
+                controlled.awaitReadCount(1)
+                fixture.persistSound(FirearmSoundPreset.HEAVY)
+                fixture.coordinator.reconfigure()
+                controlled.awaitReadCount(2)
+                controlled.completeRead(1)
+                fixture.coordinator.firearmSoundPreset() shouldBe FirearmSoundPreset.HEAVY
+                controlled.completeRead(0)
+                fixture.coordinator.firearmSoundPreset() shouldBe FirearmSoundPreset.HEAVY
+
+                val closedSelection = fixture.coordinator.selectFirearmSound(FirearmSoundPreset.ECHO)
+                controlled.awaitReadCount(3)
+                fixture.coordinator.close()
+                controlled.completeRead(2)
+                closedSelection.isCompletedExceptionally shouldBe true
+                fixture.coordinator.firearmSoundPreset() shouldBe FirearmSoundPreset.HEAVY
+            }
+        }
+    }
+
     test("disposable host preserves stale match routes for the origin without redirecting a later join") {
         failOnUnsupportedMockBukkitOperation {
             EventNetworkCoordinatorFixture(disposable = true).use { fixture ->
@@ -417,13 +497,14 @@ private class EventNetworkCoordinatorFixture(
     private val disposable: Boolean = false,
     private val onArrival: (QueueEntry) -> Boolean = { true },
     private val activeMatchParticipant: (QueueEntry) -> Boolean = { false },
+    repositoryRedis: (InMemoryRedis) -> RedisOperations = { it },
 ) : AutoCloseable {
     private val paper = MockBukkitTestRuntime.open()
     private val plugin = paper.createSimplePlugin("ArcEventsNetworkCoordinatorTest")
     private val dataRoot = Files.createTempDirectory("arcevents-network-coordinator-")
     private var nowMs = 1_787_730_000_000L
     private val redisStore = InMemoryRedis(ServerIdentity { "parkour" })
-    private val repository = RedisEventNetworkRepository(redisStore)
+    private val repository = RedisEventNetworkRepository(repositoryRedis(redisStore))
     val reservations = mutableListOf<ReservationBatch>()
     val transfer = mockk<BackendTransfer>(relaxed = true)
     private val settings: ArcEventsConfig
@@ -488,6 +569,16 @@ private class EventNetworkCoordinatorFixture(
 
     fun advanceTime(deltaMs: Long) {
         nowMs += deltaMs
+    }
+
+    fun persistSound(preset: FirearmSoundPreset) {
+        redisStore.saveMapEntries(RedisEventNetworkRepository.SETTINGS_KEY,
+            RedisEventNetworkRepository.FIREARM_SOUND_FIELD, preset.name).get(5, TimeUnit.SECONDS)
+    }
+
+    fun publishSoundChange(origin: String) {
+        redisStore.simulateExternalMessage(RedisEventNetworkRepository.EVENT_CHANNEL,
+            Gson().toJson(EventNetworkMessage.create(EventNetworkSignal.FIREARM_SOUND_CHANGED, nowMs)), origin)
     }
 
     fun seedMatched(player: org.bukkit.entity.Player, matchId: UUID, origin: String = "spawn") {
@@ -583,5 +674,46 @@ private class EventNetworkCoordinatorFixture(
         requireNotNull(EventNetworkCoordinatorMockBukkitTest::class.java.getResourceAsStream("/$name")).use { source ->
             Files.copy(source, target)
         }
+    }
+}
+
+private class ControlledFirearmSoundRedis(private val delegate: InMemoryRedis) : RedisOperations by delegate {
+    var delayWrites = false
+    var delayReads = false
+    val writes = java.util.concurrent.CopyOnWriteArrayList<CompletableFuture<Unit>>()
+    private val storedWrites = java.util.concurrent.CopyOnWriteArrayList<CompletableFuture<*>>()
+    private val reads = java.util.concurrent.CopyOnWriteArrayList<Pair<List<String?>, CompletableFuture<List<String?>>>>()
+
+    override fun saveMapEntries(key: String, vararg keyValuePairs: String?): CompletableFuture<*> {
+        val persisted = delegate.saveMapEntries(key, *keyValuePairs)
+        if (key != RedisEventNetworkRepository.SETTINGS_KEY) return persisted
+        storedWrites += persisted
+        if (!delayWrites) return persisted
+        val acknowledgement = CompletableFuture<Unit>().also(writes::add)
+        return persisted.thenCompose { acknowledgement }
+    }
+
+    override fun loadMapEntries(key: String, vararg mapKeys: String): CompletableFuture<List<String?>> {
+        val delayed = key == RedisEventNetworkRepository.SETTINGS_KEY && delayReads
+        return delegate.loadMapEntries(key, *mapKeys).thenCompose { snapshot ->
+            if (delayed) {
+                CompletableFuture<List<String?>>().also { reads += snapshot to it }
+            } else CompletableFuture.completedFuture(snapshot)
+        }
+    }
+
+    fun awaitStoredWrite(index: Int) {
+        storedWrites[index].get(5, TimeUnit.SECONDS)
+    }
+
+    fun awaitReadCount(count: Int) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        while (reads.size < count && System.nanoTime() < deadline) Thread.sleep(1)
+        check(reads.size >= count) { "Expected $count controlled reads, received ${reads.size}" }
+    }
+
+    fun completeRead(index: Int) {
+        val (snapshot, result) = reads[index]
+        result.complete(snapshot)
     }
 }

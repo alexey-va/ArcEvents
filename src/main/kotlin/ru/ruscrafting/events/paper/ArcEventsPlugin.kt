@@ -35,6 +35,7 @@ import ru.ruscrafting.events.config.ArcEventsReloadPolicy
 import ru.ruscrafting.events.config.PlayerStateMode
 import ru.ruscrafting.events.config.ArcEventsRedisBootstrap
 import ru.ruscrafting.events.domain.MatchPhase
+import ru.ruscrafting.events.domain.FirearmSoundPreset
 import ru.ruscrafting.events.network.RedisEventNetworkRepository
 import java.nio.file.Files
 import java.util.logging.Level
@@ -152,27 +153,30 @@ open class ArcEventsPlugin : JavaPlugin() {
         }.also { weaponPointStore = lifecycle.own(it) }
         if (settings.arenas.any { it.template == TttCitadelBlueprint.TEMPLATE }) TttCitadelLoot.validate()
         val provisioner = ArenaWorldProvisioner(this, chunkTickets).also { arenaProvisioner = it }
+        val repository = RedisEventNetworkRepository(manager, Gson())
         // Shared schematic application and Paper chunk loads require native callbacks; never join them on main.
-        provisioner.ensureLoadedAsync(settings, activeWork, mandatoryPoints = points::points).whenComplete { _, failure ->
-            activeWork.onMain {
-                if (pluginRuntime !== lifecycle) return@onMain
-                if (failure != null) {
-                    logger.log(Level.SEVERE, "ArcEvents arena preparation failed closed", failure)
-                    server.pluginManager.disablePlugin(this)
-                } else activate(lifecycle, manager, recovery, points, activeWork)
+        provisioner.ensureLoadedAsync(settings, activeWork, mandatoryPoints = points::points)
+            .thenCombine(repository.loadFirearmSoundPreset()) { _, preset -> preset }.whenComplete { preset, failure ->
+                activeWork.onMain {
+                    if (pluginRuntime !== lifecycle) return@onMain
+                    if (failure != null) {
+                        logger.log(Level.SEVERE, "ArcEvents startup preparation failed closed", failure)
+                        server.pluginManager.disablePlugin(this)
+                    } else activate(lifecycle, manager, repository, preset, recovery, points, activeWork)
+                }
             }
-        }
     }
 
     private fun activate(
         lifecycle: PaperPluginRuntime,
         manager: PaperRedisClient,
+        repository: RedisEventNetworkRepository,
+        firearmSoundPreset: FirearmSoundPreset?,
         recovery: RecoveryBatchStore,
         points: ArenaWeaponPointStore,
         activeWork: EventWork,
     ) {
         try {
-            val repository = RedisEventNetworkRepository(manager, Gson())
             val debug = ArcEventsDebug({ settings.debugEnabled }, logger::info)
             val escrow = PlayerStateEscrow(recovery,
                 enabled = settings.playerStateMode == PlayerStateMode.PRESERVE, work = activeWork).also { this.escrow = it }
@@ -181,9 +185,6 @@ open class ArcEventsPlugin : JavaPlugin() {
             lateinit var activeService: ArcEventsService
             val scopeRuntime = TttScopes.open(packetDisplays, { settings.weapons.scopeLaserEnabled }) { player, target -> activeService.isScopeAuthorized(player, target) }
                 .also { scopes = it }
-            val shotRuntime = FirearmShots(packetDisplays, { settings.ui.particles }, { settings.ui.sounds },
-                scopedModel = scopeRuntime::hasViewmodel, scopeZoom = scopeRuntime::projectedZoom,
-                defaultSoundPreset = { settings.weapons.soundPreset })
             val lootScene = TttLootScene(this, firearms, packetDisplays, activeWork, chunkTickets) { settings }
             val storedWeaponPoints = points
             val arenaInspector = ArenaRuntimeInspector(this)
@@ -222,9 +223,13 @@ open class ArcEventsPlugin : JavaPlugin() {
                 onArrivalAsync = { activeService.onArrivalAsync(it) },
                 recoveryPending = { activeService.escrowPending(it) },
                 activeMatchParticipant = { activeService.ownsActiveRoute(it) },
+                initialFirearmSoundPreset = firearmSoundPreset,
             )
             network = coordinator
             lifecycle.own(coordinator)
+            val shotRuntime = FirearmShots(packetDisplays, { settings.ui.particles }, { settings.ui.sounds },
+                scopedModel = scopeRuntime::hasViewmodel, scopeZoom = scopeRuntime::projectedZoom,
+                soundPreset = coordinator::firearmSoundPreset)
             val nameplateRuntime = lifecycle.own(TttNameplateRuntime(
                 locale = locale,
                 statistics = coordinator::stats,

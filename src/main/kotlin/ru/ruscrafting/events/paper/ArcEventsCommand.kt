@@ -86,8 +86,8 @@ class ArcEventsCommand(
                     settings().eventControls.creatorControlsEnabled || sender.hasPermission("arcevents.start") || sender.hasPermission("arcevents.admin") -> EventMode.entries.map(EventMode::id)
                     else -> listOf(EventMode.FISHING.id)
                 }
-                "admin" -> listOf("status", "player", "network", "arenas", "arena", "recovery", "start", "stop", "reload", "recover") +
-                    if (sender is Player) listOf("menu", "weapons", "sound") else emptyList()
+                "admin" -> listOf("status", "player", "network", "arenas", "arena", "recovery", "start", "stop", "reload", "recover", "sound") +
+                    if (sender is Player) listOf("menu", "weapons") else emptyList()
                 "qa" -> listOf("status", "player", "network", "arenas", "recovery")
                 "debug" -> if (settings().debugMutationsAllowed) DEBUG_ACTIONS else DEBUG_READ_ACTIONS
                 else -> emptyList()
@@ -107,7 +107,7 @@ class ArcEventsCommand(
             if (args.size == 3 && action == "arena") return arenaIds(includeAuto = true)
             if (args.size == 4 && action == "arena") return EventMode.entries.map(EventMode::id)
             if (args.size == 3 && action == "weapons" && sender is Player) return ADMIN_WEAPON_ACTIONS
-            if (args.size == 3 && action == "sound" && sender is Player) return ADMIN_SOUND_PRESETS
+            if (args.size == 3 && action == "sound") return ADMIN_SOUND_PRESETS
         }
         if (root != "debug") return emptyList()
         return when (args.size) {
@@ -194,25 +194,27 @@ class ArcEventsCommand(
     }
 
     private fun selectFirearmSound(sender: CommandSender, args: List<String>) {
-        val player = player(sender) ?: return
         val input = args.singleOrNull()?.lowercase()
         val preset = when (input) {
             "1", "sharp" -> FirearmSoundPreset.SHARP
             "2", "heavy" -> FirearmSoundPreset.HEAVY
             "3", "echo" -> FirearmSoundPreset.ECHO
-            "original" -> FirearmSoundPreset.ORIGINAL
+            "original", "default" -> FirearmSoundPreset.ORIGINAL
             else -> null
         }
-        if (input != "default" && preset == null) {
+        if (preset == null) {
             sender.sendEventMessage(locale.render("weapon.sound-usage", sender))
             return
         }
-        val selected = service.selectFirearmSound(player, preset)
-        sender.sendEventMessage(locale.render(
-            if (preset == null) "weapon.sound-selection-default" else "weapon.sound-selection",
-            sender,
-            mapOf("preset" to locale.render("weapon.sound-preset-${selected.name.lowercase()}", sender)),
-        ))
+        service.selectFirearmSound(preset).whenComplete { selected, failure ->
+            if (plugin.isEnabled) Tasks.scheduler.runSync {
+                if (!plugin.isEnabled) return@runSync
+                sender.sendEventMessage(if (failure != null || selected == null) {
+                    locale.render("command.failed", sender, mapOf("reason" to locale.render("reason.network", sender)))
+                } else locale.render("weapon.sound-selection", sender,
+                    mapOf("preset" to locale.render("weapon.sound-preset-${selected.name.lowercase()}", sender))))
+            }
+        }
     }
 
     private fun sendReload(sender: CommandSender) {

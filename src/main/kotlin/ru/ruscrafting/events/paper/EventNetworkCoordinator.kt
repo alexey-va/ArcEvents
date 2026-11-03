@@ -19,6 +19,7 @@ import ru.ruscrafting.events.config.PlayerStateMode
 import ru.ruscrafting.events.domain.MatchEndReason
 import ru.ruscrafting.events.domain.MatchPhase
 import ru.ruscrafting.events.domain.EventMode
+import ru.ruscrafting.events.domain.FirearmSoundPreset
 import ru.ruscrafting.events.domain.PlayerEventStats
 import ru.ruscrafting.events.domain.TttTeam
 import ru.ruscrafting.events.network.EventNetworkMessage
@@ -74,6 +75,7 @@ class EventNetworkCoordinator(
     private val activeMatchParticipant: (QueueEntry) -> Boolean = { false },
     private val clock: () -> Long = System::currentTimeMillis,
     private val onArrivalAsync: ((QueueEntry) -> CompletableFuture<Boolean>)? = null,
+    initialFirearmSoundPreset: FirearmSoundPreset? = null,
 ) : AutoCloseable {
     @Volatile
     var queueSize: Int = 0
@@ -96,11 +98,17 @@ class EventNetworkCoordinator(
     private val pendingTransfers = ConcurrentHashMap.newKeySet<UUID>()
     private val startInFlight = AtomicBoolean(false)
     private val joinAttempts = mutableMapOf<UUID, Any>()
+    private val firearmSoundLock = Any()
+    private var firearmSoundRefresh = 0L
+    private var firearmSoundLifecycle = Any()
+    private val firearmSoundRefreshFailed = AtomicBoolean(false)
+    @Volatile private var firearmSoundOverride: FirearmSoundPreset? = initialFirearmSoundPreset
     @Volatile
     private var started = false
 
     fun start() {
         check(!started)
+        synchronized(firearmSoundLock) { firearmSoundLifecycle = Any() }
         val initial = settings()
         nodePresenceLeaseMillis = initial.network.heartbeatStaleSeconds * 1_000L
         nodePresence = repository.openNodes(
@@ -128,6 +136,44 @@ class EventNetworkCoordinator(
         check(started) { "ArcEvents network coordinator is not started" }
         scheduleMaintenance(settings().network.heartbeatSeconds * 20L)
         maintain()
+    }
+
+    /** In-memory, shared by event and ordinary-world shooters. */
+    fun firearmSoundPreset(): FirearmSoundPreset = firearmSoundOverride ?: settings().weapons.soundPreset
+
+    /** Completion follows the durable write and an authoritative read; it never waits on the gameplay thread. */
+    fun selectFirearmSound(preset: FirearmSoundPreset): CompletableFuture<FirearmSoundPreset> {
+        check(started) { "ArcEvents network coordinator is not started" }
+        val lifecycle = synchronized(firearmSoundLock) { firearmSoundLifecycle }
+        return repository.saveFirearmSoundPreset(preset).thenCompose {
+            if (!started || synchronized(firearmSoundLock) { firearmSoundLifecycle !== lifecycle }) {
+                CompletableFuture.failedFuture(IllegalStateException("ArcEvents network coordinator is closed"))
+            } else {
+                runCatching { publish(EventNetworkMessage.create(EventNetworkSignal.FIREARM_SOUND_CHANGED, nowMs = clock())) }
+                    .onFailure { plugin.logger.log(Level.WARNING, "ArcEvents firearm sound notification failed; heartbeat will reconcile", it) }
+                refreshFirearmSound()
+            }
+        }.whenComplete { _, failure ->
+            if (failure != null) plugin.logger.log(Level.WARNING, "ArcEvents global firearm sound selection failed preset=$preset", failure)
+        }
+    }
+
+    private fun refreshFirearmSound(): CompletableFuture<FirearmSoundPreset> {
+        val (request, lifecycle) = synchronized(firearmSoundLock) { ++firearmSoundRefresh to firearmSoundLifecycle }
+        return repository.loadFirearmSoundPreset().thenApply { preset ->
+            synchronized(firearmSoundLock) {
+                check(started && firearmSoundLifecycle === lifecycle) { "ArcEvents network coordinator is closed" }
+                if (firearmSoundRefresh == request) firearmSoundOverride = preset
+            }
+            preset ?: settings().weapons.soundPreset
+        }.whenComplete { _, failure ->
+            if (!started || synchronized(firearmSoundLock) { firearmSoundLifecycle !== lifecycle }) return@whenComplete
+            if (failure != null && firearmSoundRefreshFailed.compareAndSet(false, true)) {
+                plugin.logger.log(Level.WARNING, "ArcEvents global firearm sound refresh failed; retaining the current preset", failure)
+            } else if (failure == null && firearmSoundRefreshFailed.compareAndSet(true, false)) {
+                plugin.logger.info("ArcEvents global firearm sound refresh recovered")
+            }
+        }
     }
 
     fun join(player: Player) {
@@ -785,6 +831,7 @@ class EventNetworkCoordinator(
                     refreshQueue(announce = false)
                     refreshNodes()
                 }
+                EventNetworkSignal.FIREARM_SOUND_CHANGED -> refreshFirearmSound()
                 EventNetworkSignal.ROUTE_PLAYER -> route(message)
                 EventNetworkSignal.RETURN_PLAYER -> routeReturn(message)
                 EventNetworkSignal.START_REQUEST -> handleStartRequest(message, origin)
@@ -1034,6 +1081,7 @@ class EventNetworkCoordinator(
     private fun refresh() {
         refreshQueue(announce = true)
         refreshNodes()
+        refreshFirearmSound()
     }
 
     private fun refreshQueue(announce: Boolean) {
@@ -1098,6 +1146,7 @@ class EventNetworkCoordinator(
 
     override fun close() {
         started = false
+        synchronized(firearmSoundLock) { firearmSoundLifecycle = Any(); firearmSoundRefresh++ }
         joinAttempts.clear()
         maintenanceTask?.cancel()
         maintenanceTask = null

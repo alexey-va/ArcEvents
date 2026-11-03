@@ -88,6 +88,7 @@ data class HostNode(
 
 enum class EventNetworkSignal {
     QUEUE_CHANGED,
+    FIREARM_SOUND_CHANGED,
     ROUTE_PLAYER,
     RETURN_PLAYER,
     MATCH_STARTED,
@@ -131,6 +132,11 @@ data class EventNetworkMessage(
         require(EventMode.fromId(mode ?: EventMode.TTT.id) != null) { "Unsupported event mode" }
         when (signal) {
             EventNetworkSignal.QUEUE_CHANGED -> require(queueSize != null)
+            EventNetworkSignal.FIREARM_SOUND_CHANGED -> require(
+                matchId == null && playerId == null && destinationServer == null && queueSize == null &&
+                    winner == null && endReason == null && replyTo == null && startResult == null &&
+                    requesterId == null && preferredArenaId == null && !adminBypass,
+            )
             EventNetworkSignal.ROUTE_PLAYER -> require(matchId != null && playerId != null && destinationServer != null)
             EventNetworkSignal.RETURN_PLAYER -> require(matchId != null && playerId != null && destinationServer != null)
             EventNetworkSignal.MATCH_STARTED -> require(matchId != null)

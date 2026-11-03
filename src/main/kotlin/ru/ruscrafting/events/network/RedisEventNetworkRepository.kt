@@ -17,6 +17,7 @@ import ru.arc.redis.safety.RedisHashUpdateResult
 import ru.arc.redis.safety.RedisHashUpdater
 import ru.ruscrafting.events.domain.PlayerEventStats
 import ru.ruscrafting.events.domain.EventMode
+import ru.ruscrafting.events.domain.FirearmSoundPreset
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 
@@ -41,6 +42,14 @@ class RedisEventNetworkRepository(
     )
     private val queue = RedisHashUpdater(redis, QUEUE_KEY, queueCodec, MAX_CAS_ATTEMPTS)
     private val stats = RedisHashUpdater(redis, STATS_KEY, statsCodec, MAX_CAS_ATTEMPTS)
+
+    fun loadFirearmSoundPreset(): CompletableFuture<FirearmSoundPreset?> =
+        redis.loadMapEntries(SETTINGS_KEY, FIREARM_SOUND_FIELD).thenApply { values ->
+            values.firstOrNull()?.let(FirearmSoundPreset::valueOf)
+        }
+
+    fun saveFirearmSoundPreset(preset: FirearmSoundPreset): CompletableFuture<Unit> =
+        redis.saveMapEntries(SETTINGS_KEY, FIREARM_SOUND_FIELD, preset.name).thenApply { Unit }
 
     fun openMessages(
         originAllowed: (String) -> Boolean,
@@ -458,6 +467,9 @@ class RedisEventNetworkRepository(
         const val NODES_KEY = "arc:events:v2:nodes"
         /** Statistics remain wire-compatible with v1 and deliberately retain player history. */
         const val STATS_KEY = "arc:events:v1:stats"
+        /** Durable network settings survive plugin/server restarts and have no expiry. */
+        const val SETTINGS_KEY = "arc:events:v1:settings"
+        const val FIREARM_SOUND_FIELD = "firearm-sound-preset"
         const val EVENT_CHANNEL = "arc:events:v2:events"
         private const val MAX_JSON_CHARS = 64_000
         private const val MAX_CAS_ATTEMPTS = 12

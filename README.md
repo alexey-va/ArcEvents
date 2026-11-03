@@ -242,17 +242,19 @@ weapons use `arc:weapon_<firearm_id>_fire` with the lowercase catalog ID.
 The clips distinguish weapon classes and replace the generic vanilla blast
 and trapdoor layers. The existing sound toggle still applies. Publish the
 matching Arc sound assets before activating 0.5.41.
-`weapons.sound-preset` selects the server default: `original`, `sharp`, `heavy`
-or `echo`. It can change through `/arcevents reload`, including during a match.
+`weapons.sound-preset` selects the server default before a network-wide selection:
+`original`, `sharp`, `heavy` or `echo`. This fallback can change through
+`/arcevents reload`, including during a match.
 The three audition presets use one corresponding rifle clip across the guns
 to compare timbre in actual firing; `original` keeps the individual weapon
 recordings. Each gun retains its own firing pattern, muzzle position and range.
-Administrators can set their own current-server preference with
+Administrators and the console can set the shared sound on all ArcEvents servers with
 `/arcevents admin sound <1|2|3|original|default>`: 1 is sharp, 2 is heavy and
-3 is echo. This changes the sound emitted by that player's shots, including
-what nearby listeners hear. It does not change anyone else's selection.
-`default` clears the personal override and follows the current server config;
-leaving the server also clears it. No restart is needed to switch presets once
+3 is echo. Every shooter and nearby listener uses the same selected preset.
+`default` is a compatibility alias for `original`. The command confirms only
+after saving the shared Redis setting; the choice survives players leaving and
+server restarts. Pub/sub applies changes promptly and the regular heartbeat
+reconciles missed notifications. No restart is needed to switch presets once
 the matching code and all three additional pack events have been activated.
 All firearms also use the pack's `arc:bullet_flyby` for a close swept pass by a
 listener and `arc:bullet_impact` at physical contact. A flyby is private to a
@@ -284,10 +286,14 @@ After six ticks the same geometry settles on `_hip` or `_aim`, with both
 replacement animation and equip displacement disabled so ammunition/lore
 updates or attacks cannot replay the downward dip. Each toggle sends two item packets. The physical
 optic remains attached in both poses.
-Nearby observers receive a cosmetic charged-crossbow holding pose with the
-original weapon model; the real inventory remains unchanged. GUI views retain
-the vendor model. The shooter's own F5 arm pose remains unchanged because
-replacing their local item type would also change client input behavior.
+Players tracking the shooter receive a cosmetic charged-crossbow holding pose
+while aiming or reloading, with the current weapon model and reload frame.
+Players who begin tracking mid-reload receive its current frame too; completion
+and cancellation restore the current held item. The real inventory remains
+unchanged, and GUI views retain the vendor model. The shooter's own F5 view
+shows the moving reload mechanisms but retains the ordinary held-item arm
+pose. Spoofing a local crossbow or item-use flag also changes first-person
+rendering and input, so a separate native F5 aiming pose is not applied.
 Zoom packets preserve the current authoritative flight flags
 and speeds. Match aiming uses the same living-participant, weapon ownership
 and selected fishing-loadout checks as firing.
@@ -358,6 +364,11 @@ component, without adding ammunition or changing the vendor model. The client's
 special crossbow renderer ignores this type: the four vendor guns backed by a
 crossbow retain their native swing. No crossbow material conversion or client
 mod is included. Actual first-person playback still needs native acceptance.
+The separate server-side main-hand `PlayerArmSwingEvent` is cancelled only
+while a recognized firearm is held, before Paper broadcasts the arm animation
+to observers. Off-hand and ordinary sword/tool swings remain native. Gun
+entity attacks are already cancelled by `PrePlayerAttackEntityEvent` before
+vanilla melee damage and attack sounds; there is no global sound filter.
 
 The attack-driven equip-height dip is a separate native transform. Since
 0.5.38, stable sight/reload definitions and twelve private `_raw` aliases use
@@ -368,9 +379,14 @@ default item model; portable vanilla fallback and explicit custom item models
 are retained. Publish these pack assets before activating 0.5.38. This change
 does not suppress the separate crossbow whack branch or camera recoil.
 
-Each firearm has its own first-person reload sequence. Articulated native item
-models move the appropriate magazine, cylinder, barrel hinge, bolt or feed lid;
-40 pose samples are resampled to the existing authoritative reload duration.
+Each firearm has its own reload sequence. Articulated native item models move
+the appropriate magazine, cylinder, barrel hinge, bolt or feed lid in both
+first-person and third-person hand contexts; 40 pose samples are resampled to
+the existing authoritative reload duration. First-person geometry and motion
+are preserved. Third-person models use the original vendor grip transforms
+and optics, with a native two-handed hold for observers rather than custom
+skeletal hand animation. The owner receives the same model frames in F5 while
+keeping the ordinary native arm pose.
 Mechanical cues follow those beats. Inventory, ammunition and reload acceptance
 remain with the event or ordinary-world owner. Cancelling or replacing the held
 gun invalidates its presentation, and completion restores the current item.

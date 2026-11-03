@@ -142,7 +142,7 @@ class TttScopes internal constructor(
     private val refreshInventories: () -> Unit = {},
 ) : PacketListenerAbstract(PacketListenerPriority.HIGHEST) {
     private data class Client(val playerId: UUID, val entityId: Int)
-    private data class Frame(val model: String, val zoom: Float?)
+    private data class Frame(val model: String, val zoom: Float?, val reloading: Boolean = false)
     private class Reload(
         val durationTicks: Int,
         val sounds: Boolean,
@@ -248,7 +248,7 @@ class TttScopes internal constructor(
         try {
             if (!validReload(scope, reload)) { clear(scope.playerId); return }
             if (reload.elapsed >= reload.durationTicks) { finishReloadPresentation(scope, reload); return }
-            val next = Frame(FirearmReloadAnimation.model(scope.target.firearm, reload.elapsed, reload.durationTicks), null)
+            val next = Frame(FirearmReloadAnimation.model(scope.target.firearm, reload.elapsed, reload.durationTicks), null, reloading = true)
             if (scope.frame != next) {
                 scope.frame = next
                 val held = packetItem(scope.player.inventory.getItem(scope.target.heldSlot) ?: ItemStack.of(Material.AIR))
@@ -257,6 +257,7 @@ class TttScopes internal constructor(
                         scope.connection.send(WrapperPlayServerSetPlayerInventory(scope.target.heldSlot, aimedItem(held, scope.frame, scope.connection.protocol)))
                     }
                 }
+                sendObserverEquipment(scope, held)
             }
             val progress = if (reload.durationTicks == 1) 1.0 else reload.elapsed.toDouble() / (reload.durationTicks - 1)
             while (reload.nextCue < reload.cues.size && reload.cues[reload.nextCue].progress <= progress) {
@@ -298,6 +299,7 @@ class TttScopes internal constructor(
                     scope.connection.send(WrapperPlayServerSetPlayerInventory(scope.target.heldSlot, aimedItem(held, scope.frame, scope.connection.protocol)))
                 }
             }
+            sendObserverEquipment(scope, held)
         } catch (failure: Exception) {
             runCatching { clear(scope.playerId) }
             Bukkit.getLogger().log(Level.WARNING, "ArcEvents reload restoration failed player=${scope.playerId}", failure)
@@ -393,6 +395,7 @@ class TttScopes internal constructor(
                     scope.connection.send(WrapperPlayServerSetPlayerInventory(scope.target.heldSlot, aimedItem(held, scope.frame, scope.connection.protocol)))
                 }
             }
+            sendObserverEquipment(scope, held)
         }
         task = accepted
         scope.settleTask = accepted
@@ -420,12 +423,12 @@ class TttScopes internal constructor(
     private fun sendObserverEquipment(scope: Scope, held: PacketItemStack) {
         val frame = scope.frame
         val motion = scope.motion
-        val item = if (frame.zoom == null) held else observerItem(held, frame)
+        val item = observerItem(held, frame)
         observers(scope.player).filter { it.uniqueId != scope.playerId && it.canSee(scope.player) }.forEach { observer ->
             val client = connection(observer) ?: return@forEach
             dispatch(client) {
                 // A later toggle/clear owns its own restoration; obsolete queued poses must not win.
-                if (active[scope.playerId] === scope && scope.motion == motion) {
+                if (active[scope.playerId] === scope && scope.motion == motion && scope.frame == frame) {
                     client.send(WrapperPlayServerEntityEquipment(scope.connection.entityId, listOf(Equipment(PacketEquipmentSlot.MAIN_HAND, item))))
                 }
             }
@@ -577,9 +580,12 @@ class TttScopes internal constructor(
             val source = entities[packet.entityId] ?: return
             if (source.playerId == playerId) return
             val frame = source.frame
-            if (frame.zoom == null) return
+            if (frame.zoom == null && !frame.reloading) return
+            val reload = source.reload
             packet.equipment = packet.equipment.map {
-                if (it.slot == PacketEquipmentSlot.MAIN_HAND) Equipment(it.slot, observerItem(it.item, frame)) else it
+                val sameReloadItem = reload == null || (it.item.type == reload.sourceItem.type &&
+                    it.item.getComponent(ComponentTypes.CUSTOM_DATA) == reload.sourceItem.getComponent(ComponentTypes.CUSTOM_DATA))
+                if (it.slot == PacketEquipmentSlot.MAIN_HAND && sameReloadItem) Equipment(it.slot, observerItem(it.item, frame)) else it
             }
             event.markForReEncode(true)
             return
@@ -635,9 +641,9 @@ class TttScopes internal constructor(
             item.copy().also { it.setComponent(ComponentTypes.ITEM_MODEL, ItemModel(ResourceLocation(frame.model))) }, protocol,
         )
 
-    /** Only remote equipment is a charged crossbow: native two-handed pose, original gun model. */
+    /** Only remote equipment is a charged crossbow: native two-handed support for aim and reload. */
     private fun observerItem(item: PacketItemStack, frame: Frame): PacketItemStack {
-        if (item.isEmpty) return item
+        if (item.isEmpty || (frame.zoom == null && !frame.reloading)) return item
         val displayed = item.copy().also { it.setComponent(ComponentTypes.ITEM_MODEL, ItemModel(ResourceLocation(frame.model))) }
         return PacketItemStack.builder().type(ItemTypes.CROSSBOW).amount(displayed.amount)
             .components(displayed.components).version(displayed.version).registryHolder(displayed.registryHolder).build().also {

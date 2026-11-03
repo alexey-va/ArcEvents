@@ -10,6 +10,7 @@ import ru.arc.redis.ServerIdentity
 import ru.ruscrafting.events.domain.PlayerEventStats
 import ru.ruscrafting.events.domain.TttRole
 import ru.ruscrafting.events.domain.EventMode
+import ru.ruscrafting.events.domain.FirearmSoundPreset
 import ru.ruscrafting.events.domain.TttParticipant
 import ru.ruscrafting.events.domain.TttTeam
 import ru.ruscrafting.events.domain.ParticipantStatus
@@ -17,6 +18,28 @@ import java.util.UUID
 import java.util.concurrent.CompletableFuture
 
 class RedisEventNetworkRepositoryTest : StringSpec({
+    "the shared firearm preset survives repository recreation and original overwrites every previous choice" {
+        val redis = InMemoryRedis(ServerIdentity { "spawn" })
+        val spawn = RedisEventNetworkRepository(redis)
+        spawn.loadFirearmSoundPreset().join() shouldBe null
+        for (preset in FirearmSoundPreset.entries.reversed()) {
+            spawn.saveFirearmSoundPreset(preset).join()
+            RedisEventNetworkRepository(redis).loadFirearmSoundPreset().join() shouldBe preset
+            redis.loadMap(RedisEventNetworkRepository.SETTINGS_KEY).join() shouldBe
+                mapOf(RedisEventNetworkRepository.FIREARM_SOUND_FIELD to preset.name)
+        }
+    }
+
+    "malformed stored firearm sound fails visibly instead of silently restoring a different preset" {
+        val redis = InMemoryRedis()
+        redis.saveMapEntries(RedisEventNetworkRepository.SETTINGS_KEY,
+            RedisEventNetworkRepository.FIREARM_SOUND_FIELD, "UNKNOWN").join()
+        val failure = shouldThrow<java.util.concurrent.CompletionException> {
+            RedisEventNetworkRepository(redis).loadFirearmSoundPreset().join()
+        }
+        failure.cause!!::class shouldBe IllegalArgumentException::class
+    }
+
     "one common FIFO queue reserves the selected mode across every entry" {
         val repository = RedisEventNetworkRepository(InMemoryRedis(ServerIdentity { "spawn" }))
         (1..4).forEach { index -> repository.joinQueue(uuid(index), "Player$index", "spawn", index.toLong(), 60_000).join() }
@@ -364,6 +387,7 @@ class RedisEventNetworkRepositoryTest : StringSpec({
         val raw = redis.getPublishedMessages().single().message
         redis.simulateExternalMessage(RedisEventNetworkRepository.EVENT_CHANNEL, raw, "evil")
         redis.simulateExternalMessage(RedisEventNetworkRepository.EVENT_CHANNEL, "{not-json", "survival")
+        redis.simulateExternalMessage(RedisEventNetworkRepository.EVENT_CHANNEL, raw.replace("QUEUE_CHANGED", "FUTURE_UNKNOWN_SIGNAL"), "survival")
         redis.simulateExternalMessage(RedisEventNetworkRepository.EVENT_CHANNEL, raw, "survival")
         redis.simulateExternalMessage(RedisEventNetworkRepository.EVENT_CHANNEL, raw, "survival")
 

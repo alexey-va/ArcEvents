@@ -5,6 +5,7 @@ import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import io.papermc.paper.event.player.PlayerArmSwingEvent
 import io.papermc.paper.event.player.PrePlayerAttackEntityEvent
 import net.kyori.adventure.text.Component
 import org.bukkit.GameMode
@@ -366,6 +367,37 @@ class WorldFirearmsTest : FunSpec({
             val denied = PrePlayerAttackEntityEvent(f.player, mockk<Entity>(), true).also { it.isCancelled = true }
             f.runtime.attack(denied) shouldBe true
             f.accepted.size shouldBe 2
+        }
+    }
+
+    test("ordinary-world gun input cancels native melee and its separate arm animation") {
+        WorldFirearmFixture().use { f ->
+            val listener = ArcEventsListener(mockk(relaxed = true), mockk(), EventItemResolver { null }, f.runtime)
+            FirearmItems({ scopePreviewFirearm(it.itemMeta.persistentDataContainer.get(f.identityKey, PersistentDataType.STRING)) != null }).use { policy ->
+                f.player.inventory.setItemInMainHand(f.gun(loaded = 6))
+                val air = f.interaction()
+                listener.onInteract(air)
+                air.useItemInHand() shouldBe Event.Result.DENY
+                val airSwing = PlayerArmSwingEvent(f.player, EquipmentSlot.HAND)
+                policy.onSwing(airSwing)
+                airSwing.isCancelled shouldBe true
+                f.accepted.size shouldBe 1
+
+                f.advance(f.firearms.spec(FirearmId.REVOLVER).cooldownTicks.toLong())
+                val attack = PrePlayerAttackEntityEvent(f.player, mockk<Entity>(), true)
+                listener.onFirearmAttack(attack)
+                attack.isCancelled shouldBe true
+                val entitySwing = PlayerArmSwingEvent(f.player, EquipmentSlot.HAND)
+                policy.onSwing(entitySwing)
+                entitySwing.isCancelled shouldBe true
+                f.accepted.size shouldBe 2
+                f.runtime.state(f.player.inventory.itemInMainHand)?.loaded shouldBe 4
+
+                f.player.inventory.setItemInMainHand(ItemStack.of(Material.IRON_SWORD))
+                val ordinaryAttack = PrePlayerAttackEntityEvent(f.player, mockk<Entity>(), true)
+                listener.onFirearmAttack(ordinaryAttack)
+                ordinaryAttack.isCancelled shouldBe false
+            }
         }
     }
 

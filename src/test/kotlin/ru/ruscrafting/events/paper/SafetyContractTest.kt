@@ -4,8 +4,12 @@ import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import io.papermc.paper.event.player.AsyncChatEvent
+import io.papermc.paper.event.player.PlayerArmSwingEvent
 import io.papermc.paper.event.player.PrePlayerAttackEntityEvent
 import net.kyori.adventure.audience.Audience
+import ru.arc.core.PaperArcRuntime
+import ru.arc.core.Tasks
+import ru.arc.paper.testing.MockBukkitTestRuntime
 import ru.arc.paper.teleport.ScopedTeleportAuthorizer
 import io.mockk.every
 import io.mockk.mockk
@@ -121,6 +125,57 @@ class SafetyContractTest : StringSpec({
 
         event.isCancelled shouldBe true
         verify(exactly = 1) { service.useFirearm(player) }
+    }
+
+    "the separate native arm packet after an air or entity shot never fires a second bullet" {
+        MockBukkitTestRuntime.open().use { paper ->
+            PaperArcRuntime.installScheduling(paper.createSimplePlugin("EventFirearmSwingTest"))
+            try {
+                val service = mockk<ArcEventsGameplayBoundary>(relaxed = true)
+                val player = mockk<Player>(relaxed = true)
+                val item = mockk<ItemStack>()
+                val items = mockk<EventItemResolver>()
+                every { player.uniqueId } returns UUID.randomUUID()
+                every { player.inventory.itemInMainHand } returns item
+                every { items.kind(item) } returns EventItemKind.FIREARM
+                every { service.belongsToCurrentMatch(player.uniqueId, item) } returns true
+                val listener = ArcEventsListener(service, mockk(), items)
+                FirearmItems({ items.kind(it) == EventItemKind.FIREARM }).use { policy ->
+                    val air = PlayerInteractEvent(player, Action.LEFT_CLICK_AIR, item, null, BlockFace.SELF, EquipmentSlot.HAND)
+                    listener.onInteract(air)
+                    air.useItemInHand() shouldBe Event.Result.DENY
+                    val airSwing = PlayerArmSwingEvent(player, EquipmentSlot.HAND)
+                    policy.onSwing(airSwing)
+                    airSwing.isCancelled shouldBe true
+
+                    val attack = PrePlayerAttackEntityEvent(player, mockk(), true)
+                    listener.onFirearmAttack(attack)
+                    attack.isCancelled shouldBe true
+                    val entitySwing = PlayerArmSwingEvent(player, EquipmentSlot.HAND)
+                    policy.onSwing(entitySwing)
+                    entitySwing.isCancelled shouldBe true
+                }
+                verify(exactly = 2) { service.useFirearm(player) }
+            } finally {
+                Tasks.reset()
+            }
+        }
+    }
+
+    "ordinary melee remains outside the firearm attack and sound cancellation gate" {
+        val service = mockk<ArcEventsGameplayBoundary>(relaxed = true)
+        val player = mockk<Player>(relaxed = true)
+        val item = mockk<ItemStack>()
+        val items = mockk<EventItemResolver>()
+        every { player.inventory.itemInMainHand } returns item
+        val listener = ArcEventsListener(service, mockk(), items)
+        for (kind in listOf(null, EventItemKind.TRAITOR_BLADE, EventItemKind.ARCADE_KNIFE, EventItemKind.FISHING_WEAPON)) {
+            every { items.kind(item) } returns kind
+            val attack = PrePlayerAttackEntityEvent(player, mockk(), true)
+            listener.onFirearmAttack(attack)
+            attack.isCancelled shouldBe false
+        }
+        verify(exactly = 0) { service.useFirearm(any()) }
     }
 
     "raw preview handles main-hand RMB only and never routes into firing" {

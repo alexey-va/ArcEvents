@@ -17,8 +17,68 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import ru.ruscrafting.events.domain.EventMode
+import ru.ruscrafting.events.domain.FirearmSoundPreset
 
 class ArcEventsRedisIntegrationTest : StringSpec({
+    "three real Redis nodes share firearm sound notifications and a reconnected node retains the setting" {
+        RedisTestService.start().use { service ->
+            val connection = RedisConnection(service.endpoint.host, service.endpoint.port)
+            val spawn = RedisManager(connection, ServerIdentity { "spawn" })
+            val parkour = RedisManager(connection, ServerIdentity { "parkour" })
+            var survival = RedisManager(connection, ServerIdentity { "survival" })
+            try {
+                val spawnRepository = RedisEventNetworkRepository(spawn)
+                val parkourRepository = RedisEventNetworkRepository(parkour)
+                val survivalRepository = RedisEventNetworkRepository(survival)
+                val notified = CountDownLatch(2)
+                val received = java.util.Collections.synchronizedList(mutableListOf<Pair<String, FirearmSoundPreset?>>())
+                ScheduledRedisTimeouts().use { timeouts ->
+                    val spawnEvents = spawnRepository.openMessages({ it in setOf("parkour", "survival") }, { _, _, _ -> false }, timeouts) { _, _ -> }
+                    val parkourEvents = parkourRepository.openMessages({ it == "spawn" }, { _, _, _ -> false }, timeouts) { message, _ ->
+                        if (message.signal == EventNetworkSignal.FIREARM_SOUND_CHANGED) {
+                            parkourRepository.loadFirearmSoundPreset().thenAccept { preset ->
+                                received += "parkour" to preset
+                                notified.countDown()
+                            }
+                        }
+                    }
+                    val survivalEvents = survivalRepository.openMessages({ it == "spawn" }, { _, _, _ -> false }, timeouts) { message, _ ->
+                        if (message.signal == EventNetworkSignal.FIREARM_SOUND_CHANGED) {
+                            survivalRepository.loadFirearmSoundPreset().thenAccept { preset ->
+                                received += "survival" to preset
+                                notified.countDown()
+                            }
+                        }
+                    }
+                    try {
+                        spawn.init()
+                        parkour.init()
+                        survival.init()
+                        waitUntil(10_000) { spawn.isSubscriptionActive() && parkour.isSubscriptionActive() && survival.isSubscriptionActive() }
+                        spawnRepository.saveFirearmSoundPreset(FirearmSoundPreset.SHARP).get(5, TimeUnit.SECONDS)
+                        spawnEvents.publish(EventNetworkMessage.create(EventNetworkSignal.FIREARM_SOUND_CHANGED))
+                        notified.await(5, TimeUnit.SECONDS) shouldBe true
+                        received.toSet() shouldBe setOf("parkour" to FirearmSoundPreset.SHARP, "survival" to FirearmSoundPreset.SHARP)
+                    } finally {
+                        spawnEvents.close()
+                        parkourEvents.close()
+                        survivalEvents.close()
+                    }
+                }
+                survival.close()
+                survival = RedisManager(connection, ServerIdentity { "survival" })
+                RedisEventNetworkRepository(survival).loadFirearmSoundPreset().get(5, TimeUnit.SECONDS) shouldBe FirearmSoundPreset.SHARP
+                parkourRepository.saveFirearmSoundPreset(FirearmSoundPreset.ORIGINAL).get(5, TimeUnit.SECONDS)
+                spawnRepository.loadFirearmSoundPreset().get(5, TimeUnit.SECONDS) shouldBe FirearmSoundPreset.ORIGINAL
+                RedisEventNetworkRepository(survival).loadFirearmSoundPreset().get(5, TimeUnit.SECONDS) shouldBe FirearmSoundPreset.ORIGINAL
+            } finally {
+                spawn.close()
+                parkour.close()
+                survival.close()
+            }
+        }
+    }
+
     "two real Redis nodes complete remote start routing and preserve return acknowledgement" {
         RedisTestService.start().use { service ->
             var spawn: RedisManager? = null

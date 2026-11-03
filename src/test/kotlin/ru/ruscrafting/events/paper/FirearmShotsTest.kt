@@ -26,7 +26,6 @@ import org.bukkit.block.data.BlockData
 import org.bukkit.entity.Entity
 import org.bukkit.entity.Player
 import org.bukkit.inventory.MainHand
-import org.bukkit.plugin.Plugin
 import org.bukkit.util.RayTraceResult
 import org.bukkit.util.Transformation
 import org.bukkit.util.Vector
@@ -35,8 +34,6 @@ import ru.arc.core.Tasks
 import ru.arc.core.TestTaskScheduler
 import ru.arc.paper.display.PaperPacketDisplays
 import ru.arc.paper.display.PacketBlockDisplay
-import ru.ruscrafting.events.config.ArcEventsConfig
-import ru.ruscrafting.events.config.PlayerStateMode
 import ru.ruscrafting.events.domain.FirearmId
 import ru.ruscrafting.events.domain.FirearmSoundPreset
 import ru.ruscrafting.events.domain.FirearmSpec
@@ -452,29 +449,33 @@ class FirearmShotsTest : StringSpec({
         }
     }
 
-    "personal sound selection follows the shooter and clearing it uses the current server default" {
+    "the shared sound supplier applies to every shooter and follows a global change" {
         withShotFixture { f ->
-            val other = UUID.randomUUID()
-            f.preset = FirearmSoundPreset.HEAVY
-            f.shots.setSoundPreset(f.player.uniqueId, FirearmSoundPreset.SHARP)
-            f.shots.soundPreset(f.player.uniqueId) shouldBe FirearmSoundPreset.SHARP
-            f.shots.soundPreset(other) shouldBe FirearmSoundPreset.HEAVY
-            f.preset = FirearmSoundPreset.ECHO
-            f.shots.soundPreset(f.player.uniqueId) shouldBe FirearmSoundPreset.SHARP
-            f.shots.soundPreset(other) shouldBe FirearmSoundPreset.ECHO
-            f.shots.setSoundPreset(f.player.uniqueId, FirearmSoundPreset.ORIGINAL)
-            f.shots.soundPreset(f.player.uniqueId) shouldBe FirearmSoundPreset.ORIGINAL
-            f.shots.setSoundPreset(f.player.uniqueId, null)
-            f.shots.soundPreset(f.player.uniqueId) shouldBe FirearmSoundPreset.ECHO
-            f.shots.setSoundPreset(f.player.uniqueId, FirearmSoundPreset.SHARP)
-            f.shots.close()
-            f.shots.soundPreset(f.player.uniqueId) shouldBe FirearmSoundPreset.ECHO
-            f.shots.setSoundPreset(f.player.uniqueId, FirearmSoundPreset.HEAVY)
-            f.shots.soundPreset(f.player.uniqueId) shouldBe FirearmSoundPreset.ECHO
+            f.soundsEnabled = true
+            val other = mockk<Player>(relaxed = true) {
+                every { uniqueId } returns UUID.randomUUID()
+                every { entityId } returns 6
+                every { isOnline } returns true
+                every { isDead } returns false
+                every { world } returns f.world
+                every { eyeLocation } answers { f.eye.clone() }
+                every { mainHand } returns MainHand.RIGHT
+            }
+            for (preset in listOf(FirearmSoundPreset.SHARP, FirearmSoundPreset.HEAVY)) {
+                f.preset = preset
+                var completed = 0
+                f.fire(afterFiring = { if (it) completed++ }) shouldBe true
+                f.shots.fire(other, f.spec, false, { true }, { false },
+                    afterFiring = { if (it) completed++ }) { _, _, _ -> } shouldBe true
+                f.until { completed == 2 }
+                verify(exactly = 2) {
+                    f.world.playSound(any<Location>(), preset.soundKey(f.spec.id), SoundCategory.PLAYERS, any<Float>(), 1f)
+                }
+            }
         }
     }
 
-    "accepted bursts keep one sound while the next trigger uses a changed personal selection" {
+    "accepted bursts keep one sound while the next trigger uses the changed global selection" {
         withShotFixture { f ->
             f.soundsEnabled = true
             f.preset = FirearmSoundPreset.SHARP
@@ -482,7 +483,6 @@ class FirearmShotsTest : StringSpec({
             var fired = false
             f.fire(burst, afterFiring = { fired = it }) shouldBe true
             f.preset = FirearmSoundPreset.HEAVY
-            f.shots.setSoundPreset(f.player.uniqueId, FirearmSoundPreset.ECHO)
             f.until { fired }
             verify(exactly = 3) {
                 f.world.playSound(any<Location>(), "arc:weapon_preset_sharp_fire", SoundCategory.PLAYERS, 2.7f, 1f)
@@ -491,44 +491,19 @@ class FirearmShotsTest : StringSpec({
             f.fire(burst, afterFiring = { fired = it }) shouldBe true
             f.until { fired }
             verify(exactly = 3) {
-                f.world.playSound(any<Location>(), "arc:weapon_preset_echo_fire", SoundCategory.PLAYERS, 2.7f, 1f)
-            }
-            verify(exactly = 0) {
-                f.world.playSound(any<Location>(), "arc:weapon_preset_heavy_fire", SoundCategory.PLAYERS, any<Float>(), any<Float>())
+                f.world.playSound(any<Location>(), "arc:weapon_preset_heavy_fire", SoundCategory.PLAYERS, 2.7f, 1f)
             }
         }
     }
 
     "audition sound remains disabled by the shared UI sound toggle" {
         withShotFixture { f ->
-            f.shots.setSoundPreset(f.player.uniqueId, FirearmSoundPreset.SHARP)
+            f.preset = FirearmSoundPreset.SHARP
             f.fire() shouldBe true
             f.until { f.rays.isNotEmpty() }
             verify(exactly = 0) {
                 f.world.playSound(any<Location>(), any<String>(), any<SoundCategory>(), any<Float>(), any<Float>())
             }
-        }
-    }
-
-    "unarmed sound preference survives scope cleanup and is forgotten on the ordinary quit path" {
-        withShotFixture { f ->
-            val plugin = mockk<Plugin>(relaxed = true) { every { name } returns "ArcEventsSoundTest" }
-            val settings = mockk<ArcEventsConfig>(relaxed = true) {
-                every { playerStateMode } returns PlayerStateMode.PRESERVE
-            }
-            val service = ArcEventsService(
-                plugin = plugin, settings = { settings }, locale = mockk(relaxed = true),
-                escrow = mockk(relaxed = true), items = mockk(relaxed = true), firearms = mockk(relaxed = true),
-                hud = mockk(relaxed = true), lootScene = mockk(relaxed = true), smokeGrenades = mockk(relaxed = true),
-                network = mockk(relaxed = true), debug = mockk(relaxed = true), redisConnected = { true },
-                arenaPool = mockk(relaxed = true), weaponPoints = mockk(relaxed = true),
-                lootSpawner = mockk(relaxed = true), packetDisplays = f.displays, shots = f.shots,
-            )
-            service.selectFirearmSound(f.player, FirearmSoundPreset.SHARP) shouldBe FirearmSoundPreset.SHARP
-            service.clearFirearmScope(f.player.uniqueId)
-            f.shots.soundPreset(f.player.uniqueId) shouldBe FirearmSoundPreset.SHARP
-            service.handleQuit(f.player)
-            f.shots.soundPreset(f.player.uniqueId) shouldBe FirearmSoundPreset.ORIGINAL
         }
     }
 

@@ -125,7 +125,7 @@ class ArcEventsService(
     private val scopes: TttScopes? = null,
     private val scopePreviewItemId: (ItemStack) -> String? = { null },
     private val shots: FirearmShots = FirearmShots(packetDisplays, { settings().ui.particles }, { settings().ui.sounds },
-        defaultSoundPreset = { settings().weapons.soundPreset }),
+        soundPreset = network::firearmSoundPreset),
 ) : ArcEventsGameplayBoundary, AutoCloseable {
     private val localChat = TttLocalChat(plugin.server, settings, locale)
     private data class MapSpawnReturn(
@@ -530,7 +530,6 @@ class ArcEventsService(
     }
 
     override fun handleQuit(player: Player) {
-        shots.setSoundPreset(player.uniqueId, null)
         clearWeaponState(player.uniqueId)
         val quitRecovery = if (disposablePlayerState()) disposableRecovery(player.uniqueId) else null
         if (disposablePlayerState() && isParticipant(player.uniqueId)) resetDisposablePlayer(player)
@@ -982,10 +981,8 @@ class ArcEventsService(
         }
     }
 
-    fun selectFirearmSound(player: Player, preset: FirearmSoundPreset?): FirearmSoundPreset {
-        shots.setSoundPreset(player.uniqueId, preset)
-        return shots.soundPreset(player.uniqueId)
-    }
+    fun selectFirearmSound(preset: FirearmSoundPreset): CompletableFuture<FirearmSoundPreset> =
+        network.selectFirearmSound(preset)
 
     override fun useFirearm(player: Player): Boolean {
         val state = authorizedFirearm(player) ?: return false
@@ -1295,6 +1292,7 @@ class ArcEventsService(
             "mode" to state.nodeMode.name.lowercase(),
             "game" to (currentMode()?.id ?: "-"),
             "redis" to if (state.redisConnected) "up" else "down",
+            "firearm_sound" to network.firearmSoundPreset().name.lowercase(),
             "host" to if (state.hostAvailable) "ready" else "unavailable",
             "arena" to if (state.arenaReady) "ready" else "disabled",
             "arena_id" to (state.arenaId ?: "-"),
