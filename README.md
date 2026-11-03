@@ -288,6 +288,8 @@ updates or attacks cannot replay the downward dip. Each toggle sends two item pa
 optic remains attached in both poses.
 Players tracking the shooter receive a cosmetic charged-crossbow holding pose
 while aiming or reloading, with the current weapon model and reload frame.
+Double-barrel and hand-cannon observer aliases rotate their vendor models
+about the trigger grip so the barrels point forward in that native hold.
 Players who begin tracking mid-reload receive its current frame too; completion
 and cancellation restore the current held item. The real inventory remains
 unchanged, and GUI views retain the vendor model. The shooter's own F5 view
@@ -391,7 +393,8 @@ Mechanical cues follow those beats. Inventory, ammunition and reload acceptance
 remain with the event or ordinary-world owner. Cancelling or replacing the held
 gun invalidates its presentation, and completion restores the current item.
 Publish the additive `arc:event_sights/*_reload_*` pack assets before activating
-this version; the generator and validation live in the ops sight asset recipe.
+this version, including the two `*_observer_hold` and their observer reload
+aliases; the generator and validation live in the ops sight asset recipe.
 
 Muzzle positions use the actual catalog barrel faces and native hip/aim item
 transforms, with separate left-hand and scoped poses. Flash, tracer birth and
