@@ -53,9 +53,13 @@ internal fun firearmScopeZoom(id: FirearmId): Float = when (id) {
 internal data class FirearmScopeTarget(val matchId: String?, val firearm: FirearmId, val heldSlot: Int)
 
 private val SCOPE_MODEL_FRAMES = listOf("hip", "raise_1", "raise_2", "raise_3", "aim", "equip_hip", "equip_aim")
+private val OBSERVER_HOLD_PREFIXES = listOf(FirearmId.DOUBLE_BARREL, FirearmId.HAND_CANNON)
+    .map { "arc:event_sights/${it.name.lowercase()}_" }
+private val OBSERVER_MODEL_KEYS = OBSERVER_HOLD_PREFIXES.map { "${it}observer_hold" }.toSet() +
+    FirearmReloadAnimation.modelKeys.filter { key -> OBSERVER_HOLD_PREFIXES.any { key.startsWith(it) } }.map { "${it}_observer" }
 private val SCOPE_MODEL_KEYS = FirearmId.entries.flatMap { id ->
     SCOPE_MODEL_FRAMES.map { frame -> "arc:event_sights/${id.name.lowercase()}_$frame" }
-}.toSet() + FirearmReloadAnimation.modelKeys
+}.toSet() + FirearmReloadAnimation.modelKeys + OBSERVER_MODEL_KEYS
 private val FIREARMS_BY_ID = FirearmId.entries.associateBy { it.name }
 
 private fun packetFirearm(item: PacketItemStack): FirearmId? {
@@ -644,7 +648,9 @@ class TttScopes internal constructor(
     /** Only remote equipment is a charged crossbow: native two-handed support for aim and reload. */
     private fun observerItem(item: PacketItemStack, frame: Frame): PacketItemStack {
         if (item.isEmpty || (frame.zoom == null && !frame.reloading)) return item
-        val displayed = item.copy().also { it.setComponent(ComponentTypes.ITEM_MODEL, ItemModel(ResourceLocation(frame.model))) }
+        val prefix = OBSERVER_HOLD_PREFIXES.firstOrNull { frame.model.startsWith(it) }
+        val model = if (prefix == null) frame.model else if (frame.reloading) "${frame.model}_observer" else "${prefix}observer_hold"
+        val displayed = item.copy().also { it.setComponent(ComponentTypes.ITEM_MODEL, ItemModel(ResourceLocation(model))) }
         return PacketItemStack.builder().type(ItemTypes.CROSSBOW).amount(displayed.amount)
             .components(displayed.components).version(displayed.version).registryHolder(displayed.registryHolder).build().also {
                 it.setComponent(ComponentTypes.CHARGED_PROJECTILES, ChargedProjectiles(listOf(PacketItemStack.builder().type(ItemTypes.ARROW).build())))

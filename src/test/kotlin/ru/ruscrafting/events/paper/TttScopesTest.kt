@@ -158,6 +158,47 @@ class TttScopesTest : StringSpec({
         }
     }
 
+    "antique hold corrections reach only observers through aim reload and restoration" {
+        for (id in listOf(FirearmId.DOUBLE_BARREL, FirearmId.HAND_CANNON)) ScopeFixture().use { f ->
+            f.real = gunPacketItem(crossbow = true)
+            f.baseline()
+            f.tracked = true
+            val original = f.real.copy()
+            val target = f.target.copy(firearm = id)
+            val prefix = "arc:event_sights/${id.name.lowercase()}_"
+            fun shown() = (f.observerPackets.last() as WrapperPlayServerEntityEquipment).equipment.single().item
+            fun observerModel() = shown().getComponent(ComponentTypes.ITEM_MODEL).get().modelLocation.toString()
+            f.scopes.toggle(f.player, target) shouldBe true
+            observerModel() shouldBe "${prefix}observer_hold"
+            f.models().last() shouldBe "${prefix}equip_aim"
+            f.tick(6)
+            observerModel() shouldBe "${prefix}observer_hold"
+            f.models().last() shouldBe "${prefix}aim"
+
+            f.scopes.animateReload(f.player, target, 42) { true }
+            observerModel() shouldBe "${prefix}reload_00_observer"
+            f.models().last() shouldBe "${prefix}reload_00"
+            f.tick(20)
+            observerModel() shouldBe "${f.models().last()}_observer"
+            val replay = f.filter(WrapperPlayServerEntityEquipment(f.entityId,
+                listOf(Equipment(EquipmentSlot.MAIN_HAND, f.real))), 99, f.observerId) as WrapperPlayServerEntityEquipment
+            replay.equipment.single().item shouldBe shown()
+            f.tick(21)
+            observerModel() shouldBe "${prefix}reload_39_observer"
+            f.models().last() shouldBe "${prefix}reload_39"
+            f.tick(1)
+            shown() shouldBe original
+            f.scopes.toggle(f.player, target) shouldBe true
+            f.scopes.clear(f.playerId)
+            shown() shouldBe original
+            f.real shouldBe original
+            f.packets.filterIsInstance<WrapperPlayServerSetPlayerInventory>().forEach {
+                it.stack.type shouldBe original.type
+                (it.stack.getComponent(ComponentTypes.ITEM_MODEL).orElse(null)?.modelLocation?.toString()?.contains("observer") == true) shouldBe false
+            }
+        }
+    }
+
     "cancelled queued reload frames and old handles cannot overwrite a newer scope" {
         ScopeFixture(queued = true).use { f ->
             f.real = gunPacketItem()
@@ -606,6 +647,14 @@ class TttScopesTest : StringSpec({
             every { item.isEmpty } returns false
             every { item.itemMeta.itemModel } returns org.bukkit.NamespacedKey("arc", "event_sights/vss_vintorez_$suffix")
             isScopeViewmodelItem(item) shouldBe true
+        }
+        for (weapon in listOf("double_barrel", "hand_cannon")) {
+            for (suffix in listOf("observer_hold", "reload_00_observer", "reload_19_observer", "reload_39_observer")) {
+                val item = mockk<ItemStack>()
+                every { item.isEmpty } returns false
+                every { item.itemMeta.itemModel } returns org.bukkit.NamespacedKey("arc", "event_sights/${weapon}_$suffix")
+                isScopeViewmodelItem(item) shouldBe true
+            }
         }
     }
 
