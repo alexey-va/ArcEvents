@@ -27,6 +27,7 @@ import ru.arc.paper.display.PacketBlockDisplay
 import ru.arc.paper.display.PaperPacketDisplays
 import ru.ruscrafting.events.domain.FirearmId
 import ru.ruscrafting.events.domain.FirearmSpec
+import ru.ruscrafting.events.domain.FirearmSoundPreset
 import ru.ruscrafting.events.domain.FirearmSpread
 import ru.ruscrafting.events.domain.ShotDirection
 import java.util.UUID
@@ -46,11 +47,13 @@ class FirearmShots(
     private val sounds: () -> Boolean = { true },
     private val scopedModel: (UUID) -> Boolean = { false },
     private val scopeZoom: (UUID) -> Float? = { null },
+    private val defaultSoundPreset: () -> FirearmSoundPreset = { FirearmSoundPreset.ORIGINAL },
 ) : AutoCloseable {
     private class Shot(
         val shooter: Player,
         val spec: FirearmSpec,
         val aiming: Boolean,
+        val soundKey: String,
         val valid: () -> Boolean,
         val target: (Entity) -> Boolean,
         val headshotMultiplier: Double,
@@ -89,12 +92,20 @@ class FirearmShots(
     private val retired = ArrayDeque<Retired>()
     private val completed = ArrayDeque<Round>()
     private val recoils = linkedMapOf<UUID, Recoil>()
+    private val soundPresets = mutableMapOf<UUID, FirearmSoundPreset>()
     private var reserved = 0
     private var tick = 0L
     private var soundWork = 0
     private var task: ScheduledTask? = null
     private var closed = false
     private val logger = Logger.getLogger("Minecraft")
+
+    fun setSoundPreset(playerId: UUID, preset: FirearmSoundPreset?) {
+        if (closed) return
+        if (preset == null) soundPresets.remove(playerId) else soundPresets[playerId] = preset
+    }
+
+    fun soundPreset(playerId: UUID): FirearmSoundPreset = soundPresets[playerId] ?: defaultSoundPreset()
 
     /**
      * True reserves the entire trigger before the caller debits ammunition; impacts happen on later ticks.
@@ -116,7 +127,8 @@ class FirearmShots(
         val eye = shooter.eyeLocation
         if (!eye.world.isChunkLoaded(eye.blockX shr 4, eye.blockZ shr 4)) return false
         val pattern = firearmRoundPellets(spec)
-        val shot = Shot(shooter, spec, aiming, valid, target, headshotMultiplier, hit, afterFiring, pattern.size,
+        val shot = Shot(shooter, spec, aiming, soundPreset(shooter.uniqueId).soundKey(spec.id),
+            valid, target, headshotMultiplier, hit, afterFiring, pattern.size,
             tick + MAX_LIFETIME_TICKS)
         // Start the scheduler before accepting anything, so a scheduling failure cannot debit ammo.
         if (task == null) task = Tasks.scheduler.runTimer(1L, 1L) { advance() }
@@ -303,9 +315,7 @@ class FirearmShots(
             shot.world.spawnParticle(Particle.SMOKE, location, if (shot.spec.id == FirearmId.FLINTLOCK) 5 else 1, .035, .025, .035, .015)
         }
         if (sounds()) {
-            val key = if (shot.spec.id == FirearmId.VSS_VINTOREZ) "arc:weapon_vss_fire"
-                else "arc:weapon_${shot.spec.id.name.lowercase()}_fire"
-            shot.world.playSound(location, key, SoundCategory.PLAYERS, shot.profile.volume, shot.profile.pitch)
+            shot.world.playSound(location, shot.soundKey, SoundCategory.PLAYERS, shot.profile.volume, shot.profile.pitch)
         }
     }
 
@@ -418,6 +428,7 @@ class FirearmShots(
     override fun close() {
         if (closed) return
         closed = true
+        soundPresets.clear()
         task?.cancel()
         task = null
         bullets.forEach { it.display?.remove() }

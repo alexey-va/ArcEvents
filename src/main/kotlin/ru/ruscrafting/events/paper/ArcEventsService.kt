@@ -35,6 +35,7 @@ import ru.ruscrafting.events.domain.ParticipantStatus
 import ru.ruscrafting.events.domain.PlayerEventStats
 import ru.ruscrafting.events.domain.CombatRecord
 import ru.ruscrafting.events.domain.FirearmId
+import ru.ruscrafting.events.domain.FirearmSoundPreset
 import ru.ruscrafting.events.domain.RosterEntry
 import ru.ruscrafting.events.domain.RosterStatus
 import ru.ruscrafting.events.domain.RoleAllocationSettings
@@ -123,7 +124,8 @@ class ArcEventsService(
     private val work: EventWork? = null,
     private val scopes: TttScopes? = null,
     private val scopePreviewItemId: (ItemStack) -> String? = { null },
-    private val shots: FirearmShots = FirearmShots(packetDisplays, { settings().ui.particles }, { settings().ui.sounds }),
+    private val shots: FirearmShots = FirearmShots(packetDisplays, { settings().ui.particles }, { settings().ui.sounds },
+        defaultSoundPreset = { settings().weapons.soundPreset }),
 ) : ArcEventsGameplayBoundary, AutoCloseable {
     private val localChat = TttLocalChat(plugin.server, settings, locale)
     private data class MapSpawnReturn(
@@ -528,6 +530,7 @@ class ArcEventsService(
     }
 
     override fun handleQuit(player: Player) {
+        shots.setSoundPreset(player.uniqueId, null)
         clearWeaponState(player.uniqueId)
         val quitRecovery = if (disposablePlayerState()) disposableRecovery(player.uniqueId) else null
         if (disposablePlayerState() && isParticipant(player.uniqueId)) resetDisposablePlayer(player)
@@ -977,6 +980,11 @@ class ArcEventsService(
             EventItemKind.FISHING_ROD, EventItemKind.FISHING_WEAPON, EventItemKind.FISHING_DYNAMITE,
             EventItemKind.FISHING_LIVE_CATCH, EventItemKind.FISHING_CATCH_BAG -> false
         }
+    }
+
+    fun selectFirearmSound(player: Player, preset: FirearmSoundPreset?): FirearmSoundPreset {
+        shots.setSoundPreset(player.uniqueId, preset)
+        return shots.soundPreset(player.uniqueId)
     }
 
     override fun useFirearm(player: Player): Boolean {

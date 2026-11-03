@@ -608,6 +608,13 @@ body:
   hit-body: '<#f2f0e6>в корпус'
 
 weapon:
+  sound-preset-original: 'Исходные'
+  sound-preset-sharp: 'Хлёсткий'
+  sound-preset-heavy: 'Тяжёлый'
+  sound-preset-echo: 'Объёмный'
+  sound-selection: '<prefix> <#e6fff3>Ваши выстрелы: <#92bed8><preset><#e6fff3>.<newline>  <#e6fff3>Выбор действует до выхода с этого сервера.'
+  sound-selection-default: '<prefix> <#e6fff3>Личный выбор сброшен.<newline>  <#e6fff3>Звук по настройке сервера: <#92bed8><preset><#e6fff3>.'
+  sound-usage: '<prefix> <#e6fff3>Звук ваших выстрелов:<newline>  <#92bed8>/arcevents admin sound [1|2|3|original|default]'
   flintlock-name: '<#e3b341><bold>Кремнёвый пистолет'
   revolver-name: '<#e3b341><bold>Револьвер'
   hand_cannon-name: '<#e3b341><bold>Ручная пушка'

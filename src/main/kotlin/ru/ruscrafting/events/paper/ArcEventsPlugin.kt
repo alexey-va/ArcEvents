@@ -182,7 +182,8 @@ open class ArcEventsPlugin : JavaPlugin() {
             val scopeRuntime = TttScopes.open(packetDisplays, { settings.weapons.scopeLaserEnabled }) { player, target -> activeService.isScopeAuthorized(player, target) }
                 .also { scopes = it }
             val shotRuntime = FirearmShots(packetDisplays, { settings.ui.particles }, { settings.ui.sounds },
-                scopedModel = scopeRuntime::hasViewmodel, scopeZoom = scopeRuntime::projectedZoom)
+                scopedModel = scopeRuntime::hasViewmodel, scopeZoom = scopeRuntime::projectedZoom,
+                defaultSoundPreset = { settings.weapons.soundPreset })
             val lootScene = TttLootScene(this, firearms, packetDisplays, activeWork, chunkTickets) { settings }
             val storedWeaponPoints = points
             val arenaInspector = ArenaRuntimeInspector(this)

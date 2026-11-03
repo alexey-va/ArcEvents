@@ -10,6 +10,7 @@ import ru.arc.core.Tasks
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.domain.FirearmId
+import ru.ruscrafting.events.domain.FirearmSoundPreset
 import ru.ruscrafting.events.domain.TttRole
 import ru.ruscrafting.events.domain.TttTeam
 import ru.ruscrafting.events.domain.EventMode
@@ -86,7 +87,7 @@ class ArcEventsCommand(
                     else -> listOf(EventMode.FISHING.id)
                 }
                 "admin" -> listOf("status", "player", "network", "arenas", "arena", "recovery", "start", "stop", "reload", "recover") +
-                    if (sender is Player) listOf("menu", "weapons") else emptyList()
+                    if (sender is Player) listOf("menu", "weapons", "sound") else emptyList()
                 "qa" -> listOf("status", "player", "network", "arenas", "recovery")
                 "debug" -> if (settings().debugMutationsAllowed) DEBUG_ACTIONS else DEBUG_READ_ACTIONS
                 else -> emptyList()
@@ -106,6 +107,7 @@ class ArcEventsCommand(
             if (args.size == 3 && action == "arena") return arenaIds(includeAuto = true)
             if (args.size == 4 && action == "arena") return EventMode.entries.map(EventMode::id)
             if (args.size == 3 && action == "weapons" && sender is Player) return ADMIN_WEAPON_ACTIONS
+            if (args.size == 3 && action == "sound" && sender is Player) return ADMIN_SOUND_PRESETS
         }
         if (root != "debug") return emptyList()
         return when (args.size) {
@@ -170,6 +172,7 @@ class ArcEventsCommand(
                 )))
             }
             "weapons" -> editWeaponPoints(sender, args.drop(1))
+            "sound" -> selectFirearmSound(sender, args.drop(1))
             "recovery" -> sender.sendEventMessage(Component.text(service.qaRecovery()))
             "start" -> {
                 val mode = parseMode(args.getOrNull(1)) ?: EventMode.TTT.takeIf { args.getOrNull(1) == null }
@@ -188,6 +191,28 @@ class ArcEventsCommand(
             "recover" -> sender.sendEventMessage(locale.render("admin.recovery-started", sender, mapOf("players" to locale.text(service.retryRecovery()))))
             else -> sender.sendEventMessage(locale.render("command.help", sender))
         }
+    }
+
+    private fun selectFirearmSound(sender: CommandSender, args: List<String>) {
+        val player = player(sender) ?: return
+        val input = args.singleOrNull()?.lowercase()
+        val preset = when (input) {
+            "1", "sharp" -> FirearmSoundPreset.SHARP
+            "2", "heavy" -> FirearmSoundPreset.HEAVY
+            "3", "echo" -> FirearmSoundPreset.ECHO
+            "original" -> FirearmSoundPreset.ORIGINAL
+            else -> null
+        }
+        if (input != "default" && preset == null) {
+            sender.sendEventMessage(locale.render("weapon.sound-usage", sender))
+            return
+        }
+        val selected = service.selectFirearmSound(player, preset)
+        sender.sendEventMessage(locale.render(
+            if (preset == null) "weapon.sound-selection-default" else "weapon.sound-selection",
+            sender,
+            mapOf("preset" to locale.render("weapon.sound-preset-${selected.name.lowercase()}", sender)),
+        ))
     }
 
     private fun sendReload(sender: CommandSender) {
@@ -465,6 +490,7 @@ class ArcEventsCommand(
             "loot", "menu", "close", "cleanup",
         )
         internal val ADMIN_WEAPON_ACTIONS = listOf("add", "remove", "show")
+        internal val ADMIN_SOUND_PRESETS = listOf("1", "2", "3", "original", "default", "sharp", "heavy", "echo")
         internal val DEBUG_ITEMS = listOf(
             "traitor_blade", "traitor_radar", "traitor_smoke",
             "detective_scanner", "detective_medkit", "detective_armor",

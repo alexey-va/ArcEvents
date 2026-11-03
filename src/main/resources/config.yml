@@ -405,6 +405,8 @@ arcade:
 
 weapons:
   enabled: true
+  # Reloadable muzzle sound: original, sharp, heavy, echo. Original keeps each gun's recording.
+  sound-preset: original
   # Optional VSS aiming laser. Reload applies this to an already raised sight.
   scope-laser:
     enabled: false

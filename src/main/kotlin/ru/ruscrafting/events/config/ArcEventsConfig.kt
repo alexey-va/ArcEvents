@@ -13,6 +13,7 @@ import ru.ruscrafting.events.domain.FishingOffer
 import ru.ruscrafting.events.domain.FirearmId
 import ru.ruscrafting.events.domain.FirearmRarity
 import ru.ruscrafting.events.domain.FirearmSpec
+import ru.ruscrafting.events.domain.FirearmSoundPreset
 import ru.ruscrafting.events.domain.TttFirearmCatalog
 import java.nio.file.Files
 import java.nio.file.Path
@@ -223,6 +224,7 @@ data class WeaponSettings(
     val visuals: Map<FirearmId, FirearmVisualSettings>,
     val lootEffect: LootEffectSettings,
     val scopeLaserEnabled: Boolean = false,
+    val soundPreset: FirearmSoundPreset = FirearmSoundPreset.ORIGINAL,
 ) {
     fun spec(id: FirearmId): FirearmSpec = specs.getValue(id)
     fun visual(id: FirearmId): FirearmVisualSettings = visuals.getValue(id)
@@ -466,6 +468,9 @@ class ArcEventsConfig(private val config: Config) {
         get() = WeaponSettings(
             enabled = config.bool("weapons.enabled", true),
             scopeLaserEnabled = config.bool("weapons.scope-laser.enabled", false),
+            soundPreset = FirearmSoundPreset.entries.firstOrNull {
+                it.name.equals(config.string("weapons.sound-preset", "original").trim(), ignoreCase = true)
+            } ?: throw IllegalArgumentException("weapons.sound-preset must be original, sharp, heavy, or echo"),
             dnaSeconds = config.int("weapons.dna-seconds", 90),
             specs = FirearmId.entries.associateWith { id ->
                 firearmSpec("weapons.catalog.${id.name.lowercase()}", TttFirearmCatalog.specs.getValue(id))

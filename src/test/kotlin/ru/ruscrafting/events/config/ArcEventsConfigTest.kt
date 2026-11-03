@@ -7,11 +7,35 @@ import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import org.opentest4j.TestAbortedException
 import ru.ruscrafting.events.domain.FirearmId
+import ru.ruscrafting.events.domain.FirearmSoundPreset
 import ru.ruscrafting.events.domain.TttFirearmCatalog
 import java.nio.file.Files
 import java.nio.file.Path
 
 class ArcEventsConfigTest : StringSpec({
+    "muzzle sound presets validate strictly and reload during an active round" {
+        val root = Files.createTempDirectory("arcevents-sound-preset-")
+        try {
+            val current = ArcEventsConfig.load(root)
+            current.weapons.soundPreset shouldBe FirearmSoundPreset.ORIGINAL
+            val configFile = root.resolve("config.yml")
+            val original = Files.readString(configFile)
+            for (preset in FirearmSoundPreset.entries) {
+                Files.writeString(configFile, original.replace("sound-preset: original", "sound-preset: ${preset.name.lowercase()}"))
+                val candidate = ArcEventsConfig.inspect(root)
+                candidate.weapons.soundPreset shouldBe preset
+                candidate.weapons.specs shouldBe current.weapons.specs
+                shouldNotThrowAny { ArcEventsReloadPolicy.validate(current, candidate, true, "default") }
+            }
+            for (invalid in listOf("unknown", "default", "1", "''", "true")) {
+                Files.writeString(configFile, original.replace("sound-preset: original", "sound-preset: $invalid"))
+                shouldThrow<IllegalArgumentException> { ArcEventsConfig.inspect(root) }.message shouldBe
+                    "weapons.sound-preset must be original, sharp, heavy, or echo"
+                current.weapons.soundPreset shouldBe FirearmSoundPreset.ORIGINAL
+            }
+        } finally { root.toFile().deleteRecursively() }
+    }
+
     "cosmetic VSS laser can reload during an active round" {
         val root = Files.createTempDirectory("arcevents-scope-laser-")
         try {

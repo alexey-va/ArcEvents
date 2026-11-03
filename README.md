@@ -236,12 +236,24 @@ runtime maps those contracts to stable custom-model-data IDs from the
 defaults remain dependency-free vanilla items.
 
 All firearms fire with LMB, RMB toggles the raised aiming pose, and F reloads.
-Every firearm uses a recorded muzzle clip from the resource pack, positioned
+With the `original` sound preset, every firearm uses its recorded muzzle clip from the resource pack, positioned
 at the same muzzle as the bullet. VSS retains `arc:weapon_vss_fire`; the other
 weapons use `arc:weapon_<firearm_id>_fire` with the lowercase catalog ID.
 The clips distinguish weapon classes and replace the generic vanilla blast
 and trapdoor layers. The existing sound toggle still applies. Publish the
-matching Arc sound assets before activating 0.5.40.
+matching Arc sound assets before activating 0.5.41.
+`weapons.sound-preset` selects the server default: `original`, `sharp`, `heavy`
+or `echo`. It can change through `/arcevents reload`, including during a match.
+The three audition presets use one corresponding rifle clip across the guns
+to compare timbre in actual firing; `original` keeps the individual weapon
+recordings. Each gun retains its own firing pattern, muzzle position and range.
+Administrators can set their own current-server preference with
+`/arcevents admin sound <1|2|3|original|default>`: 1 is sharp, 2 is heavy and
+3 is echo. This changes the sound emitted by that player's shots, including
+what nearby listeners hear. It does not change anyone else's selection.
+`default` clears the personal override and follows the current server config;
+leaving the server also clears it. No restart is needed to switch presets once
+the matching code and all three additional pack events have been activated.
 All firearms also use the pack's `arc:bullet_flyby` for a close swept pass by a
 listener and `arc:bullet_impact` at physical contact. A flyby is private to a
 nearby listener, excludes the shooter, and plays once per bullet/listener.
