@@ -637,7 +637,7 @@ weapon:
     - '<#8c8c8c>Количество: <#f2f0e6><rounds>'
     - '<#f2f0e6>Подходят ко всему оружию раунда.'
   ammo-actionbar: '<weapon>  <#ffffff><loaded>/<#ffffff><magazine>  <#32d6ff>запас <#ffffff><reserve>'
-  ammo-hud-count: '<loaded><#9eabb8> / <capacity></#9eabb8>'
+  ammo-hud-count: '<loaded><#9eabb8> / <capacity> патр.</#9eabb8>'
   ammo-hud-reserve: '<#9eabb8>  запас <reserve></#9eabb8>'
   ammo-hud-creative: '<#9de1e8>∞  Без расхода</#9de1e8>'
   ammo-hud-controls: '<#d9e0e6><white>ЛКМ</white> Огонь  <white>ПКМ</white> Прицел</#d9e0e6>'

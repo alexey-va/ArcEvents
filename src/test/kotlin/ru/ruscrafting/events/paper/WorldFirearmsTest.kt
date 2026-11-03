@@ -29,11 +29,155 @@ import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.config.NodeMode
 import ru.ruscrafting.events.domain.FirearmId
+import ru.ruscrafting.events.domain.FirearmSpec
 import org.bukkit.util.Vector
 import java.nio.file.Files
 import java.util.UUID
 
 class WorldFirearmsTest : FunSpec({
+    test("burst guns fire every remaining round without inflating the partial volley") {
+        WorldFirearmFixture().use { f ->
+            for (id in listOf(FirearmId.G36, FirearmId.AEK_971, FirearmId.RPL_20)) {
+                val spec = f.firearms.spec(id)
+                for (loaded in 1 until spec.roundsPerShot) {
+                    f.runtime.forget(f.player.uniqueId)
+                    f.player.inventory.setItemInMainHand(f.gun(WORLD_GUN_IDS.getValue(id), loaded))
+                    val before = f.accepted.size
+                    f.click() shouldBe true
+                    f.accepted.size shouldBe before + 1
+                    f.accepted.last().spec shouldBe spec.copy(roundsPerShot = loaded, pellets = loaded)
+                    f.runtime.state(f.player.inventory.itemInMainHand)?.loaded shouldBe 0
+                    f.vanillaReserve() shouldBe 0
+                }
+            }
+            f.runtime.forget(f.player.uniqueId)
+            val shotgun = f.firearms.spec(FirearmId.DOUBLE_BARREL)
+            f.player.inventory.setItemInMainHand(f.gun(WORLD_GUN_IDS.getValue(shotgun.id), 1))
+            f.click() shouldBe true
+            f.accepted.last().spec shouldBe shotgun
+            f.runtime.state(f.player.inventory.itemInMainHand)?.loaded shouldBe 0
+        }
+    }
+
+    test("an empty trigger starts one ordinary reload when vanilla reserve exists") {
+        WorldFirearmFixture().use { f ->
+            f.player.inventory.setItemInMainHand(f.gun(loaded = 0))
+            f.player.inventory.setItem(10, ItemStack.of(Material.IRON_NUGGET, 8))
+            f.click() shouldBe true
+            f.runtime.ammoHudState(f.player)?.reloading shouldBe true
+            f.click() shouldBe true
+            f.accepted.size shouldBe 0
+            f.vanillaReserve() shouldBe 8
+            verify(exactly = 1) { f.scopes.animateReload(any(), any(), any(), any(), any()) }
+            f.advance(f.reloadTicks)
+            f.runtime.state(f.player.inventory.itemInMainHand)?.loaded shouldBe 6
+            f.vanillaReserve() shouldBe 2
+        }
+    }
+
+    test("the last accepted burst starts one reload only after its final muzzle") {
+        WorldFirearmFixture().use { f ->
+            val id = FirearmId.G36
+            f.player.inventory.setItemInMainHand(f.gun(WORLD_GUN_IDS.getValue(id), 2))
+            f.player.inventory.setItem(10, ItemStack.of(Material.IRON_NUGGET, 7))
+            f.click() shouldBe true
+            f.runtime.state(f.player.inventory.itemInMainHand)?.loaded shouldBe 0
+            f.vanillaReserve() shouldBe 7
+            f.click() shouldBe true
+            verify(exactly = 0) { f.scopes.animateReload(any(), any(), any(), any(), any()) }
+            f.accepted.single().afterFiring(true)
+            f.accepted.single().afterFiring(true)
+            verify(exactly = 1) { f.scopes.animateReload(any(), any(), any(), any(), any()) }
+            f.vanillaReserve() shouldBe 7
+            f.advance(f.firearms.spec(id).reloadTicks.toLong())
+            f.runtime.state(f.player.inventory.itemInMainHand)?.loaded shouldBe 7
+            f.vanillaReserve() shouldBe 0
+        }
+    }
+
+    test("deferred reloads are revoked by abort cancellation item slot world authority and creative changes") {
+        WorldFirearmFixture().use { f ->
+            val elsewhere = f.paper.addSimpleWorld("auto-elsewhere")
+            val changes: List<() -> Unit> = listOf(
+                { f.runtime.cancel(f.player.uniqueId) },
+                { f.player.inventory.heldItemSlot = 1 },
+                { f.player.inventory.setItemInMainHand(f.gun(loaded = 0).also { item -> item.editMeta { it.lore(listOf(Component.text("replacement"))) } }) },
+                { f.player.teleport(Location(elsewhere, 0.0, 64.0, 0.0)); Unit },
+                { f.actionsAllowed = false },
+                { f.player.gameMode = GameMode.CREATIVE },
+            )
+            for (change in changes) {
+                f.runtime.forget(f.player.uniqueId)
+                f.actionsAllowed = true
+                f.player.gameMode = GameMode.SURVIVAL
+                f.player.teleport(Location(f.world, 0.0, 64.0, 0.0))
+                f.player.inventory.clear()
+                f.player.inventory.heldItemSlot = 0
+                f.player.inventory.setItemInMainHand(f.gun(loaded = 1))
+                f.player.inventory.setItem(10, ItemStack.of(Material.IRON_NUGGET, 6))
+                f.click() shouldBe true
+                val shot = f.accepted.last()
+                change()
+                shot.afterFiring(true)
+                f.advance(f.reloadTicks)
+                f.runtime.state(f.player.inventory.getItem(0))?.loaded shouldBe 0
+                f.vanillaReserve() shouldBe 6
+            }
+            verify(exactly = 0) { f.scopes.animateReload(any(), any(), any(), any(), any()) }
+            f.runtime.forget(f.player.uniqueId)
+            f.player.gameMode = GameMode.SURVIVAL
+            f.player.inventory.heldItemSlot = 0
+            f.player.inventory.setItemInMainHand(f.gun(loaded = 1))
+            f.click() shouldBe true
+            f.accepted.last().afterFiring(false)
+            f.advance(f.reloadTicks)
+            f.vanillaReserve() shouldBe 6
+            f.click() shouldBe true
+            f.advance(f.reloadTicks)
+            f.runtime.state(f.player.inventory.itemInMainHand)?.loaded shouldBe 6
+            f.vanillaReserve() shouldBe 0
+        }
+    }
+
+    test("manual reload replaces a deferred auto reload and rejected admission never starts one") {
+        WorldFirearmFixture().use { f ->
+            f.player.inventory.setItemInMainHand(f.gun(loaded = 1))
+            f.player.inventory.setItem(10, ItemStack.of(Material.IRON_NUGGET, 8))
+            f.admission = false
+            f.click() shouldBe true
+            f.runtime.state(f.player.inventory.itemInMainHand)?.loaded shouldBe 1
+            f.vanillaReserve() shouldBe 8
+            f.accepted.size shouldBe 0
+            verify(exactly = 0) { f.scopes.animateReload(any(), any(), any(), any(), any()) }
+            f.admission = true
+            f.click() shouldBe true
+            f.reload() shouldBe true
+            f.accepted.single().afterFiring(true)
+            verify(exactly = 1) { f.scopes.animateReload(any(), any(), any(), any(), any()) }
+            f.runtime.cancel(f.player.uniqueId)
+            f.accepted.single().afterFiring(true)
+            f.advance(f.reloadTicks)
+            f.runtime.state(f.player.inventory.itemInMainHand)?.loaded shouldBe 0
+            f.vanillaReserve() shouldBe 8
+        }
+    }
+
+    test("creative empty bursts never acquire an automatic reload or consume their reserve") {
+        WorldFirearmFixture().use { f ->
+            val gun = f.gun(WORLD_GUN_IDS.getValue(FirearmId.G36), 0)
+            f.player.inventory.setItemInMainHand(gun)
+            f.player.inventory.setItem(10, ItemStack.of(Material.IRON_NUGGET, 6))
+            f.player.gameMode = GameMode.CREATIVE
+            f.click() shouldBe true
+            f.accepted.single().spec shouldBe f.firearms.spec(FirearmId.G36)
+            f.accepted.single().afterFiring(true)
+            f.advance(100)
+            f.player.inventory.itemInMainHand shouldBe gun
+            f.vanillaReserve() shouldBe 6
+            verify(exactly = 0) { f.scopes.animateReload(any(), any(), any(), any(), any()) }
+        }
+    }
+
     test("first reload normalizes a paper gun before capturing its magazine lease") {
         WorldFirearmFixture().use { f ->
             val gun = f.gun(identity = WORLD_GUN_IDS.getValue(FirearmId.G36)).also { it.type = Material.PAPER }
@@ -414,8 +558,10 @@ class WorldFirearmsTest : FunSpec({
 })
 
 private data class WorldShot(
+    val spec: FirearmSpec,
     val valid: () -> Boolean,
     val target: (Entity) -> Boolean,
+    val afterFiring: (Boolean) -> Unit,
     val hit: (Entity, FirearmHit, Double) -> Unit,
 )
 
@@ -457,9 +603,9 @@ private class WorldFirearmFixture : AutoCloseable {
         val locale = ArcEventsLocale(dataRoot) { settings }
         firearms = TttFirearms(plugin, locale) { settings }
         val shots = mockk<FirearmShots>()
-        every { shots.fire(any(), any(), any(), any(), any(), any(), any()) } answers {
+        every { shots.fire(any(), any(), any(), any(), any(), any(), any(), any()) } answers {
             if (admission) {
-                accepted += WorldShot(arg(3), arg(4), arg(6))
+                accepted += WorldShot(arg(1), arg(3), arg(4), arg(6), arg(7))
                 true
             } else false
         }

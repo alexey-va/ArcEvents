@@ -189,7 +189,6 @@ internal fun firearmAmmoHudText(
         state.reserve?.let { output.append(localized("weapon.ammo-hud-reserve", mapOf("reserve" to Component.text(it)))) }
         output.append(Component.newline())
         for (round in 0 until state.capacity) {
-            if (round > 0 && round % 5 == 0) output.append(Component.space())
             output.append(Component.text("|", TextColor.color(if (round < state.loaded) accent else 0x526170)))
         }
     }

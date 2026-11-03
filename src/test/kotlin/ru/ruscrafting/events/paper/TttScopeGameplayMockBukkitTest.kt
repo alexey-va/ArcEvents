@@ -23,10 +23,219 @@ import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.inventory.EquipmentSlot
 import ru.ruscrafting.events.config.NodeMode
 import ru.ruscrafting.events.domain.FirearmId
+import ru.ruscrafting.events.domain.FirearmSpec
 import ru.ruscrafting.events.network.ReservationBatch
 import java.util.UUID
 
 class TttScopeGameplayMockBukkitTest : StringSpec({
+    "event burst guns accept their remaining rounds and shotguns retain one shell per volley" {
+        val shots = mockk<FirearmShots>(relaxed = true)
+        val accepted = mutableListOf<FirearmSpec>()
+        every { shots.fire(any(), any(), any(), any(), any(), any(), any(), any()) } answers {
+            accepted += arg<FirearmSpec>(1)
+            true
+        }
+        TttRoundFixture(shots = shots).use { f ->
+            f.reloadRuntime { it.replace("weapons:\n  enabled: false", "weapons:\n  enabled: true") }
+            f.startActiveRound()
+            val player = f.players.first()
+            val matchId = requireNotNull(f.service.currentMatch()).matchId.toString()
+            player.inventory.clear()
+            for (id in listOf(FirearmId.G36, FirearmId.AEK_971, FirearmId.RPL_20)) {
+                val spec = f.firearms.spec(id)
+                for (loaded in 1 until spec.roundsPerShot) {
+                    f.advanceTime(1_000)
+                    player.inventory.setItemInMainHand(f.firearms.firearmItem(id, player, matchId, loaded))
+                    f.service.useFirearm(player) shouldBe true
+                    accepted.last() shouldBe spec.copy(roundsPerShot = loaded, pellets = loaded)
+                    f.firearms.state(player.inventory.itemInMainHand)?.loaded shouldBe 0
+                    f.firearms.reserveAmmo(player, matchId) shouldBe 0
+                }
+            }
+            f.advanceTime(1_000)
+            val shotgun = f.firearms.spec(FirearmId.DOUBLE_BARREL)
+            player.inventory.setItemInMainHand(f.firearms.firearmItem(shotgun.id, player, matchId, 1))
+            f.service.useFirearm(player) shouldBe true
+            accepted.last() shouldBe shotgun
+            f.firearms.state(player.inventory.itemInMainHand)?.loaded shouldBe 0
+        }
+    }
+
+    "an empty event trigger starts one ordinary reload using only its match reserve" {
+        val shots = mockk<FirearmShots>(relaxed = true)
+        val scopes = mockk<TttScopes>(relaxed = true)
+        every { scopes.projectedZoom(any()) } returns null
+        TttRoundFixture(shots = shots, scopes = scopes).use { f ->
+            f.reloadRuntime { it.replace("weapons:\n  enabled: false", "weapons:\n  enabled: true") }
+            f.startActiveRound()
+            val player = f.players.first()
+            val matchId = requireNotNull(f.service.currentMatch()).matchId.toString()
+            player.inventory.clear()
+            player.inventory.setItemInMainHand(f.firearms.firearmItem(FirearmId.REVOLVER, player, matchId, 0))
+            player.inventory.setItem(10, f.firearms.ammunition(player, matchId, 8))
+            player.inventory.setItem(11, f.firearms.ammunition(player, "another-match", 12))
+            f.service.useFirearm(player) shouldBe true
+            f.service.ammoHudState(player)?.reloading shouldBe true
+            f.service.useFirearm(player) shouldBe false
+            verify(exactly = 0) { shots.fire(any(), any(), any(), any(), any(), any(), any(), any()) }
+            verify(exactly = 1) { scopes.animateReload(any(), any(), any(), any(), any()) }
+            f.firearms.reserveAmmo(player, matchId) shouldBe 8
+            f.paper.performTicks(f.firearms.spec(FirearmId.REVOLVER).reloadTicks.toLong())
+            f.firearms.state(player.inventory.itemInMainHand)?.loaded shouldBe 6
+            f.firearms.reserveAmmo(player, matchId) shouldBe 2
+            f.firearms.reserveAmmo(player, "another-match") shouldBe 12
+        }
+    }
+
+    "the final event burst defers one automatic reload until its last muzzle" {
+        val shots = mockk<FirearmShots>(relaxed = true)
+        val scopes = mockk<TttScopes>(relaxed = true)
+        val finished = slot<(Boolean) -> Unit>()
+        every { shots.fire(any(), any(), any(), any(), any(), any(), capture(finished), any()) } returns true
+        TttRoundFixture(shots = shots, scopes = scopes).use { f ->
+            f.reloadRuntime { it.replace("weapons:\n  enabled: false", "weapons:\n  enabled: true") }
+            f.startActiveRound()
+            val player = f.players.first()
+            val matchId = requireNotNull(f.service.currentMatch()).matchId.toString()
+            player.inventory.clear()
+            player.inventory.setItemInMainHand(f.firearms.firearmItem(FirearmId.G36, player, matchId, 2))
+            player.inventory.setItem(10, f.firearms.ammunition(player, matchId, 7))
+            f.service.useFirearm(player) shouldBe true
+            f.firearms.state(player.inventory.itemInMainHand)?.loaded shouldBe 0
+            f.service.useFirearm(player) shouldBe false
+            verify(exactly = 0) { scopes.animateReload(any(), any(), any(), any(), any()) }
+            finished.captured(true)
+            finished.captured(true)
+            verify(exactly = 1) { scopes.animateReload(any(), any(), any(), any(), any()) }
+            f.firearms.reserveAmmo(player, matchId) shouldBe 7
+            f.paper.performTicks(f.firearms.spec(FirearmId.G36).reloadTicks.toLong())
+            f.firearms.state(player.inventory.itemInMainHand)?.loaded shouldBe 7
+            f.firearms.reserveAmmo(player, matchId) shouldBe 0
+        }
+    }
+
+    "event deferred reloads reject aborted replaced slot world and lifecycle leases" {
+        val shots = mockk<FirearmShots>(relaxed = true)
+        val scopes = mockk<TttScopes>(relaxed = true)
+        val finished = slot<(Boolean) -> Unit>()
+        every { shots.fire(any(), any(), any(), any(), any(), any(), capture(finished), any()) } returns true
+        TttRoundFixture(shots = shots, scopes = scopes).use { f ->
+            f.reloadRuntime { it.replace("weapons:\n  enabled: false", "weapons:\n  enabled: true") }
+            f.startActiveRound()
+            val player = f.players.first()
+            val matchId = requireNotNull(f.service.currentMatch()).matchId.toString()
+            val world = player.world
+            val changes: List<() -> Unit> = listOf(
+                { f.service.clearFirearmScope(player.uniqueId) },
+                { player.inventory.heldItemSlot = 1 },
+                { player.inventory.setItemInMainHand(f.firearms.firearmItem(FirearmId.REVOLVER, player, matchId, 0).also {
+                    it.editMeta { meta -> meta.lore(listOf(net.kyori.adventure.text.Component.text("replacement"))) }
+                }) },
+                { player.teleport(org.bukkit.Location(f.paper.addSimpleWorld("event-auto-other"), 0.0, 64.0, 0.0)); Unit },
+                { player.gameMode = GameMode.CREATIVE; player.gameMode = GameMode.ADVENTURE },
+            )
+            for (change in changes) {
+                f.service.clearFirearmScope(player.uniqueId)
+                player.teleport(org.bukkit.Location(world, 0.5, 64.0, 0.5))
+                player.inventory.clear()
+                player.inventory.heldItemSlot = 0
+                player.inventory.setItemInMainHand(f.firearms.firearmItem(FirearmId.REVOLVER, player, matchId, 1))
+                player.inventory.setItem(10, f.firearms.ammunition(player, matchId, 6))
+                f.advanceTime(1_000)
+                f.service.useFirearm(player) shouldBe true
+                change()
+                finished.captured(true)
+                f.paper.performTicks(f.firearms.spec(FirearmId.REVOLVER).reloadTicks.toLong())
+                f.firearms.state(player.inventory.getItem(0))?.loaded shouldBe 0
+                f.firearms.reserveAmmo(player, matchId) shouldBe 6
+            }
+            verify(exactly = 0) { scopes.animateReload(any(), any(), any(), any(), any()) }
+            f.service.clearFirearmScope(player.uniqueId)
+            player.inventory.setItemInMainHand(f.firearms.firearmItem(FirearmId.REVOLVER, player, matchId, 1))
+            f.advanceTime(1_000)
+            f.service.useFirearm(player) shouldBe true
+            finished.captured(false)
+            f.paper.performTicks(f.firearms.spec(FirearmId.REVOLVER).reloadTicks.toLong())
+            f.firearms.reserveAmmo(player, matchId) shouldBe 6
+            f.advanceTime(1_000)
+            f.service.useFirearm(player) shouldBe true
+            f.paper.performTicks(f.firearms.spec(FirearmId.REVOLVER).reloadTicks.toLong())
+            f.firearms.state(player.inventory.itemInMainHand)?.loaded shouldBe 6
+            f.firearms.reserveAmmo(player, matchId) shouldBe 0
+        }
+    }
+
+    "event manual reload revokes deferred auto and busy or creative triggers never debit reserve" {
+        val shots = mockk<FirearmShots>(relaxed = true)
+        val scopes = mockk<TttScopes>(relaxed = true)
+        val finished = slot<(Boolean) -> Unit>()
+        var admitted = false
+        every { shots.fire(any(), any(), any(), any(), any(), any(), capture(finished), any()) } answers { admitted }
+        TttRoundFixture(shots = shots, scopes = scopes).use { f ->
+            f.reloadRuntime { it.replace("weapons:\n  enabled: false", "weapons:\n  enabled: true") }
+            f.startActiveRound()
+            val player = f.players.first()
+            val matchId = requireNotNull(f.service.currentMatch()).matchId.toString()
+            player.inventory.clear()
+            player.inventory.setItemInMainHand(f.firearms.firearmItem(FirearmId.REVOLVER, player, matchId, 1))
+            player.inventory.setItem(10, f.firearms.ammunition(player, matchId, 8))
+            f.service.useFirearm(player) shouldBe false
+            f.firearms.state(player.inventory.itemInMainHand)?.loaded shouldBe 1
+            f.firearms.reserveAmmo(player, matchId) shouldBe 8
+            verify(exactly = 0) { scopes.animateReload(any(), any(), any(), any(), any()) }
+            admitted = true
+            f.service.useFirearm(player) shouldBe true
+            f.service.reloadFirearm(player) shouldBe true
+            finished.captured(true)
+            verify(exactly = 1) { scopes.animateReload(any(), any(), any(), any(), any()) }
+            f.service.clearFirearmScope(player.uniqueId)
+            finished.captured(true)
+            f.paper.performTicks(f.firearms.spec(FirearmId.REVOLVER).reloadTicks.toLong())
+            f.firearms.state(player.inventory.itemInMainHand)?.loaded shouldBe 0
+            f.firearms.reserveAmmo(player, matchId) shouldBe 8
+            player.gameMode = GameMode.CREATIVE
+            f.advanceTime(1_000)
+            f.service.useFirearm(player) shouldBe true
+            finished.captured(true)
+            f.paper.performTicks(100)
+            f.firearms.state(player.inventory.itemInMainHand)?.loaded shouldBe 0
+            f.firearms.reserveAmmo(player, matchId) shouldBe 8
+            verify(exactly = 1) { scopes.animateReload(any(), any(), any(), any(), any()) }
+        }
+    }
+
+    "event reload completion requires its exact item slot world and uncancelled lifecycle" {
+        TttRoundFixture().use { f ->
+            f.reloadRuntime { it.replace("weapons:\n  enabled: false", "weapons:\n  enabled: true") }
+            f.startActiveRound()
+            val player = f.players.first()
+            val matchId = requireNotNull(f.service.currentMatch()).matchId.toString()
+            val elsewhere = f.paper.addSimpleWorld("event-reload-other")
+            val world = player.world
+            val changes: List<() -> Unit> = listOf(
+                { player.inventory.heldItemSlot = 1 },
+                { player.inventory.setItemInMainHand(f.firearms.firearmItem(FirearmId.REVOLVER, player, matchId, 0).also {
+                    it.editMeta { meta -> meta.lore(listOf(net.kyori.adventure.text.Component.text("changed"))) }
+                }) },
+                { player.teleport(org.bukkit.Location(elsewhere, 0.0, 64.0, 0.0)); Unit },
+                { f.service.clearFirearmScope(player.uniqueId) },
+            )
+            for (change in changes) {
+                f.service.clearFirearmScope(player.uniqueId)
+                player.teleport(org.bukkit.Location(world, 0.5, 64.0, 0.5))
+                player.inventory.clear()
+                player.inventory.heldItemSlot = 0
+                player.inventory.setItemInMainHand(f.firearms.firearmItem(FirearmId.REVOLVER, player, matchId, 0))
+                player.inventory.setItem(10, f.firearms.ammunition(player, matchId, 6))
+                f.service.reloadFirearm(player) shouldBe true
+                change()
+                f.paper.performTicks(f.firearms.spec(FirearmId.REVOLVER).reloadTicks.toLong())
+                f.firearms.state(player.inventory.getItem(0))?.loaded shouldBe 0
+                f.firearms.reserveAmmo(player, matchId) shouldBe 6
+            }
+        }
+    }
+
     "HOST OP creative raw-item preview never creates firearm state or bypasses an owned event" {
         val scopes = mockk<TttScopes>(relaxed = true)
         every { scopes.toggle(any(), any()) } returns true
@@ -127,7 +336,7 @@ class TttScopeGameplayMockBukkitTest : StringSpec({
     "physical entity attack reserves one shot and its later impact reaches the match damage lifecycle" {
         val shots = mockk<FirearmShots>(relaxed = true)
         val impact = slot<(Entity, FirearmHit, Double) -> Unit>()
-        every { shots.fire(any(), any(), any(), any(), any(), any(), capture(impact)) } returns true
+        every { shots.fire(any(), any(), any(), any(), any(), any(), any(), capture(impact)) } returns true
         TttRoundFixture(shots = shots).use { f ->
             f.reloadRuntime { it.replace("weapons:\n  enabled: false", "weapons:\n  enabled: true") }
             f.startActiveRound()
@@ -157,7 +366,7 @@ class TttScopeGameplayMockBukkitTest : StringSpec({
             val attack = f.paper.callEvent(PrePlayerAttackEntityEvent(shooter, target, true))
 
             attack.isCancelled shouldBe true
-            verify(exactly = 1) { shots.fire(shooter, any(), any(), any(), any(), any(), any()) }
+            verify(exactly = 1) { shots.fire(shooter, any(), any(), any(), any(), any(), any(), any()) }
             verify(exactly = 0) { target.damage(any<Double>(), shooter) }
             val weapon = requireNotNull(f.firearms.state(originalShooter.inventory.itemInMainHand))
             weapon.loaded shouldBe f.firearms.spec(FirearmId.VSS_VINTOREZ).magazineSize - 1
@@ -174,7 +383,7 @@ class TttScopeGameplayMockBukkitTest : StringSpec({
 
     "creative event firearms use no ammunition and preserve the magazine when returning to adventure" {
         val shots = mockk<FirearmShots>(relaxed = true)
-        every { shots.fire(any(), any(), any(), any(), any(), any(), any()) } returns true
+        every { shots.fire(any(), any(), any(), any(), any(), any(), any(), any()) } returns true
         TttRoundFixture(shots = shots).use { f ->
             f.reloadRuntime { it.replace("weapons:\n  enabled: false", "weapons:\n  enabled: true") }
             f.startActiveRound()
@@ -195,7 +404,7 @@ class TttScopeGameplayMockBukkitTest : StringSpec({
             f.firearms.reserveAmmo(player, matchId) shouldBe 0
             player.gameMode = GameMode.ADVENTURE
             f.service.useFirearm(player) shouldBe false
-            verify(exactly = 1) { shots.fire(player, any(), any(), any(), any(), any(), any()) }
+            verify(exactly = 1) { shots.fire(player, any(), any(), any(), any(), any(), any(), any()) }
 
             val loaded = f.firearms.firearmItem(FirearmId.REVOLVER, player, matchId, 2)
             player.inventory.setItemInMainHand(loaded)
@@ -212,13 +421,13 @@ class TttScopeGameplayMockBukkitTest : StringSpec({
             f.firearms.state(player.inventory.itemInMainHand)?.loaded shouldBe 1
             f.firearms.reserveAmmo(player, matchId) shouldBe 4
             f.service.ammoHudState(player) shouldBe FirearmAmmoHudState(1, 6, 4)
-            verify(exactly = 3) { shots.fire(player, any(), any(), any(), any(), any(), any()) }
+            verify(exactly = 3) { shots.fire(player, any(), any(), any(), any(), any(), any(), any()) }
         }
     }
 
     "creative cancels event reloads and completion rechecks the game mode before consuming ammunition" {
         val shots = mockk<FirearmShots>(relaxed = true)
-        every { shots.fire(any(), any(), any(), any(), any(), any(), any()) } returns true
+        every { shots.fire(any(), any(), any(), any(), any(), any(), any(), any()) } returns true
         TttRoundFixture(shots = shots).use { f ->
             f.reloadRuntime { it.replace("weapons:\n  enabled: false", "weapons:\n  enabled: true") }
             f.startActiveRound()

@@ -236,11 +236,12 @@ runtime maps those contracts to stable custom-model-data IDs from the
 defaults remain dependency-free vanilla items.
 
 All firearms fire with LMB, RMB toggles the raised aiming pose, and F reloads.
-VSS firing uses the resource-pack event `arc:weapon_vss_fire`: a recorded rifle
-shot at its authored pitch, replacing the quiet vanilla arrow and trapdoor
-layers. The existing sound toggle still applies, and the other firearms keep
-their muzzle sound profiles. Publish the matching Arc sound assets before activating
-0.5.39; the shot is positioned at the same muzzle as the bullet.
+Every firearm uses a recorded muzzle clip from the resource pack, positioned
+at the same muzzle as the bullet. VSS retains `arc:weapon_vss_fire`; the other
+weapons use `arc:weapon_<firearm_id>_fire` with the lowercase catalog ID.
+The clips distinguish weapon classes and replace the generic vanilla blast
+and trapdoor layers. The existing sound toggle still applies. Publish the
+matching Arc sound assets before activating 0.5.40.
 All firearms also use the pack's `arc:bullet_flyby` for a close swept pass by a
 listener and `arc:bullet_impact` at physical contact. A flyby is private to a
 nearby listener, excludes the shooter, and plays once per bullet/listener.
@@ -248,7 +249,9 @@ Collision clips the audible path; impact cues are coalesced for nearby shotgun
 pellets. These cues describe physical travel/contact and do not confirm damage
 or bypass native PvP/region protection. Existing block material detail remains.
 A private magazine hologram displays one vertical cartridge mark per round,
-the exact count, reserve and these controls. It follows the player through
+the exact count labelled in rounds, reserve and these controls. Bright marks
+are loaded rounds; dim marks are empty magazine positions. The marks have no
+group gaps that could imply a burst size. It follows the player through
 Core's native passenger attachment with a camera-facing local transform,
 like the staff HUD; movement is not reproduced with world teleports. Empty
 and reloading states are explicit, and Creative shows infinity instead of a
@@ -316,7 +319,11 @@ storage slots, preserving each item's metadata and magazine. If inventory is
 full, remaining legacy guns stay in their original stack until space is freed;
 the migration never drops overflow or deletes an item. Loaded rounds persist
 on the same vendor item. A cancelled reload
-consumes nothing. Creative fires without ammunition or reloading, including an
+consumes nothing. An empty magazine automatically starts the ordinary reload
+when reserve ammunition is available, after the accepted trigger's final
+muzzle launch. Pressing LMB with an already empty magazine also requests a
+reload. The same weapon, slot, world and gameplay authority must remain valid;
+changing them cancels the pending reload. Creative fires without ammunition or reloading, including an
 empty gun; it neither consumes reserve items nor adds free persisted rounds.
 Returning to Survival or Adventure restores the unchanged magazine rules.
 In Creative, F may play a cosmetic reload; LMB interrupts it immediately and
@@ -324,8 +331,10 @@ fires without spending ammunition. It does not impose a reload requirement.
 
 Fire mode is fixed per weapon. The current catalog fires three-round groups
 for G36 and AEK-971, four-round groups for RPL-20, and one round per trigger
-for the other weapons (shotgun pellets share that one round). These are finite
-groups per LMB press. Continuous automatic fire while holding LMB is not
+for the other weapons (shotgun pellets share that one round). If fewer rounds
+remain, the last trigger fires that shorter group and consumes only those
+rounds. Magazine capacity need not be divisible by the group size. These are
+finite groups per LMB press. Continuous automatic fire while holding LMB is not
 implemented: the vanilla 1.21.11 client sends no air-attack release/held state,
 so a server timer cannot safely infer that the trigger remains pressed.
 

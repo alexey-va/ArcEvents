@@ -39,17 +39,21 @@ import kotlin.math.sin
 import kotlin.math.tan
 
 class FirearmAmmoHudTest : StringSpec({
-    "every configured magazine has exactly one cartridge per round and fits measured native lines" {
+    "every magazine state has one lit bar per loaded round without burst-like groups" {
         for (language in listOf("ru", "en")) {
             val localized = ammoHudLocale(language)
-            for (capacity in TttFirearmCatalog.specs.values.map { it.magazineSize }.toSet() + 64) {
-                val state = FirearmAmmoHudState(capacity, capacity, 2304)
+            val capacities = TttFirearmCatalog.specs.values.map { it.magazineSize }.toSet() + 64
+            for (capacity in capacities) for (loaded in 0..capacity) {
+                val state = FirearmAmmoHudState(loaded, capacity, 2304)
                 val text = firearmAmmoHudText(state, localized)
                 val lines = plainAmmoHud(text).lines()
                 lines.size shouldBe 4
-                lines[0].contains("$capacity / $capacity") shouldBe true
-                lines[1].count { it == '|' } shouldBe capacity
-                lines[1].count { it == ' ' } shouldBe (capacity - 1) / 5
+                lines[0].contains("$loaded / $capacity") shouldBe true
+                lines[0].contains(if (language == "ru") "патр." else "rounds") shouldBe true
+                lines[1] shouldBe "|".repeat(capacity)
+                val bars = text.children().filter { plainAmmoHud(it) == "|" }
+                bars.count { it.color() != TextColor.color(0x526170) } shouldBe loaded
+                bars.count { it.color() == TextColor.color(0x526170) } shouldBe capacity - loaded
                 lines.last().contains("F") shouldBe true
                 text.decoration(TextDecoration.ITALIC) shouldBe TextDecoration.State.FALSE
                 val bounds = firearmAmmoHudBounds(text)

@@ -52,6 +52,7 @@ class WorldFirearms(
     private val loadedKey = NamespacedKey(plugin, "world_loaded_rounds")
     private val vanillaAmmunition = ItemStack.of(Material.IRON_NUGGET)
     private val reloads = mutableMapOf<UUID, Reload>()
+    private val automaticReloads = mutableMapOf<UUID, Any>()
     private val cooldownUntil = mutableMapOf<UUID, Long>()
     private var closed = false
 
@@ -142,7 +143,7 @@ class WorldFirearms(
         val playerId = player.uniqueId
         val creative = player.gameMode == GameMode.CREATIVE
         if (creative) cancel(playerId)
-        if (playerId in reloads) {
+        if (playerId in reloads || playerId in automaticReloads) {
             feedback(player, "reloading-actionbar")
             return false
         }
@@ -150,21 +151,30 @@ class WorldFirearms(
         val now = clock()
         if (now < (cooldownUntil[playerId] ?: Long.MIN_VALUE)) return false
         val spec = firearms.spec(state.id)
-        if (!creative && state.loaded < spec.roundsPerShot) {
+        val trigger = if (creative) spec else firearmTriggerSpec(spec, state.loaded)
+        if (trigger == null) {
+            if (reserve(player.inventory.storageContents) > 0) return reload(player)
             cooldownUntil[playerId] = now + 350L
             feedback(player, "world-empty-actionbar")
             return false
         }
-        val loaded = if (creative) state.loaded else state.loaded - spec.roundsPerShot
+        val loaded = if (creative) state.loaded else state.loaded - trigger.roundsPerShot
         val replacement = if (creative) null else withLoaded(player.inventory.itemInMainHand, state.id, loaded)
         val worldId = player.world.uid
+        val slot = player.inventory.heldItemSlot
+        val automaticReload = if (!creative && loaded == 0 && reserve(player.inventory.storageContents) > 0) Any() else null
         val valid = { eligible(player) && player.world.uid == worldId }
         val target: (Entity) -> Boolean = { entity ->
             entity is LivingEntity && entity.uniqueId != playerId && entity.isValid && !entity.isDead &&
                 entity.world.uid == worldId &&
                 (entity !is Player || (entity.isOnline && entity.gameMode != GameMode.SPECTATOR))
         }
-        val accepted = shots.fire(player, spec, scopes.isAiming(playerId), valid, target) { entity, _, amount ->
+        val accepted = shots.fire(player, trigger, scopes.isAiming(playerId), valid, target, afterFiring = { launched ->
+            if (automaticReload != null && automaticReloads.remove(playerId, automaticReload) && launched &&
+                valid() && player.gameMode != GameMode.CREATIVE && player.inventory.heldItemSlot == slot &&
+                player.inventory.itemInMainHand == replacement && this.state(player.inventory.itemInMainHand) == WorldFirearmState(state.id, 0)
+            ) reload(player)
+        }) { entity, _, amount ->
             if (amount.isFinite() && amount > 0.0 && valid() && target(entity) &&
                 (entity !is Player || entity.world.pvp) && canTarget(player, entity)
             ) {
@@ -179,10 +189,12 @@ class WorldFirearms(
         cooldownUntil[playerId] = now + spec.cooldownTicks * 50L
         if (creative) return true
         player.inventory.setItemInMainHand(requireNotNull(replacement))
+        if (automaticReload != null) automaticReloads[playerId] = automaticReload
         return true
     }
 
     private fun reload(player: Player): Boolean {
+        automaticReloads.remove(player.uniqueId)
         val state = authorizedState(player) ?: return false
         if (player.gameMode == GameMode.CREATIVE) {
             cancel(player.uniqueId)
@@ -292,6 +304,7 @@ class WorldFirearms(
 
     /** Inventory/scope changes cancel reloads without resetting the cross-weapon cooldown. */
     fun cancel(playerId: UUID) {
+        automaticReloads.remove(playerId)
         reloads.remove(playerId)?.let { pending ->
             pending.task?.cancel()
             pending.presentation?.close()
@@ -311,6 +324,7 @@ class WorldFirearms(
             it.presentation?.close()
         }
         reloads.clear()
+        automaticReloads.clear()
         cooldownUntil.clear()
     }
 }

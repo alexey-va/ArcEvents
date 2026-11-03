@@ -637,7 +637,7 @@ weapon:
     - '<#8c8c8c>Rounds: <#f2f0e6><rounds>'
     - '<#f2f0e6>Compatible with every round firearm.'
   ammo-actionbar: '<weapon>  <#ffffff><loaded>/<#ffffff><magazine>  <#32d6ff>reserve <#ffffff><reserve>'
-  ammo-hud-count: '<loaded><#9eabb8> / <capacity></#9eabb8>'
+  ammo-hud-count: '<loaded><#9eabb8> / <capacity> rounds</#9eabb8>'
   ammo-hud-reserve: '<#9eabb8>  reserve <reserve></#9eabb8>'
   ammo-hud-creative: '<#9de1e8>∞  Unlimited</#9de1e8>'
   ammo-hud-controls: '<#d9e0e6><white>LMB</white> Fire  <white>RMB</white> Aim</#d9e0e6>'

@@ -61,6 +61,89 @@ class FirearmShotsTest : StringSpec({
         for (spec in TttFirearmCatalog.specs.values) firearmRoundPellets(spec).sum() shouldBe spec.pellets
     }
 
+    "partial triggers preserve each configured round pellet allocation and every other weapon property" {
+        val burst = TttFirearmCatalog.specs.getValue(FirearmId.G36)
+        firearmTriggerSpec(burst, 0) shouldBe null
+        firearmTriggerSpec(burst, -1) shouldBe null
+        firearmTriggerSpec(burst, 30) shouldBe burst
+        for (pellets in listOf(3, 4, 5, 8)) {
+            val spec = burst.copy(pellets = pellets)
+            val pattern = firearmRoundPellets(spec)
+            for (rounds in 1..spec.roundsPerShot) {
+                val partial = requireNotNull(firearmTriggerSpec(spec, rounds))
+                partial shouldBe spec.copy(roundsPerShot = rounds, pellets = pattern.take(rounds).sum())
+                firearmRoundPellets(partial) shouldBe pattern.take(rounds)
+            }
+        }
+        for (id in listOf(FirearmId.DOUBLE_BARREL, FirearmId.VEPR_12)) {
+            val spec = TttFirearmCatalog.specs.getValue(id)
+            firearmTriggerSpec(spec, 1) shouldBe spec
+        }
+    }
+
+    "partial bursts physically launch only their paid rounds and report completion after the final muzzle" {
+        for (rounds in 1..2) withShotFixture { f ->
+            f.enableVisuals()
+            val configured = TttFirearmCatalog.specs.getValue(FirearmId.G36)
+            val partial = requireNotNull(firearmTriggerSpec(configured, rounds))
+            val completed = mutableListOf<Pair<Boolean, Int>>()
+            f.fire(partial, afterFiring = { completed += it to f.births.size }) shouldBe true
+            completed shouldBe emptyList()
+            f.until { completed.isNotEmpty() }
+            completed shouldBe listOf(true to rounds)
+            f.births.size shouldBe rounds
+            f.scheduler.tick(50)
+            f.births.size shouldBe rounds
+            completed.size shouldBe 1
+        }
+    }
+
+    "completion follows the last delayed round and leaves accepted bullets eligible for damage" {
+        withShotFixture { f ->
+            f.enableVisuals()
+            val burst = TttFirearmCatalog.specs.getValue(FirearmId.G36).copy(spreadDegrees = 0.0)
+            val completed = mutableListOf<Pair<Boolean, Int>>()
+            f.ray = { origin, direction, _ -> RayTraceResult(origin.toVector().add(direction.clone()), f.target) }
+            f.fire(burst, afterFiring = {
+                completed += it to f.births.size
+                f.zoom = null // An ordinary reload may lower the model after the final muzzle.
+            }) shouldBe true
+            f.until { f.births.isNotEmpty() }
+            completed shouldBe emptyList()
+            f.until { completed.isNotEmpty() }
+            completed shouldBe listOf(true to 3)
+            f.until { f.hits.size == 3 }
+            f.hits.sumOf { it.second } shouldBe (burst.damagePerPellet * 3 plusOrMinus 1e-8)
+        }
+    }
+
+    "cancelled closed or unloaded bursts complete once without authorizing automatic reload" {
+        val burst = TttFirearmCatalog.specs.getValue(FirearmId.G36)
+        for (abort in listOf<(ShotFixture) -> Unit>(
+            { it.valid = false },
+            { it.shots.close() },
+            { f -> every { f.world.isChunkLoaded(any<Int>(), any<Int>()) } returns false },
+        )) withShotFixture { f ->
+            f.enableVisuals()
+            val completed = mutableListOf<Boolean>()
+            f.fire(burst, afterFiring = completed::add) shouldBe true
+            abort(f)
+            f.scheduler.tick(50)
+            completed shouldBe listOf(false)
+            f.births.size shouldBe 0
+        }
+        withShotFixture { f ->
+            f.enableVisuals()
+            val completed = mutableListOf<Boolean>()
+            f.fire(burst, afterFiring = completed::add) shouldBe true
+            f.until { f.births.size == 1 }
+            f.valid = false
+            f.scheduler.tick(50)
+            completed shouldBe listOf(false)
+            f.births.size shouldBe 1
+        }
+    }
+
     "short tracer is centered behind its collision point in vertical backward and diagonal directions" {
         for (direction in listOf(Vector(0, 0, 1), Vector(0, 0, -1), Vector(0, 1, 0), Vector(-3, 4, -7).normalize())) {
             val transform = firearmBulletTransform(direction)
@@ -135,7 +218,9 @@ class FirearmShotsTest : StringSpec({
             f.valid = true
             val scatter = f.spec.copy(pellets = 16)
             repeat(12) { f.fire(scatter) shouldBe true }
-            f.fire(scatter) shouldBe false
+            var rejectedCompletions = 0
+            f.fire(scatter, afterFiring = { rejectedCompletions++ }) shouldBe false
+            rejectedCompletions shouldBe 0
             f.rays.isEmpty() shouldBe true
             f.hits.isEmpty() shouldBe true
             f.shots.close()
@@ -143,6 +228,7 @@ class FirearmShotsTest : StringSpec({
             f.rays.isEmpty() shouldBe true
             f.scheduler.timerCount() shouldBe 0
             f.fire() shouldBe false
+            rejectedCompletions shouldBe 0
         }
     }
 
@@ -312,17 +398,21 @@ class FirearmShotsTest : StringSpec({
         }
     }
 
-    "other rifle sounds retain their original vanilla layers" {
-        withShotFixture { f ->
+    "every firearm plays its own recorded sample once per muzzle through the players category" {
+        for (spec in TttFirearmCatalog.specs.values) withShotFixture { f ->
             f.soundsEnabled = true
-            f.fire(TttFirearmCatalog.specs.getValue(FirearmId.MCMILLAN)) shouldBe true
-            f.until { f.rays.isNotEmpty() }
-            verify(exactly = 1) {
-                f.world.playSound(any<Location>(), Sound.ENTITY_FIREWORK_ROCKET_BLAST, 1f, .72f)
-                f.world.playSound(any<Location>(), Sound.BLOCK_IRON_TRAPDOOR_CLOSE, .24f, 1.7f)
+            var fired = false
+            f.fire(spec, afterFiring = { fired = it }) shouldBe true
+            f.until { fired }
+            val key = if (spec.id == FirearmId.VSS_VINTOREZ) "arc:weapon_vss_fire"
+                else "arc:weapon_${spec.id.name.lowercase()}_fire"
+            val profile = firearmFlightProfile(spec.id)
+            verify(exactly = firearmRoundPellets(spec).size) {
+                f.world.playSound(any<Location>(), key, SoundCategory.PLAYERS, profile.volume, 1f)
             }
             verify(exactly = 0) {
-                f.world.playSound(any<Location>(), any<String>(), any<SoundCategory>(), any<Float>(), any<Float>())
+                f.world.playSound(any<Location>(), Sound.ENTITY_FIREWORK_ROCKET_BLAST, any<Float>(), any<Float>())
+                f.world.playSound(any<Location>(), Sound.BLOCK_IRON_TRAPDOOR_CLOSE, any<Float>(), any<Float>())
             }
         }
     }
@@ -623,8 +713,9 @@ private class ShotFixture(val scheduler: TestTaskScheduler) : AutoCloseable {
         particlesEnabled = true
     }
 
-    fun fire(spec: FirearmSpec = this.spec, headshotMultiplier: Double = 1.0, aiming: Boolean = false): Boolean =
-        shots.fire(player, spec, aiming, { valid }, { it === target }, headshotMultiplier) { _, details, damage ->
+    fun fire(spec: FirearmSpec = this.spec, headshotMultiplier: Double = 1.0, aiming: Boolean = false,
+             afterFiring: (Boolean) -> Unit = {}): Boolean =
+        shots.fire(player, spec, aiming, { valid }, { it === target }, headshotMultiplier, afterFiring) { _, details, damage ->
         hits += details.position.clone() to damage
         hitDetails += details
     }

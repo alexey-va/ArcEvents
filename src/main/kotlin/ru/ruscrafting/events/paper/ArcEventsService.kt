@@ -158,6 +158,7 @@ class ArcEventsService(
     private val bodyRegistry = TttBodyRegistry(plugin, locale, packetDisplays, clock, work)
     private val shotCooldownUntil = mutableMapOf<UUID, Long>()
     private val reloadTasks = mutableMapOf<UUID, ScheduledTask>()
+    private val automaticReloads = mutableMapOf<UUID, Any>()
     private val mapSpawnReturns = mutableMapOf<UUID, MapSpawnReturn>()
     private var pendingHit: PendingHitContext? = null
     private var roundReport: RoundReportView? = null
@@ -983,8 +984,11 @@ class ArcEventsService(
         val matchId = state.matchId
         val held = player.inventory.itemInMainHand
         val creative = player.gameMode == GameMode.CREATIVE
-        if (creative) reloadTasks.remove(player.uniqueId)?.cancel()
-        if (reloadTasks.containsKey(player.uniqueId)) {
+        if (creative) {
+            automaticReloads.remove(player.uniqueId)
+            reloadTasks.remove(player.uniqueId)?.cancel()
+        }
+        if (reloadTasks.containsKey(player.uniqueId) || automaticReloads.containsKey(player.uniqueId)) {
             player.sendEventActionBar(locale.render("weapon.reloading-actionbar", player))
             return false
         }
@@ -992,28 +996,42 @@ class ArcEventsService(
         val spec = firearms.spec(state.id)
         val now = clock()
         if (now < (shotCooldownUntil[player.uniqueId] ?: 0L)) return false
-        if (!creative && state.loaded < spec.roundsPerShot) {
+        val trigger = if (creative) spec else firearmTriggerSpec(spec, state.loaded)
+        if (trigger == null) {
+            if (firearms.reserveAmmo(player, matchId) > 0) return reloadFirearm(player)
             shotCooldownUntil[player.uniqueId] = now + 350L
             player.sendEventActionBar(locale.render("weapon.empty-actionbar", player))
             if (settings().ui.sounds) player.playSound(player.location, Sound.BLOCK_LEVER_CLICK, 0.7f, 1.7f)
             return false
         }
         val worldId = player.world.uid
-        if (!shots.fire(player, spec, scopes?.isAiming(player.uniqueId) == true,
+        val slot = player.inventory.heldItemSlot
+        val loaded = if (creative) state.loaded else state.loaded - trigger.roundsPerShot
+        val replacement = if (creative) null else firearms.updateLoaded(held, player, loaded)
+        val automaticReload = if (!creative && loaded == 0 && firearms.reserveAmmo(player, matchId) > 0) Any() else null
+        if (!shots.fire(player, trigger, scopes?.isAiming(player.uniqueId) == true,
                 valid = { player.isOnline && !player.isDead && player.world.uid == worldId &&
                     activeMatchId() == matchId && phase() == MatchPhase.ACTIVE && isAlive(player.uniqueId) },
                 target = { entity -> eventFirearmTarget(player, entity, matchId) },
                 headshotMultiplier = settings().gameplay.headshotMultiplier,
+                afterFiring = { launched ->
+                    if (automaticReload != null && automaticReloads.remove(player.uniqueId, automaticReload) && launched &&
+                        player.isOnline && !player.isDead && player.gameMode != GameMode.CREATIVE && player.world.uid == worldId &&
+                        player.inventory.heldItemSlot == slot && player.inventory.itemInMainHand == replacement &&
+                        authorizedFirearm(player) == state.copy(loaded = 0)
+                    ) reloadFirearm(player)
+                },
                 hit = { entity, position, damage -> hitByFirearm(player, state.id.name.lowercase(), entity, position, damage, matchId) },
             )) return false
         shotCooldownUntil[player.uniqueId] = now + spec.cooldownTicks * 50L
         if (creative) return true
-        val loaded = state.loaded - spec.roundsPerShot
-        player.inventory.setItemInMainHand(firearms.updateLoaded(held, player, loaded))
+        player.inventory.setItemInMainHand(requireNotNull(replacement))
+        if (automaticReload != null) automaticReloads[player.uniqueId] = automaticReload
         return true
     }
 
     override fun reloadFirearm(player: Player): Boolean {
+        automaticReloads.remove(player.uniqueId)
         val state = authorizedFirearm(player) ?: return false
         if (player.gameMode == GameMode.CREATIVE) {
             reloadTasks.remove(player.uniqueId)?.cancel()
@@ -1047,6 +1065,7 @@ class ArcEventsService(
         player.sendEventActionBar(locale.render("weapon.reloading-actionbar", player))
         val snapshot = player.inventory.itemInMainHand.clone()
         val slot = player.inventory.heldItemSlot
+        val worldId = player.world.uid
         var presentation: AutoCloseable? = null
         lateinit var owner: ScheduledTask
         val scheduled = Tasks.scheduler.runLater(spec.reloadTicks.toLong()) {
@@ -1055,9 +1074,9 @@ class ArcEventsService(
                 val liveId = activeMatchId()
                 val held = player.inventory.itemInMainHand
                 val latest = firearms.state(held)
-                if (!player.isOnline || player.gameMode == GameMode.CREATIVE || liveId != matchId ||
+                if (!player.isOnline || player.isDead || player.gameMode == GameMode.CREATIVE || liveId != matchId ||
+                    player.world.uid != worldId || player.inventory.heldItemSlot != slot || held != snapshot || latest != state ||
                     phase() != MatchPhase.ACTIVE || !isAlive(player.uniqueId) ||
-                    latest?.id != state.id || latest.matchId != state.matchId ||
                     !hasSelectedFishingFirearm(player, state.id, matchId)
                 ) return@runLater
                 val needed = spec.magazineSize - latest.loaded
@@ -1083,6 +1102,7 @@ class ArcEventsService(
         presentation = scopes?.animateReload(player, FirearmScopeTarget(matchId, state.id, slot), spec.reloadTicks,
             sounds = settings().ui.sounds, stillCurrent = {
                 reloadTasks[player.uniqueId] === owner && player.gameMode != GameMode.CREATIVE &&
+                    player.world.uid == worldId &&
                     player.inventory.heldItemSlot == slot && player.inventory.itemInMainHand == snapshot &&
                     authorizedFirearm(player) == state
             })
@@ -1163,6 +1183,8 @@ class ArcEventsService(
     }
 
     override fun clearFirearmScope(playerId: UUID) {
+        automaticReloads.remove(playerId)
+        reloadTasks.remove(playerId)?.cancel()
         scopes?.clear(playerId)
     }
 
@@ -2291,6 +2313,7 @@ class ArcEventsService(
         }
         reloadTasks.values.forEach { task -> runCatching(task::cancel) }
         reloadTasks.clear()
+        automaticReloads.clear()
         shotCooldownUntil.clear()
         return cleaned
     }

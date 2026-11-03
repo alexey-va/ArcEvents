@@ -55,6 +55,8 @@ class FirearmShots(
         val target: (Entity) -> Boolean,
         val headshotMultiplier: Double,
         val hit: (Entity, FirearmHit, Double) -> Unit,
+        val afterFiring: (Boolean) -> Unit,
+        var pendingRounds: Int,
         val expires: Long,
     ) {
         val world: World = shooter.world
@@ -62,6 +64,7 @@ class FirearmShots(
         val profile = firearmFlightProfile(spec.id)
         val visualFailures = mutableSetOf<String>()
         var failed = false
+        var allRoundsLaunched = true
     }
 
     private class Round(val shot: Shot, val pellets: Int, val due: Long) {
@@ -93,7 +96,10 @@ class FirearmShots(
     private var closed = false
     private val logger = Logger.getLogger("Minecraft")
 
-    /** True reserves the entire trigger before the caller debits ammunition; impacts happen on later ticks. */
+    /**
+     * True reserves the entire trigger before the caller debits ammunition; impacts happen on later ticks.
+     * afterFiring runs once when queued rounds resolve, true only after every muzzle launched; close/abort reports false.
+     */
     fun fire(
         shooter: Player,
         spec: FirearmSpec,
@@ -101,6 +107,7 @@ class FirearmShots(
         valid: () -> Boolean,
         target: (Entity) -> Boolean,
         headshotMultiplier: Double = 1.0,
+        afterFiring: (Boolean) -> Unit = {},
         hit: (Entity, FirearmHit, Double) -> Unit,
     ): Boolean {
         if (closed || spec.pellets !in 1..16 || reserved + spec.pellets > MAX_BULLETS ||
@@ -108,10 +115,11 @@ class FirearmShots(
         ) return false
         val eye = shooter.eyeLocation
         if (!eye.world.isChunkLoaded(eye.blockX shr 4, eye.blockZ shr 4)) return false
-        val shot = Shot(shooter, spec, aiming, valid, target, headshotMultiplier, hit, tick + MAX_LIFETIME_TICKS)
+        val pattern = firearmRoundPellets(spec)
+        val shot = Shot(shooter, spec, aiming, valid, target, headshotMultiplier, hit, afterFiring, pattern.size,
+            tick + MAX_LIFETIME_TICKS)
         // Start the scheduler before accepting anything, so a scheduling failure cannot debit ammo.
         if (task == null) task = Tasks.scheduler.runTimer(1L, 1L) { advance() }
-        val pattern = firearmRoundPellets(spec)
         pattern.forEachIndexed { index, pellets -> rounds += Round(shot, pellets, tick + 1L + index) }
         reserved += spec.pellets
         return true
@@ -135,11 +143,14 @@ class FirearmShots(
                 rounds += round
             } else {
                 work++
+                var launched = false
                 try {
-                    if (live(round.shot)) launch(round) else reserved -= round.pellets
+                    if (live(round.shot)) launched = launch(round) else reserved -= round.pellets
                 } catch (failure: Exception) {
                     reserved -= round.pellets
                     fail(round.shot, "launch", failure)
+                } finally {
+                    resolveRound(round.shot, launched)
                 }
             }
         }
@@ -170,12 +181,20 @@ class FirearmShots(
         }
     }
 
-    private fun launch(round: Round) {
+    private fun resolveRound(shot: Shot, launched: Boolean) {
+        shot.allRoundsLaunched = shot.allRoundsLaunched && launched
+        if (--shot.pendingRounds != 0) return
+        try { shot.afterFiring(shot.allRoundsLaunched) } catch (failure: Exception) {
+            logger.log(Level.WARNING, "ArcEvents firearm completion failed weapon=${shot.spec.id} player=${shot.shooter.uniqueId}", failure)
+        }
+    }
+
+    private fun launch(round: Round): Boolean {
         val shot = round.shot
         val eye = shot.shooter.eyeLocation.clone()
         if (!shot.world.isChunkLoaded(eye.blockX shr 4, eye.blockZ shr 4)) {
             reserved -= round.pellets
-            return
+            return false
         }
         val eyeDirection = eye.direction.normalize()
         val aimRange = firearmLoadedRange(eye.toVector(), eyeDirection, shot.spec.range, shot.world::isChunkLoaded)
@@ -196,6 +215,7 @@ class FirearmShots(
         cosmetic(shot, "tracer") { created.forEach { presentBullet(it, it.velocity.clone().normalize(), false) } }
         cosmetic(shot, "muzzle") { muzzle(shot, muzzle, direction) }
         cosmetic(shot, "recoil") { kick(shot) }
+        return true
     }
 
     private fun step(bullet: Bullet): Boolean {
@@ -283,13 +303,9 @@ class FirearmShots(
             shot.world.spawnParticle(Particle.SMOKE, location, if (shot.spec.id == FirearmId.FLINTLOCK) 5 else 1, .035, .025, .035, .015)
         }
         if (sounds()) {
-            if (shot.spec.id == FirearmId.VSS_VINTOREZ) {
-                shot.world.playSound(location, "arc:weapon_vss_fire", SoundCategory.PLAYERS,
-                    shot.profile.volume, shot.profile.pitch)
-            } else {
-                shot.world.playSound(location, Sound.ENTITY_FIREWORK_ROCKET_BLAST, shot.profile.volume, shot.profile.pitch)
-                shot.world.playSound(location, Sound.BLOCK_IRON_TRAPDOOR_CLOSE, .24f, 1.7f)
-            }
+            val key = if (shot.spec.id == FirearmId.VSS_VINTOREZ) "arc:weapon_vss_fire"
+                else "arc:weapon_${shot.spec.id.name.lowercase()}_fire"
+            shot.world.playSound(location, key, SoundCategory.PLAYERS, shot.profile.volume, shot.profile.pitch)
         }
     }
 
@@ -407,6 +423,7 @@ class FirearmShots(
         bullets.forEach { it.display?.remove() }
         retired.forEach { it.display.remove() }
         bullets.clear()
+        rounds.forEach { resolveRound(it.shot, false) }
         rounds.clear()
         retired.clear()
         completed.clear()
@@ -435,24 +452,32 @@ class FirearmShots(
 internal data class FirearmFlightProfile(val speed: Double, val recoil: Float, val volume: Float, val pitch: Float)
 
 internal fun firearmFlightProfile(id: FirearmId): FirearmFlightProfile = when (id) {
-    FirearmId.FLINTLOCK -> FirearmFlightProfile(14.0, 3.3f, .9f, .8f)
-    FirearmId.REVOLVER -> FirearmFlightProfile(22.0, 2.4f, .82f, 1.0f)
-    FirearmId.HAND_CANNON -> FirearmFlightProfile(12.0, 4.2f, 1.05f, .65f)
-    FirearmId.DOUBLE_BARREL -> FirearmFlightProfile(24.0, 3.6f, .95f, .72f)
-    FirearmId.FIVE_SEVEN -> FirearmFlightProfile(30.0, 1.2f, .7f, 1.2f)
-    FirearmId.G36 -> FirearmFlightProfile(43.0, .85f, .8f, 1.04f)
-    FirearmId.AEK_971 -> FirearmFlightProfile(44.0, .95f, .86f, .98f)
-    FirearmId.RPL_20 -> FirearmFlightProfile(41.0, 1.1f, .95f, .86f)
-    FirearmId.VEPR_12 -> FirearmFlightProfile(24.0, 2.7f, .82f, .86f)
-    FirearmId.M1_GARAND -> FirearmFlightProfile(43.0, 2.5f, .9f, .9f)
+    FirearmId.FLINTLOCK -> FirearmFlightProfile(14.0, 3.3f, 3.2f, 1f)
+    FirearmId.REVOLVER -> FirearmFlightProfile(22.0, 2.4f, 2.4f, 1f)
+    FirearmId.HAND_CANNON -> FirearmFlightProfile(12.0, 4.2f, 4f, 1f)
+    FirearmId.DOUBLE_BARREL -> FirearmFlightProfile(24.0, 3.6f, 3.6f, 1f)
+    FirearmId.FIVE_SEVEN -> FirearmFlightProfile(30.0, 1.2f, 1.8f, 1f)
+    FirearmId.G36 -> FirearmFlightProfile(43.0, .85f, 2.7f, 1f)
+    FirearmId.AEK_971 -> FirearmFlightProfile(44.0, .95f, 3f, 1f)
+    FirearmId.RPL_20 -> FirearmFlightProfile(41.0, 1.1f, 3.4f, 1f)
+    FirearmId.VEPR_12 -> FirearmFlightProfile(24.0, 2.7f, 3.3f, 1f)
+    FirearmId.M1_GARAND -> FirearmFlightProfile(43.0, 2.5f, 3.5f, 1f)
     FirearmId.VSS_VINTOREZ -> FirearmFlightProfile(15.0, .9f, 4f, 1f)
-    FirearmId.MCMILLAN -> FirearmFlightProfile(45.0, 3.8f, 1.0f, .72f)
+    FirearmId.MCMILLAN -> FirearmFlightProfile(45.0, 3.8f, 4f, 1f)
 }
 
 /** Preserve configured pellet count/damage, separating multiple consumed rounds into successive ticks. */
 internal fun firearmRoundPellets(spec: FirearmSpec): List<Int> {
     val rounds = min(spec.roundsPerShot, spec.pellets).coerceAtLeast(1)
     return List(rounds) { index -> spec.pellets / rounds + if (index < spec.pellets % rounds) 1 else 0 }
+}
+
+/** A magazine tail keeps the configured first rounds, including each round's pellet count. */
+internal fun firearmTriggerSpec(spec: FirearmSpec, availableRounds: Int): FirearmSpec? {
+    if (availableRounds <= 0) return null
+    val rounds = minOf(availableRounds, spec.roundsPerShot)
+    if (rounds == spec.roundsPerShot) return spec
+    return spec.copy(roundsPerShot = rounds, pellets = firearmRoundPellets(spec).take(rounds).sum())
 }
 
 internal fun firearmRecoilPacket(yaw: Float, pitch: Float) = WrapperPlayServerPlayerRotation(yaw, true, pitch, true)
