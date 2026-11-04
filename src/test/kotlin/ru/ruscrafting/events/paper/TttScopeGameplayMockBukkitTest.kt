@@ -253,7 +253,7 @@ class TttScopeGameplayMockBukkitTest : StringSpec({
             player.inventory.itemInMainHand shouldBe original
             f.firearms.state(player.inventory.itemInMainHand) shouldBe null
             f.service.useFirearm(player) shouldBe false
-            itemId = "gold_guns:gold_rpg_7"
+            itemId = "gold_guns:unregistered_gun"
             f.service.toggleScopePreview(player) shouldBe false
             itemId = "gold_guns:gold_g36"
             f.startPreparingRound().join() shouldBe DebugMutationResult.APPLIED

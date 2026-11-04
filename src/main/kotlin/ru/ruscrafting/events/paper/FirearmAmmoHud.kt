@@ -124,7 +124,7 @@ internal class FirearmAmmoHud(
                     isShadowed = true
                     isSeeThrough = false
                     isDefaultBackground = false
-                    backgroundColor = Color.fromARGB(152, 11, 17, 24)
+                    backgroundColor = Color.fromARGB(192, 11, 17, 24)
                     brightness = Display.Brightness(15, 15)
                     // The camera-local card is away from the passenger anchor; disable anchor culling.
                     displayWidth = 0f
@@ -225,7 +225,8 @@ internal fun firearmAmmoHudPose(
     // The server knows its scope multiplier, not the client's FOV setting. Match the native
     // 70-degree reference exactly so scoped cards keep their apparent size and screen margin.
     val compression = tan(Math.toRadians(35.0 / zoom)) / tan(Math.toRadians(35.0))
-    val scale = .28
+    // At the 70-degree reference this gives a 15px glyph at 720p, instead of the old 9px.
+    val scale = .46
     // One upper-center location clears either hand, raised reload parts and centered optics.
     // Retain the staff HUD's head/eye error allowance independently of camera billboarding.
     val down = -max(1.30, bounds.verticalRadius * scale + max(.5, 2 * abs(passengerGap)) + 2.5 * .14)

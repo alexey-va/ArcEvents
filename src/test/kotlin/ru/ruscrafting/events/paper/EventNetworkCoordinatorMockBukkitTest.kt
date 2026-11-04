@@ -537,6 +537,7 @@ private class EventNetworkCoordinatorFixture(
                 buildList {
                     if (includeCombatArena) add("test")
                     add("fishing")
+                    add("zombies")
                     add("disasters")
                 }
             },

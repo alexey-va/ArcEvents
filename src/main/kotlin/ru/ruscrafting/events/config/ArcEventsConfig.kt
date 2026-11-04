@@ -256,17 +256,24 @@ data class ArcadeSettings(
     val gunGame: ArcadeRules,
     val disasters: ArcadeRules,
     val fishing: ArcadeRules = ArcadeRules(minimumPlayers = 1, maximumPlayers = 1, preparationSeconds = 3, countdownSeconds = 3, roundSeconds = 1800),
+    val zombies: ArcadeRules = ArcadeRules(minimumPlayers = 1, maximumPlayers = 4, preparationSeconds = 5, countdownSeconds = 3, roundSeconds = 1800),
 ) {
     fun rules(mode: EventMode): ArcadeRules = when (mode) {
         EventMode.GUN_GAME -> gunGame
         EventMode.DISASTERS -> disasters
         EventMode.FISHING -> fishing
+        EventMode.ZOMBIES -> zombies
         EventMode.TTT -> error("TTT owns its own rules")
     }
 }
 
 class ArcEventsConfig(private val config: Config) {
-    val arcade: ArcadeSettings get() = ArcadeSettings(arcadeRules("gungame", 12), arcadeRules("disasters", 16), arcadeRules("fishing", 1))
+    val arcade: ArcadeSettings get() = ArcadeSettings(arcadeRules("gungame", 12), arcadeRules("disasters", 16), arcadeRules("fishing", 1), arcadeRules("zombies", 4))
+    val zombies: ru.ruscrafting.events.domain.ZombiesRules get() = ru.ruscrafting.events.domain.ZombiesRules(
+        waves = config.int("arcade.zombies.waves", 10),
+        intermissionSeconds = config.int("arcade.zombies.intermission-seconds", 15),
+        maximumAlive = config.int("arcade.zombies.maximum-alive", 28),
+    ).validated()
     val fishing: FishingRules get() = FishingRules(
         catchesPerIsland = config.int("arcade.fishing.catches-per-island", 3),
         minBiteTicks = config.int("arcade.fishing.min-bite-ticks", 40),
@@ -292,18 +299,18 @@ class ArcEventsConfig(private val config: Config) {
     private fun arcadeRules(id: String, maximum: Int): ArcadeRules {
         val path = "arcade.$id"
         return ArcadeRules(
-            minimumPlayers = config.int("$path.minimum-players", if (id == "fishing") 1 else 3),
+            minimumPlayers = config.int("$path.minimum-players", if (id in setOf("fishing", "zombies")) 1 else 3),
             maximumPlayers = config.int("$path.maximum-players", maximum),
-            preparationSeconds = config.int("$path.preparation-seconds", if (id == "fishing") 3 else 15),
-            countdownSeconds = config.int("$path.countdown-seconds", if (id == "fishing") 3 else 5),
-            roundSeconds = config.int("$path.round-seconds", if (id == "fishing") 1800 else 360),
+            preparationSeconds = config.int("$path.preparation-seconds", when (id) { "fishing" -> 3; "zombies" -> 5; else -> 15 }),
+            countdownSeconds = config.int("$path.countdown-seconds", if (id in setOf("fishing", "zombies")) 3 else 5),
+            roundSeconds = config.int("$path.round-seconds", if (id in setOf("fishing", "zombies")) 1800 else 360),
             postRoundSeconds = config.int("$path.post-round-seconds", 8),
             respawnSeconds = config.int("$path.respawn-seconds", 3),
             spawnProtectionSeconds = config.int("$path.spawn-protection-seconds", 2),
             disasterSeconds = config.int("$path.disaster-seconds", 25),
-            intermissionSeconds = config.int("$path.intermission-seconds", 5),
+            intermissionSeconds = config.int("$path.intermission-seconds", if (id == "zombies") 15 else 5),
             disasterRounds = config.int("$path.disaster-rounds", 6),
-        ).validated(allowSolo = id == "fishing")
+        ).validated(allowSolo = id == "fishing", cooperative = id == "zombies")
     }
 
     val enabled: Boolean get() = config.bool("enabled", true)
@@ -504,6 +511,20 @@ class ArcEventsConfig(private val config: Config) {
                     configured + fishingArena()
                 } else configured
             }
+            .let { configured ->
+                if (nodeMode == NodeMode.HOST) {
+                    require(configured.none { it.id == "zombies" }) { "zombies is reserved for the generated arena" }
+                    configured + zombiesArena()
+                } else configured
+            }
+
+    private fun zombiesArena(): ArenaSettings {
+        val world = config.string("arcade.zombies.arena.world", "arcevents_zombies_zero")
+        val spawn = EventLocation(world, .5, 65.0, -18.5)
+        return ArenaSettings("zombies", true, world, "zombies-zero-v1", spawn, spawn,
+            EventBounds(EventLocation(world, -28.0, 59.0, -28.0), EventLocation(world, 29.0, 91.0, 29.0)),
+            listOf(spawn), emptyList())
+    }
 
     private fun fishingArena(): ArenaSettings {
         val world = config.string("arcade.fishing.arena.world", "arcevents_fishing_v3")
@@ -597,6 +618,7 @@ class ArcEventsConfig(private val config: Config) {
         }
         arcade
         fishing
+        zombies
         val ttt = ttt
         require(ttt.minimumPlayers in 4..ttt.maximumPlayers)
         require(ttt.maximumPlayers in 4..32)
@@ -706,7 +728,7 @@ class ArcEventsConfig(private val config: Config) {
             }
             require(arena.spawns.size <= 1) { "Arena ${arena.id} must use one common player spawn" }
             require(arena.lootSpawns.size <= 128) { "Arena ${arena.id} has too many loot spawns" }
-            if (arena.enabled && weapons.enabled && arena.template !in setOf("", "citadel-v1", "disasters-v1", "fishing-v3")) {
+            if (arena.enabled && weapons.enabled && arena.template !in setOf("", "citadel-v1", "disasters-v1", "fishing-v3", "zombies-zero-v1")) {
                 require(arena.lootSpawns.size >= ttt.maximumPlayers) {
                     "Imported arena ${arena.id} requires at least ${ttt.maximumPlayers} loot spawns"
                 }
@@ -729,6 +751,7 @@ class ArcEventsConfig(private val config: Config) {
             "citadel-v1",
             "disasters-v1",
             "fishing-v3",
+            "zombies-zero-v1",
             "ttt-minecraft-b5-v1",
             "cs2-inferno-v1",
             "cs2-mirage-v1",
@@ -855,6 +878,9 @@ object ArcEventsReloadPolicy {
             "network.return-to-origin requires a restart"
         }
         if (matchOrReservationActive) {
+            require(candidate.zombies == current.zombies && candidate.arcade.zombies == current.arcade.zombies) {
+                "arcade.zombies rules can reload only while idle"
+            }
             require(candidate.fishing == current.fishing && candidate.arcade.fishing == current.arcade.fishing) {
                 "arcade.fishing rules can reload only while idle"
             }
@@ -865,8 +891,8 @@ object ArcEventsReloadPolicy {
                 "weapons.catalog can reload only while idle"
             }
             val arenaId = requireNotNull(activeArenaId) { "active arena identity is unavailable" }
-            require(arenaId != "fishing" || candidate.ui.dialogsEnabled) {
-                "Fishing requires dialogs until the expedition is restored"
+            require(arenaId !in setOf("fishing", "zombies") || candidate.ui.dialogsEnabled) {
+                "Fishing and Zombies require dialogs until the session is restored"
             }
             val activeCurrent = current.arenas.firstOrNull { it.id == arenaId }
             val activeCandidate = candidate.arenas.firstOrNull { it.id == arenaId }

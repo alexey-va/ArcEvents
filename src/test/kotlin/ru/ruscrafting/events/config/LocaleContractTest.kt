@@ -223,7 +223,7 @@ class LocaleContractTest : StringSpec({
         private val roots = listOf(
             "prefix", "command", "reason", "menu", "arena", "state", "phase", "queue", "match", "role",
             "loadout", "body", "weapon", "roster", "report", "shop", "team", "chat", "admin", "debug", "hud", "guide",
-            "nameplate", "arcade", "fishing",
+            "nameplate", "arcade", "fishing", "zombies",
         )
 
         private fun leaves(config: Config): Set<String> = roots.flatMap { root -> collect(config, root) }.toSet()

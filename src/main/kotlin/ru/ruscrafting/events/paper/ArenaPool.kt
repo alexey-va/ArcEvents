@@ -76,7 +76,7 @@ class ArenaPool(
             return true
         }
         val arena = configured(id) ?: return false
-        if (arena.id in setOf("disasters", "fishing")) return false
+        if (arena.id in setOf("disasters", "fishing", "zombies")) return false
         if (!ready(arena, settings().ttt.maximumPlayers)) return false
         nextArenaId = arena.id
         nextArenaAutomatic = false
@@ -100,9 +100,10 @@ class ArenaPool(
         val dedicated = when (mode) {
             EventMode.DISASTERS -> "disasters"
             EventMode.FISHING -> "fishing"
+            EventMode.ZOMBIES -> "zombies"
             else -> null
         }
-        val ready = readyArenas().filter { if (dedicated != null) it.id == dedicated else it.id !in setOf("disasters", "fishing") }
+        val ready = readyArenas().filter { if (dedicated != null) it.id == dedicated else it.id !in setOf("disasters", "fishing", "zombies") }
         if (ready.isEmpty()) return null
         val normalizedPreferred = preferredId?.lowercase()
         val automatic = normalizedPreferred == "auto" || (normalizedPreferred == null && nextArenaAutomatic)

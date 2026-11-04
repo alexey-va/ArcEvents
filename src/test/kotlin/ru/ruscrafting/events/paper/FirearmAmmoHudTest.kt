@@ -175,6 +175,22 @@ class FirearmAmmoHudTest : StringSpec({
             }
     }
 
+    "HUD lettering is readable at 720p while the largest magazine clears the aim and screen edge" {
+        val projection = 672.0 / (2 * tan(Math.toRadians(35.0)))
+        for (language in listOf("ru", "en")) for (creative in listOf(false, true)) {
+            val text = firearmAmmoHudText(FirearmAmmoHudState(64, 64, 2304, creative), ammoHudLocale(language))
+            val bounds = firearmAmmoHudBounds(text)
+            val pose = firearmAmmoHudPose(bounds)
+            val pixelsPerFontPixel = .025 * pose.scale * projection / pose.forward
+            (7 * pixelsPerFontPixel in 14.0..17.0) shouldBe true
+            val halfHeight = bounds.verticalRadius * pose.scale
+            // At reference FOV the whole card remains inside the image and above the center aim corridor.
+            ((-pose.down + halfHeight) / pose.forward < tan(Math.toRadians(35.0))) shouldBe true
+            ((-pose.down - halfHeight) / pose.forward > .35) shouldBe true
+            (bounds.pixelWidth * pixelsPerFontPixel < 420) shouldBe true
+        }
+    }
+
     "wall correction pulls the complete card inward without changing angular size or loading chunks" {
         val f = AmmoHudFixture()
         f.hud.use { hud ->

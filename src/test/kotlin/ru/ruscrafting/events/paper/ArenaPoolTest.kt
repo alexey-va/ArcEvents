@@ -7,6 +7,22 @@ import java.nio.file.Files
 import java.util.UUID
 
 class ArenaPoolTest : StringSpec({
+    "zombies own a dedicated lease and cannot enter the ordinary combat rotation" {
+        val root = Files.createTempDirectory("arcevents-zombies-pool-")
+        try {
+            Files.writeString(root.resolve("config.yml"), hostConfig())
+            val config = ArcEventsConfig.inspect(root)
+            val pool = ArenaPool({ config }) { _, _ -> true }
+            pool.selectNext("zombies") shouldBe false
+            pool.reserve(UUID.randomUUID(), "zombies", ru.ruscrafting.events.domain.EventMode.GUN_GAME) shouldBe null
+            val id = UUID.randomUUID()
+            pool.reserve(id, mode = ru.ruscrafting.events.domain.EventMode.ZOMBIES)?.id shouldBe "zombies"
+            pool.reserve(UUID.randomUUID(), mode = ru.ruscrafting.events.domain.EventMode.ZOMBIES) shouldBe null
+            pool.release(id)
+            (pool.reserve(UUID.randomUUID())?.id in listOf("alpha", "beta")) shouldBe true
+        } finally { root.toFile().deleteRecursively() }
+    }
+
     "fishing leases only its dedicated arena and leaves public rotation intact" {
         val root = Files.createTempDirectory("arcevents-fishing-pool-")
         try {

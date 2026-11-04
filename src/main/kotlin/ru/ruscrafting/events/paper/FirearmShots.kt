@@ -26,6 +26,7 @@ import ru.arc.core.Tasks
 import ru.arc.paper.display.PacketBlockDisplay
 import ru.arc.paper.display.PaperPacketDisplays
 import ru.ruscrafting.events.domain.FirearmId
+import ru.ruscrafting.events.domain.FirearmProjectile
 import ru.ruscrafting.events.domain.FirearmSpec
 import ru.ruscrafting.events.domain.FirearmSoundPreset
 import ru.ruscrafting.events.domain.FirearmSpread
@@ -64,7 +65,11 @@ class FirearmShots(
     ) {
         val world: World = shooter.world
         val entityId = shooter.entityId
-        val profile = firearmFlightProfile(spec.id)
+        val profile = firearmFlightProfile(spec.id).let { base -> when (spec.projectile) {
+            FirearmProjectile.BULLET -> base
+            FirearmProjectile.GRENADE -> base.copy(speed = 1.5)
+            FirearmProjectile.ROCKET -> base.copy(speed = 4.0)
+        } }
         val visualFailures = mutableSetOf<String>()
         var failed = false
         var allRoundsLaunched = true
@@ -72,8 +77,9 @@ class FirearmShots(
 
     private class Round(val shot: Shot, val pellets: Int, val due: Long) {
         var remaining = pellets
+        var blastReservations = 0
         val impacts = linkedMapOf<UUID, Impact>()
-        val soundedContacts = mutableListOf<Vector>()
+        val contacts = mutableListOf<Vector>()
     }
     private class Bullet(val round: Round, val position: Vector, val velocity: Vector, val born: Long) {
         var remaining = round.shot.spec.range
@@ -82,6 +88,7 @@ class FirearmShots(
     }
     private data class Impact(val shot: Shot, val entity: Entity, val position: Vector, var headshot: Boolean, var damage: Double)
     private data class Retired(val display: PacketBlockDisplay, val due: Long)
+    private class Blast(val round: Round, val center: Vector, val radius: Double, val targets: Iterator<Entity>)
     private class Recoil(val player: Player, val worldId: UUID, val entityId: Int) {
         var pitch = 0f
         var yaw = 0f
@@ -89,6 +96,7 @@ class FirearmShots(
 
     private val rounds = ArrayDeque<Round>()
     private val bullets = ArrayDeque<Bullet>()
+    private val blasts = ArrayDeque<Blast>()
     private val retired = ArrayDeque<Retired>()
     private val completed = ArrayDeque<Round>()
     private val recoils = linkedMapOf<UUID, Recoil>()
@@ -129,9 +137,11 @@ class FirearmShots(
         return true
     }
 
-    private fun live(shot: Shot): Boolean = !closed && !shot.failed && tick <= shot.expires &&
+    private fun authorized(shot: Shot): Boolean = !closed && !shot.failed &&
         shot.shooter.isOnline && !shot.shooter.isDead && shot.shooter.entityId == shot.entityId &&
         shot.shooter.world.uid == shot.world.uid && shot.valid()
+
+    private fun live(shot: Shot): Boolean = tick <= shot.expires && authorized(shot)
 
     private fun advance() {
         if (closed) return
@@ -158,6 +168,17 @@ class FirearmShots(
                 }
             }
         }
+        while (blasts.isNotEmpty() && work < MAX_STEPS_PER_TICK && System.nanoTime() < deadline) {
+            val blast = blasts.removeFirst()
+            work++
+            val keep = try { authorized(blast.round.shot) && stepBlast(blast) } catch (failure: Exception) {
+                fail(blast.round.shot, "blast", failure)
+                false
+            }
+            if (keep) blasts += blast else {
+                if (--blast.round.remaining == 0) completed += blast.round
+            }
+        }
         val available = bullets.size
         var advanced = 0
         // One loaded-chunk ray is indivisible; the aggregate deadline is checked between native calls.
@@ -171,15 +192,25 @@ class FirearmShots(
             }
             if (keep) bullets += bullet else retire(bullet)
         }
-        while (completed.isNotEmpty()) completed.removeFirst().impacts.values.forEach { impact ->
+        while (completed.isNotEmpty() && work < MAX_STEPS_PER_TICK && System.nanoTime() < deadline) {
+            val round = completed.first()
+            val iterator = round.impacts.values.iterator()
+            if (!iterator.hasNext()) {
+                completed.removeFirst()
+                reserved -= round.blastReservations
+                continue
+            }
+            val impact = iterator.next()
+            iterator.remove()
+            work++
             try {
-                if (live(impact.shot) && impact.entity.isValid && !impact.entity.isDead && impact.shot.target(impact.entity)) {
+                if (authorized(impact.shot) && impact.entity.isValid && !impact.entity.isDead && impact.shot.target(impact.entity)) {
                     // One volley/target produces one native damage call even when the work budget split its pellets.
                     impact.shot.hit(impact.entity, FirearmHit(impact.position.clone(), impact.headshot), impact.damage)
                 }
             } catch (failure: Exception) { fail(impact.shot, "impact", failure) }
         }
-        if (rounds.isEmpty() && bullets.isEmpty() && retired.isEmpty() && recoils.isEmpty()) {
+        if (rounds.isEmpty() && bullets.isEmpty() && blasts.isEmpty() && completed.isEmpty() && retired.isEmpty() && recoils.isEmpty()) {
             task?.cancel()
             task = null
         }
@@ -238,10 +269,18 @@ class FirearmShots(
         bullet.remaining -= bullet.position.distance(end)
         bullet.position.copy(end)
         // Gravity is in blocks/tick²; retain the same swept segment at every speed, never point-test a bullet.
-        velocity.y -= BULLET_GRAVITY
+        velocity.y -= when (shot.spec.projectile) {
+            FirearmProjectile.BULLET -> BULLET_GRAVITY
+            FirearmProjectile.GRENADE -> .045
+            FirearmProjectile.ROCKET -> 0.0
+        }
         cosmetic(shot, "tracer") { presentBullet(bullet, direction, result != null) }
         if (result != null) {
             cosmetic(shot, "contact") { contact(bullet.round, result, direction) }
+            if (shot.spec.projectile != FirearmProjectile.BULLET) {
+                detonate(bullet.round, end.clone().subtract(direction.clone().multiply(.06)))
+                return false
+            }
             result.hitEntity?.takeIf(shot.target)?.let { entity ->
                 val headshot = entity is Player && end.y >= entity.eyeLocation.y - .38
                 val damage = shot.spec.damagePerPellet * if (headshot) shot.headshotMultiplier else 1.0
@@ -255,6 +294,44 @@ class FirearmShots(
             return false
         }
         return loaded >= distance && bullet.remaining > .001
+    }
+
+    /** Controller-owned blast: no native explosion, terrain mutation, fire or protection bypass. */
+    private fun detonate(round: Round, center: Vector) {
+        val shot = round.shot
+        val radius = if (shot.spec.projectile == FirearmProjectile.ROCKET) 3.0 else 2.5
+        val location = center.toLocation(shot.world)
+        cosmetic(shot, "blast") {
+            if (particles()) shot.world.spawnParticle(Particle.EXPLOSION, location, 1)
+            if (sounds() && claimSoundWork()) shot.world.playSound(location, Sound.ENTITY_GENERIC_EXPLODE, SoundCategory.PLAYERS, 1f, .85f)
+        }
+        // Keep accepted blast work inside the same per-tick budget, retaining the round until it finishes.
+        val targets = shot.world.getNearbyEntities(location, radius, radius, radius).iterator()
+        round.remaining++
+        round.blastReservations++
+        reserved++
+        blasts += Blast(round, center, radius, targets)
+    }
+
+    private fun stepBlast(blast: Blast): Boolean {
+        if (!blast.targets.hasNext()) return false
+        val shot = blast.round.shot
+        val entity = blast.targets.next()
+        if (entity !== shot.shooter && entity.isValid && !entity.isDead && shot.target(entity)) {
+            val target = entity.boundingBox.center
+            val distance = blast.center.distance(target)
+            val damage = firearmBlastDamage(shot.spec.damagePerPellet, distance, blast.radius)
+            if (damage > 0.0) {
+                val direction = target.clone().subtract(blast.center)
+                if (distance <= .01 || (
+                        firearmLoadedRange(blast.center, direction.multiply(1.0 / distance), distance, shot.world::isChunkLoaded) >= distance &&
+                        shot.world.rayTraceBlocks(blast.center.toLocation(shot.world), direction, distance, FluidCollisionMode.NEVER, true) == null
+                    )) {
+                    blast.round.impacts.putIfAbsent(entity.uniqueId, Impact(shot, entity, blast.center.clone(), false, damage))
+                }
+            }
+        }
+        return blast.targets.hasNext()
     }
 
     private fun trace(shot: Shot, origin: Location, direction: Vector, distance: Double) =
@@ -299,12 +376,28 @@ class FirearmShots(
 
     private fun muzzle(shot: Shot, location: Location, direction: Vector) {
         if (particles()) {
-            if (shot.spec.id != FirearmId.VSS_VINTOREZ) {
+            val style = shot.profile.muzzle
+            if (style != FirearmMuzzleStyle.SUPPRESSED) {
+                // A short, bright core follows the barrel; no screen-filling FLASH or explosion sprite.
                 // count=0 sends one directional particle; positive counts randomize its spawn and velocity.
-                shot.world.spawnParticle(Particle.SMALL_FLAME, location, 0, direction.x, direction.y, direction.z, .015)
-                shot.world.spawnParticle(Particle.ELECTRIC_SPARK, location, 0, direction.x, direction.y, direction.z, .18)
+                shot.world.spawnParticle(if (style == FirearmMuzzleStyle.COMPACT) Particle.SMALL_FLAME else Particle.FLAME,
+                    location, 0, direction.x, direction.y, direction.z, .025)
+                shot.world.spawnParticle(Particle.ELECTRIC_SPARK, location, 0, direction.x, direction.y, direction.z, .24)
+                if (style == FirearmMuzzleStyle.BLAST) {
+                    // Shotguns/cannon fan sideways, while rifles retain a narrow forward silhouette.
+                    val side = direction.clone().crossProduct(Vector(0, 1, 0))
+                    if (side.lengthSquared() < .000001) side.setX(1.0) else side.normalize()
+                    for (sign in listOf(-1, 1)) {
+                        val flank = direction.clone().multiply(.10).add(side.clone().multiply(sign * .09))
+                        shot.world.spawnParticle(Particle.SMALL_FLAME, location.clone().add(flank), 0,
+                            flank.x, flank.y, flank.z, .35)
+                    }
+                }
             }
-            shot.world.spawnParticle(Particle.SMOKE, location, if (shot.spec.id == FirearmId.FLINTLOCK) 5 else 1, .035, .025, .035, .015)
+            val powder = style == FirearmMuzzleStyle.BLACK_POWDER
+            shot.world.spawnParticle(Particle.SMOKE, location, if (powder) 6 else 1,
+                if (powder) .08 else .025, if (powder) .05 else .02, if (powder) .08 else .025,
+                if (powder) .035 else .012)
         }
         if (sounds()) {
             shot.world.playSound(location, shot.soundKey, SoundCategory.PLAYERS, shot.profile.volume, shot.profile.pitch)
@@ -341,14 +434,20 @@ class FirearmShots(
         val shot = round.shot
         val block = result.hitBlock
         val contact = result.hitPosition
+        if (round.contacts.any { it.distanceSquared(contact) < IMPACT_SPACING * IMPACT_SPACING }) return
+        round.contacts += contact.clone()
+        val blockData = block?.takeIf { particles() || sounds() }?.blockData
         val point = contact.clone().subtract(direction.clone().multiply(.025)).toLocation(shot.world)
-        if (particles() && block != null) shot.world.spawnParticle(Particle.BLOCK, point, 5, .045, .045, .045, .08, block.blockData)
-        if (!sounds() || round.soundedContacts.any { it.distanceSquared(contact) < IMPACT_SPACING * IMPACT_SPACING } ||
-            !claimSoundWork()) return
-        round.soundedContacts += contact.clone()
+        if (particles()) {
+            // One contact burst per nearby pellet cluster, not ten overlapping shotgun clouds.
+            if (blockData != null) shot.world.spawnParticle(Particle.BLOCK, point, 8, .06, .06, .06, .12, blockData)
+            else shot.world.spawnParticle(Particle.CRIT, point, 3, .045, .045, .045, .10)
+        }
+        if (!sounds() || !claimSoundWork()) return
         // Physical contact is audible even when native protection later rejects damage.
-        shot.world.playSound(contact.toLocation(shot.world), "arc:bullet_impact", SoundCategory.PLAYERS, .8f, 1f)
-        if (block != null && claimSoundWork()) shot.world.playSound(point, block.blockData.soundGroup.hitSound, .35f, 1.2f)
+        shot.world.playSound(contact.toLocation(shot.world), "arc:bullet_impact", SoundCategory.PLAYERS, 1f, 1f)
+        if (blockData != null && claimSoundWork()) shot.world.playSound(point, blockData.soundGroup.hitSound,
+            SoundCategory.PLAYERS, .65f, 1f)
     }
 
     private fun claimSoundWork(): Boolean {
@@ -366,7 +465,8 @@ class FirearmShots(
         val pitch = firearmRecoilKick(shot.shooter.eyeLocation.pitch,
             shot.profile.recoil * if (shot.aiming) .65f else 1f, recoil.pitch)
         if (pitch == 0f) return
-        val yaw = Random.nextDouble(-.14, .14).toFloat() * abs(pitch)
+        // Weight comes from a stronger vertical impulse, not extra sideways camera shake.
+        val yaw = Random.nextDouble(-.07, .07).toFloat() * abs(pitch)
         user.sendPacketSilently(firearmRecoilPacket(yaw, pitch))
         // Return 80% gently; a small remaining rise makes repeated fire require actual aim correction.
         recoil.pitch -= pitch * .8f
@@ -425,6 +525,7 @@ class FirearmShots(
         bullets.forEach { it.display?.remove() }
         retired.forEach { it.display.remove() }
         bullets.clear()
+        blasts.clear()
         rounds.forEach { resolveRound(it.shot, false) }
         rounds.clear()
         retired.clear()
@@ -451,21 +552,29 @@ class FirearmShots(
     }
 }
 
-internal data class FirearmFlightProfile(val speed: Double, val recoil: Float, val volume: Float, val pitch: Float)
+internal enum class FirearmMuzzleStyle { COMPACT, RIFLE, BLAST, BLACK_POWDER, SUPPRESSED }
+
+internal data class FirearmFlightProfile(
+    val speed: Double,
+    val recoil: Float,
+    val volume: Float,
+    val pitch: Float,
+    val muzzle: FirearmMuzzleStyle,
+)
 
 internal fun firearmFlightProfile(id: FirearmId): FirearmFlightProfile = when (id) {
-    FirearmId.FLINTLOCK -> FirearmFlightProfile(14.0, 3.3f, 3.2f, 1f)
-    FirearmId.REVOLVER -> FirearmFlightProfile(22.0, 2.4f, 2.4f, 1f)
-    FirearmId.HAND_CANNON -> FirearmFlightProfile(12.0, 4.2f, 4f, 1f)
-    FirearmId.DOUBLE_BARREL -> FirearmFlightProfile(24.0, 3.6f, 3.6f, 1f)
-    FirearmId.FIVE_SEVEN -> FirearmFlightProfile(30.0, 1.2f, 1.8f, 1f)
-    FirearmId.G36 -> FirearmFlightProfile(43.0, .85f, 2.7f, 1f)
-    FirearmId.AEK_971 -> FirearmFlightProfile(44.0, .95f, 3f, 1f)
-    FirearmId.RPL_20 -> FirearmFlightProfile(41.0, 1.1f, 3.4f, 1f)
-    FirearmId.VEPR_12 -> FirearmFlightProfile(24.0, 2.7f, 3.3f, 1f)
-    FirearmId.M1_GARAND -> FirearmFlightProfile(43.0, 2.5f, 3.5f, 1f)
-    FirearmId.VSS_VINTOREZ -> FirearmFlightProfile(15.0, .9f, 4f, 1f)
-    FirearmId.MCMILLAN -> FirearmFlightProfile(45.0, 3.8f, 4f, 1f)
+    FirearmId.FLINTLOCK -> FirearmFlightProfile(14.0, 4.1f, 3.2f, .90f, FirearmMuzzleStyle.BLACK_POWDER)
+    FirearmId.REVOLVER -> FirearmFlightProfile(22.0, 3.1f, 2.4f, .92f, FirearmMuzzleStyle.COMPACT)
+    FirearmId.HAND_CANNON -> FirearmFlightProfile(12.0, 5.4f, 4f, .82f, FirearmMuzzleStyle.BLAST)
+    FirearmId.DOUBLE_BARREL -> FirearmFlightProfile(24.0, 4.5f, 3.6f, .88f, FirearmMuzzleStyle.BLAST)
+    FirearmId.FIVE_SEVEN -> FirearmFlightProfile(30.0, 1.7f, 1.8f, 1f, FirearmMuzzleStyle.COMPACT)
+    FirearmId.G36 -> FirearmFlightProfile(43.0, 1.25f, 2.7f, .96f, FirearmMuzzleStyle.RIFLE)
+    FirearmId.AEK_971 -> FirearmFlightProfile(44.0, 1.4f, 3f, .92f, FirearmMuzzleStyle.RIFLE)
+    FirearmId.RPL_20 -> FirearmFlightProfile(41.0, 1.7f, 3.4f, .88f, FirearmMuzzleStyle.RIFLE)
+    FirearmId.VEPR_12 -> FirearmFlightProfile(24.0, 3.6f, 3.3f, .90f, FirearmMuzzleStyle.BLAST)
+    FirearmId.M1_GARAND -> FirearmFlightProfile(43.0, 3.3f, 3.5f, .90f, FirearmMuzzleStyle.RIFLE)
+    FirearmId.VSS_VINTOREZ -> FirearmFlightProfile(15.0, 1.15f, 4f, 1f, FirearmMuzzleStyle.SUPPRESSED)
+    FirearmId.MCMILLAN -> FirearmFlightProfile(45.0, 4.8f, 4f, .86f, FirearmMuzzleStyle.RIFLE)
 }
 
 /** Preserve configured pellet count/damage, separating multiple consumed rounds into successive ticks. */
@@ -483,6 +592,8 @@ internal fun firearmTriggerSpec(spec: FirearmSpec, availableRounds: Int): Firear
 }
 
 internal fun firearmRecoilPacket(yaw: Float, pitch: Float) = WrapperPlayServerPlayerRotation(yaw, true, pitch, true)
+internal fun firearmBlastDamage(base: Double, distance: Double, radius: Double): Double =
+    if (!distance.isFinite() || distance < 0.0 || distance >= radius) 0.0 else base * (1.0 - .75 * distance / radius)
 internal fun firearmRecoilRecovery(remaining: Float): Float = if (abs(remaining) < .04f) remaining else remaining * .38f
 internal fun firearmRecoilKick(currentPitch: Float, strength: Float, recoveryDebt: Float): Float =
     -minOf(strength.coerceAtLeast(0f), (currentPitch + 90f).coerceAtLeast(0f), (9f - recoveryDebt).coerceAtLeast(0f))

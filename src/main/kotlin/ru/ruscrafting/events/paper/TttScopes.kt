@@ -50,7 +50,7 @@ internal fun firearmScopeZoom(id: FirearmId): Float = when (id) {
 }
 
 /** A null match belongs only to the separately authorized raw-item preview. */
-internal data class FirearmScopeTarget(val matchId: String?, val firearm: FirearmId, val heldSlot: Int)
+internal data class FirearmScopeTarget(val matchId: String?, val firearm: FirearmId, val heldSlot: Int, val nativeItemId: String? = null)
 
 private val SCOPE_MODEL_FRAMES = listOf("hip", "raise_1", "raise_2", "raise_3", "aim", "equip_hip", "equip_aim")
 private val OBSERVER_HOLD_PREFIXES = listOf(FirearmId.DOUBLE_BARREL, FirearmId.HAND_CANNON)
@@ -65,7 +65,8 @@ private val FIREARMS_BY_ID = FirearmId.entries.associateBy { it.name }
 private fun packetFirearm(item: PacketItemStack): FirearmId? {
     val data = item.getComponent(ComponentTypes.CUSTOM_DATA).orElse(null)
     val event = data?.getCompoundTagOrNull("PublicBukkitValues")
-    return scopePreviewFirearm(nativeScopePreviewItemIdentity(data)) ?: if (
+    val identity = nativeScopePreviewItemIdentity(data)
+    return scopePreviewFirearm(identity) ?: if (
         event?.getStringTagValueOrNull("arcevents:event_item") == EventItemKind.FIREARM.name
     ) FIREARMS_BY_ID[event.getStringTagValueOrNull("arcevents:firearm")] else null
 }
@@ -73,7 +74,8 @@ private fun packetFirearm(item: PacketItemStack): FirearmId? {
 /** Raw aliases keep the vendor geometry but disable the separate native equip-height dip. */
 internal fun firearmClientItem(item: PacketItemStack, protocol: Int): PacketItemStack {
     if (protocol < ClientVersion.V_1_21_11.protocolVersion || item.isEmpty) return item
-    val firearm = packetFirearm(item)
+    val identity = nativeScopePreviewItemIdentity(item.getComponent(ComponentTypes.CUSTOM_DATA).orElse(null))
+    val firearm = packetFirearm(item)?.takeIf { identity == null || packedFirearms[identity]?.animated == true }
     val model = item.getComponent(ComponentTypes.ITEM_MODEL).orElse(null)?.modelLocation
     val vendorModel = nativeScopePreviewItemIdentity(item.getComponent(ComponentTypes.CUSTOM_DATA).orElse(null)) != null ||
         item.getComponent(ComponentTypes.CUSTOM_MODEL_DATA_LISTS).orElse(null)?.floats?.firstOrNull()?.let { it.isFinite() && it > 0f } == true
@@ -146,7 +148,7 @@ class TttScopes internal constructor(
     private val refreshInventories: () -> Unit = {},
 ) : PacketListenerAbstract(PacketListenerPriority.HIGHEST) {
     private data class Client(val playerId: UUID, val entityId: Int)
-    private data class Frame(val model: String, val zoom: Float?, val reloading: Boolean = false)
+    private data class Frame(val model: String?, val zoom: Float?, val reloading: Boolean = false)
     private class Reload(
         val durationTicks: Int,
         val sounds: Boolean,
@@ -174,7 +176,7 @@ class TttScopes internal constructor(
         var laser: TttScopeLaser? = null
         var laserFailed = false
         @Volatile var reload: Reload? = null
-        @Volatile var frame = Frame(model(target.firearm, "hip"), null)
+        @Volatile var frame = Frame(model(target, "hip"), null)
     }
 
     private val active = ConcurrentHashMap<UUID, Scope>()
@@ -192,7 +194,7 @@ class TttScopes internal constructor(
     fun isAiming(playerId: UUID): Boolean = active[playerId]?.let { it.aiming && it.frame.zoom != null } == true
     fun isReloading(playerId: UUID): Boolean = active[playerId]?.reload != null
     fun isPreview(playerId: UUID): Boolean = active[playerId]?.preview == true
-    fun hasViewmodel(playerId: UUID): Boolean = active.containsKey(playerId)
+    fun hasViewmodel(playerId: UUID): Boolean = active[playerId]?.let { it.target.nativeItemId == null } ?: false
     fun projectedZoom(playerId: UUID): Float? {
         val scope = active[playerId] ?: return null
         val baseline = abilities[Client(playerId, scope.connection.entityId)] ?: return null
@@ -252,7 +254,7 @@ class TttScopes internal constructor(
         try {
             if (!validReload(scope, reload)) { clear(scope.playerId); return }
             if (reload.elapsed >= reload.durationTicks) { finishReloadPresentation(scope, reload); return }
-            val next = Frame(FirearmReloadAnimation.model(scope.target.firearm, reload.elapsed, reload.durationTicks), null, reloading = true)
+            val next = Frame(if (scope.target.nativeItemId == null) FirearmReloadAnimation.model(scope.target.firearm, reload.elapsed, reload.durationTicks) else null, null, reloading = true)
             if (scope.frame != next) {
                 scope.frame = next
                 val held = packetItem(scope.player.inventory.getItem(scope.target.heldSlot) ?: ItemStack.of(Material.AIR))
@@ -296,7 +298,7 @@ class TttScopes internal constructor(
             stopReload(scope)
             if (!valid(scope) || !authorized(scope.player, scope.target)) { clear(scope.playerId); return }
             // Preserve the stable physical hip pose, cloning the current authoritative item.
-            scope.frame = Frame(model(scope.target.firearm, "hip"), null)
+            scope.frame = Frame(model(scope.target, "hip"), null)
             val held = packetItem(scope.player.inventory.getItem(scope.target.heldSlot) ?: ItemStack.of(Material.AIR))
             dispatch(scope.connection) {
                 if (active[scope.playerId] === scope && scope.reload == null) {
@@ -350,7 +352,7 @@ class TttScopes internal constructor(
         if (active[scope.playerId] !== scope) return
         // Transition aliases enable vanilla's render-interpolated equip motion between the two poses.
         // Swapping intermediate model transforms is a hard cut, even with one packet every tick.
-        scope.frame = Frame(model(scope.target.firearm, if (scope.aiming) "equip_aim" else "equip_hip"), scope.zoom.takeIf { scope.aiming })
+        scope.frame = Frame(model(scope.target, if (scope.aiming) "equip_aim" else "equip_hip"), scope.zoom.takeIf { scope.aiming })
         refreshMovement(scope)
         val held = packetItem(scope.player.inventory.getItem(scope.target.heldSlot) ?: ItemStack.of(Material.AIR))
         dispatch(scope.connection) {
@@ -392,7 +394,7 @@ class TttScopes internal constructor(
             scope.settleTask = null
             if (!valid(scope) || !authorized(scope.player, scope.target)) { clear(scope.playerId); return@schedule }
             // Same geometry, swap animation disabled: ammo/lore updates must not lower the gun again.
-            scope.frame = Frame(model(scope.target.firearm, if (scope.aiming) "aim" else "hip"), scope.zoom.takeIf { scope.aiming })
+            scope.frame = Frame(model(scope.target, if (scope.aiming) "aim" else "hip"), scope.zoom.takeIf { scope.aiming })
             val held = packetItem(scope.player.inventory.getItem(scope.target.heldSlot) ?: ItemStack.of(Material.AIR))
             dispatch(scope.connection) {
                 if (active[scope.playerId] === scope && scope.motion == motion) {
@@ -641,13 +643,13 @@ class TttScopes internal constructor(
     }
 
     private fun aimedItem(item: PacketItemStack, frame: Frame, protocol: Int): PacketItemStack =
-        if (item.isEmpty) item else firearmWithoutSwing(
+        if (item.isEmpty || frame.model == null) firearmWithoutSwing(item, protocol) else firearmWithoutSwing(
             item.copy().also { it.setComponent(ComponentTypes.ITEM_MODEL, ItemModel(ResourceLocation(frame.model))) }, protocol,
         )
 
     /** Only remote equipment is a charged crossbow: native two-handed support for aim and reload. */
     private fun observerItem(item: PacketItemStack, frame: Frame): PacketItemStack {
-        if (item.isEmpty || (frame.zoom == null && !frame.reloading)) return item
+        if (item.isEmpty || frame.model == null || (frame.zoom == null && !frame.reloading)) return item
         val prefix = OBSERVER_HOLD_PREFIXES.firstOrNull { frame.model.startsWith(it) }
         val model = if (prefix == null) frame.model else if (frame.reloading) "${frame.model}_observer" else "${prefix}observer_hold"
         val displayed = item.copy().also { it.setComponent(ComponentTypes.ITEM_MODEL, ItemModel(ResourceLocation(model))) }
@@ -663,7 +665,8 @@ class TttScopes internal constructor(
         private val MATCH_MODES = setOf(GameMode.SURVIVAL, GameMode.ADVENTURE)
         private val PREVIEW_MODES = MATCH_MODES + GameMode.CREATIVE
 
-        private fun model(id: FirearmId, frame: String) = "arc:event_sights/${id.name.lowercase()}_$frame"
+        private fun model(target: FirearmScopeTarget, frame: String): String? =
+            if (target.nativeItemId == null) "arc:event_sights/${target.firearm.name.lowercase()}_$frame" else null
 
         internal fun open(displays: PaperPacketDisplays, laserEnabled: () -> Boolean, authorized: (Player, FirearmScopeTarget) -> Boolean): TttScopes = TttScopes(connection = { player ->
             PacketEvents.getAPI().playerManager.getUser(player)?.let { user ->

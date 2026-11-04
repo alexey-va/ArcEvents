@@ -63,6 +63,7 @@ class ArcadeSession(
     private var impactAt = 0L
     private var hazardVictim: UUID? = null
     private var fishing: FishingAdventure? = null
+    private var zombies: ZombiesAdventure? = null
 
     fun start(matchId: UUID, mode: EventMode, entries: List<QueueEntry>, players: List<Player>, rules: ArcadeRules): CompletableFuture<Unit> {
         check(current == null)
@@ -88,6 +89,10 @@ class ArcadeSession(
                 "seconds" to locale.text(secondsRemaining()),
                 "maximum" to locale.text(rules.roundSeconds),
                 "arena" to locale.render("arena.fishing.name", player),
+            ) else if (mode == EventMode.ZOMBIES) mapOf(
+                "waves" to locale.text(settings().zombies.waves),
+                "minimum" to locale.text(rules.minimumPlayers),
+                "maximum" to locale.text(rules.maximumPlayers),
             ) else emptyMap()
             locale.lore("arcade.${mode.id}-guide", player, guideValues).forEach(player::sendEventMessage)
             if (preservePlayerState) player.saveData()
@@ -166,6 +171,27 @@ class ArcadeSession(
                         player.sendEventMessage(locale.render("arcade.started", player, mapOf("mode" to modeName(player))))
                     }
                     if (match.mode == EventMode.DISASTERS) prepareHazard()
+                    if (match.mode == EventMode.ZOMBIES) {
+                        val adventure = ZombiesAdventure(plugin, locale, items, firearms, settings().zombies,
+                            match.matchId, online().first().world, online(),
+                            active = { current?.matchId == match.matchId && current?.phase == MatchPhase.ACTIVE },
+                            isAlive = ::isAlive,
+                            revivePlayer = { player ->
+                                val spectator = player.gameMode == GameMode.SPECTATOR
+                                runtime.reviveZombies(player.uniqueId)
+                                resetPlayer(player)
+                                if (spectator) spawn(player)
+                            }, hurt = ::hurt, killed = runtime::recordZombieKill,
+                            complete = { won ->
+                                if (current?.matchId == match.matchId && current?.phase == MatchPhase.ACTIVE) {
+                                    runtime.completeZombies(won, zombies?.director?.completedWaves ?: 0)
+                                    showResult()
+                                }
+                            }, clearWeaponState = clearWeaponState, displays = packetDisplays,
+                            sounds = { settings().ui.sounds }, particles = { settings().ui.particles }, clock = clock)
+                        zombies = adventure
+                        adventure.start()
+                    }
                     if (match.mode == EventMode.FISHING) {
                         val player = online().single()
                         val adventure = FishingAdventure(plugin, locale, items, firearms, settings().fishing, match.matchId,
@@ -202,6 +228,7 @@ class ArcadeSession(
                     }
             } else if (match.mode == EventMode.DISASTERS) tickDisasters()
             else if (match.mode == EventMode.FISHING) fishing?.tick()
+            else if (match.mode == EventMode.ZOMBIES) zombies?.tick()
         }
         current?.let(::updateHud)
     }
@@ -221,6 +248,7 @@ class ArcadeSession(
         clearWeaponState(player.uniqueId)
         removeHud(player)
         runtime.disconnect(player.uniqueId)
+        zombies?.disconnect(player)
         // PlayerQuitEvent still exposes the departing player as online; restoring there rejects teleport.
         val departingMatchId = current?.takeIf { it.phase == MatchPhase.CANCELLED }?.matchId
         if (departingMatchId != null) Tasks.scheduler.runLater(1L) {
@@ -235,6 +263,7 @@ class ArcadeSession(
         clearWeaponState(player.uniqueId)
         removeHud(player)
         runtime.markRecoveryApplied(player.uniqueId)
+        zombies?.disconnect(player, restored = true)
     }
 
     fun shouldCancelDamage(victimId: UUID, attackerId: UUID?, projectile: Boolean, projectileMatchId: UUID?): Boolean {
@@ -247,6 +276,7 @@ class ArcadeSession(
         if (projectile && projectileMatchId != match.matchId) return true
         if (attackerId != null && attacker?.status != ParticipantStatus.ALIVE) return true
         if (match.mode == EventMode.FISHING) return attackerId != null || hazardVictim != victimId
+        if (match.mode == EventMode.ZOMBIES) return attackerId != null || hazardVictim != victimId
         if (match.mode == EventMode.DISASTERS) return !match.disasterActive || (attackerId != null) || hazardVictim != victimId
         val now = clock()
         if ((victim.protectedUntilMs ?: 0) > now || (attacker?.protectedUntilMs ?: 0) > now) return true
@@ -267,6 +297,10 @@ class ArcadeSession(
         recentAttacks.forget(player.uniqueId)
         val after = runtime.eliminate(player.uniqueId, killer, knifeKill)
         if (after == before) return
+        if (before.mode == EventMode.ZOMBIES) {
+            zombies?.down(player)
+            return
+        }
         clearWeaponState(player.uniqueId)
         player.gameMode = GameMode.SPECTATOR
         player.inventory.clear()
@@ -291,8 +325,9 @@ class ArcadeSession(
 
     fun sendChat(player: Player, message: Component) {
         val sender = participant(player.uniqueId) ?: return
-        val living = sender.status in setOf(ParticipantStatus.ALIVE, ParticipantStatus.RESERVED)
-        online().filter { (participant(it.uniqueId)?.status in setOf(ParticipantStatus.ALIVE, ParticipantStatus.RESERVED)) == living }
+        val cooperative = current?.mode == EventMode.ZOMBIES
+        val living = cooperative || sender.status in setOf(ParticipantStatus.ALIVE, ParticipantStatus.RESERVED)
+        online().filter { cooperative || (participant(it.uniqueId)?.status in setOf(ParticipantStatus.ALIVE, ParticipantStatus.RESERVED)) == living }
             .forEach { viewer -> viewer.sendEventMessage(locale.render(if (living) "chat.match-message" else "chat.spectator-message", viewer,
                 mapOf("range" to locale.render("chat.range.global", viewer), "player" to Component.text(player.name), "message" to message))) }
     }
@@ -305,6 +340,10 @@ class ArcadeSession(
         }
         if (match.mode == EventMode.FISHING && fishing != null) {
             player.sendEventMessage(requireNotNull(fishing).hud())
+            return
+        }
+        if (match.mode == EventMode.ZOMBIES && zombies != null) {
+            player.sendEventMessage(requireNotNull(zombies).hud(player))
             return
         }
         player.sendEventMessage(locale.render("arcade.status", player, mapOf(
@@ -330,7 +369,7 @@ class ArcadeSession(
 
     private fun spawn(player: Player) {
         val arena = requireNotNull(arenaPool.active())
-        if (current?.mode in setOf(EventMode.DISASTERS, EventMode.FISHING)) { teleport(player, arena.playerSpawn); return }
+        if (current?.mode in setOf(EventMode.DISASTERS, EventMode.FISHING, EventMode.ZOMBIES)) { teleport(player, arena.playerSpawn); return }
         val candidates = (arena.lootSpawns + arena.playerSpawn).filter { point ->
             val world = plugin.server.getWorld(point.world) ?: return@filter false
             val location = Location(world, point.x, point.y, point.z)
@@ -441,7 +480,9 @@ class ArcadeSession(
         val match = current ?: return
         if (resultShown || match.phase != MatchPhase.RESOLVING) return
         resultShown = true
+        val completedWaves = zombies?.director?.completedWaves ?: 0
         closeFishing()
+        closeZombies()
         restoreAt = clock() + match.rules.postRoundSeconds * 1000L
         impacts = emptyList()
         val winners = match.winners.mapNotNull { match.participants[it]?.playerName }.sorted().joinToString(", ")
@@ -449,6 +490,9 @@ class ArcadeSession(
             clearWeaponState(player.uniqueId)
             val result = if (match.mode == EventMode.FISHING) locale.render(
                 if (player.uniqueId in match.winners) "fishing.result-success" else if (match.endReason == MatchEndReason.TIMEOUT) "fishing.result-timeout" else "fishing.result-defeat", player,
+            ) else if (match.mode == EventMode.ZOMBIES) locale.render(
+                if (player.uniqueId in match.winners) "zombies.result-success" else if (match.endReason == MatchEndReason.TIMEOUT) "zombies.result-timeout" else "zombies.result-defeat", player,
+                mapOf("wave" to locale.text(completedWaves), "kills" to locale.text(match.participants.getValue(player.uniqueId).kills)),
             ) else locale.render("arcade.result", player, mapOf("winners" to if (winners.isEmpty()) locale.render("arcade.no-winners", player) else Component.text(winners)))
             player.sendEventMessage(result)
             player.showTitle(Title.title(modeName(player), result, Title.Times.times(Duration.ofMillis(150), Duration.ofSeconds(4), Duration.ofMillis(400))))
@@ -467,6 +511,7 @@ class ArcadeSession(
         if (match.phase !in setOf(MatchPhase.RESOLVING, MatchPhase.CANCELLED)) return
         runtime.beginRestoring()
         closeFishing()
+        closeZombies()
         impacts = emptyList()
         recentAttacks.clear()
         online().forEach { clearWeaponState(it.uniqueId); removeHud(it) }
@@ -498,7 +543,9 @@ class ArcadeSession(
             val values = mapOf("mode" to modeName(player), "seconds" to locale.text(secondsRemaining()),
                 "score" to locale.text(if (match.mode == EventMode.GUN_GAME) state.kills else state.score), "stage" to locale.text(state.stage + 1),
                 "total" to locale.text(FirearmId.entries.size + 1), "round" to locale.text((match.disasterRound + 1).coerceAtMost(match.rules.disasterRounds)), "rounds" to locale.text(match.rules.disasterRounds))
-            val text = if (match.mode == EventMode.FISHING && match.phase == MatchPhase.ACTIVE) fishing?.hud()
+            val text = if (match.mode == EventMode.ZOMBIES && match.phase == MatchPhase.ACTIVE) zombies?.hud(player)
+                ?: locale.render("arcade.zombies-hud", player, values)
+                else if (match.mode == EventMode.FISHING && match.phase == MatchPhase.ACTIVE) fishing?.hud()
                 ?: locale.render("arcade.fishing-hud", player, values)
                 else locale.render("arcade.${match.mode.id}-hud", player, values)
             if (settings().ui.bossBar) {
@@ -510,7 +557,9 @@ class ArcadeSession(
                         if (match.disasterActive) match.rules.disasterSeconds else match.rules.intermissionSeconds
                     } else match.rules.roundSeconds
                 }
-                bar.name(text).progress((secondsRemaining().toFloat() / duration.coerceAtLeast(1)).coerceIn(0f, 1f))
+                bar.name(text).progress(if (match.mode == EventMode.ZOMBIES && match.phase == MatchPhase.ACTIVE)
+                    zombies?.progress() ?: 0f else (secondsRemaining().toFloat() / duration.coerceAtLeast(1)).coerceIn(0f, 1f))
+                if (match.mode == EventMode.ZOMBIES) bar.color(if (zombies?.director?.phase == ZombiesPhase.WAVE) BossBar.Color.RED else BossBar.Color.YELLOW)
             } else removeHud(player)
         }
     }
@@ -523,6 +572,12 @@ class ArcadeSession(
     }
     fun handleFishingDamage(event: EntityDamageEvent): Boolean = fishing?.handleDamage(event) == true
     fun handleFishingInteract(event: PlayerInteractEvent): Boolean = fishing?.handleInteract(event) == true
+    fun handleZombiesDamage(event: EntityDamageEvent): Boolean = zombies?.handleDamage(event) == true
+    fun handleZombiesMove(event: org.bukkit.event.player.PlayerMoveEvent): Boolean = zombies?.handleMove(event) == true
+    fun handleZombiesMelee(player: Player, entity: org.bukkit.entity.Entity): Boolean = zombies?.melee(player, entity) == true
+    fun zombiesAdventure(player: Player): ZombiesAdventure? = zombies?.takeIf { it.belongsTo(player) }
+    fun zombiesDirector(): ZombiesDirector? = zombies?.director
+    fun handleZombiesTarget(event: org.bukkit.event.entity.EntityTargetLivingEntityEvent): Boolean = zombies?.handleTarget(event) == true
     fun fishingAdventure(player: Player): FishingAdventure? {
         val match = current ?: return null
         if (match.mode != EventMode.FISHING || match.phase != MatchPhase.ACTIVE || !isAlive(player.uniqueId)) return null
@@ -531,6 +586,11 @@ class ArcadeSession(
     private fun closeFishing() {
         val owned = fishing
         fishing = null
+        owned?.close()
+    }
+    private fun closeZombies() {
+        val owned = zombies
+        zombies = null
         owned?.close()
     }
     private fun online(): List<Player> = current?.participants?.values?.filter { it.status != ParticipantStatus.RESTORED }

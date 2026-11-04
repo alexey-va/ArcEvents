@@ -33,6 +33,7 @@ internal object ArenaWorldGeneratorRegistry {
             // Retired generated worlds keep their chunks; new geometry uses its own marker.
             template == "fishing-v1" || template == "fishing-v2" -> EmptyArenaChunkGenerator()
             template == DisasterArenaGenerator.TEMPLATE -> DisasterArenaGenerator()
+            template == ZombiesArenaGenerator.TEMPLATE -> ZombiesArenaGenerator()
             template == TttCitadelBlueprint.TEMPLATE -> TttCitadelChunkGenerator()
             PackagedArenaTemplates.find(template) != null -> EmptyArenaChunkGenerator()
             ReviewedImportedArenaTemplates.find(template) != null -> EmptyArenaChunkGenerator()

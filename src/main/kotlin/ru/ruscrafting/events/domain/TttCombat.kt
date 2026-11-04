@@ -22,6 +22,8 @@ enum class FirearmId {
 
 enum class FirearmRarity { COMMON, UNCOMMON, RARE, EPIC, LEGENDARY }
 
+enum class FirearmProjectile { BULLET, GRENADE, ROCKET }
+
 data class FirearmSpec(
     val id: FirearmId,
     val magazineSize: Int,
@@ -34,6 +36,7 @@ data class FirearmSpec(
     val reloadTicks: Int,
     val rarity: FirearmRarity,
     val lootWeight: Int,
+    val projectile: FirearmProjectile = FirearmProjectile.BULLET,
 ) {
     fun validated(): FirearmSpec = apply {
         require(magazineSize in 1..64)

@@ -301,6 +301,7 @@ class ArcEventsService(
         if (arenaPool.reserve(batch.matchId, when (batch.mode) {
                 EventMode.DISASTERS -> "disasters"
                 EventMode.FISHING -> "fishing"
+            EventMode.ZOMBIES -> "zombies"
                 else -> batch.preferredArenaId
             }, batch.mode) == null) return false
         matchSettings = settings().ttt
@@ -575,7 +576,8 @@ class ArcEventsService(
         preferredArenaId: String? = null,
         mode: EventMode = EventMode.TTT,
     ): CompletableFuture<ReservationStartResult> {
-        if (mode == EventMode.FISHING && (requester == null || !supportsFishingClient(requester))) {
+        if ((mode == EventMode.FISHING && requester == null) ||
+            (mode in setOf(EventMode.FISHING, EventMode.ZOMBIES) && requester != null && !supportsAdventureClient(requester))) {
             return CompletableFuture.completedFuture(ReservationStartResult.CLIENT_UNSUPPORTED)
         }
         if (requester != null && hasPendingRecovery(requester.uniqueId)) {
@@ -587,7 +589,7 @@ class ArcEventsService(
     fun startFishing(player: Player): CompletableFuture<ReservationStartResult> =
         startFromQueue(player, "fishing", EventMode.FISHING)
 
-    private fun supportsFishingClient(player: Player): Boolean =
+    private fun supportsAdventureClient(player: Player): Boolean =
         dialogFrontendSupported(settings().ui.dialogsEnabled, clientProtocol(player), EventsView.Fishing)
 
     fun modeAvailable(mode: EventMode): Boolean = network.hostAvailable(mode)
@@ -595,6 +597,12 @@ class ArcEventsService(
     override fun handleFishing(event: org.bukkit.event.player.PlayerFishEvent) = arcade.handleFish(event)
     override fun handleFishingDamage(event: org.bukkit.event.entity.EntityDamageEvent): Boolean = arcade.handleFishingDamage(event)
     override fun handleFishingInteract(event: org.bukkit.event.player.PlayerInteractEvent): Boolean = arcade.handleFishingInteract(event)
+    override fun handleZombiesDamage(event: org.bukkit.event.entity.EntityDamageEvent): Boolean = arcade.handleZombiesDamage(event)
+    override fun handleZombiesTarget(event: org.bukkit.event.entity.EntityTargetLivingEntityEvent): Boolean = arcade.handleZombiesTarget(event)
+    override fun handleZombiesMove(event: org.bukkit.event.player.PlayerMoveEvent): Boolean = arcade.handleZombiesMove(event)
+    override fun handleZombiesMelee(player: Player, entity: Entity): Boolean = arcade.handleZombiesMelee(player, entity)
+    override fun zombiesAdventure(player: Player): ZombiesAdventure? = arcade.zombiesAdventure(player)
+    override fun isZombiesParticipant(playerId: UUID): Boolean = currentMode() == EventMode.ZOMBIES && isParticipant(playerId)
     override fun fishingAdventure(player: Player): FishingAdventure? = arcade.fishingAdventure(player)
     override fun isFishingParticipant(playerId: UUID): Boolean =
         currentMode() == EventMode.FISHING && isParticipant(playerId)
@@ -1163,8 +1171,8 @@ class ArcEventsService(
         ) return null
         val held = player.inventory.itemInMainHand
         if (held.isEmpty || items.kind(held) != null) return null
-        val firearm = scopePreviewFirearm(scopePreviewItemId(held)) ?: return null
-        return FirearmScopeTarget(null, firearm, player.inventory.heldItemSlot)
+        val identity = scopePreviewItemId(held) ?: return null
+        return packedScopeTarget(identity, player.inventory.heldItemSlot)
     }
 
     internal fun isScopeAuthorized(player: Player, target: FirearmScopeTarget): Boolean =
@@ -1287,6 +1295,7 @@ class ArcEventsService(
 
     fun qaStatus(): String {
         val state = snapshot()
+        val zombies = arcade.zombiesDirector()
         return ArcEventsDebug.qa(
             "server" to state.serverId,
             "mode" to state.nodeMode.name.lowercase(),
@@ -1307,23 +1316,33 @@ class ArcEventsService(
             "remaining" to state.secondsRemaining,
             "loot" to lootScene.size,
             "combat" to runtime.combatRecordCount(),
+            "zombies_wave" to (zombies?.wave ?: 0),
+            "zombies_phase" to (zombies?.phase?.name?.lowercase() ?: "-"),
+            "zombies_alive" to (zombies?.alive ?: 0),
+            "zombies_pending" to (zombies?.pending ?: 0),
         )
     }
 
     fun qaPlayer(playerName: String): String {
         val player = plugin.server.getPlayerExact(playerName)
         val participant = player?.uniqueId?.let(::participant)
+        val arcadePlayer = player?.uniqueId?.let(arcade::participant)
+        val zombiePlayer = arcade.zombiesDirector()?.players?.get(player?.uniqueId)
         val firearm = player?.let { firearms.state(it.inventory.itemInMainHand) }
         return ArcEventsDebug.qa(
             "server" to settings().serverId,
             "player" to (player?.name ?: playerName.take(16)),
             "online" to (player != null),
-            "match" to (match?.matchId ?: "-"),
-            "phase" to (match?.phase?.name?.lowercase() ?: "idle"),
+            "match" to (match?.matchId ?: arcade.current?.matchId ?: "-"),
+            "phase" to (phase()?.name?.lowercase() ?: "idle"),
             "role" to (participant?.role?.name?.lowercase() ?: "-"),
-            "status" to (participant?.status?.name?.lowercase() ?: "none"),
+            "status" to ((participant?.status ?: arcadePlayer?.status)?.name?.lowercase() ?: "none"),
+            "zombies_status" to (zombiePlayer?.status?.name?.lowercase() ?: "-"),
+            "zombies_points" to (zombiePlayer?.points ?: 0),
+            "zombies_power" to (zombiePlayer?.power ?: 0),
+            "zombies_self_revives" to (zombiePlayer?.selfRevives ?: 0),
             "credits" to (participant?.credits ?: 0),
-            "kills" to (participant?.kills ?: 0),
+            "kills" to (participant?.kills ?: arcadePlayer?.kills ?: 0),
             "damage" to (participant?.damageDealt?.let { "%.1f".format(it) } ?: "0.0"),
             "friendly_damage" to (participant?.friendlyDamage?.let { "%.1f".format(it) } ?: "0.0"),
             "firearm" to (firearm?.id?.name?.lowercase() ?: "-"),
@@ -1688,9 +1707,9 @@ class ArcEventsService(
     private fun startReservedArcade(batch: ReservationBatch, online: List<Player>) {
         val rules = arcadeRules ?: settings().arcade.rules(batch.mode)
         val entries = batch.entries.filter { entry -> online.any { it.uniqueId.toString() == entry.playerId } }
-        val unsupportedFishing = batch.mode == EventMode.FISHING && online.any { !supportsFishingClient(it) }
-        if (online.size < rules.minimumPlayers || unsupportedFishing) {
-            if (unsupportedFishing) online.forEach { it.sendEventMessage(locale.render("queue.start-client-unsupported", it)) }
+        val unsupportedAdventure = batch.mode in setOf(EventMode.FISHING, EventMode.ZOMBIES) && online.any { !supportsAdventureClient(it) }
+        if (online.size < rules.minimumPlayers || unsupportedAdventure) {
+            if (unsupportedAdventure) online.forEach { it.sendEventMessage(locale.render("queue.start-client-unsupported", it)) }
             restoreReservationArrivals(batch, online)
             arenaPool.release(batch.matchId)
             releaseRestoredReservation(batch)
@@ -1730,11 +1749,12 @@ class ArcEventsService(
         val rules = config.arcade.rules(mode)
         if (online.size !in rules.minimumPlayers..rules.maximumPlayers) return done(DebugMutationResult.INSUFFICIENT_PLAYERS)
         if (online.any { hasPendingRecovery(it.uniqueId) }) return done(DebugMutationResult.PRECONDITION_FAILED)
-        if (mode == EventMode.FISHING && online.any { !supportsFishingClient(it) }) return done(DebugMutationResult.PRECONDITION_FAILED)
+        if (mode in setOf(EventMode.FISHING, EventMode.ZOMBIES) && online.any { !supportsAdventureClient(it) }) return done(DebugMutationResult.PRECONDITION_FAILED)
         val id = UUID.randomUUID()
         val arena = arenaPool.reserve(id, when (mode) {
             EventMode.DISASTERS -> "disasters"
             EventMode.FISHING -> "fishing"
+            EventMode.ZOMBIES -> "zombies"
             else -> arenaId
         }, mode) ?: return done(DebugMutationResult.ARENA_UNAVAILABLE)
         val entries = online.map { QueueEntry(it.uniqueId.toString(), it.name, config.serverId, mode.id,
@@ -2334,6 +2354,8 @@ class ArcEventsService(
         if (activeMatchId() != matchId) return false
         return if (currentMode() == EventMode.FISHING) {
             fishingAdventure(shooter)?.isFirearmTarget(shooter, entity, matchId) == true
+        } else if (currentMode() == EventMode.ZOMBIES) {
+            zombiesAdventure(shooter)?.isFirearmTarget(shooter, entity, matchId) == true
         } else entity is Player && entity.uniqueId != shooter.uniqueId && isAlive(entity.uniqueId)
     }
 
@@ -2346,6 +2368,10 @@ class ArcEventsService(
         matchId: String,
     ) {
         if (!eventFirearmTarget(shooter, entity, matchId)) return
+        if (currentMode() == EventMode.ZOMBIES) {
+            zombiesAdventure(shooter)?.hitByFirearm(shooter, entity, impact, baseDamage, matchId)
+            return
+        }
         if (currentMode() == EventMode.FISHING) {
             fishingAdventure(shooter)?.hitByFirearm(shooter, entity, baseDamage, matchId)
             return

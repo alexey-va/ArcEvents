@@ -435,6 +435,7 @@ class EventNetworkCoordinator(
         val effectivePreferredArena = when (mode) {
             EventMode.DISASTERS -> "disasters"
             EventMode.FISHING -> "fishing"
+            EventMode.ZOMBIES -> "zombies"
             else -> preferredArenaId
         }
         val explicitArena = effectivePreferredArena?.takeUnless { it == "auto" }
@@ -718,7 +719,8 @@ class EventNetworkCoordinator(
     private fun modeArenaIds(ids: List<String>, mode: EventMode): List<String> = when (mode) {
         EventMode.DISASTERS -> ids.filter { it == "disasters" }
         EventMode.FISHING -> ids.filter { it == "fishing" }
-        else -> ids.filter { it != "disasters" && it != "fishing" }
+        EventMode.ZOMBIES -> ids.filter { it == "zombies" }
+        else -> ids.filter { it != "disasters" && it != "fishing" && it != "zombies" }
     }
 
     fun nodeSnapshot(): List<HostNode> = nodes

@@ -28,6 +28,7 @@ class TttFirearms(
     private val matchIdKey = NamespacedKey(plugin, "match_id")
     private val firearmKey = NamespacedKey(plugin, "firearm")
     private val loadedKey = NamespacedKey(plugin, "loaded_rounds")
+    private val worldAmmoKey = NamespacedKey(plugin, "world_ammunition")
 
     fun spec(id: FirearmId): FirearmSpec = settings().weapons.spec(id)
 
@@ -57,12 +58,33 @@ class TttFirearms(
         }
     }
 
-    fun ammunition(player: Player?, matchId: String, amount: Int): ItemStack = ItemStack.of(Material.IRON_NUGGET, amount.coerceIn(1, 64)).also { item ->
+    fun ammunition(player: Player?, matchId: String, amount: Int): ItemStack = ammoVisual(24802, amount).also { item ->
         item.editMeta { meta ->
             meta.displayName(TttItems.nonItalic(locale.render("weapon.ammunition-name", player)))
             meta.lore(locale.lore("weapon.ammunition-lore", player, mapOf("rounds" to locale.text(item.amount))).map(TttItems::nonItalic))
             meta.persistentDataContainer.set(itemKindKey, PersistentDataType.STRING, EventItemKind.AMMUNITION.name)
             meta.persistentDataContainer.set(matchIdKey, PersistentDataType.STRING, matchId)
+        }
+    }
+
+    /** One item is one round; the normal crafting recipe exchanges one ordinary iron nugget. */
+    fun worldAmmunition(player: Player?, amount: Int): ItemStack = ammoVisual(24801, amount).also { item ->
+        item.editMeta { meta ->
+            meta.displayName(TttItems.nonItalic(locale.render("weapon.world-ammunition-name", player)))
+            meta.lore(locale.lore("weapon.world-ammunition-lore", player).map(TttItems::nonItalic))
+            meta.persistentDataContainer.set(worldAmmoKey, PersistentDataType.BYTE, 1.toByte())
+        }
+    }
+
+    internal fun isWorldAmmunition(item: ItemStack): Boolean =
+        !item.isEmpty && !item.itemMeta.persistentDataContainer.has(itemKindKey) &&
+            item.itemMeta.persistentDataContainer.get(worldAmmoKey, PersistentDataType.BYTE) == 1.toByte()
+
+    private fun ammoVisual(modelId: Int, amount: Int): ItemStack = ItemStack.of(Material.PAPER, amount.coerceIn(1, 64)).also { item ->
+        item.editMeta { meta ->
+            val model = meta.customModelDataComponent
+            model.floats = listOf(modelId.toFloat())
+            meta.setCustomModelDataComponent(model)
         }
     }
 

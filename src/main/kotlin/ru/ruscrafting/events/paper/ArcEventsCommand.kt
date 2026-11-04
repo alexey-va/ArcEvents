@@ -35,6 +35,7 @@ class ArcEventsCommand(
             "menu" -> player(sender)?.let(menu::openRoot)
             "join" -> player(sender)?.let(service::joinQueue)
             "fishing" -> player(sender)?.let { sendStartResult(it, StartMessageAudience.PLAYER, mode = EventMode.FISHING) }
+            "zombies" -> player(sender)?.let { menu.openRoot(it, EventsView.Arcade(EventMode.ZOMBIES)) }
             "start" -> player(sender)?.let { player ->
                 if (parseMode(args.getOrNull(1)) == EventMode.FISHING || settings().eventControls.creatorControlsEnabled || player.hasPermission("arcevents.start") ||
                     player.hasPermission("arcevents.admin")
@@ -72,7 +73,7 @@ class ArcEventsCommand(
         val options = when (args.size) {
             1 -> buildList {
                 if (sender is Player) {
-                    addAll(listOf("menu", "join", "fishing", "leave", "spawn", "status", "shop", "roster", "report", "start"))
+                    addAll(listOf("menu", "join", "fishing", "zombies", "leave", "spawn", "status", "shop", "roster", "report", "start"))
                     if (sender.hasPermission("arcevents.teamchat")) add("team")
                 }
                 add("help")
@@ -270,14 +271,12 @@ class ArcEventsCommand(
             return
         }
         if (action == "bootstrap") {
-            val requestedArena = args.getOrNull(1)?.lowercase()?.takeIf { it in arenaIds(includeAuto = true) }
-            val requested = args.drop(if (requestedArena == null) 1 else 2)
+            val request = parseDebugBootstrap(args.drop(1)) { mode -> arenaIds(mode, includeAuto = true) }
+            val requested = request.players
             val players = if (requested.isEmpty()) plugin.server.onlinePlayers.toList() else requested.mapNotNull(::servicePlayer)
             if (requested.isNotEmpty() && players.size != requested.distinct().size) {
                 debugResult(sender, action, DebugMutationResult.PLAYER_NOT_FOUND)
-            } else service.debugStartLocalAsync(players, requestedArena,
-                parseMode(args.getOrNull(if (requestedArena == null) 1 else 2)) ?: EventMode.TTT,
-            ).whenComplete { result, failure ->
+            } else service.debugStartLocalAsync(players, request.arena, request.mode).whenComplete { result, failure ->
                 if (plugin.isEnabled) Tasks.scheduler.runSync {
                     if (plugin.isEnabled) debugResult(sender, action, if (failure == null) result else DebugMutationResult.INTERNAL_ERROR)
                 }
@@ -391,6 +390,7 @@ class ArcEventsCommand(
         "gungame" -> EventsView.Arcade(EventMode.GUN_GAME)
         "disasters" -> EventsView.Arcade(EventMode.DISASTERS)
         "fishing" -> EventsView.Arcade(EventMode.FISHING)
+        "zombies" -> EventsView.Arcade(EventMode.ZOMBIES)
         "stats" -> EventsView.Statistics
         "help" -> EventsView.Help
         "admin" -> EventsView.Admin
@@ -497,7 +497,7 @@ class ArcEventsCommand(
             "traitor_blade", "traitor_radar", "traitor_smoke",
             "detective_scanner", "detective_medkit", "detective_armor",
         )
-        internal val DEBUG_VIEWS = listOf("main", "event", "stats", "help", "admin", "arenas", "shop", "roster", "report")
+        internal val DEBUG_VIEWS = listOf("main", "event", "zombies", "stats", "help", "admin", "arenas", "shop", "roster", "report")
         internal fun validOptionalInteger(raw: String?): Boolean = raw == null || raw.toIntOrNull() != null
     }
 }
@@ -514,4 +514,14 @@ internal fun weaponPointMessage(result: ArenaWeaponPointAdminResult): String = w
     ArenaWeaponPointAdminResult.LIMIT_REACHED -> "admin.weapon-points.limit-reached"
     ArenaWeaponPointAdminResult.NOT_FOUND -> "admin.weapon-points.not-found"
     ArenaWeaponPointAdminResult.STORAGE_UNAVAILABLE -> "admin.weapon-points.storage-unavailable"
+}
+
+internal data class DebugBootstrapArguments(val mode: EventMode, val arena: String?, val players: List<String>)
+
+/** Mode precedes the optional arena; omitted modes retain the original TTT command syntax. */
+internal fun parseDebugBootstrap(arguments: List<String>, arenaIds: (EventMode) -> List<String>): DebugBootstrapArguments {
+    var index = 0
+    val mode = arguments.getOrNull(index)?.let(EventMode::fromId)?.also { index++ } ?: EventMode.TTT
+    val arena = arguments.getOrNull(index)?.lowercase()?.takeIf { it in arenaIds(mode) }?.also { index++ }
+    return DebugBootstrapArguments(mode, arena, arguments.drop(index))
 }

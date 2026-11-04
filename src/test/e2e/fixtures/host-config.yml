@@ -14,6 +14,7 @@ locale:
   use-client-locale: false
 
 ui:
+  dialogs-enabled: true
   particles: false
   loot-displays: false
 
@@ -35,6 +36,14 @@ ttt:
   body-despawn-seconds: 60
 
 arcade:
+  zombies:
+    minimum-players: 1
+    maximum-players: 4
+    preparation-seconds: 1
+    countdown-seconds: 1
+    round-seconds: 180
+    post-round-seconds: 1
+    intermission-seconds: 8
   gungame:
     minimum-players: 2
     preparation-seconds: 1

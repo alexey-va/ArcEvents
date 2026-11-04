@@ -8,6 +8,7 @@ command:
     <#8c8c8c>   Start roster: <#92bed8>/arcevents start
     <#8c8c8c>   Match: <#92bed8>/arcevents status  <#8c8c8c>roster: <#92bed8>/arcevents roster
     <#8c8c8c>   Shop: <#92bed8>/arcevents shop  <#8c8c8c>report: <#92bed8>/arcevents report
+    <#e8dfd2>   Zombies, solo or team: <#92bed8>/arcevents zombies
   unknown: '<prefix> <#c42323>Unknown<#8c8c8c>: <#e6fff3><input>'
   failed: |-
     <prefix> <#c42323>Action failed.
@@ -388,6 +389,8 @@ menu:
       - '<#f2f0e6>Open the round summary.'
 
 arena:
+  zombies:
+    name: '<#ffb277>Sector Zero'
   auto:
     name: '<#e3b341>automatic rotation'
   citadel:
@@ -638,6 +641,11 @@ weapon:
     rare: '<#92bed8>Rare weapon'
     epic: '<#b983ff>Epic weapon'
     legendary: '<#ff9f0f>Legendary weapon'
+  world-ammunition-name: '<#e3b341>Cartridge'
+  world-ammunition-lore:
+    - '<#f2f0e6>Fits every firearm.'
+    - '<#8c8c8c>Hold a gun and press <#e3b341>F<#8c8c8c>.'
+    - '<#8c8c8c>Craft: one iron nugget → one cartridge.'
   ammunition-name: '<#f2f0e6>Ammunition'
   ammunition-lore:
     - '<#8c8c8c>Rounds: <#f2f0e6><rounds>'
@@ -652,8 +660,8 @@ weapon:
   ammo-hud-empty: '<#ff8b82>Empty  <white>F</white> Reload</#ff8b82>'
   creative-ammo-actionbar: '<weapon>  <#ffffff>∞  <#aaaaaa>Ammo is unlimited'
   world-ammo-actionbar: '<weapon>  <#ffffff><loaded>/<magazine>  <#aaaaaa>reserve <reserve>  F to reload'
-  world-empty-actionbar: '<#ffcc33>Empty magazine. F to load iron nuggets'
-  world-no-ammo-actionbar: '<#ffcc33>Reloading requires ordinary iron nuggets'
+  world-empty-actionbar: '<#ffcc33>Empty magazine. F to load cartridges'
+  world-no-ammo-actionbar: '<#ffcc33>Cartridges required: craft one from one iron nugget'
   world-stacked-actionbar: '<#ffcc33>Hold one gun: split the stack'
   world-invalid-actionbar: '<#ff5b6e>Invalid weapon magazine data'
   world-unavailable-actionbar: '<#ffcc33>Weapons are unavailable here'
@@ -792,6 +800,23 @@ debug:
     internal-error: 'an internal error occurred; details were logged'
 
 arcade:
+  zombies-title: '<#ffb277>Zombies | Sector Zero'
+  zombies-name: '<#ffb277>Zombies: Sector Zero'
+  zombies-guide-name: '<#ffb277>Hold the sector'
+  zombies-dialog-unavailable: '<#e8dfd2>Zombies requires Java 1.21.6 or newer with native dialog support.'
+  zombies-hud: '<#ffb277>Sector Zero <#e8dfd2>| Starting in <seconds>s'
+  zombies-lore:
+  - '<#e8dfd2>Play solo or as a team of up to four.'
+  - '<#e8dfd2>Infected waves, weapons and teammate rescues.'
+  zombies-guide:
+  - '<#e8dfd2>Survive <waves> waves in the industrial Sector Zero.'
+  - '<#e8dfd2>Join the queue; its creator starts a roster of <minimum>–<maximum> players.'
+  - '<#e8dfd2>Left click fires, right click aims, F reloads. Your knife is in slot two.'
+  - '<#e8dfd2>Earn points from kills and waves. Entrance stations supply ammo, random weapons, damage upgrades and health.'
+  - '<#e8dfd2>Between waves, ammo is replenished and fallen players return. Health regenerates after six seconds without damage.'
+  - '<#e8dfd2>Hold Shift beside a downed teammate for three seconds within their 25-second window. Solo players have one self-revive.'
+  - '<#e8dfd2>A Brute arrives every fifth wave. Leave its fire circle before the slam.'
+  - '<#e8dfd2>Points and equipment last only for this match.'
   unsupported-mode: '<prefix> <#c42323>Unsupported mode: <mode>.'
   gungame-title: '<#20252b>Gun Game'
   gungame-name: '<#e3b341><bold>Gun Game'
@@ -1067,3 +1092,49 @@ fishing:
     rod_two: "Rod III: <price>"
     rod_two-help: "Attracts catches even faster. Requires rod II and the third island."
   dynamite-cap: "<#e3b341>Wait for the dynamite already thrown to explode."
+
+zombies:
+  ready: '<#ffb277>Sector Zero <#e8dfd2>| Pistol, knife and ammunition issued. Prepare for the first wave.'
+  wave-title: '<#ffb277>Wave <wave> / <total>'
+  wave-subtitle: '<#e8dfd2>Stay together and keep an escape route'
+  brute-warning: '<#ff8b82>Brute incoming | watch the fire circle'
+  brute-name: '<#ff8b82>Brute'
+  wave-cleared: '<#9bd48d>Wave cleared. <#e8dfd2>Ammo replenished; next wave in <seconds>s. Balance: <points> pts.'
+  self-revive: '<#ffbe6b>Self-revive in 3 seconds. <#e8dfd2>Your single second chance has been used.'
+  downed: '<#ff8b82>You are down. <#e8dfd2>A teammate can revive you by holding Shift nearby for 3 seconds. You have 25 seconds.'
+  teammate-downed: '<#ff8b82><player> is down! <#e8dfd2>Stand nearby and hold Shift for three seconds.'
+  reviving: '<#9bd48d>Reviving <player> | <seconds>s'
+  revived: '<#9bd48d>Back on your feet. <#e8dfd2>Four seconds of protection — get clear of the horde.'
+  waiting: '<#e8dfd2>You will return with ammunition when this wave ends.'
+  weapon-received: '<#9bd48d>New weapon: <weapon><#e8dfd2>. Ammo replenished; damage upgrades retained.'
+  hud-wave: '<#ffb277>Wave <wave>/<total> <#e8dfd2>| Zombies: <remaining> | <points> pts | Power <power>/3'
+  hud-intermission: '<#9bd48d>Resupply <seconds>s <#e8dfd2>| Next wave <wave>/<total> | <points> pts'
+  hud-self-revive: '<#ffbe6b>Self-revive in <seconds>s <#e8dfd2>| Last spare chance'
+  hud-downed: '<#ff8b82>Down | <seconds>s <#e8dfd2>| Teammate: hold Shift nearby'
+  hud-waiting: '<#e8dfd2>Returning after wave <wave> | Zombies left: <remaining>'
+  result-success: '<#9bd48d>Sector cleared | <wave> waves | Your kills: <kills>'
+  result-defeat: '<#ff8b82>Sector lost | Waves cleared: <wave> | Kills: <kills>'
+  result-timeout: '<#ffbe6b>Time expired | Waves cleared: <wave> | Kills: <kills>'
+  supply-nearby: '<#e8dfd2>Stand beside the supply station while alive.'
+  supply-balance: '<#e8dfd2>Match points: <#ffffff><points>'
+  supply-price: '<#e8dfd2>Price: <#ffb277><price> pts'
+  supply-maxed: '<#e8dfd2>This upgrade is already complete.'
+  supply-poor: '<#ffbe6b>Not enough points. <#e8dfd2>Required: <price>; available: <points>.'
+  supply-session-only: '<#e8dfd2>This purchase lasts until the end of this match.'
+  supply-buy: '<#9bd48d>Buy for <price> pts'
+  supply-done: '<#9bd48d>Supplies received.'
+  supply-changed: '<#e8dfd2>Your state changed. Open the station again.'
+  station:
+    ammo: '<#9bd48d>Ammunition<newline><#e8dfd2>150 pts | Right click'
+    mystery: '<#ffb277>ARMORY<newline><#e8dfd2>650 pts | Right click'
+    power: '<#86dcf1>Amplifier<newline><#e8dfd2>From 1,000 pts | Right click'
+    vitality: '<#ff8b82>Vitality<newline><#e8dfd2>1,500 pts | Right click'
+  offer:
+    ammo: '<#9bd48d>Ammunition'
+    ammo-help: '<#e8dfd2>A full magazine and four spare magazines for your current gun. These remain event rounds.'
+    mystery: '<#ffb277>Random weapon'
+    mystery-help: '<#e8dfd2>One of eight shotguns and rifles with equal odds. Your current gun is excluded. The new gun replaces slot one; damage upgrades stay.'
+    power: '<#86dcf1>Weapon amplifier'
+    power-help: '<#e8dfd2>Add +35% of base damage to all your gun hits on zombies. Current level: <power>/3. Levels cost 1,000, 2,000 and 3,000 points.'
+    vitality: '<#ff8b82>Vitality'
+    vitality-help: '<#e8dfd2>Ten additional maximum hearts and a full heal. Persists through revives until the match ends.'

@@ -65,6 +65,7 @@ class ArcEventsMenu(
         escapeCloses = escapeCloses,
     )
     private val fishingTrader = FishingTraderDialog(dialogRuntime, service, locale, settings, escapeCloses)
+    private val zombiesSupply = ZombiesSupplyDialog(dialogRuntime, service, locale)
     private val menuRuntime = PaperMenuRuntime(plugin, Tasks.scheduler, layouts.current())
     private val activeFrames = mutableMapOf<UUID, ActiveFrame>()
 
@@ -81,6 +82,7 @@ class ArcEventsMenu(
                 EventMode.GUN_GAME -> EventsView.Arcade(EventMode.GUN_GAME)
                 EventMode.DISASTERS -> EventsView.Arcade(EventMode.DISASTERS)
                 EventMode.FISHING -> EventsView.Fishing
+                EventMode.ZOMBIES -> EventsView.Arcade(EventMode.ZOMBIES)
                 else -> EventsView.Ttt
             }
         } else view
@@ -94,6 +96,11 @@ class ArcEventsMenu(
     fun openFishingTraderRoot(player: Player) {
         dialogRuntime.beginFlow(player)
         fishingTrader.open(player)
+    }
+
+    fun openZombiesSupply(player: Player, offer: ru.ruscrafting.events.domain.ZombiesOffer) {
+        dialogRuntime.beginFlow(player)
+        zombiesSupply.open(player, offer)
     }
 
     fun open(player: Player, view: EventsView = EventsView.Main) {
@@ -177,7 +184,7 @@ class ArcEventsMenu(
             EventsView.EventHelp -> if (slot == element(view, "back")) open(player, EventsView.Ttt)
             EventsView.Ttt -> clickTtt(player, slot, nativePresentation)
             EventsView.Fishing -> clickFishing(player, slot, nativePresentation)
-            is EventsView.Arcade -> clickArcade(player, view.mode, slot)
+            is EventsView.Arcade -> clickArcade(player, view.mode, slot, nativePresentation)
             EventsView.Statistics -> if (slot == element(view, "back")) open(player, EventsView.Main)
             EventsView.Admin -> clickAdmin(player, slot)
             EventsView.Arenas -> clickArenas(player, slot, emptyList())
@@ -195,7 +202,7 @@ class ArcEventsMenu(
     }
 
     companion object {
-        val nativeDialogViews = setOf<EventsView>(EventsView.Main, EventsView.Help, EventsView.EventHelp, EventsView.Ttt, EventsView.Fishing, EventsView.Statistics, EventsView.Admin)
+        val nativeDialogViews = setOf<EventsView>(EventsView.Main, EventsView.Help, EventsView.EventHelp, EventsView.Ttt, EventsView.Fishing, EventsView.Arcade(EventMode.ZOMBIES), EventsView.Statistics, EventsView.Admin)
 
         internal fun closeSurfaceForPresentation(
             player: Player,
@@ -224,6 +231,7 @@ class ArcEventsMenu(
             "minimum" to locale.text(settings().arcade.rules(EventMode.DISASTERS).minimumPlayers),
         )))
         inventory.setItem(element(view, "fishing"), item(Material.FISHING_ROD, player, "arcade.fishing-name", "arcade.fishing-lore"))
+        inventory.setItem(element(view, "zombies"), item(Material.ZOMBIE_HEAD, player, "arcade.zombies-name", "arcade.zombies-lore"))
         inventory.setItem(element(view, "statistics"), item(Material.WRITABLE_BOOK, player, "menu.main.stats-name", "menu.main.stats-lore"))
         inventory.setItem(element(view, "help"), item(Material.KNOWLEDGE_BOOK, player, "menu.main.help-name", "menu.main.help-lore"))
         if (player.hasPermission("arcevents.admin")) {
@@ -239,6 +247,7 @@ class ArcEventsMenu(
             element(view, "gungame") -> open(player, EventsView.Arcade(EventMode.GUN_GAME))
             element(view, "disasters") -> open(player, EventsView.Arcade(EventMode.DISASTERS))
             element(view, "fishing") -> open(player, EventsView.Fishing)
+            element(view, "zombies") -> open(player, EventsView.Arcade(EventMode.ZOMBIES))
             element(view, "statistics") -> open(player, EventsView.Statistics)
             element(view, "help") -> open(player, EventsView.Help)
             element(view, "admin") -> if (player.hasPermission("arcevents.admin")) open(player, EventsView.Admin)
@@ -266,6 +275,13 @@ class ArcEventsMenu(
                 val canStart = queueState == QueueState.QUEUED && (adminOverride || creator ||
                     (!controls.creatorControlsEnabled && player.hasPermission("arcevents.start"))) &&
                     modeAvailable && state.matchId == null && state.queueSize >= rules.minimumPlayers && failure == null
+                if (mode == EventMode.ZOMBIES) {
+                    if (!dialogs.openZombies(player, queueState, canStart, inArcadeMatch, modeAvailable, failure != null,
+                            element(view, "center"), element(view, "right"), { openArcade(player, mode) })) {
+                        player.sendEventMessage(locale.render("arcade.zombies-dialog-unavailable", player))
+                    }
+                    return@runSync
+                }
                 val values = mapOf("queue" to locale.text(state.queueSize), "minimum" to locale.text(rules.minimumPlayers), "mode" to locale.render("arcade.${mode.id}-name", player))
                 val inventory = inventory(player, view, "arcade.${mode.id}-title", values)
                 inventory.setItem(element(view, "overview"), item(Material.IRON_SWORD.takeIf { mode == EventMode.GUN_GAME } ?: Material.LIGHTNING_ROD, player, "arcade.${mode.id}-name", "arcade.${mode.id}-guide", values))
@@ -328,17 +344,17 @@ class ArcEventsMenu(
         }
     }
 
-    private fun clickArcade(player: Player, mode: EventMode, slot: Int) {
+    private fun clickArcade(player: Player, mode: EventMode, slot: Int, nativePresentation: Boolean = false) {
         val view = EventsView.Arcade(mode)
         when (slot) {
             element(view, "back") -> open(player, EventsView.Main)
             element(view, "center") -> {
                 val participant = service.arcadeSnapshot()?.participants?.get(player.uniqueId)
                 if (participant != null && participant.status != ParticipantStatus.RESTORED) {
-                    player.closeInventory()
+                    closeSurface(player, nativePresentation)
                     service.leave(player)
                 } else service.queueControl(player.uniqueId).whenComplete { control, _ ->
-                    Tasks.scheduler.runSync { if (player.isOnline) { player.closeInventory(); if (control?.state == QueueState.QUEUED) service.leaveQueue(player) else service.joinQueue(player) } }
+                    Tasks.scheduler.runSync { if (player.isOnline) { closeSurface(player, nativePresentation); if (control?.state == QueueState.QUEUED) service.leaveQueue(player) else service.joinQueue(player) } }
                 }
             }
             element(view, "right") -> {
@@ -357,7 +373,7 @@ class ArcEventsMenu(
                             open(player, view)
                             return@runSync
                         }
-                        player.closeInventory()
+                        closeSurface(player, nativePresentation)
                         service.startFromQueue(player, null, mode).whenComplete { result, startFailure ->
                             Tasks.scheduler.runSync {
                                 if (!player.isOnline) return@runSync

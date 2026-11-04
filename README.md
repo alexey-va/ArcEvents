@@ -332,8 +332,10 @@ Minecraft 1.21.9+ rotation packets without restoring an old mouse direction.
 Older clients omit camera recoil. Native armour and hurt immunity remain.
 
 Ordinary-world guns use LMB to fire, RMB to aim and F to reload. A new
-magazine starts empty; one ordinary iron nugget loads one round. Event ammo
-and other custom nuggets do not qualify. Real gun items use Minecraft's native
+magazine starts empty. Craft one ordinary iron nugget into one textured cartridge;
+one cartridge loads one round. Legacy plain nuggets remain accepted1:1. Match ammo
+and custom nuggets do not qualify. The recipe uses an exact vanilla ingredient,
+and is removed with the plugin generation. Real gun items use Minecraft's native
 maximum stack size of one. Previously issued stacks are split into available
 storage slots, preserving each item's metadata and magazine. If inventory is
 full, remaining legacy guns stay in their original stack until space is freed;
@@ -348,6 +350,14 @@ empty gun; it neither consumes reserve items nor adds free persisted rounds.
 Returning to Survival or Adventure restores the unchanged magazine rules.
 In Creative, F may play a cosmetic reload; LMB interrupts it immediately and
 fires without spending ammunition. It does not impose a reload requirement.
+
+Both complete vendor packs are recognized:21 `voxelspawns_megaflintlocks` items
+and15 `gold_guns` items. `PackedFirearms` binds exact IDs to existing class profiles
+and explicit magazine/rate overrides, without adding them to TTT's twelve-stage
+progression. The original12 retain their authored aim/reload models; added24 keep
+their own vendor models during aiming and reload instead of changing gun skins.
+Ordinary ammunition is `PAPER/24801`; match-only reserve uses `PAPER/24802`.
+Publish both additive ItemsAdder assets before activating this version.
 
 Fire mode is fixed per weapon. The current catalog fires three-round groups
 for G36 and AEK-971, four-round groups for RPL-20, and one round per trigger
@@ -484,6 +494,38 @@ optional rarity beam remains separately configurable. Smoke grenades are
 throwable snowball projectiles and create an
 eight-second cloud that repeatedly applies blindness and darkness to every
 living participant inside it, including the thrower.
+
+## Zombies: Sector Zero
+
+`/arcevents zombies` opens the native briefing and shared queue. Its creator can
+start a roster of one to four players. The host generates the dedicated
+`arcevents_zombies_zero` arena through `zombies-zero-v1`: a reactor, four cargo
+blocks, wide circulation routes and four supply bays beside the entry.
+The mode requires a Java client with native dialog support (1.21.6 or newer).
+
+Survive ten escalating waves. Runners join from wave three; waves five and ten
+include a heavy zombie with a telegraphed area strike. A player starts with a
+pistol, knife and ammunition. Use left click to fire, right click to aim and
+F to reload; right click a physical supply station to buy ammunition, a random
+weapon, up to three damage upgrades or extra health. All points and purchased
+equipment belong to this match. Wave completion refills ammunition and brings
+waiting teammates back. Crouch near a downed teammate for three uninterrupted
+seconds before their 25-second bleedout; a solo player has one automatic revive.
+Health regenerates after six seconds without taking damage.
+
+`arcade.zombies` controls the roster, deadlines, wave count, intermission and
+active mob cap (default 28). Every actor is owned by the active arena lease.
+Firearm and knife hits use custom enemy health; lethal hits call `remove()`
+instead of native death, so there are no vanilla drops, XP or death-reward
+callbacks. Quit, cancellation, shutdown and ordinary completion clear actors,
+station displays and temporary effects before the existing player-state
+recovery flow returns the original loadout. Normal ARC event statistics remain
+available, with no Vault, premium-token or item reward.
+
+Permission-gated host QA can use `/arcevents debug bootstrap zombies PlayerName`.
+`debug status` exposes wave, phase, alive and pending counts; `debug player`
+exposes local points, status, power level and remaining self-revives. These are
+operator diagnostics, not player-facing controls.
 
 ## Build
 

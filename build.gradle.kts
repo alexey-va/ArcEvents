@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "ru.ruscrafting"
-version = "0.5.42"
+version = "0.5.43"
 description = "Cross-server custom events for RusCrafting"
 
 val integrationTestSourceSet = sourceSets.create("integrationTest") {
@@ -81,6 +81,8 @@ tasks {
         filesMatching("plugin.yml") { expand("version" to project.version) }
     }
     test {
+        // The complete Paper/MockK suite exceeds the default512MiB after native-class instrumentation.
+        maxHeapSize = "1g"
         useJUnitPlatform()
         testLogging {
             exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL

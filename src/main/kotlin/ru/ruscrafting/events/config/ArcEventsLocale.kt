@@ -106,6 +106,7 @@ class ArcEventsLocale(
             "arcade.start-name", "arcade.status-name", "arcade.unsupported-mode",
             "arcade.fishing-title", "arcade.fishing-name", "arcade.fishing-guide-name", "arcade.fishing-start-name",
             "arcade.fishing-unavailable-name", "arcade.fishing-loading-name", "arcade.fishing-dialog-unavailable",
+            "arcade.zombies-title", "arcade.zombies-name", "arcade.zombies-guide-name", "arcade.zombies-hud", "arcade.zombies-dialog-unavailable", "arena.zombies.name",
             "arcade.preparing", "arcade.countdown", "arcade.started", "arcade.hud", "arcade.gungame-hud", "arcade.disasters-hud", "arcade.fishing-hud", "arcade.result",
             "arcade.eliminated", "arcade.respawn", "arcade.disaster-warning", "arcade.hazard-meteors",
             "arcade.hazard-lightning", "arcade.hazard-fog", "arcade.hazard-meteors-guide",
@@ -124,7 +125,13 @@ class ArcEventsLocale(
             "fishing.invalid-catch", "fishing.encounter-restored", "fishing.telegraph",
             "fishing.phase.casting", "fishing.phase.bite", "fishing.phase.creature", "fishing.phase.travel",
             "fishing.phase.boss", "fishing.phase.complete", "fishing.phase.closed",
-        ) + FirearmId.entries.flatMap { id ->
+        ) + listOf("ready", "wave-title", "wave-subtitle", "brute-warning", "brute-name", "wave-cleared", "self-revive",
+            "downed", "teammate-downed", "reviving", "revived", "waiting", "weapon-received", "hud-wave", "hud-intermission",
+            "hud-self-revive", "hud-downed", "hud-waiting", "result-success", "result-defeat", "result-timeout", "supply-nearby", "supply-balance",
+            "supply-price", "supply-maxed", "supply-poor", "supply-session-only", "supply-buy", "supply-done", "supply-changed").map { "zombies.$it" } +
+            ru.ruscrafting.events.domain.ZombiesOffer.entries.flatMap { offer -> listOf(
+                "zombies.station.${offer.name.lowercase()}", "zombies.offer.${offer.name.lowercase()}", "zombies.offer.${offer.name.lowercase()}-help",
+            ) } + FirearmId.entries.flatMap { id ->
             listOf("weapon.${id.name.lowercase()}-name", "weapon.kind.firearm-${id.name.lowercase()}")
         } + FirearmRarity.entries.map { rarity -> "weapon.rarity.${rarity.name.lowercase()}" }
 
@@ -142,6 +149,7 @@ class ArcEventsLocale(
             "menu.event-arenas.auto-lore", "menu.shop.credits-lore",
             "arcade.gungame-lore", "arcade.gungame-guide", "arcade.disasters-lore", "arcade.disasters-guide",
             "arcade.fishing-lore", "arcade.fishing-guide", "arcade.fishing-start-lore", "arcade.fishing-unavailable-lore", "arcade.fishing-loading-lore",
+            "arcade.zombies-lore", "arcade.zombies-guide",
             "fishing.rod-lore", "fishing.weapon-lore",
             "arcade.join-lore", "arcade.leave-lore", "arcade.start-lore", "arcade.status-lore",
             "arcade.knife-lore",

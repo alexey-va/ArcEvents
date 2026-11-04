@@ -1,0 +1,176 @@
+{
+  "version": 1,
+  "title": "Textured firearm ammunition and complete vendor catalog, 2026-11-04",
+  "assumptions": [
+    "2026-11-04: scenario assumptions, not telemetry: 1/5/20 participating players, 100/1000/10000 expended rounds per player-day.",
+    "Before and after Survival/Adventure spend one iron nugget-equivalent per round: legacy plain nuggets remain accepted; a precise crafting recipe turns one vanilla nugget into one round. No reverse recipe, shop or monetary payout is added.",
+    "Creative remains unlimited and never writes free loaded rounds. Event ammunition remains match-scoped and cannot load ordinary-world firearms.",
+    "All36 existing vendor guns gain firing; baseline12 specs and existing acquisition/reward rules are preserved. New variants reuse class profiles with bounded capacities/rates. Indirect kill throughput can change and is unmeasured.",
+    "Existing EconomyShopGUI SELL and planned SELL-to-contract transition remain unchanged. No shop prices or monetary values are assumed live.",
+    "Zombies uses session-local points and escrowed event items only; native mob XP/drops and external reward hooks must be prevented by the controller. No Vault or tokens payout is introduced.",
+    "Zombies point scenarios are one solo run per player-day completing5/8/10 waves before ending; all kills credited to that player, no purchases. Up to30minutes per run and1/5/20participants imply at most10host-hours/day, within one shared host. These are upper wallet scenarios, not telemetry. Every point is destroyed at restoration; purchases only move part of that destruction earlier."
+  ],
+  "participants": [
+    1,
+    5,
+    20
+  ],
+  "currencies": {
+    "vault": {
+      "minor_per_unit": 100,
+      "disposable_per_player_day": {
+        "before": [
+          "0",
+          "0",
+          "0"
+        ],
+        "after": [
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      "flows": []
+    },
+    "tokens": {
+      "minor_per_unit": 1,
+      "disposable_per_player_day": {
+        "before": [
+          "0",
+          "0",
+          "0"
+        ],
+        "after": [
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      "flows": []
+    },
+    "iron_nugget": {
+      "minor_per_unit": 1,
+      "disposable_per_player_day": {
+        "before": [
+          "0",
+          "0",
+          "0"
+        ],
+        "after": [
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      "flows": [
+        {
+          "id": "ordinary_firearm_iron_equivalent_consumption",
+          "kind": "item",
+          "source": "ArcEvents/src/main/kotlin/ru/ruscrafting/events/paper/WorldFirearms.kt:finishReload",
+          "basis": "At equal expended rounds, one existing nugget or one cartridge crafted1:1 is consumed. Crafting conversion alone changes representation, not the iron-equivalent supply.",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              100,
+              1000,
+              10000
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              100,
+              1000,
+              10000
+            ]
+          }
+        }
+      ]
+    },
+    "zombie_points": {
+      "minor_per_unit": 1,
+      "disposable_per_player_day": {
+        "before": [
+          "0",
+          "0",
+          "0"
+        ],
+        "after": [
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      "flows": [
+        {
+          "id": "match_local_points_awarded",
+          "kind": "mint",
+          "source": "ArcEvents/ZombiesDirector",
+          "basis": "Scenario aggregate includes starting500 points, exact kill-kind awards and wave-clear bonuses for5/8/10cleared solo waves; no persistent currency is issued.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              9400,
+              18775,
+              27175
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              9400,
+              18775,
+              27175
+            ]
+          }
+        },
+        {
+          "id": "match_local_points_expired",
+          "kind": "burn",
+          "source": "ArcEvents/ZombiesAdventure.close",
+          "basis": "In the no-purchase scenarios the whole wallet expires on restoration. Purchases spend points earlier, so this expiry amount is reduced by exactly the earlier spend; never add both full expiry and purchases.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              9400,
+              18775,
+              27175
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              9400,
+              18775,
+              27175
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

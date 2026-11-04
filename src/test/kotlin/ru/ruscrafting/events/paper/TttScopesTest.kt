@@ -427,6 +427,36 @@ class TttScopesTest : StringSpec({
         }
     }
 
+    "expanded vendor guns retain their own model through raw projection aim and reload" {
+        ScopeFixture().use { f ->
+            f.baseline()
+            val identity = "gold_guns:gold_beretta_arx200"
+            val native = f.real.copy().also { item ->
+                val data = NBTCompound()
+                data.setTag("itemsadder", NBTCompound().also {
+                    it.setTag("namespace", NBTString("gold_guns"))
+                    it.setTag("id", NBTString("gold_beretta_arx200"))
+                })
+                item.setComponent(ComponentTypes.CUSTOM_DATA, data)
+            }
+            f.real = native
+            val model = native.getComponent(ComponentTypes.ITEM_MODEL)
+            firearmClientItem(native, ClientVersion.V_1_21_11.protocolVersion)
+                .getComponent(ComponentTypes.ITEM_MODEL) shouldBe model
+            val target = requireNotNull(packedScopeTarget(identity, f.target.heldSlot))
+            f.scopes.toggle(f.player, target) shouldBe true
+            f.tick(6)
+            val aimed = f.filter(WrapperPlayServerSetPlayerInventory(target.heldSlot, native)) as WrapperPlayServerSetPlayerInventory
+            aimed.stack.getComponent(ComponentTypes.ITEM_MODEL) shouldBe model
+            f.scopes.hasViewmodel(f.playerId) shouldBe false
+            f.scopes.animateReload(f.player, target, 10, false) { true }.use {
+                f.tick(2)
+                val reloading = f.filter(WrapperPlayServerSetPlayerInventory(target.heldSlot, native)) as WrapperPlayServerSetPlayerInventory
+                reloading.stack.getComponent(ComponentTypes.ITEM_MODEL) shouldBe model
+            }
+        }
+    }
+
     "rapid lower then raise cancels old settling and retains the newest native transition" {
         ScopeFixture().use { f ->
             f.baseline()

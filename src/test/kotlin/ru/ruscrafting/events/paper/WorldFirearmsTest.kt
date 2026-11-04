@@ -36,6 +36,63 @@ import java.nio.file.Files
 import java.util.UUID
 
 class WorldFirearmsTest : FunSpec({
+    test("ammunition recipe exchanges one plain nugget and is removed with its generation") {
+        WorldFirearmFixture().use { f ->
+            val key = f.ammoRecipe().use { recipe ->
+                recipe.recipe.result.amount shouldBe 1
+                f.firearms.isWorldAmmunition(recipe.recipe.result) shouldBe true
+                val ingredient = recipe.recipe.choiceList.single()
+                ingredient.test(ItemStack.of(Material.IRON_NUGGET)) shouldBe true
+                ingredient.test(f.firearms.worldAmmunition(f.player, 1)) shouldBe false
+                ingredient.test(ItemStack.of(Material.IRON_NUGGET).also { item ->
+                    item.editMeta { it.displayName(Component.text("Custom nugget")) }
+                }) shouldBe false
+                recipe.recipe.key
+            }
+            f.paper.server.getRecipe(key) shouldBe null
+        }
+    }
+
+    test("every packed firearm reloads its own magazine and retains its vendor identity") {
+        WorldFirearmFixture().use { f ->
+            for ((identity, gun) in packedFirearms) {
+                f.runtime.forget(f.player.uniqueId)
+                f.player.inventory.clear()
+                f.player.inventory.setItemInMainHand(f.gun(identity, 0))
+                f.player.inventory.setItem(10, f.firearms.worldAmmunition(f.player, 64))
+                val spec = gun.spec(f.firearms.spec(gun.profile))
+                f.reload() shouldBe true
+                f.advance(spec.reloadTicks.toLong())
+                f.runtime.state(f.player.inventory.itemInMainHand)?.loaded shouldBe spec.magazineSize
+                f.runtime.ammoHudState(f.player)?.reserve shouldBe 64 - spec.magazineSize
+                val before = f.accepted.size
+                f.click() shouldBe true
+                f.accepted.size shouldBe before + 1
+                f.accepted.last().spec shouldBe spec
+                f.player.inventory.itemInMainHand.itemMeta.persistentDataContainer
+                    .get(f.identityKey, PersistentDataType.STRING) shouldBe identity
+            }
+        }
+    }
+
+    test("textured rounds and legacy nuggets combine while match reserve and renamed paper stay isolated") {
+        WorldFirearmFixture().use { f ->
+            f.player.inventory.setItemInMainHand(f.gun(loaded = 0))
+            f.player.inventory.setItem(10, f.firearms.worldAmmunition(f.player, 3))
+            f.player.inventory.setItem(11, ItemStack.of(Material.IRON_NUGGET, 2))
+            f.player.inventory.setItem(12, f.firearms.ammunition(f.player, "other-match", 64))
+            f.player.inventory.setItem(13, ItemStack.of(Material.PAPER, 64))
+            f.runtime.ammoHudState(f.player)?.reserve shouldBe 5
+            f.reload() shouldBe true
+            f.advance(f.reloadTicks)
+            f.runtime.state(f.player.inventory.itemInMainHand)?.loaded shouldBe 5
+            f.player.inventory.getItem(10) shouldBe null
+            f.player.inventory.getItem(11) shouldBe null
+            f.player.inventory.getItem(12)?.amount shouldBe 64
+            f.player.inventory.getItem(13)?.amount shouldBe 64
+        }
+    }
+
     test("burst guns fire every remaining round without inflating the partial volley") {
         WorldFirearmFixture().use { f ->
             for (id in listOf(FirearmId.G36, FirearmId.AEK_971, FirearmId.RPL_20)) {
@@ -662,6 +719,8 @@ private class WorldFirearmFixture : AutoCloseable {
                 }
             }
         }
+
+    fun ammoRecipe() = FirearmAmmoRecipe(plugin, firearms)
 
     fun interaction(action: Action = Action.LEFT_CLICK_AIR, hand: EquipmentSlot = EquipmentSlot.HAND) =
         PlayerInteractEvent(player, action, player.inventory.itemInMainHand, null, BlockFace.SELF, hand)

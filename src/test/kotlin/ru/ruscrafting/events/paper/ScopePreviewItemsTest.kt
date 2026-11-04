@@ -12,7 +12,7 @@ import ru.ruscrafting.events.domain.FirearmId
 import org.yaml.snakeyaml.Yaml
 
 class ScopePreviewItemsTest : StringSpec({
-    "preview recognizes exactly the twelve event visual item IDs and no other vendor weapons" {
+    "preview recognizes all thirty-six vendor firearms with distinct native identities" {
         val ids = mapOf(
             "voxelspawns_megaflintlocks:vs_pistol" to FirearmId.FLINTLOCK,
             "voxelspawns_megaflintlocks:vs_revolver" to FirearmId.REVOLVER,
@@ -32,9 +32,25 @@ class ScopePreviewItemsTest : StringSpec({
             nativeScopePreviewItemIdentity(itemsAdderCustomData(id.substringBefore(':'), id.substringAfter(':'))) shouldBe id
         }
         ids.values.toSet() shouldBe FirearmId.entries.toSet()
-        listOf(null, "gold_guns:gold_m79", "gold_guns:gold_rpg_7", "gold_guns:gold_beretta_arx200",
-            "voxelspawns_megaflintlocks:vs_pistol3", "gold_g36", " gold_guns:gold_g36", "GOLD_GUNS:GOLD_G36")
+        packedFirearms.size shouldBe 36
+        packedFirearms.forEach { (identity, gun) ->
+            scopePreviewFirearm(identity) shouldBe gun.profile
+            nativeScopePreviewItemIdentity(itemsAdderCustomData(identity.substringBefore(':'), identity.substringAfter(':'))) shouldBe identity
+            gun.spec(ru.ruscrafting.events.domain.TttFirearmCatalog.specs.getValue(gun.profile)).validated()
+            packedScopeTarget(identity, 0)?.nativeItemId shouldBe identity.takeUnless { gun.animated }
+        }
+        listOf(null, "gold_guns:not_a_gun", "voxelspawns_megaflintlocks:missing", "gold_g36", " gold_guns:gold_g36", "GOLD_GUNS:GOLD_G36")
             .forEach { scopePreviewFirearm(it) shouldBe null }
+    }
+
+    "valid operator burst profiles cannot invalidate a smaller packed magazine" {
+        packedFirearms.forEach { (_, gun) ->
+            val base = ru.ruscrafting.events.domain.TttFirearmCatalog.specs.getValue(gun.profile)
+                .copy(magazineSize = 64, roundsPerShot = 2, pellets = 2).validated()
+            val derived = gun.spec(base)
+            (derived.roundsPerShot <= derived.magazineSize) shouldBe true
+            if (!gun.animated && gun.rounds == null) derived.roundsPerShot shouldBe 1
+        }
     }
 
     "native preview rejects missing malformed wrong-type and unsupported item identities" {
@@ -50,7 +66,7 @@ class ScopePreviewItemsTest : StringSpec({
             nativeScopePreviewItemIdentity(wrongType) shouldBe null
         }
         listOf("" to "gold_g36", "gold_guns" to "", "other" to "gold_g36",
-            "gold_guns" to "gold_rpg_7", "GOLD_GUNS" to "gold_g36", "gold_guns" to " gold_g36",
+            "gold_guns" to "missing", "GOLD_GUNS" to "gold_g36", "gold_guns" to " gold_g36",
         ).forEach { (namespace, id) -> nativeScopePreviewItemIdentity(itemsAdderCustomData(namespace, id)) shouldBe null }
     }
 

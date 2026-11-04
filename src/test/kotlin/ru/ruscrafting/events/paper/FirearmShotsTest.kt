@@ -26,6 +26,7 @@ import org.bukkit.block.data.BlockData
 import org.bukkit.entity.Entity
 import org.bukkit.entity.Player
 import org.bukkit.inventory.MainHand
+import org.bukkit.util.BoundingBox
 import org.bukkit.util.RayTraceResult
 import org.bukkit.util.Transformation
 import org.bukkit.util.Vector
@@ -34,6 +35,7 @@ import ru.arc.core.Tasks
 import ru.arc.core.TestTaskScheduler
 import ru.arc.paper.display.PaperPacketDisplays
 import ru.arc.paper.display.PacketBlockDisplay
+import ru.ruscrafting.events.domain.FirearmProjectile
 import ru.ruscrafting.events.domain.FirearmId
 import ru.ruscrafting.events.domain.FirearmSoundPreset
 import ru.ruscrafting.events.domain.FirearmSpec
@@ -43,6 +45,97 @@ import java.nio.file.Path
 import java.util.UUID
 
 class FirearmShotsTest : StringSpec({
+    "launcher blasts use radial falloff and respect both target admission and cover" {
+        for (covered in listOf(false, true)) withShotFixture { f ->
+            val contact = Vector(0.0, 65.0, 2.0)
+            val wall = mockk<Block>(relaxed = true)
+            val outsider = mockk<Player>(relaxed = true)
+            every { outsider.isValid } returns true
+            every { f.target.boundingBox } returns BoundingBox(-.3, 64.0, 2.5, .3, 66.0, 3.1)
+            every { f.world.getNearbyEntities(any<Location>(), any<Double>(), any<Double>(), any<Double>()) } returns
+                listOf(f.player, outsider, f.target)
+            every { f.world.rayTraceBlocks(any(), any(), any(), FluidCollisionMode.NEVER, true) } returns
+                if (covered) RayTraceResult(contact, wall, null) else null
+            f.ray = { _, _, _ -> RayTraceResult(contact.clone(), wall, null) }
+            f.fire(TttFirearmCatalog.specs.getValue(FirearmId.HAND_CANNON).copy(projectile = FirearmProjectile.ROCKET)) shouldBe true
+            f.until { f.rays.isNotEmpty() }
+            f.until { if (covered) f.rays.isNotEmpty() else f.hits.isNotEmpty() }
+            if (covered) f.hits.size shouldBe 0
+            else {
+                f.hits.size shouldBe 1
+                (f.hits.single().second in 0.1..15.99) shouldBe true
+                f.hitDetails.single().headshot shouldBe false
+            }
+            verify(exactly = 0) { outsider.boundingBox }
+        }
+        firearmBlastDamage(20.0, 0.0, 3.0) shouldBe 20.0
+        firearmBlastDamage(20.0, 1.5, 3.0) shouldBe 12.5
+        firearmBlastDamage(20.0, 3.0, 3.0) shouldBe 0.0
+    }
+
+    "blast candidates remain queued across the same per-tick work budget" {
+        withShotFixture { f ->
+            var examined = 0
+            every { f.target.boundingBox } answers {
+                examined++
+                BoundingBox(-.3, 64.0, 2.5, .3, 66.0, 3.1)
+            }
+            every { f.world.getNearbyEntities(any<Location>(), any<Double>(), any<Double>(), any<Double>()) } returns List(250) { f.target }
+            every { f.world.rayTraceBlocks(any(), any(), any(), FluidCollisionMode.NEVER, true) } returns null
+            f.ray = { _, _, _ -> RayTraceResult(Vector(0.0, 65.0, 2.0), mockk<Block>(relaxed = true), null) }
+            f.fire(TttFirearmCatalog.specs.getValue(FirearmId.HAND_CANNON).copy(projectile = FirearmProjectile.ROCKET)) shouldBe true
+            f.until { examined > 0 }
+            (examined <= 96) shouldBe true
+            f.hits.size shouldBe 0
+            f.until(500) { f.hits.isNotEmpty() }
+            examined shouldBe 250
+            f.hits.size shouldBe 1
+        }
+    }
+
+    "a blast detonating on the last flight tick keeps its accepted work after expiry" {
+        withShotFixture { f ->
+            var contact = Vector()
+            every { f.target.boundingBox } answers {
+                BoundingBox(contact.x - .3, contact.y - 1, contact.z + .4,
+                    contact.x + .3, contact.y + 1, contact.z + 1.0)
+            }
+            every { f.world.getNearbyEntities(any<Location>(), any<Double>(), any<Double>(), any<Double>()) } returns List(4) { f.target }
+            every { f.world.rayTraceBlocks(any(), any(), any(), FluidCollisionMode.NEVER, true) } returns null
+            f.ray = { origin, direction, _ ->
+                if (f.rays.size < 39) null else {
+                    contact = origin.toVector().add(direction.clone())
+                    RayTraceResult(contact.clone(), mockk<Block>(relaxed = true), null)
+                }
+            }
+            f.fire(TttFirearmCatalog.specs.getValue(FirearmId.HAND_CANNON)
+                .copy(range = 160.0, spreadDegrees = 0.0, projectile = FirearmProjectile.ROCKET)) shouldBe true
+            f.until { f.rays.size >= 20 }
+            f.until { f.hits.isNotEmpty() }
+            f.rays.last().tick shouldBe 40
+            f.hits.size shouldBe 1
+        }
+    }
+
+    "blast cover never queries an unloaded intervening chunk" {
+        withShotFixture { f ->
+            var examined = false
+            f.eye.x = 15.5
+            f.eye.z = 12.0
+            every { f.world.isChunkLoaded(0, 1) } returns false
+            every { f.target.boundingBox } answers {
+                examined = true
+                BoundingBox(16.2, 64.0, 17.2, 16.8, 66.0, 17.8)
+            }
+            every { f.world.getNearbyEntities(any<Location>(), any<Double>(), any<Double>(), any<Double>()) } returns listOf(f.target)
+            f.ray = { _, _, _ -> RayTraceResult(Vector(15.5, 65.0, 15.5), mockk<Block>(relaxed = true), null) }
+            f.fire(TttFirearmCatalog.specs.getValue(FirearmId.HAND_CANNON).copy(projectile = FirearmProjectile.ROCKET)) shouldBe true
+            f.until { examined }
+            f.hits.size shouldBe 0
+            verify(exactly = 0) { f.world.rayTraceBlocks(any(), any(), any(), FluidCollisionMode.NEVER, true) }
+        }
+    }
+
     "loaded segment clipping protects negative coordinates exact endpoints and diagonal corner crossings" {
         firearmLoadedRange(Vector(15.0, 64.0, 0.0), Vector(1.0, 0.0, 0.0), 1.0) { x, _ -> x == 0 } shouldBe (.99 plusOrMinus 1e-8)
         firearmLoadedRange(Vector(-.2, 64.0, 0.0), Vector(-1.0, 0.0, 0.0), 32.0) { x, _ -> x == -1 } shouldBe (15.79 plusOrMinus 1e-8)
@@ -320,8 +413,56 @@ class FirearmShotsTest : StringSpec({
                 f.world.spawnParticle(Particle.SMALL_FLAME, match<Location> { it.distance(birth) < 1e-8 }, 0,
                     match<Double> { kotlin.math.abs(it - direction.x) < 1e-8 },
                     match<Double> { kotlin.math.abs(it - direction.y) < 1e-8 },
-                    match<Double> { kotlin.math.abs(it - direction.z) < 1e-8 }, .015)
+                    match<Double> { kotlin.math.abs(it - direction.z) < 1e-8 }, .025)
             }
+        }
+    }
+
+    "muzzle families stay compact and distinct including a flashless suppressor and a broad heavy shot" {
+        val samples = mutableListOf<Map<String, Any>>()
+        for (id in listOf(FirearmId.FIVE_SEVEN, FirearmId.G36, FirearmId.HAND_CANNON,
+            FirearmId.FLINTLOCK, FirearmId.VSS_VINTOREZ)) withShotFixture { f ->
+            f.enableVisuals()
+            val spec = TttFirearmCatalog.specs.getValue(id).copy(pellets = 1, roundsPerShot = 1, spreadDegrees = 0.0)
+            f.fire(spec) shouldBe true
+            f.until { f.births.isNotEmpty() }
+            val muzzle = f.births.single().second
+            val emissions = f.particleBirths
+            (emissions.sumOf { maxOf(1, it.count) } <= 8) shouldBe true
+            emissions.forEach { (particle, at, _, offsets) ->
+                (at.distance(muzzle) <= .14) shouldBe true
+                listOf(offsets.x, offsets.y, offsets.z).all(Double::isFinite) shouldBe true
+                (particle == Particle.FLASH || particle == Particle.EXPLOSION) shouldBe false
+            }
+            val flames = emissions.filter { it.particle == Particle.FLAME || it.particle == Particle.SMALL_FLAME }
+            when (id) {
+                FirearmId.VSS_VINTOREZ -> {
+                    flames.size shouldBe 0
+                    emissions.map { it.particle } shouldBe listOf(Particle.SMOKE)
+                }
+                FirearmId.HAND_CANNON -> {
+                    flames.size shouldBe 3
+                    val flanks = flames.drop(1).map { it.at.toVector().subtract(muzzle.toVector()) }
+                    flanks[0].distance(flanks[1]) shouldBe (.18 plusOrMinus 1e-8)
+                }
+                FirearmId.FLINTLOCK -> emissions.single { it.particle == Particle.SMOKE }.count shouldBe 6
+                FirearmId.FIVE_SEVEN -> flames.single().particle shouldBe Particle.SMALL_FLAME
+                else -> flames.single().particle shouldBe Particle.FLAME
+            }
+            samples += mapOf("weapon" to id, "profile" to firearmFlightProfile(id),
+                "muzzle" to listOf(muzzle.x, muzzle.y, muzzle.z), "emissions" to emissions.map { emission ->
+                    mapOf("particle" to emission.particle.name, "position" to listOf(emission.at.x, emission.at.y, emission.at.z),
+                        "count" to emission.count, "offsets" to listOf(emission.offsets.x, emission.offsets.y, emission.offsets.z),
+                        "extra" to emission.extra)
+                })
+        }
+        System.getenv("ARC_EVENTS_FIREARM_FEEL_PREVIEW")?.let { output ->
+            val path = Path.of(output)
+            path.parent?.let(Files::createDirectories)
+            Files.writeString(path, GsonBuilder().setPrettyPrinting().create().toJson(mapOf(
+                "evidence" to "Production muzzle particle calls and profiles; emission data only, not native particle playback or audio",
+                "samples" to samples,
+            )))
         }
     }
 
@@ -355,7 +496,7 @@ class FirearmShotsTest : StringSpec({
             f.rays.size shouldBe 1
             f.hits.isEmpty() shouldBe true
             verify(exactly = 1) {
-                f.world.playSound(any<Location>(), "arc:bullet_impact", SoundCategory.PLAYERS, .8f, 1f)
+                f.world.playSound(any<Location>(), "arc:bullet_impact", SoundCategory.PLAYERS, 1f, 1f)
             }
         }
     }
@@ -371,7 +512,7 @@ class FirearmShotsTest : StringSpec({
             f.hits.size shouldBe 1
             f.hits.single().second shouldBe ((shotgun.pellets * shotgun.damagePerPellet) plusOrMinus 1e-8)
             verify(exactly = 1) {
-                f.world.playSound(any<Location>(), "arc:bullet_impact", SoundCategory.PLAYERS, .8f, 1f)
+                f.world.playSound(any<Location>(), "arc:bullet_impact", SoundCategory.PLAYERS, 1f, 1f)
             }
         }
     }
@@ -409,7 +550,7 @@ class FirearmShotsTest : StringSpec({
                 else "arc:weapon_${spec.id.name.lowercase()}_fire"
             val profile = firearmFlightProfile(spec.id)
             verify(exactly = firearmRoundPellets(spec).size) {
-                f.world.playSound(any<Location>(), key, SoundCategory.PLAYERS, profile.volume, 1f)
+                f.world.playSound(any<Location>(), key, SoundCategory.PLAYERS, profile.volume, profile.pitch)
             }
             verify(exactly = 0) {
                 f.world.playSound(any<Location>(), Sound.ENTITY_FIREWORK_ROCKET_BLAST, any<Float>(), any<Float>())
@@ -439,7 +580,7 @@ class FirearmShotsTest : StringSpec({
                 f.until { fired }
                 val profile = firearmFlightProfile(id)
                 verify(exactly = spec.roundsPerShot) {
-                    f.world.playSound(any<Location>(), key, SoundCategory.PLAYERS, profile.volume, 1f)
+                    f.world.playSound(any<Location>(), key, SoundCategory.PLAYERS, profile.volume, profile.pitch)
                 }
                 muzzles.size shouldBe spec.roundsPerShot
                 muzzles.forEach { sound ->
@@ -485,13 +626,13 @@ class FirearmShotsTest : StringSpec({
             f.preset = FirearmSoundPreset.HEAVY
             f.until { fired }
             verify(exactly = 3) {
-                f.world.playSound(any<Location>(), "arc:weapon_preset_sharp_fire", SoundCategory.PLAYERS, 2.7f, 1f)
+                f.world.playSound(any<Location>(), "arc:weapon_preset_sharp_fire", SoundCategory.PLAYERS, 2.7f, .96f)
             }
             fired = false
             f.fire(burst, afterFiring = { fired = it }) shouldBe true
             f.until { fired }
             verify(exactly = 3) {
-                f.world.playSound(any<Location>(), "arc:weapon_preset_heavy_fire", SoundCategory.PLAYERS, 2.7f, 1f)
+                f.world.playSound(any<Location>(), "arc:weapon_preset_heavy_fire", SoundCategory.PLAYERS, 2.7f, .96f)
             }
         }
     }
@@ -515,8 +656,8 @@ class FirearmShotsTest : StringSpec({
             f.ray = { origin, direction, _ -> RayTraceResult(origin.toVector().add(direction.clone()), wall, null) }
             f.fire() shouldBe true
             f.until { f.rays.isNotEmpty() }
-            verify(exactly = 1) { f.world.playSound(any<Location>(), "arc:bullet_impact", SoundCategory.PLAYERS, .8f, 1f) }
-            verify(exactly = 1) { f.world.playSound(any<Location>(), Sound.BLOCK_STONE_HIT, .35f, 1.2f) }
+            verify(exactly = 1) { f.world.playSound(any<Location>(), "arc:bullet_impact", SoundCategory.PLAYERS, 1f, 1f) }
+            verify(exactly = 1) { f.world.playSound(any<Location>(), Sound.BLOCK_STONE_HIT, SoundCategory.PLAYERS, .65f, 1f) }
             verify(exactly = 0) { f.world.spawnParticle(any<Particle>(), any<Location>(), any<Int>(), any<Double>(), any<Double>(), any<Double>(), any<Double>()) }
             verify(exactly = 0) { f.world.spawnParticle(any<Particle>(), any<Location>(), any<Int>(), any<Double>(), any<Double>(), any<Double>(), any<Double>(), any<BlockData>()) }
         }
@@ -582,7 +723,7 @@ class FirearmShotsTest : StringSpec({
             }
             verify(exactly = 1) {
                 f.world.playSound(match<Location> { it.toVector().distanceSquared(contact) < 1e-8 },
-                    "arc:bullet_impact", SoundCategory.PLAYERS, .8f, 1f)
+                    "arc:bullet_impact", SoundCategory.PLAYERS, 1f, 1f)
             }
             f.hits.isEmpty() shouldBe true
         }
@@ -624,6 +765,7 @@ class FirearmShotsTest : StringSpec({
 
     "shotgun pellets share one physical wall impact sound and retain its material layer" {
         withShotFixture { f ->
+            f.enableVisuals()
             f.soundsEnabled = true
             val shotgun = TttFirearmCatalog.specs.getValue(FirearmId.DOUBLE_BARREL).copy(spreadDegrees = 0.0)
             val wall = mockk<Block>(relaxed = true)
@@ -631,8 +773,11 @@ class FirearmShotsTest : StringSpec({
             f.ray = { origin, direction, _ -> RayTraceResult(origin.toVector().add(direction.clone().multiply(8.0)), wall, null) }
             f.fire(shotgun) shouldBe true
             f.until { f.rays.size == shotgun.pellets }
-            verify(exactly = 1) { f.world.playSound(any<Location>(), "arc:bullet_impact", SoundCategory.PLAYERS, .8f, 1f) }
-            verify(exactly = 1) { f.world.playSound(any<Location>(), Sound.BLOCK_STONE_HIT, .35f, 1.2f) }
+            verify(exactly = 1) { f.world.playSound(any<Location>(), "arc:bullet_impact", SoundCategory.PLAYERS, 1f, 1f) }
+            verify(exactly = 1) { f.world.playSound(any<Location>(), Sound.BLOCK_STONE_HIT, SoundCategory.PLAYERS, .65f, 1f) }
+            verify(exactly = 1) {
+                f.world.spawnParticle(Particle.BLOCK, any<Location>(), 8, .06, .06, .06, .12, wall.blockData)
+            }
             f.hits.isEmpty() shouldBe true
         }
     }
@@ -737,6 +882,8 @@ private class ShotFixture(val scheduler: TestTaskScheduler) : AutoCloseable {
     val births = mutableListOf<Pair<Int, Location>>()
     data class Frame(val position: Location, val transform: Transformation)
     val frames = mutableListOf<Frame>()
+    data class ParticleBirth(val particle: Particle, val at: Location, val count: Int, val offsets: Vector, val extra: Double)
+    val particleBirths = mutableListOf<ParticleBirth>()
     val filters = mutableListOf<java.util.function.Predicate<Entity>>()
     var aimHit: RayTraceResult? = null
     var barrelHit: (Location, Vector, Double) -> RayTraceResult? = { _, _, _ -> null }
@@ -793,6 +940,10 @@ private class ShotFixture(val scheduler: TestTaskScheduler) : AutoCloseable {
         mockkStatic(Bukkit::class)
         mockedBukkit = true
         every { Bukkit.createBlockData(Material.YELLOW_CONCRETE) } returns mockk(relaxed = true)
+        every { world.spawnParticle(any<Particle>(), any<Location>(), any<Int>(), any<Double>(), any<Double>(), any<Double>(), any<Double>()) } answers {
+            particleBirths += ParticleBirth(firstArg(), secondArg<Location>().clone(), thirdArg(),
+                Vector(arg<Double>(3), arg<Double>(4), arg<Double>(5)), arg(6))
+        }
         every { displays.spawnBlock(any(), any()) } answers {
             var position = firstArg<Location>().clone()
             births += tick to position.clone()
@@ -811,13 +962,13 @@ private class ShotFixture(val scheduler: TestTaskScheduler) : AutoCloseable {
         hitDetails += details
     }
 
-    fun until(done: () -> Boolean) {
-        repeat(35) {
+    fun until(maximumTicks: Int = 35, done: () -> Boolean) {
+        repeat(maximumTicks) {
             if (done()) return
             tick++
             scheduler.tick()
         }
-        error("Shot did not reach the expected state in 35 ticks: rays=${rays.size}, hits=${hits.size}")
+        error("Shot did not reach the expected state in $maximumTicks ticks: rays=${rays.size}, hits=${hits.size}")
     }
 
     override fun close() {

@@ -93,7 +93,7 @@ class WorldFirearms(
         if (!pdc.has(firearmKey) && !pdc.has(loadedKey)) return WorldFirearmState(id, 0)
         if (pdc.get(firearmKey, PersistentDataType.STRING) != id.name) return null
         val loaded = pdc.get(loadedKey, PersistentDataType.INTEGER) ?: return null
-        return WorldFirearmState(id, loaded).takeIf { loaded in 0..firearms.spec(id).magazineSize }
+        return WorldFirearmState(id, loaded).takeIf { loaded in 0..spec(item).magazineSize }
     }
 
     internal fun ammoHudState(player: Player): FirearmAmmoHudState? {
@@ -101,7 +101,7 @@ class WorldFirearms(
         if (!eligible(player)) return null
         return FirearmAmmoHudState(
             loaded = state.loaded,
-            capacity = firearms.spec(state.id).magazineSize,
+            capacity = spec(player.inventory.itemInMainHand).magazineSize,
             reserve = reserve(player.inventory.storageContents),
             creative = player.gameMode == GameMode.CREATIVE,
             reloading = player.uniqueId in reloads || scopes.isReloading(player.uniqueId),
@@ -150,7 +150,7 @@ class WorldFirearms(
         scopes.cancelReload(playerId)
         val now = clock()
         if (now < (cooldownUntil[playerId] ?: Long.MIN_VALUE)) return false
-        val spec = firearms.spec(state.id)
+        val spec = spec(player.inventory.itemInMainHand)
         val trigger = if (creative) spec else firearmTriggerSpec(spec, state.loaded)
         if (trigger == null) {
             if (reserve(player.inventory.storageContents) > 0) return reload(player)
@@ -202,13 +202,13 @@ class WorldFirearms(
             val snapshot = player.inventory.itemInMainHand.clone()
             val slot = player.inventory.heldItemSlot
             val worldId = player.world.uid
-            scopes.animateReload(player, FirearmScopeTarget(null, state.id, slot), firearms.spec(state.id).reloadTicks,
+            scopes.animateReload(player, scopeTarget(snapshot, slot), spec(player.inventory.itemInMainHand).reloadTicks,
                 sounds = reloadSounds(), stillCurrent = {
                     eligible(player) && player.gameMode == GameMode.CREATIVE && player.world.uid == worldId &&
                         player.inventory.heldItemSlot == slot && player.inventory.itemInMainHand == snapshot
                 })
             player.sendEventActionBar(locale.render("weapon.creative-ammo-actionbar", player, mapOf(
-                "weapon" to locale.render("weapon.${state.id.name.lowercase()}-name", player),
+                "weapon" to (player.inventory.itemInMainHand.itemMeta.displayName() ?: locale.render("weapon.${state.id.name.lowercase()}-name", player)),
             )))
             return true
         }
@@ -217,7 +217,7 @@ class WorldFirearms(
             return false
         }
         scopes.clear(player.uniqueId)
-        val spec = firearms.spec(state.id)
+        val spec = spec(player.inventory.itemInMainHand)
         if (state.loaded >= spec.magazineSize) {
             feedback(player, "magazine-full-actionbar")
             return false
@@ -238,7 +238,7 @@ class WorldFirearms(
             feedback(player, "world-busy-actionbar")
             return false
         }
-        pending.presentation = scopes.animateReload(player, FirearmScopeTarget(null, state.id, pending.slot), spec.reloadTicks,
+        pending.presentation = scopes.animateReload(player, scopeTarget(pending.snapshot, pending.slot), spec.reloadTicks,
             sounds = reloadSounds(), stillCurrent = {
                 reloads[player.uniqueId] === pending && eligible(player) && player.gameMode != GameMode.CREATIVE &&
                     player.world.uid == pending.worldId && player.inventory.heldItemSlot == pending.slot &&
@@ -264,7 +264,7 @@ class WorldFirearms(
         val contents = player.inventory.storageContents
         val held = contents.getOrNull(pending.slot) ?: return
         if (held != pending.snapshot || state(held) != pending.state) return
-        val spec = firearms.spec(pending.state.id)
+        val spec = spec(pending.snapshot)
         val consumed = minOf(spec.magazineSize - pending.state.loaded, reserve(contents))
         if (consumed <= 0) return
         val loaded = pending.state.loaded + consumed
@@ -272,7 +272,7 @@ class WorldFirearms(
         var remaining = consumed
         for (slot in contents.indices) {
             if (remaining == 0) break
-            val stack = contents[slot]?.takeIf(::vanillaAmmo) ?: continue
+            val stack = contents[slot]?.takeIf(::usableAmmo) ?: continue
             val take = minOf(stack.amount, remaining)
             contents[slot] = if (take == stack.amount) null else stack.clone().also { it.amount -= take }
             remaining -= take
@@ -294,10 +294,16 @@ class WorldFirearms(
         }) { "Ordinary firearm metadata could not be updated: $id" }
     }
 
-    private fun vanillaAmmo(item: ItemStack): Boolean = item.isSimilar(vanillaAmmunition)
+    private fun usableAmmo(item: ItemStack): Boolean =
+        item.isSimilar(vanillaAmmunition) || firearms.isWorldAmmunition(item) ||
+            (!item.itemMeta.persistentDataContainer.has(eventItemKey) && itemIdentity(item) == "arc:firearm_ammo")
+
+    private fun spec(item: ItemStack) = requireNotNull(packedFirearms[itemIdentity(item)]).let { it.spec(firearms.spec(it.profile)) }
+
+    private fun scopeTarget(item: ItemStack, slot: Int) = requireNotNull(packedScopeTarget(requireNotNull(itemIdentity(item)), slot))
 
     private fun reserve(contents: Array<ItemStack?>): Int = contents.sumOf { item ->
-        if (item != null && vanillaAmmo(item)) item.amount else 0
+        if (item != null && usableAmmo(item)) item.amount else 0
     }
 
     private fun feedback(player: Player, key: String) = player.sendEventActionBar(locale.render("weapon.$key", player))

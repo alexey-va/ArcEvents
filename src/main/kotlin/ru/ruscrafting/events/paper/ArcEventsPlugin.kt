@@ -302,6 +302,8 @@ open class ArcEventsPlugin : JavaPlugin() {
                     (player.uniqueId !in escrow.pendingPlayers() || activeService.isParticipant(player.uniqueId)) },
             ))
             server.pluginManager.registerEvents(firearmItems, this)
+            val ammoRecipe = lifecycle.own(FirearmAmmoRecipe(this, firearms))
+            server.pluginManager.registerEvents(ammoRecipe, this)
             server.onlinePlayers.forEach(firearmItems::refreshLater)
             val firearmHud = lifecycle.own(FirearmAmmoHud(packetDisplays, locale) { player ->
                 if (preparing || escrow.isLocked(player.uniqueId)) null

@@ -76,6 +76,32 @@ class ArcEventsConfigTest : StringSpec({
         } finally { root.toFile().deleteRecursively() }
     }
 
+    "zombies configuration keeps its solo team arena and native supply interface under the host lease" {
+        val root = Files.createTempDirectory("arcevents-zombies-config-")
+        try {
+            val relay = ArcEventsConfig.load(root)
+            relay.arcade.zombies.minimumPlayers shouldBe 1
+            relay.arcade.zombies.maximumPlayers shouldBe 4
+            relay.zombies.waves shouldBe 10
+            relay.arenas.none { it.id == "zombies" } shouldBe true
+            val file = root.resolve("config.yml")
+            val original = Files.readString(file).replace("node-mode: RELAY", "node-mode: HOST")
+            Files.writeString(file, original)
+            val host = ArcEventsConfig.inspect(root)
+            host.arenas.single { it.id == "zombies" }.let {
+                it.world shouldBe "arcevents_zombies_zero"
+                it.template shouldBe "zombies-zero-v1"
+                it.operational(4) shouldBe true
+            }
+            Files.writeString(file, original.replace("waves: 10", "waves: 12"))
+            val changed = ArcEventsConfig.inspect(root)
+            shouldNotThrowAny { ArcEventsReloadPolicy.validate(host, changed, false) }
+            shouldThrow<IllegalArgumentException> { ArcEventsReloadPolicy.validate(host, changed, true, "zombies") }
+            Files.writeString(file, original.replace("waves: 10", "waves: 21"))
+            shouldThrow<IllegalArgumentException> { ArcEventsConfig.inspect(root) }
+        } finally { root.toFile().deleteRecursively() }
+    }
+
     "fishing is solo and reloads tuned rules only between expeditions" {
         val root = Files.createTempDirectory("arcevents-fishing-config-")
         try {
@@ -422,7 +448,7 @@ class ArcEventsConfigTest : StringSpec({
         arena.operational(16) shouldBe false
     }
 
-    "reviewed parkour profile exposes four combat maps and two dedicated arcade arenas" {
+    "reviewed parkour profile exposes four combat maps and three dedicated arcade arenas" {
         val repository = opsRoot()
         val config = ArcEventsConfig.inspect(repository.resolve("parkour/plugins/ArcEvents"))
 
@@ -433,10 +459,11 @@ class ArcEventsConfigTest : StringSpec({
             "ttt-minecraft-b5",
             "disasters",
             "fishing",
+            "zombies",
         )
         config.defaultArenaId shouldBe "inferno"
         config.arenas.all { it.operational(config.ttt.maximumPlayers) } shouldBe true
-        val importedArenas = config.arenas.filter { it.id !in setOf("disasters", "fishing") && it.template.endsWith("-v1") }
+        val importedArenas = config.arenas.filter { it.id !in setOf("disasters", "fishing", "zombies") && it.template.endsWith("-v1") }
         importedArenas.all { it.spawns.size == 1 } shouldBe true
         importedArenas.all { it.lootSpawns.size >= 32 } shouldBe true
         importedArenas.all { it.weaponCount == 30 } shouldBe true

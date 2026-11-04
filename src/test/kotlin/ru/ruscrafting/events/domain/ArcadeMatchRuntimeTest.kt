@@ -15,7 +15,7 @@ class ArcadeMatchRuntimeTest : StringSpec({
         EventMode.fromId("unknown") shouldBe null
     }
 
-    "only fishing accepts a solo roster and victory still requires completion" {
+    "fishing keeps its single-player roster and victory requires completion" {
         val solo = players(1)
         val rules = ArcadeRules(1, 1, 0, 0, 30)
         shouldThrow<IllegalArgumentException> { ArcadeMatchRuntime().start(UUID.randomUUID(), EventMode.GUN_GAME, solo, rules) }
@@ -53,6 +53,44 @@ class ArcadeMatchRuntimeTest : StringSpec({
         quit.markRecoveryApplied(id)
         quit.release()
         quit.current shouldBe null
+    }
+
+    "zombies accept solo or four players and resolve only when their director completes" {
+        val rules = ArcadeRules(1, 4, 0, 0, 30)
+        for (count in 1..4) {
+            val roster = players(count)
+            val runtime = ArcadeMatchRuntime { 0L }
+            runtime.start(UUID.randomUUID(), EventMode.ZOMBIES, roster, rules)
+            runtime.tick().phase shouldBe MatchPhase.ACTIVE
+            val id = roster.first().playerId
+            runtime.eliminate(id, null).phase shouldBe MatchPhase.ACTIVE
+            runtime.current!!.participants.getValue(id).status shouldBe ParticipantStatus.DEAD
+            runtime.reviveZombies(id).participants.getValue(id).status shouldBe ParticipantStatus.ALIVE
+            runtime.recordZombieKill(id)
+            runtime.completeZombies(true, 10).let { match ->
+                match.phase shouldBe MatchPhase.RESOLVING
+                match.winners shouldBe roster.map { it.playerId }.toSet()
+                match.participants.getValue(id).kills shouldBe 1
+                match.participants.values.all { it.score == 10 } shouldBe true
+            }
+        }
+        shouldThrow<IllegalArgumentException> { ArcadeMatchRuntime().start(UUID.randomUUID(), EventMode.ZOMBIES, players(5), rules) }
+    }
+
+    "zombies continue after a teammate quits but timeout and the last departure never grant victory" {
+        val clock = Clock()
+        val runtime = ArcadeMatchRuntime(clock::read)
+        val roster = players(2)
+        runtime.start(UUID.randomUUID(), EventMode.ZOMBIES, roster, ArcadeRules(1, 4, 0, 0, 30))
+        runtime.tick()
+        runtime.disconnect(roster.first().playerId).phase shouldBe MatchPhase.ACTIVE
+        clock.now = 30_000
+        runtime.tick().winners shouldBe emptySet()
+        runtime.phase shouldBe MatchPhase.RESOLVING
+        val solo = ArcadeMatchRuntime { 0L }
+        solo.start(UUID.randomUUID(), EventMode.ZOMBIES, players(1), ArcadeRules(1, 4, 0, 0, 30))
+        solo.tick()
+        solo.disconnect(players(1).single().playerId).phase shouldBe MatchPhase.CANCELLED
     }
 
     "rules reject inverted and negative bounds" {

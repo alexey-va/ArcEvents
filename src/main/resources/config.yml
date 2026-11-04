@@ -214,6 +214,7 @@ ui:
         gungame: {slot: 2}
         disasters: {slot: 6}
         fishing: {slot: 13}
+        zombies: {slot: 15}
         statistics: {slot: 18}
         help: {slot: 22}
         admin: {slot: 26}
@@ -337,6 +338,19 @@ ttt:
   body-despawn-seconds: 600
 
 arcade:
+  zombies:
+    # Shared queue, 1–4 players. All points, upgrades and issued equipment are match-local.
+    minimum-players: 1
+    maximum-players: 4
+    preparation-seconds: 5
+    countdown-seconds: 3
+    round-seconds: 1800
+    post-round-seconds: 8
+    waves: 10
+    intermission-seconds: 15
+    maximum-alive: 28
+    arena:
+      world: arcevents_zombies_zero
   fishing:
     # One personal expedition. Existing public modes keep their own player limits.
     minimum-players: 1

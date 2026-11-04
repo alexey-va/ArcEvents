@@ -94,6 +94,12 @@ interface ArcEventsGameplayBoundary {
     fun handleFishing(event: PlayerFishEvent) = Unit
     fun handleFishingDamage(event: EntityDamageEvent): Boolean = false
     fun handleFishingInteract(event: PlayerInteractEvent): Boolean = false
+    fun isZombiesParticipant(playerId: UUID): Boolean = false
+    fun zombiesAdventure(player: Player): ZombiesAdventure? = null
+    fun handleZombiesDamage(event: EntityDamageEvent): Boolean = false
+    fun handleZombiesMove(event: PlayerMoveEvent): Boolean = false
+    fun handleZombiesMelee(player: Player, entity: Entity): Boolean = false
+    fun handleZombiesTarget(event: org.bukkit.event.entity.EntityTargetLivingEntityEvent): Boolean = false
 }
 
 class ArcEventsListener(
@@ -125,6 +131,12 @@ class ArcEventsListener(
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)
     fun onFishingTargetDamage(event: EntityDamageEvent) {
         service.handleFishingDamage(event)
+        service.handleZombiesDamage(event)
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    fun onZombiesTarget(event: org.bukkit.event.entity.EntityTargetLivingEntityEvent) {
+        service.handleZombiesTarget(event)
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -135,7 +147,7 @@ class ArcEventsListener(
         val projectile = damager as? Projectile
         val attacker = damager?.let(::attacker)
         val victimParticipates = service.isParticipant(victim.uniqueId)
-        if (!victimParticipates && attacker?.let { service.isFishingParticipant(it.uniqueId) } != true &&
+        if (!victimParticipates && attacker?.let { service.isFishingParticipant(it.uniqueId) || service.isZombiesParticipant(it.uniqueId) } != true &&
             (victim.bypassesEventProtection() || attacker?.bypassesEventProtection() == true)
         ) return
         if (service.withinProtectedArena(victim.location) && !victimParticipates) {
@@ -226,6 +238,12 @@ class ArcEventsListener(
     fun onInteract(event: PlayerInteractEvent) {
         val player = event.player
         val clicked = event.clickedBlock
+        val station = clicked?.location?.let { service.zombiesAdventure(player)?.stationAt(it) }
+        if (station != null) {
+            event.isCancelled = true
+            if (event.hand == EquipmentSlot.HAND && event.action == Action.RIGHT_CLICK_BLOCK) menu.openZombiesSupply(player, station)
+            return
+        }
         if (event.hand == EquipmentSlot.HAND && event.action == Action.RIGHT_CLICK_BLOCK &&
             clicked?.type == Material.BARREL && service.fishingAdventure(player) != null
         ) {
@@ -290,6 +308,13 @@ class ArcEventsListener(
     // Attacking a nearby entity does not emit PlayerInteractEvent's left-click route.
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onFirearmAttack(event: PrePlayerAttackEntityEvent) {
+        if (service.handleZombiesMelee(event.player, event.attacked)) {
+            // The firearm path below must still launch a shot; only the issued knife is applied directly.
+            if (itemResolver.kind(event.player.inventory.itemInMainHand) != EventItemKind.FIREARM) {
+                event.isCancelled = true
+                return
+            }
+        }
         if (worldFirearms?.attack(event) == true) return
         val player = event.player
         val held = player.inventory.itemInMainHand
@@ -350,7 +375,7 @@ class ArcEventsListener(
             return
         }
         clearWeaponState(player.uniqueId)
-        if (player.bypassesEventProtection() && !service.isFishingParticipant(player.uniqueId)) return
+        if (player.bypassesEventProtection() && !service.isFishingParticipant(player.uniqueId) && !service.isZombiesParticipant(player.uniqueId)) return
         if (event.view.topInventory.location?.let(service::withinProtectedArena) == true ||
             service.isParticipant(player.uniqueId) && service.phase() in CONTROLLED_PHASES
         ) event.isCancelled = true
@@ -359,7 +384,7 @@ class ArcEventsListener(
     @EventHandler fun onMenuDrag(event: InventoryDragEvent) {
         val player = event.whoClicked as? Player ?: return
         clearWeaponState(player.uniqueId)
-        if (player.bypassesEventProtection() && !service.isFishingParticipant(player.uniqueId)) return
+        if (player.bypassesEventProtection() && !service.isFishingParticipant(player.uniqueId) && !service.isZombiesParticipant(player.uniqueId)) return
         if (event.view.topInventory.location?.let(service::withinProtectedArena) == true ||
             service.isParticipant(player.uniqueId) && service.phase() in CONTROLLED_PHASES
         ) event.isCancelled = true
@@ -367,7 +392,7 @@ class ArcEventsListener(
 
     @EventHandler(ignoreCancelled = true) fun onDrop(event: PlayerDropItemEvent) {
         clearWeaponState(event.player.uniqueId)
-        if (event.player.bypassesEventProtection() && !service.isFishingParticipant(event.player.uniqueId)) return
+        if (event.player.bypassesEventProtection() && !service.isFishingParticipant(event.player.uniqueId) && !service.isZombiesParticipant(event.player.uniqueId)) return
         if (service.canDropLoot(event.player, event.itemDrop.itemStack)) {
             service.registerDroppedLoot(event.itemDrop)
             return
@@ -378,7 +403,7 @@ class ArcEventsListener(
     }
     @EventHandler(ignoreCancelled = true) fun onPickup(event: EntityPickupItemEvent) {
         val player = event.entity as? Player ?: return
-        if (player.bypassesEventProtection() && !service.isFishingParticipant(player.uniqueId)) return
+        if (player.bypassesEventProtection() && !service.isFishingParticipant(player.uniqueId) && !service.isZombiesParticipant(player.uniqueId)) return
         if (service.canPickupLoot(player, event.item)) return
         if (service.withinProtectedArena(player.location) || service.isParticipant(player.uniqueId) && service.phase() in CONTROLLED_PHASES) {
             event.isCancelled = true
@@ -399,23 +424,23 @@ class ArcEventsListener(
         }
     }
     @EventHandler(ignoreCancelled = true) fun onBreak(event: BlockBreakEvent) {
-        if (event.player.bypassesEventProtection()) return
+        if (event.player.bypassesEventProtection() && !service.isZombiesParticipant(event.player.uniqueId)) return
         if (service.withinProtectedArena(event.block.location) || service.isParticipant(event.player.uniqueId) && service.phase() in CONTROLLED_PHASES) {
             event.isCancelled = true
         }
     }
     @EventHandler(ignoreCancelled = true) fun onPlace(event: BlockPlaceEvent) {
-        if (event.player.bypassesEventProtection()) return
+        if (event.player.bypassesEventProtection() && !service.isZombiesParticipant(event.player.uniqueId)) return
         if (service.withinProtectedArena(event.block.location) || service.isParticipant(event.player.uniqueId) && service.phase() in CONTROLLED_PHASES) {
             event.isCancelled = true
         }
     }
     @EventHandler(ignoreCancelled = true) fun onBucketEmpty(event: PlayerBucketEmptyEvent) {
-        if (event.player.bypassesEventProtection()) return
+        if (event.player.bypassesEventProtection() && !service.isZombiesParticipant(event.player.uniqueId)) return
         if (service.withinProtectedArena(event.block.location)) event.isCancelled = true
     }
     @EventHandler(ignoreCancelled = true) fun onBucketFill(event: PlayerBucketFillEvent) {
-        if (event.player.bypassesEventProtection()) return
+        if (event.player.bypassesEventProtection() && !service.isZombiesParticipant(event.player.uniqueId)) return
         if (service.withinProtectedArena(event.block.location)) event.isCancelled = true
     }
     @EventHandler(ignoreCancelled = true) fun onBlockBurn(event: BlockBurnEvent) {
@@ -446,10 +471,11 @@ class ArcEventsListener(
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onMove(event: PlayerMoveEvent) {
         if (event is PlayerTeleportEvent) return
+        if (service.handleZombiesMove(event)) return
         if (event.from.x != event.to.x || event.from.y != event.to.y || event.from.z != event.to.z) {
             service.cancelMapSpawnReturn(event.player.uniqueId)
         }
-        if (event.player.bypassesEventProtection()) return
+        if (event.player.bypassesEventProtection() && !service.isZombiesParticipant(event.player.uniqueId)) return
         if (!service.isParticipant(event.player.uniqueId) || service.phase() !in CONTROLLED_PHASES) return
         if (!service.withinArena(event.to)) event.isCancelled = true
     }
@@ -457,7 +483,7 @@ class ArcEventsListener(
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onTeleport(event: PlayerTeleportEvent) {
         clearWeaponState(event.player.uniqueId)
-        if (event.player.bypassesEventProtection()) return
+        if (event.player.bypassesEventProtection() && !service.isZombiesParticipant(event.player.uniqueId)) return
         val participant = service.isParticipant(event.player.uniqueId)
         if (service.isInternalTeleport(event.player.uniqueId, event.to)) return
         if (!participant && service.withinProtectedArena(event.to)) {
@@ -471,7 +497,7 @@ class ArcEventsListener(
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onCommand(event: PlayerCommandPreprocessEvent) {
-        if (event.player.bypassesEventProtection()) return
+        if (event.player.bypassesEventProtection() && !service.isZombiesParticipant(event.player.uniqueId)) return
         if (!service.isParticipant(event.player.uniqueId) || service.phase() !in CONTROLLED_PHASES) return
         val root = event.message.removePrefix("/").substringBefore(' ').lowercase()
         if (root != "arcevents") event.isCancelled = true
@@ -484,7 +510,7 @@ class ArcEventsListener(
     }
 
     private fun Player.bypassesEventProtection(): Boolean = hasPermission(ADMIN_BYPASS_PERMISSION) &&
-        !service.isFishingParticipant(uniqueId)
+        !service.isFishingParticipant(uniqueId) && !service.isZombiesParticipant(uniqueId)
 
     companion object {
         internal const val ADMIN_BYPASS_PERMISSION = "arcevents.admin"

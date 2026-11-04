@@ -82,7 +82,7 @@ class ArenaWorldProvisioner(private val plugin: Plugin,
         require(!Files.isSymbolicLink(folder)) { "Arena world directory must not be a symbolic link" }
         val existed = Files.exists(folder)
         require(!existed || Files.isDirectory(folder)) { "Arena path must be a directory" }
-        val builtIn = arena.template in setOf(TttCitadelBlueprint.TEMPLATE, DisasterArenaGenerator.TEMPLATE, FishingArenaGenerator.TEMPLATE)
+        val builtIn = arena.template in setOf(TttCitadelBlueprint.TEMPLATE, DisasterArenaGenerator.TEMPLATE, FishingArenaGenerator.TEMPLATE, ZombiesArenaGenerator.TEMPLATE)
         val packaged = PackagedArenaTemplates.find(arena.template)
         val imported = ReviewedImportedArenaTemplates.find(arena.template)
         require(arena.template.isEmpty() || builtIn || packaged != null || imported != null) { "Arena template ${arena.template} is not reviewed" }
@@ -113,6 +113,7 @@ class ArenaWorldProvisioner(private val plugin: Plugin,
                 when {
                     arena.template == FishingArenaGenerator.TEMPLATE -> creator.seed(FishingArenaGenerator.SEED).generator(FishingArenaGenerator())
                     arena.template == DisasterArenaGenerator.TEMPLATE -> creator.seed(73491L).generator(DisasterArenaGenerator())
+                    arena.template == ZombiesArenaGenerator.TEMPLATE -> creator.seed(73492L).generator(ZombiesArenaGenerator())
                     prepared.builtIn -> creator.seed(TttCitadelBlueprint.SEED).generator(TttCitadelChunkGenerator())
                     else -> creator.generator(EmptyArenaChunkGenerator())
                 }
@@ -609,7 +610,7 @@ class ArenaWorldProvisioner(private val plugin: Plugin,
         val bounds = requireNotNull(arena.bounds)
         val lobby = requireNotNull(arena.lobby)
         applyRuntimeTuning(world, settings)
-        world.difficulty = Difficulty.PEACEFUL
+        world.difficulty = if (arena.template == ZombiesArenaGenerator.TEMPLATE) Difficulty.NORMAL else Difficulty.PEACEFUL
         world.setSpawnFlags(false, false)
         world.setGameRule(GameRules.PVP, true)
         world.setGameRule(GameRules.SPAWN_MOBS, false)
@@ -624,7 +625,7 @@ class ArenaWorldProvisioner(private val plugin: Plugin,
         world.setGameRule(GameRules.RESPAWN_RADIUS, 0)
         world.setGameRule(GameRules.COMMAND_BLOCKS_WORK, false)
         world.setGameRule(GameRules.COMMAND_BLOCK_OUTPUT, false)
-        world.time = 6000L
+        world.time = if (arena.template == ZombiesArenaGenerator.TEMPLATE) 18000L else 6000L
         world.setStorm(false)
         world.isThundering = false
         world.setSpawnLocation(lobby.x.toInt(), lobby.y.toInt(), lobby.z.toInt())
