@@ -76,7 +76,7 @@ async function waitForFiringPosition(...players) {
 }
 
 async function teleportTo(actor, target, x, y, z) {
-  actor.chat(`/tp ${target.username} ${x} ${y} ${z}`);
+  actor.chat(`/execute at ${target.username} run tp ${target.username} ${x} ${y} ${z}`);
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const position = target.bot.entity?.position;
     if (position && Math.hypot(position.x - x, position.y - y, position.z - z) < 1) return;
@@ -129,26 +129,27 @@ async function cleanup(players) {
   }
 }
 
-async function startGunGame(players) {
+async function startGunGame(players, admin) {
   await players[0].makeOp();
   players[0].chat(`/lp user ${players[0].username} permission set arcevents.start true`);
   await expect(players[0]).toHaveReceivedMessage('Set arcevents.start to true');
   for (const player of players) await join(player);
   players[0].chat('/arcevents start gungame');
-  await waitForQa(players[0], 'status', { game: 'gungame', phase: 'active', participants: players.length });
+  // Observe admission outside the roster while participant chat changes phase.
+  await waitForQa(admin, 'status', { game: 'gungame', phase: 'active', participants: players.length });
   for (const player of players) {
     const weapon = await waitForWeapon(player, 'flintlock');
     assert.match(JSON.stringify(weapon), /flintlock/i, `${player.username} did not receive the starting firearm`);
   }
 }
 
-async function startTtt(players) {
+async function startTtt(players, admin) {
   await players[0].makeOp();
   players[0].chat(`/lp user ${players[0].username} permission set arcevents.start true`);
   await expect(players[0]).toHaveReceivedMessage('Set arcevents.start to true');
   for (const player of players) await join(player);
   players[0].chat('/arcevents start ttt');
-  await waitForQa(players[0], 'status', { game: 'ttt', phase: 'active', participants: players.length });
+  await waitForQa(admin, 'status', { game: 'ttt', phase: 'active', participants: players.length });
 }
 
 async function qaPlayer(admin, player, pattern) {
@@ -199,6 +200,8 @@ async function shoot(attacker, victim) {
 test('Gun Game advances through every firearm and finishes on the real knife hit', async ({ player, createPlayer }) => {
   await waitForEventsReady();
   const rival = await createConnected(createPlayer, 'Rival');
+  const admin = await createConnected(createPlayer, 'EventQA');
+  await admin.makeOp();
   const players = [player, rival];
   const firearmIds = ['flintlock', 'revolver', 'hand_cannon', 'double_barrel', 'five_seven', 'g36', 'aek_971', 'rpl_20', 'vepr_12', 'm1_garand', 'vss_vintorez', 'mcmillan'];
   await player.makeOp();
@@ -208,7 +211,7 @@ test('Gun Game advances through every firearm and finishes on the real knife hit
   assertSeeded(rival, 1);
   const before = players.map(snapshot);
   try {
-    await startGunGame(players);
+    await startGunGame(players, admin);
     for (let stage = 0; stage < 12; stage += 1) {
       const weapon = await waitForWeapon(players[0], firearmIds[stage]);
       assert.ok(weapon, `missing Gun Game weapon at stage ${stage}`);
@@ -231,6 +234,7 @@ test('Gun Game advances through every firearm and finishes on the real knife hit
     players.forEach((entry, index) => assertRestored(entry, before[index]));
   } finally {
     await cleanup(players);
+    admin.bot.quit();
   }
 });
 
@@ -242,18 +246,20 @@ test('TTT assigns hidden roles, completes a real traitor blade win, and restores
     await createConnected(createPlayer, 'TttB'),
     await createConnected(createPlayer, 'TttC'),
   ];
+  const admin = await createConnected(createPlayer, 'EventQA');
+  await admin.makeOp();
   let traitor;
   const before = [];
   try {
     await player.makeOp();
     for (const [index, entry] of players.entries()) await seedPlayerState(player, entry, index);
     players.forEach((entry, index) => { assertSeeded(entry, index); before[index] = snapshot(entry); });
-    await startTtt(players);
+    await startTtt(players, admin);
     for (const entry of players) {
-      const marker = player.getMessageBufferIndex();
-      player.chat(`/arcevents debug player ${entry.username}`);
+      const marker = admin.getMessageBufferIndex();
+      admin.chat(`/arcevents debug player ${entry.username}`);
       try {
-        await expect(player).toHaveReceivedMessage(new RegExp(`player=${entry.username}.*phase=active.*role=traitor`, 'i'), { since: marker, timeout: 5000 });
+        await expect(admin).toHaveReceivedMessage(new RegExp(`player=${entry.username}.*phase=active.*role=traitor`, 'i'), { since: marker, timeout: 5000 });
         traitor = entry;
       } catch {
         // QA role output is intentionally used only by this permission-gated harness.
@@ -262,15 +268,16 @@ test('TTT assigns hidden roles, completes a real traitor blade win, and restores
     assert.ok(traitor, 'QA role snapshot did not identify a traitor');
     const victims = players.filter((entry) => entry !== traitor);
     for (const victim of victims) {
-      const bladeSlot = await grantTraitorBlade(player, traitor);
-      await tttKill(player, traitor, victim, bladeSlot);
+      const bladeSlot = await grantTraitorBlade(admin, traitor);
+      await tttKill(admin, traitor, victim, bladeSlot);
     }
-    await qaPlayer(player, traitor, new RegExp(`player=${traitor.username}.*role=traitor.*kills=3`));
+    await qaPlayer(admin, traitor, new RegExp(`player=${traitor.username}.*role=traitor.*kills=3`));
     await expect(traitor).toHaveReceivedMessage(/The report is ready/i, { timeout: 10000 });
     await Promise.all(players.map((entry, index) => waitForRestored(entry, before[index])));
     players.forEach((entry, index) => assertRestored(entry, before[index]));
   } finally {
     await cleanup(players);
+    admin.bot.quit();
   }
 });
 
@@ -278,6 +285,8 @@ test('Gun Game disconnect removes one participant while the two-player match sta
   await waitForEventsReady();
   const leaver = await createConnected(createPlayer, 'Leaver');
   const keeper = await createConnected(createPlayer, 'Keeper');
+  const admin = await createConnected(createPlayer, 'EventQA');
+  await admin.makeOp();
   const players = [player, leaver, keeper];
   let rejoined = null;
   await player.makeOp();
@@ -289,9 +298,9 @@ test('Gun Game disconnect removes one participant while the two-player match sta
   assertSeeded(keeper, 2);
   const before = players.map(snapshot);
   try {
-    await startGunGame(players);
+    await startGunGame(players, admin);
     players[1].bot.quit();
-    await waitForQa(players[0], 'status', { game: 'gungame', phase: 'active', alive: 2 });
+    await waitForQa(admin, 'status', { game: 'gungame', phase: 'active', alive: 2 });
     players[0].chat('/arcevents leave');
     players[2].chat('/arcevents leave');
     await Promise.all([
@@ -305,5 +314,6 @@ test('Gun Game disconnect removes one participant while the two-player match sta
     assertRestored(rejoined, before[1]);
   } finally {
     await cleanup(rejoined ? [...players, rejoined] : players);
+    admin.bot.quit();
   }
 });

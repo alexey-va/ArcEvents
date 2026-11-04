@@ -82,7 +82,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: alexey-va/ARC
-          ref: 560ccd424d82c0c5e3c70daeb1ddc8c47837c90a
+          ref: 980984180337697be006ae1526898c35ed56bb83 # ARC 1.4.527, matches the production runtime version
           path: e2e-arc
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
@@ -109,7 +109,7 @@ jobs:
           test -n "$arc_jar"
           ./gradlew --no-daemon plugwrightTest -Pe2eArcJar="$arc_jar" -Pe2eArcCoreJar=build/e2e-runtime/ArcCore-0.1.28.jar 2>&1 | tee build/plugwright-e2e.log
           git diff --exit-code -- src/test/e2e/package-lock.json
-      - name: Test hosted GunGame and TTT on real Paper
+      - name: Test hosted GunGame, TTT and Zombies on real Paper
         env:
           # Includes asynchronous arena readiness and the complete twelve-weapon progression.
           TEST_TIMEOUT: "120000"
