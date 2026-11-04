@@ -118,6 +118,8 @@ data class EventNetworkMessage(
     /** Set only by a trusted backend after checking arcevents.admin. */
     val adminBypass: Boolean = false,
     val mode: String = EventMode.TTT.id,
+    /** Omitted for ordinary starts so legacy closed wire readers remain compatible. */
+    val requesterOnly: Boolean? = null,
 ) {
     fun validated(): EventNetworkMessage = apply {
         require(UUID.fromString(eventId).toString() == eventId)
@@ -130,6 +132,9 @@ data class EventNetworkMessage(
         requesterId?.let { require(UUID.fromString(it).toString() == it) }
         preferredArenaId?.let { require(it.matches(Regex("[a-z0-9_-]{1,32}|auto"))) }
         require(EventMode.fromId(mode ?: EventMode.TTT.id) != null) { "Unsupported event mode" }
+        require(requesterOnly == null ||
+            requesterOnly == true && signal == EventNetworkSignal.START_REQUEST &&
+            mode == EventMode.ZOMBIES.id && requesterId != null) { "Invalid requester-only start" }
         when (signal) {
             EventNetworkSignal.QUEUE_CHANGED -> require(queueSize != null)
             EventNetworkSignal.FIREARM_SOUND_CHANGED -> require(
@@ -172,6 +177,7 @@ data class EventNetworkMessage(
             preferredArenaId: String? = null,
             adminBypass: Boolean = false,
             mode: String = EventMode.TTT.id,
+            requesterOnly: Boolean = false,
         ): EventNetworkMessage = EventNetworkMessage(
             eventId = UUID.randomUUID().toString(),
             signal = signal,
@@ -188,6 +194,7 @@ data class EventNetworkMessage(
             preferredArenaId = preferredArenaId,
             adminBypass = adminBypass,
             mode = mode,
+            requesterOnly = requesterOnly.takeIf { it },
         ).validated()
 
         private val START_RESULTS = setOf(

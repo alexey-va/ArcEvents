@@ -46,6 +46,8 @@ class ZombiesDirector(roster: Set<UUID>, val rules: ZombiesRules, now: Long) {
     var nextWaveAt = now + rules.intermissionSeconds * 1000L
         private set
     private var spawned = 0
+    private data class MysteryReservation(val weapon: FirearmId, val paid: Int)
+    private val mystery = mutableMapOf<UUID, MysteryReservation>()
 
     fun tick(now: Long) {
         if (phase == ZombiesPhase.INTERMISSION && now >= nextWaveAt) {
@@ -110,6 +112,7 @@ class ZombiesDirector(roster: Set<UUID>, val rules: ZombiesRules, now: Long) {
     }
 
     fun disconnect(id: UUID) {
+        cancelMystery(id, refund = false)
         players[id]?.let { players = players + (id to it.copy(status = ZombiesStatus.LEFT, recoveryAt = null, bleedOutAt = null)) }
         resolveDefeat()
     }
@@ -119,18 +122,44 @@ class ZombiesDirector(roster: Set<UUID>, val rules: ZombiesRules, now: Long) {
     fun canBuy(id: UUID, offer: ZombiesOffer): Boolean {
         val player = players[id] ?: return false
         return phase in setOf(ZombiesPhase.WAVE, ZombiesPhase.INTERMISSION) && player.status == ZombiesStatus.ALIVE &&
+            !(offer == ZombiesOffer.MYSTERY && id in mystery) &&
             !(offer == ZombiesOffer.POWER && player.power == 3) && !(offer == ZombiesOffer.VITALITY && player.vitality) &&
             player.points >= price(id, offer)
     }
 
-    fun buy(id: UUID, offer: ZombiesOffer, mystery: FirearmId? = null): Boolean {
+    fun buy(id: UUID, offer: ZombiesOffer): Boolean {
+        // Mystery weapons enter inventory only through a paid world-box reservation and claim.
+        if (offer == ZombiesOffer.MYSTERY) return false
         if (!canBuy(id, offer)) return false
         val player = players.getValue(id)
-        if (offer == ZombiesOffer.MYSTERY) require(mystery in MYSTERY_WEAPONS && mystery != player.weapon)
         players = players + (id to player.copy(points = player.points - price(id, offer),
-            weapon = if (offer == ZombiesOffer.MYSTERY) requireNotNull(mystery) else player.weapon,
             power = player.power + if (offer == ZombiesOffer.POWER) 1 else 0,
             vitality = player.vitality || offer == ZombiesOffer.VITALITY))
+        return true
+    }
+
+    fun reserveMystery(id: UUID, weapon: FirearmId): Boolean {
+        if (!canBuy(id, ZombiesOffer.MYSTERY)) return false
+        val player = players.getValue(id)
+        require(weapon in MYSTERY_WEAPONS && weapon != player.weapon)
+        val paid = price(id, ZombiesOffer.MYSTERY)
+        mystery[id] = MysteryReservation(weapon, paid)
+        players = players + (id to player.copy(points = player.points - paid))
+        return true
+    }
+
+    fun claimMystery(id: UUID): FirearmId? {
+        val player = players[id] ?: return null
+        if (player.status != ZombiesStatus.ALIVE || phase !in setOf(ZombiesPhase.WAVE, ZombiesPhase.INTERMISSION)) return null
+        val reserved = mystery.remove(id) ?: return null
+        players = players + (id to player.copy(weapon = reserved.weapon))
+        return reserved.weapon
+    }
+
+    /** Expiry/quit consumes the paid roll. Only technical cancellation returns its original debit once. */
+    fun cancelMystery(id: UUID, refund: Boolean): Boolean {
+        val reserved = mystery.remove(id) ?: return false
+        if (refund) players[id]?.let { players = players + (id to it.copy(points = it.points + reserved.paid)) }
         return true
     }
 

@@ -238,6 +238,12 @@ class ArcEventsListener(
     fun onInteract(event: PlayerInteractEvent) {
         val player = event.player
         val clicked = event.clickedBlock
+        if (event.hand == EquipmentSlot.HAND && event.action in setOf(Action.RIGHT_CLICK_BLOCK, Action.RIGHT_CLICK_AIR) &&
+            service.zombiesAdventure(player)?.interact(player, clicked?.location) == true
+        ) {
+            event.isCancelled = true
+            return
+        }
         val station = clicked?.location?.let { service.zombiesAdventure(player)?.stationAt(it) }
         if (station != null) {
             event.isCancelled = true

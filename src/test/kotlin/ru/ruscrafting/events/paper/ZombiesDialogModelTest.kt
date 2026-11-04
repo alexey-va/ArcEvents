@@ -37,17 +37,17 @@ class ZombiesDialogModelTest : StringSpec({
                 menu.openZombies(player, null, false, false, true, false, 22, 24, {}) shouldBe true
                 val entry = displayed.last()
                 entry.id shouldBe "events.zombies"
-                entry.buttons.single().id.value shouldBe "action_arcade_join_name"
+                entry.buttons.map { it.id.value } shouldBe listOf("action_arcade_zombies_solo_name", "action_arcade_zombies_team_name", "rules_zombies")
                 val text = entry.body.joinToString("\n") { plain.serialize(it.text) }
                 listOf("<waves>", "<minimum>", "<maximum>", "<queue_state>", "arcade.zombies").any(text::contains) shouldBe false
                 text.contains("10") shouldBe true
                 text.contains("1–4") shouldBe true
                 menu.openZombies(player, QueueState.QUEUED, true, false, true, false, 22, 24, {}) shouldBe true
-                displayed.last().buttons.map { it.id.value } shouldBe listOf("action_arcade_leave_name", "action_arcade_start_name")
+                displayed.last().buttons.map { it.id.value } shouldBe listOf("action_arcade_start_name", "action_arcade_leave_name", "rules_zombies")
                 menu.openZombies(player, null, false, true, true, false, 22, 24, {}) shouldBe true
-                displayed.last().buttons.single().id.value shouldBe "action_menu_event_evacuate_name"
+                displayed.last().buttons.map { it.id.value } shouldBe listOf("action_menu_event_evacuate_name", "rules_zombies")
                 menu.openZombies(player, null, false, false, false, true, 22, 24, {}) shouldBe true
-                displayed.last().buttons.isEmpty() shouldBe true
+                displayed.last().buttons.single().id.value shouldBe "rules_zombies"
             }
             dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL - 1, EventsView.Arcade(EventMode.ZOMBIES)) shouldBe false
             dialogFrontendSupported(false, MIN_DIALOG_PROTOCOL, EventsView.Arcade(EventMode.ZOMBIES)) shouldBe false

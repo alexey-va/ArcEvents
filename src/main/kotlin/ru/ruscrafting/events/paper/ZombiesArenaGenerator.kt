@@ -3,18 +3,28 @@ package ru.ruscrafting.events.paper
 import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.World
+import org.bukkit.block.BlockFace
+import org.bukkit.block.data.type.Chest
+import org.bukkit.block.data.type.Fence
 import org.bukkit.generator.ChunkGenerator
 import org.bukkit.generator.WorldInfo
 import ru.ruscrafting.events.domain.ZombiesOffer
 import java.util.Random
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.floor
 
 /** Zero Sector: ground-level circulation around a reactor, with readable cover and four supply bays. */
 class ZombiesArenaGenerator : ChunkGenerator() {
     override fun generateSurface(worldInfo: WorldInfo, random: Random, chunkX: Int, chunkZ: Int, chunkData: ChunkData) {
         for (x in 0..15) for (z in 0..15) for (y in 60..77) {
-            materialAt(chunkX * 16 + x, y, chunkZ * 16 + z)?.let { chunkData.setBlock(x, y, z, it) }
+            val wx = chunkX * 16 + x
+            val wz = chunkZ * 16 + z
+            materialAt(wx, y, wz)?.let { material ->
+                if (material == Material.CHEST) chunkData.setBlock(x, y, z, chestData(wx))
+                else if (material == Material.SPRUCE_FENCE) chunkData.setBlock(x, y, z, fenceData(wx, wz))
+                else chunkData.setBlock(x, y, z, material)
+            }
         }
     }
     override fun getFixedSpawnLocation(world: World, random: Random) = Location(world, .5, 65.0, -18.5)
@@ -26,10 +36,34 @@ class ZombiesArenaGenerator : ChunkGenerator() {
     override fun shouldGenerateStructures() = false
 
     companion object {
-        const val TEMPLATE = "zombies-zero-v1"
+        const val TEMPLATE = "zombies-zero-v2"
         val STATIONS = linkedMapOf(ZombiesOffer.AMMO to -12, ZombiesOffer.MYSTERY to -4,
             ZombiesOffer.POWER to 4, ZombiesOffer.VITALITY to 12)
-        val SPAWNS = listOf(-23 to -15, 23 to -15, -23 to 5, 23 to 5, -19 to 23, 19 to 23, -7 to 24, 7 to 24)
+        val WINDOWS = listOf(Window(-25, -15, 1, 0), Window(25, -15, -1, 0),
+            Window(-25, 5, 1, 0), Window(25, 5, -1, 0), Window(-7, 25, 0, -1), Window(7, 25, 0, -1))
+        val SPAWNS = WINDOWS.map { floor(it.spawnX).toInt() to floor(it.spawnZ).toInt() }
+        val MYSTERY_CHEST_X = -5..-4
+
+        data class Window(val x: Int, val z: Int, val inwardX: Int, val inwardZ: Int) {
+            val alongX get() = inwardZ
+            val alongZ get() = -inwardX
+            val spawnX get() = x + .5 - inwardX * 1.5
+            val spawnZ get() = z + .5 - inwardZ * 1.5
+            fun along(x: Double, z: Double) = (x - this.x - .5) * alongX + (z - this.z - .5) * alongZ
+            fun inward(x: Double, z: Double) = (x - this.x - .5) * inwardX + (z - this.z - .5) * inwardZ
+            fun gateCells() = (-1..1).map { offset -> Triple(x + alongX * offset, 65, z + alongZ * offset) }
+        }
+
+        fun chestData(x: Int): Chest = (Material.CHEST.createBlockData() as Chest).apply {
+            facing = BlockFace.SOUTH
+            type = if (x == MYSTERY_CHEST_X.first) Chest.Type.RIGHT else Chest.Type.LEFT
+        }
+
+        fun fenceData(x: Int, z: Int): Fence = (Material.SPRUCE_FENCE.createBlockData() as Fence).apply {
+            val window = WINDOWS.first { abs(it.along(x + .5, z + .5)) <= 1 && abs(it.inward(x + .5, z + .5)) < .1 }
+            val faces = if (window.alongX == 0) listOf(BlockFace.NORTH, BlockFace.SOUTH) else listOf(BlockFace.EAST, BlockFace.WEST)
+            faces.forEach { setFace(it, true) }
+        }
 
         fun materialAt(x: Int, y: Int, z: Int): Material? {
             if (abs(x) > 28 || abs(z) > 28 || y !in 60..77) return null
@@ -51,6 +85,17 @@ class ZombiesArenaGenerator : ChunkGenerator() {
                     else -> Material.DEEPSLATE_TILES
                 }
             }
+            // Six sealed ingress alcoves. Only their owned gate cells change during a match.
+            for (window in WINDOWS) {
+                val along = (x - window.x) * window.alongX + (z - window.z) * window.alongZ
+                val inward = (x - window.x) * window.inwardX + (z - window.z) * window.inwardZ
+                if (abs(along) <= 2 && inward in -2..0 && y <= 68) {
+                    if (y == 68) return if (along == 0 && inward == 0) Material.SEA_LANTERN else Material.POLISHED_DEEPSLATE
+                    if (abs(along) == 2) return if (inward == 0) Material.IRON_BLOCK else Material.DEEPSLATE_TILES
+                    if (inward == 0 && y == 65) return Material.SPRUCE_FENCE
+                    return null
+                }
+            }
             if (radius <= 4 && y <= 75) return when {
                 y == 65 || y >= 74 -> Material.POLISHED_DEEPSLATE
                 abs(x) <= 1 && abs(z) <= 1 -> Material.SEA_LANTERN
@@ -67,9 +112,10 @@ class ZombiesArenaGenerator : ChunkGenerator() {
             }
             val station = STATIONS.entries.firstOrNull { abs(x - it.value) <= 2 && z in -24..-22 }
             if (station != null) {
+                if (station.key == ZombiesOffer.MYSTERY && y == 65 && z == -22 && x in MYSTERY_CHEST_X) return Material.CHEST
                 if (y == 65) return if (x == station.value && z == -22) when (station.key) {
                     ZombiesOffer.AMMO -> Material.BARREL
-                    ZombiesOffer.MYSTERY -> Material.ENDER_CHEST
+                    ZombiesOffer.MYSTERY -> Material.CHEST
                     ZombiesOffer.POWER -> Material.SMITHING_TABLE
                     ZombiesOffer.VITALITY -> Material.BREWING_STAND
                 } else Material.POLISHED_DEEPSLATE

@@ -52,6 +52,7 @@ enum class ReservationStartResult {
 data class QueueControlSnapshot(
     val state: QueueState?,
     val ownerId: UUID?,
+    val queueSize: Int = 0,
 ) {
     fun ownedBy(playerId: UUID): Boolean = ownerId == playerId
 }
@@ -176,12 +177,14 @@ class EventNetworkCoordinator(
         }
     }
 
-    fun join(player: Player) {
+    fun join(player: Player): CompletableFuture<Boolean> {
         val current = settings()
-        if (!hostAvailable()) {
+        val generation = eventChannel
+        if (!started || generation == null || !hostAvailable()) {
             player.sendEventMessage(locale.render("queue.unavailable", player))
-            return
+            return CompletableFuture.completedFuture(false)
         }
+        val completion = CompletableFuture<Boolean>()
         repository.joinQueue(
             player.uniqueId,
             player.name,
@@ -190,39 +193,67 @@ class EventNetworkCoordinator(
             current.network.queueEntrySeconds * 1_000L,
         ).whenComplete { result, failure ->
             Tasks.scheduler.runSync {
-                if (!started || !player.isOnline) return@runSync
+                if (!started || eventChannel !== generation || !player.isOnline) {
+                    completion.complete(false)
+                    return@runSync
+                }
                 if (failure != null) {
                     plugin.logger.log(Level.WARNING, "ArcEvents queue join failed", failure)
                     player.sendEventMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.network", player))))
+                    completion.complete(false)
                     return@runSync
                 }
                 when (result) {
-                    is QueueJoinResult.Joined -> sendJoinedMessage(player, current)
-                    is QueueJoinResult.Existing -> player.sendEventMessage(locale.render("queue.already", player))
-                    QueueJoinResult.Contended -> player.sendEventMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.contended", player))))
-                    null -> Unit
+                    is QueueJoinResult.Joined -> completeQueueJoin(player, current, generation, true, completion)
+                    is QueueJoinResult.Existing -> if (result.entry.state == QueueState.QUEUED) {
+                        completeQueueJoin(player, current, generation, false, completion)
+                    } else {
+                        player.sendEventMessage(locale.render("queue.already", player))
+                        completion.complete(false)
+                    }
+                    QueueJoinResult.Contended -> {
+                        player.sendEventMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.contended", player))))
+                        completion.complete(false)
+                    }
+                    null -> completion.complete(false)
                 }
             }
         }
+        return completion
     }
 
-    private fun sendJoinedMessage(player: Player, current: ArcEventsConfig) {
-        repository.loadQueuedCount(clock()).whenComplete { authoritativeSize, failure ->
+    private fun completeQueueJoin(
+        player: Player,
+        current: ArcEventsConfig,
+        generation: RedisRequestReplyChannel<EventNetworkMessage>,
+        joined: Boolean,
+        completion: CompletableFuture<Boolean>,
+    ) {
+        repository.loadQueue(clock()).whenComplete { entries, failure ->
             Tasks.scheduler.runSync {
-                if (!started || !player.isOnline) return@runSync
-                if (failure != null) {
-                    plugin.logger.log(Level.FINE, "ArcEvents queue count refresh failed after join", failure)
+                if (!started || eventChannel !== generation || !player.isOnline) {
+                    completion.complete(false)
+                    return@runSync
                 }
-                val displaySize = if (failure == null && authoritativeSize != null) {
-                    authoritativeSize
-                } else {
-                    queueSize + 1
-                }.coerceIn(1, current.ttt.maximumPlayers)
-                player.sendEventMessage(locale.render("queue.joined", player, mapOf(
-                    "queue" to locale.text(displaySize),
-                    "minimum" to locale.text(current.ttt.minimumPlayers),
-                )))
-                refresh()
+                if (failure != null || entries == null) {
+                    plugin.logger.log(Level.WARNING, "ArcEvents queue refresh failed after join", failure)
+                    player.sendEventMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.network", player))))
+                    completion.complete(false)
+                    return@runSync
+                }
+                queueSize = entries.count { it.state == QueueState.QUEUED }
+                publish(EventNetworkMessage.create(EventNetworkSignal.QUEUE_CHANGED, queueSize = queueSize))
+                refreshNodes()
+                val queued = entries.any {
+                    it.playerId == player.uniqueId.toString() && it.originServer == current.serverId && it.state == QueueState.QUEUED
+                }
+                if (joined && queued) {
+                    player.sendEventMessage(locale.render("queue.joined", player, mapOf(
+                        "queue" to locale.text(queueSize.coerceIn(1, current.ttt.maximumPlayers)),
+                        "minimum" to locale.text(current.ttt.minimumPlayers),
+                    )))
+                } else player.sendEventMessage(locale.render("queue.already", player))
+                completion.complete(queued)
             }
         }
     }
@@ -263,8 +294,18 @@ class EventNetworkCoordinator(
         }
     }
 
-    private fun queueRequesterThenReserve(requester: Player, preferredArenaId: String?, mode: EventMode): CompletableFuture<ReservationStartResult> {
+    fun reserveZombiesSolo(requester: Player): CompletableFuture<ReservationStartResult> =
+        queueRequesterThenReserve(requester, "zombies", EventMode.ZOMBIES, requesterOnly = true)
+
+    private fun queueRequesterThenReserve(
+        requester: Player,
+        preferredArenaId: String?,
+        mode: EventMode,
+        requesterOnly: Boolean = false,
+    ): CompletableFuture<ReservationStartResult> {
         val current = settings()
+        val generation = eventChannel
+        if (!started || generation == null) return CompletableFuture.completedFuture(ReservationStartResult.NETWORK_FAILURE)
         if (!hostAvailable(mode)) return CompletableFuture.completedFuture(ReservationStartResult.ARENA_UNAVAILABLE)
         val result = CompletableFuture<ReservationStartResult>()
         repository.joinQueue(
@@ -275,12 +316,12 @@ class EventNetworkCoordinator(
             current.network.queueEntrySeconds * 1_000L,
         ).whenComplete { joinResult, failure ->
             Tasks.scheduler.runSync {
-                if (!started || failure != null || joinResult == QueueJoinResult.Contended || joinResult == null) {
+                if (!started || eventChannel !== generation || failure != null || joinResult == QueueJoinResult.Contended || joinResult == null) {
                     if (failure != null) plugin.logger.log(Level.WARNING, "ArcEvents start requester queue failed", failure)
                     result.complete(ReservationStartResult.NETWORK_FAILURE)
                     return@runSync
                 }
-                if (mode == EventMode.FISHING && !requester.isOnline) {
+                if ((mode == EventMode.FISHING || requesterOnly) && !requester.isOnline) {
                     val queued = when (joinResult) {
                         is QueueJoinResult.Joined -> joinResult.entry.state == QueueState.QUEUED
                         is QueueJoinResult.Existing -> joinResult.entry.state == QueueState.QUEUED
@@ -289,7 +330,7 @@ class EventNetworkCoordinator(
                     if (queued) {
                         repository.leaveQueue(requester.uniqueId, clock()).whenComplete { _, leaveFailure ->
                             if (leaveFailure != null) {
-                                plugin.logger.log(Level.WARNING, "ArcEvents offline fishing requester could not leave queue", leaveFailure)
+                                plugin.logger.log(Level.WARNING, "ArcEvents offline solo requester could not leave queue", leaveFailure)
                             }
                             result.complete(ReservationStartResult.NETWORK_FAILURE)
                         }
@@ -314,6 +355,7 @@ class EventNetworkCoordinator(
                         selectedArena,
                         requesterOrigin = current.serverId,
                         mode = mode,
+                        requesterOnly = requesterOnly,
                     ).whenComplete { outcome, reserveFailure ->
                         result.complete(if (reserveFailure == null && outcome != null) outcome else ReservationStartResult.NETWORK_FAILURE)
                     }
@@ -323,6 +365,7 @@ class EventNetworkCoordinator(
                     selectedArena,
                     adminBypass = bypassOwner,
                     mode = mode,
+                    requesterOnly = requesterOnly,
                 ).whenComplete { outcome, reserveFailure ->
                     result.complete(if (reserveFailure == null && outcome != null) outcome else ReservationStartResult.NETWORK_FAILURE)
                 }
@@ -380,6 +423,7 @@ class EventNetworkCoordinator(
         preferredArenaId: String?,
         adminBypass: Boolean,
         mode: EventMode = EventMode.TTT,
+        requesterOnly: Boolean = false,
     ): CompletableFuture<ReservationStartResult> {
         if (mode == EventMode.FISHING && requesterId == null) {
             return CompletableFuture.completedFuture(ReservationStartResult.NOT_OWNER)
@@ -392,6 +436,7 @@ class EventNetworkCoordinator(
             preferredArenaId = preferredArenaId,
             adminBypass = adminBypass,
             mode = mode.id,
+            requesterOnly = requesterOnly,
         )
         debug.event("start_requested", "origin" to current.serverId, "host" to current.hostServer, "request" to request.eventId)
         val channel = eventChannel ?: return CompletableFuture.completedFuture(ReservationStartResult.NETWORK_FAILURE)
@@ -424,10 +469,15 @@ class EventNetworkCoordinator(
         preferredArenaId: String? = null,
         requesterOrigin: String? = null,
         mode: EventMode = EventMode.TTT,
+        requesterOnly: Boolean = false,
     ): CompletableFuture<ReservationStartResult> {
         val current = settings()
-        if (current.nodeMode != NodeMode.HOST) return CompletableFuture.completedFuture(ReservationStartResult.NETWORK_FAILURE)
-        if (mode == EventMode.FISHING && (requesterId == null || requesterOrigin == null)) {
+        val generation = eventChannel
+        if (!started || generation == null || current.nodeMode != NodeMode.HOST || requesterOnly && mode != EventMode.ZOMBIES) {
+            return CompletableFuture.completedFuture(ReservationStartResult.NETWORK_FAILURE)
+        }
+        val requesterBound = mode == EventMode.FISHING || requesterOnly
+        if (requesterBound && (requesterId == null || requesterOrigin == null)) {
             return CompletableFuture.completedFuture(ReservationStartResult.NOT_OWNER)
         }
         if (!hostAvailable(mode)) return CompletableFuture.completedFuture(ReservationStartResult.ARENA_UNAVAILABLE)
@@ -447,10 +497,10 @@ class EventNetworkCoordinator(
             startInFlight.set(false)
             return CompletableFuture.completedFuture(ReservationStartResult.NOT_OWNER)
         }
-        val requiredOwnerId = if (mode == EventMode.FISHING) requesterId
+        val requiredOwnerId = if (requesterBound) requesterId
         else requesterId.takeIf { current.eventControls.creatorControlsEnabled && !bypassOwner }
         val requiredOwnerOrigin = requesterOrigin.takeIf { requiredOwnerId != null }
-        if (mode == EventMode.FISHING) {
+        if (requesterBound) {
             if (requiredOwnerId == null || requiredOwnerOrigin == null) {
                 startInFlight.set(false)
                 return CompletableFuture.completedFuture(ReservationStartResult.NOT_OWNER)
@@ -461,15 +511,18 @@ class EventNetworkCoordinator(
                 requesterId,
                 effectivePreferredArena,
                 mode,
-            ).whenComplete { _, _ -> startInFlight.set(false) }
+                requesterOnly,
+            ).whenComplete { _, _ -> if (eventChannel === generation) startInFlight.set(false) }
         }
         if (requiredOwnerId != null) {
             return repository.loadQueue(clock()).thenCompose { entries ->
                 val owner = entries.firstOrNull { it.state == QueueState.QUEUED }
-                if (owner == null || owner.playerId != requiredOwnerId.toString() || owner.originServer != requiredOwnerOrigin) {
+                if (!started || eventChannel !== generation) {
+                    CompletableFuture.completedFuture(ReservationStartResult.NETWORK_FAILURE)
+                } else if (owner == null || owner.playerId != requiredOwnerId.toString() || owner.originServer != requiredOwnerOrigin) {
                     CompletableFuture.completedFuture(ReservationStartResult.NOT_OWNER)
                 } else reserveOnHostInternal(requiredOwnerId, requiredOwnerOrigin, requesterId, effectivePreferredArena, mode)
-            }.whenComplete { _, _ -> startInFlight.set(false) }
+            }.whenComplete { _, _ -> if (eventChannel === generation) startInFlight.set(false) }
         }
         return reserveOnHostInternal(null, null, requesterId, effectivePreferredArena, mode)
     }
@@ -480,12 +533,14 @@ class EventNetworkCoordinator(
         requesterId: UUID?,
         preferredArenaId: String?,
         mode: EventMode = EventMode.TTT,
+        requesterOnly: Boolean = false,
     ): CompletableFuture<ReservationStartResult> {
         val current = settings()
+        val generation = eventChannel
         val result = CompletableFuture<ReservationStartResult>()
         val matchId = UUID.randomUUID()
         val reservationFuture = runCatching {
-            if (mode == EventMode.FISHING) {
+            if (mode == EventMode.FISHING || requesterOnly) {
                 repository.reserveForRequester(
                     matchId = matchId,
                     destinationServer = current.serverId,
@@ -513,18 +568,18 @@ class EventNetworkCoordinator(
         }
         reservationFuture.whenComplete { batch, failure ->
             Tasks.scheduler.runSync {
-                startInFlight.set(false)
-                if (!started) {
+                if (!started || eventChannel !== generation) {
                     result.complete(ReservationStartResult.NETWORK_FAILURE)
                     return@runSync
                 }
+                startInFlight.set(false)
                 if (failure != null) {
                     plugin.logger.log(Level.WARNING, "ArcEvents roster reservation failed", failure)
                     result.complete(ReservationStartResult.NETWORK_FAILURE)
                     return@runSync
                 }
                 if (batch == null) {
-                    result.complete(if (mode == EventMode.FISHING) ReservationStartResult.NETWORK_FAILURE
+                    result.complete(if (mode == EventMode.FISHING || requesterOnly) ReservationStartResult.NETWORK_FAILURE
                         else ReservationStartResult.INSUFFICIENT_PLAYERS)
                     return@runSync
                 }
@@ -620,6 +675,7 @@ class EventNetworkCoordinator(
         QueueControlSnapshot(
             state = entries.firstOrNull { it.playerId == playerId.toString() }?.state,
             ownerId = queued.firstOrNull()?.playerId?.let(UUID::fromString),
+            queueSize = queued.size,
         )
     }
 
@@ -816,6 +872,7 @@ class EventNetworkCoordinator(
 
     private fun receive(message: EventNetworkMessage, origin: String) {
         if (!started) return
+        val generation = eventChannel
         val current = settings()
         val now = clock()
         if (origin !in current.network.allowedOrigins || origin == current.serverId) return
@@ -824,7 +881,7 @@ class EventNetworkCoordinator(
             (message.occurredAtMs < now - START_MESSAGE_MAX_AGE_MS || message.occurredAtMs > now + START_FUTURE_SKEW_MS)
         ) return
         Tasks.scheduler.runSync {
-            if (!started) return@runSync
+            if (!started || eventChannel !== generation) return@runSync
             when (message.signal) {
                 EventNetworkSignal.QUEUE_CHANGED -> {
                     queueSize = message.queueSize ?: queueSize
@@ -849,6 +906,7 @@ class EventNetworkCoordinator(
 
     private fun handleStartRequest(message: EventNetworkMessage, origin: String) {
         val current = settings()
+        val generation = eventChannel
         if (current.nodeMode != NodeMode.HOST || message.destinationServer != current.serverId) return
         val requesterId = message.requesterId?.let(UUID::fromString)
         val mode = EventMode.fromId(message.mode) ?: return
@@ -862,8 +920,9 @@ class EventNetworkCoordinator(
             },
             requesterOrigin = origin,
             mode = mode,
+            requesterOnly = message.requesterOnly == true,
         ).whenComplete { result, failure ->
-            if (!started) return@whenComplete
+            if (!started || eventChannel !== generation) return@whenComplete
             val outcome = if (failure == null && result != null) result else ReservationStartResult.NETWORK_FAILURE
             runCatching {
                 publish(EventNetworkMessage.create(

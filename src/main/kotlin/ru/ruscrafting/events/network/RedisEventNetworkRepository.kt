@@ -165,7 +165,7 @@ class RedisEventNetworkRepository(
     fun loadQueueEntry(playerId: UUID): CompletableFuture<QueueEntry?> =
         redis.loadMapEntries(QUEUE_KEY, playerId.toString()).thenApply { values -> values.firstOrNull()?.let(queueCodec::decode) }
 
-    /** Reserves only the authenticated requester row; fishing must never consume FIFO neighbours. */
+    /** Reserves only the authenticated requester row without consuming FIFO neighbours. */
     fun reserveForRequester(
         matchId: UUID,
         destinationServer: String,
@@ -175,7 +175,7 @@ class RedisEventNetworkRepository(
         reservationMs: Long,
         mode: String,
     ): CompletableFuture<ReservationBatch?> {
-        require(EventMode.fromId(mode) == EventMode.FISHING) { "Requester-only reservation is for fishing" }
+        require(EventMode.fromId(mode) in setOf(EventMode.FISHING, EventMode.ZOMBIES)) { "Unsupported requester-only mode" }
         return loadQueueEntry(requesterId).thenCompose { entry ->
             if (entry == null || entry.state != QueueState.QUEUED || entry.expiresAtMs < nowMs || entry.originServer != requesterOrigin) {
                 CompletableFuture.completedFuture(null)
@@ -495,7 +495,7 @@ class RedisEventNetworkRepository(
         private val STATS_REQUIRED_FIELDS = STATS_FIELDS - "lastMatchId"
         private val MESSAGE_FIELDS = setOf(
             "eventId", "signal", "occurredAtMs", "matchId", "playerId", "destinationServer", "queueSize", "winner",
-            "endReason", "replyTo", "startResult", "requesterId", "preferredArenaId", "adminBypass", "mode",
+            "endReason", "replyTo", "startResult", "requesterId", "preferredArenaId", "adminBypass", "mode", "requesterOnly",
         )
         private val MESSAGE_REQUIRED_FIELDS = setOf("eventId", "signal", "occurredAtMs")
         private val ROUTED_STATES = setOf(

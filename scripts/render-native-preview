@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+"""Render compiled ArcEvents screen exports with the shared Minecraft renderer."""
+import argparse
+import hashlib
+import json
+import subprocess
+import sys
+from pathlib import Path
+import yaml
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def private_character(char):
+    return 0xE000 <= ord(char) <= 0xF8FF or 0xF0000 <= ord(char) <= 0x10FFFD
+
+
+def fonts_in(value, found, inherited='minecraft:default'):
+    if isinstance(value, str):
+        for char in value:
+            if private_character(char):
+                found.setdefault(char, set()).add(inherited)
+    elif isinstance(value, list):
+        for child in value:
+            fonts_in(child, found, inherited)
+    elif isinstance(value, dict):
+        font = value.get('font', inherited)
+        for key, child in value.items():
+            if key != 'font':
+                fonts_in(child, found, font)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--ops-root', type=Path, default=ROOT.parent / 'ruscrafting-ops')
+    parser.add_argument('--states', default='ru-root,ru-zombies,ru-zombies-queued,ru-rules-zombies,ru-fishing')
+    parser.add_argument('--output', type=Path, default=ROOT / 'build/reports/native-ui/preview')
+    parser.add_argument('--client-jar', type=Path)
+    parser.add_argument('--resource-pack', type=Path)
+    parser.add_argument('--gui-scale', type=int, default=3)
+    args = parser.parse_args()
+    export = ROOT / 'build/reports/native-ui/content.json'
+    content = json.loads(export.read_text())
+    sources = [ROOT / 'src/main/resources/lang' / f'{language}.yml' for language in ('ru', 'en')]
+    sources += [ROOT / 'src/main/kotlin/ru/ruscrafting/events/paper' / name for name in
+                ('ArcEventsDialogMenu.kt', 'FishingTraderDialog.kt', 'ZombiesSupplyDialog.kt')]
+    if any(path.stat().st_mtime > export.stat().st_mtime for path in sources):
+        raise SystemExit('Export is stale; run ArcEventsNativePreviewTest before rendering.')
+    output = args.output.resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    texts, dialogs, fonts = {}, [], {}
+    for state in args.states.split(','):
+        screen = content[state]
+        fonts_in(screen['components'], fonts)
+        values = {'title': screen['title']}
+        body, buttons = [], []
+        for index, entry in enumerate(screen['body']):
+            key = f'body_{index}'
+            values[key] = entry['text']
+            body.append({'id': key, 'text-key': f'{state}.{key}', 'width': entry['width']})
+        for entry in screen['buttons']:
+            key = entry['id']
+            values[f'{key}_label'] = entry['text']
+            values[f'{key}_tip'] = entry['tooltip']
+            buttons.append({'id': key, 'text-key': f'{state}.{key}_label',
+                            'tooltip-key': f'{state}.{key}_tip', 'width': entry['width']})
+        dialog = {'id': state, 'source': 'compiled', 'format': 'reference-multi-action',
+                  'name-key': f'{state}.title', 'columns': screen['columns'], 'body': body,
+                  'buttons': buttons, 'viewport': [640, 360], 'variants': [{'id': 'default'}]}
+        if screen.get('exit'):
+            values['exit'] = screen['exit']['text']
+            values['exit_tip'] = screen['exit']['tooltip']
+            dialog['exit-button'] = {'id': 'exit', 'text-key': f'{state}.exit',
+                                    'tooltip-key': f'{state}.exit_tip', 'width': screen['exit']['width']}
+        texts[state] = values
+        dialogs.append(dialog)
+    ambiguous = {f'U+{ord(char):X}': sorted(providers) for char, providers in fonts.items() if len(providers) != 1}
+    if ambiguous:
+        raise SystemExit(f'Ambiguous font providers: {ambiguous}')
+    resolved = output.parent / 'resolved.json'
+    resolved.write_text(json.dumps(texts, ensure_ascii=False, indent=2))
+    baseline = yaml.safe_load((ROOT / 'visual-preview.yml').read_text())
+    manifest = {key: baseline[key] for key in ('schema', 'minecraft-version', 'minecraft-client-sha1',
+                                               'minecraft-asset-index-sha1', 'resource-pack')}
+    manifest.update({'plugin': 'ArcEvents · Native UI', 'gallery-accent': '#ffb277',
+                     'sources': {'compiled': {'path': str(resolved), 'root': ''}},
+                     'surfaces': {'dialogs': dialogs},
+                     'glyphs': [{'character': char, 'provider': next(iter(providers))} for char, providers in fonts.items()],
+                     'limitations': ['Compiled production PaperDialogScreen components. Offline native-layout render, not a live client capture.',
+                                     'Background is the pinned official Minecraft panorama, not the server world.']})
+    manifest_path = output.parent / 'native-manifest.yml'
+    manifest_path.write_text(yaml.safe_dump(manifest, allow_unicode=True, sort_keys=False))
+    command = [sys.executable, '-B', str(args.ops_root / '.agents/skills/design-ruscrafting-surfaces/scripts/render_plugin_surface_dump.py'),
+               '--manifest', str(manifest_path), '--project-root', str(ROOT), '--output', str(output), '--gui-scale', str(args.gui_scale)]
+    for option, value in (('--client-jar', args.client_jar), ('--resource-pack', args.resource_pack)):
+        if value:
+            command += [option, str(value)]
+    status = subprocess.run(command, check=False).returncode
+    (output.parent / 'source-evidence.json').write_text(json.dumps({str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
+                                                                 for path in sources + [export]}, indent=2))
+    return status
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

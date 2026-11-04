@@ -350,7 +350,7 @@ arcade:
     intermission-seconds: 15
     maximum-alive: 28
     arena:
-      world: arcevents_zombies_zero
+      world: arcevents_zombies_zero_v2
   fishing:
     # One personal expedition. Existing public modes keep their own player limits.
     minimum-players: 1

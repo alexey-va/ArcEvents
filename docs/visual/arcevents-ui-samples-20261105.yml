@@ -1,0 +1,252 @@
+schema: 1
+plugin: ArcEvents
+minecraft-version: 1.21.11
+minecraft-client-sha1: ba2df812c2d12e0219c489c4cd9a5e1f0760f5bd
+minecraft-asset-index-sha1: d216443b5a6b0b33e8f9db446f4f1a0adbe210d1
+resource-pack:
+  url: https://storage.yandexcloud.net/ruscraftinresources/RusCraftingResource.zip
+  sha256-url: https://storage.yandexcloud.net/ruscraftinresources/RusCraftingResource.zip.sha256
+glyphs:
+- character: 
+  path: '@ops/classic/plugins/ItemsAdder/contents/arc/resourcepack/arc/textures/glyphs/event_calendar.png'
+  height: 9
+  ascent: 8
+  advance: 10
+custom-items:
+  arc:background:
+    material: GRAY_STAINED_GLASS_PANE
+    model: assets/arc/models/gui/background.json
+  arc:left_gray:
+    material: BLUE_STAINED_GLASS_PANE
+    model: assets/arc/models/gui/left_gray.json
+placeholders:
+  queue: '14'
+  minimum: '16'
+  arena_state: <#7bd88f>готова
+  queue_state: <#7bd88f>в очереди
+  matches: '128'
+  wins: '67'
+  kills: '37'
+  deaths: '104'
+  karma: '975'
+  phase: рыбалка
+  role: <#7bd88f>Мирный
+  time: 00:45
+  match: 7e643f0c
+  recovery: '2'
+  server: parkour
+  node_mode: <#7bd88f>хост
+  host: parkour
+  network_state: <#7bd88f>готова
+  arenas: '4'
+  active: Inferno
+  arena: Inferno
+  selected_arena: Inferno
+  selection: <#e3b341>назначена следующей
+  count: '7'
+  target: '30'
+  rounds: '48'
+  seconds: '10'
+  range: <#67c58c>рядом
+  player: LongPlayerName16
+  message: Идём через библиотеку
+  health: '17'
+  max_health: '20'
+  mode: <#e3b341>Гонка вооружений
+  score: '8'
+  stage: '9'
+  total: '13'
+  round: '4'
+  winners: PlayerOne, PlayerTwo
+  hazard: Метеоры
+  waves: '10'
+  maximum: '4'
+  wave: '5'
+  points: '3250'
+  power: '2'
+  remaining: '18'
+  catches: '2'
+  needed: '3'
+  coins: '300'
+  bag: '2'
+  allies: PlayerOne, PlayerTwo
+  price: '650'
+  max: '3'
+  boards: '2'
+  weapon: G36
+surfaces:
+  inventories:
+  - id: hidden-roles-idle
+    title: events:menu.event.title
+    rows: 5
+    filler: GRAY_STAINED_GLASS_PANE
+    background-item: arc:background
+    items:
+    - slot: 13
+      material: SPYGLASS
+      name: events:menu.event.overview-name
+      lore: events:menu.event.overview-lore
+    - slot: 22
+      material: LIME_DYE
+      name: events:menu.event.join-name
+      lore: events:menu.event.join-lore
+    - slot: 31
+      material: KNOWLEDGE_BOOK
+      name: events:menu.event.help-name
+      lore: events:menu.event.help-lore
+    - slot: 36
+      material: BLUE_STAINED_GLASS_PANE
+      itemsadder: arc:left_gray
+      name: events:menu.common.back-name
+      lore: events:menu.common.back-lore
+  - id: gun-game-active
+    title: events:arcade.gungame-title
+    rows: 5
+    filler: GRAY_STAINED_GLASS_PANE
+    background-item: arc:background
+    placeholders:
+      queue_state: <#7bd88f>в матче
+      mode: <#e3b341>Гонка вооружений
+      stage: '9'
+      total: '13'
+      score: '8'
+      seconds: '42'
+      round: '1'
+    items:
+    - slot: 13
+      material: IRON_SWORD
+      name: events:arcade.gungame-name
+      lore: events:arcade.gungame-guide
+    - slot: 20
+      material: CLOCK
+      name: events:arcade.status-name
+      lore: events:arcade.status-lore
+    - slot: 22
+      material: ENDER_PEARL
+      name: events:menu.event.evacuate-name
+      lore: events:menu.event.evacuate-lore
+    - slot: 31
+      material: KNOWLEDGE_BOOK
+      name: events:arcade.gungame-guide-name
+      lore: events:arcade.gungame-guide
+    - slot: 36
+      material: BLUE_STAINED_GLASS_PANE
+      itemsadder: arc:left_gray
+      name: events:menu.common.back-name
+      lore: events:menu.common.back-lore
+  hud:
+  - id: gun-game-hud
+    bossbar: events:arcade.gungame-hud
+    bossbar-color: yellow
+    bossbar-progress: 0.5
+  - id: disasters-hud
+    bossbar: events:arcade.disasters-hud
+    bossbar-color: yellow
+    bossbar-progress: 0.72
+    placeholders:
+      round: '4'
+      rounds: '6'
+      score: '3'
+      seconds: '18'
+  - id: round-preparation
+    title: events:match.preparing-title
+    subtitle: events:match.preparing-subtitle
+    actionbar: events:hud.preparing-tips
+    bossbar: events:hud.bossbar-preparing
+    bossbar-color: yellow
+    bossbar-progress: 0.72
+  - id: zombies-wave
+    title: events:zombies.wave-title
+    subtitle: events:zombies.wave-subtitle
+    bossbar: events:zombies.hud-wave
+    bossbar-color: red
+    bossbar-progress: 0.6
+    placeholders:
+      total: '10'
+  - id: fishing-progress
+    bossbar: events:fishing.hud
+    bossbar-color: blue
+    bossbar-progress: 0.6
+    placeholders:
+      stage: '3'
+      total: '5'
+  - id: ttt-role-reveal
+    title: events:role.traitor-title
+    subtitle: events:role.traitor-subtitle
+  chat:
+  - source: events
+    include: &id001
+    - queue.joined
+    - queue.reserved
+    - arcade.zombies-briefing
+    - arcade.gungame-briefing
+    - arcade.disasters-briefing
+    - arcade.fishing-briefing
+    - match.preparing-guide
+    - fishing.catch
+    - fishing.creature-defeated
+    - zombies.teammate-downed
+    - zombies.wave-cleared
+  - source: english
+    include: *id001
+sources:
+  events:
+    path: src/main/resources/lang/ru.yml
+    prefix-key: prefix
+    exclude:
+    - prefix
+    include:
+    - arcade.disasters-briefing
+    - arcade.disasters-hud
+    - arcade.fishing-briefing
+    - arcade.gungame-briefing
+    - arcade.gungame-guide
+    - arcade.gungame-guide-name
+    - arcade.gungame-hud
+    - arcade.gungame-name
+    - arcade.gungame-title
+    - arcade.status-lore
+    - arcade.status-name
+    - arcade.zombies-briefing
+    - fishing.catch
+    - fishing.creature-defeated
+    - fishing.hud
+    - hud.bossbar-preparing
+    - hud.preparing-tips
+    - match.preparing-guide
+    - match.preparing-subtitle
+    - match.preparing-title
+    - menu.common.back-lore
+    - menu.common.back-name
+    - menu.event.evacuate-lore
+    - menu.event.evacuate-name
+    - menu.event.help-lore
+    - menu.event.help-name
+    - menu.event.join-lore
+    - menu.event.join-name
+    - menu.event.overview-lore
+    - menu.event.overview-name
+    - menu.event.title
+    - queue.joined
+    - queue.reserved
+    - role.traitor-subtitle
+    - role.traitor-title
+    - zombies.hud-wave
+    - zombies.teammate-downed
+    - zombies.wave-cleared
+    - zombies.wave-subtitle
+    - zombies.wave-title
+  english:
+    path: src/main/resources/lang/en.yml
+    prefix-key: prefix
+    exclude:
+    - prefix
+    include: *id001
+limitations:
+- Source-driven offline Minecraft renders. Not native client observation. Legacy inventories
+  are retained for older clients.
+- 'Legacy root omitted: shared item renderer cannot render the real ZOMBIE_HEAD item.
+  Exact native root is in the companion native-ui preview.'
+- Head-dependent legacy screens also reference a removed historical preview model;
+  no substitute icon is used. The selected head-free inventories use their actual
+  current items.

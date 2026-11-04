@@ -156,7 +156,7 @@ class ArcEventsMenuMockBukkitTest : FunSpec({
                     every { startFromQueue(any(), any(), EventMode.GUN_GAME) } returns CompletableFuture.completedFuture(ReservationStartResult.STARTED)
                 }
                 ArcEventsMenu(plugin, service, mockk<TttItems>(), locale, { settings }, { java.util.concurrent.CompletableFuture.completedFuture(Result.success(Unit)) }, layouts).use { menu ->
-                    menu.open(player, EventsView.Arcade(EventMode.GUN_GAME)); paper.performTicks(1); deferred.complete(QueueControlSnapshot(QueueState.QUEUED, player.uniqueId)); paper.performTicks(2)
+                    menu.open(player, EventsView.Arcade(EventMode.GUN_GAME)); paper.performTicks(1); deferred.complete(QueueControlSnapshot(QueueState.QUEUED, player.uniqueId, 3)); paper.performTicks(2)
                     paper.callEvent(InventoryClickEvent(player.openInventory, InventoryType.SlotType.CONTAINER, layouts.slot(EventsView.Arcade(EventMode.GUN_GAME), "right"), ClickType.LEFT, InventoryAction.PICKUP_ALL)); paper.performTicks(3)
                     verify(exactly = 1) { service.startFromQueue(player, null, EventMode.GUN_GAME) }
                 }

@@ -2,6 +2,7 @@ schema: 1
 plugin: ArcEvents
 minecraft-version: '1.21.11'
 minecraft-client-sha1: ba2df812c2d12e0219c489c4cd9a5e1f0760f5bd
+minecraft-asset-index-sha1: d216443b5a6b0b33e8f9db446f4f1a0adbe210d1
 gallery-accent: '#d75a5a'
 
 resource-pack:

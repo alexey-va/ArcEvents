@@ -194,7 +194,7 @@ class TttHud(
                     player.sendEventActionBar(tips[(elapsed / settings().gameplay.preparingTipSeconds) % tips.size])
                 }
             }
-            match.phase == MatchPhase.COUNTDOWN -> player.sendEventActionBar(locale.render(
+            match.phase == MatchPhase.COUNTDOWN && !settings().ui.bossBar -> player.sendEventActionBar(locale.render(
                 "hud.countdown-actionbar",
                 player,
                 mapOf(
@@ -202,7 +202,8 @@ class TttHud(
                     "time" to locale.text(formatTime(secondsRemaining)),
                 ),
             ))
-            match.phase == MatchPhase.ACTIVE && participant.status == ParticipantStatus.ALIVE -> player.sendEventActionBar(locale.render(
+            match.phase == MatchPhase.ACTIVE && participant.status == ParticipantStatus.ALIVE &&
+                !settings().ui.scoreboard && !settings().ui.bossBar -> player.sendEventActionBar(locale.render(
                 "role.actionbar",
                 player,
                 mapOf(

@@ -4,9 +4,13 @@ import io.kotest.core.spec.style.StringSpec
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
 import com.google.gson.Gson
+import com.google.gson.JsonParser
 import ru.arc.redis.InMemoryRedis
 import ru.arc.redis.RedisOperations
 import ru.arc.redis.ServerIdentity
+import ru.arc.redis.safety.BoundedJsonCodec
+import ru.arc.redis.safety.JsonObjectContract
+import ru.arc.redis.safety.JsonResourceBounds
 import ru.ruscrafting.events.domain.PlayerEventStats
 import ru.ruscrafting.events.domain.TttRole
 import ru.ruscrafting.events.domain.EventMode
@@ -102,6 +106,27 @@ class RedisEventNetworkRepositoryTest : StringSpec({
         shouldThrow<IllegalArgumentException> {
             repository.reserve(uuid(93), "parkour", 1, 1, 2_000, 60_000, mode = EventMode.FISHING.id)
         }
+    }
+
+    "solo Zombies reserves one exact requester and rejects duplicate or stale origin requests" {
+        val repository = RedisEventNetworkRepository(InMemoryRedis(ServerIdentity { "spawn" }))
+        val peer = uuid(1)
+        val requester = uuid(2)
+        repository.joinQueue(peer, "Peer", "spawn", 1_000, 60_000).join()
+        repository.joinQueue(requester, "Requester", "survival", 2_000, 60_000).join()
+        val peerBefore = repository.loadQueueEntry(peer).join()
+
+        repository.reserveForRequester(uuid(90), "parkour", requester, "spawn", 3_000, 60_000, EventMode.ZOMBIES.id)
+            .join() shouldBe null
+        val batch = requireNotNull(repository.reserveForRequester(
+            uuid(91), "parkour", requester, "survival", 3_000, 60_000, EventMode.ZOMBIES.id,
+        ).join())
+        batch.mode shouldBe EventMode.ZOMBIES
+        batch.entries.map(QueueEntry::playerId) shouldBe listOf(requester.toString())
+        repository.reserveForRequester(uuid(92), "parkour", requester, "survival", 3_001, 60_000, EventMode.ZOMBIES.id)
+            .join() shouldBe null
+        repository.loadQueueEntry(peer).join() shouldBe peerBefore
+        repository.loadQueueEntry(requester).join()?.matchId shouldBe batch.matchId.toString()
     }
 
     "owner-aware network state is isolated while compatible statistics retain history" {
@@ -371,6 +396,46 @@ class RedisEventNetworkRepositoryTest : StringSpec({
         bus.publish(message)
         received shouldBe (message to "spawn")
         bus.close()
+    }
+
+    "ordinary envelopes retain the legacy closed field set while solo requests fail closed on old hosts" {
+        val redis = InMemoryRedis(ServerIdentity { "spawn" })
+        val repository = RedisEventNetworkRepository(redis)
+        val received = mutableListOf<EventNetworkMessage>()
+        val legacyCodec = BoundedJsonCodec(
+            gson = Gson(),
+            type = EventNetworkMessage::class.java,
+            rootContract = JsonObjectContract(
+                setOf("eventId", "signal", "occurredAtMs", "matchId", "playerId", "destinationServer", "queueSize",
+                    "winner", "endReason", "replyTo", "startResult", "requesterId", "preferredArenaId", "adminBypass", "mode"),
+                setOf("eventId", "signal", "occurredAtMs"),
+            ),
+            bounds = JsonResourceBounds(64_000),
+            validate = EventNetworkMessage::validated,
+        )
+        repository.openMessages({ true }, { _, _, _ -> true }) { message, _ -> received += message }.use { bus ->
+            val legacyRaw = """{"eventId":"00000000-0000-0000-0000-000000000001","signal":"START_REQUEST","occurredAtMs":1000,"destinationServer":"parkour","adminBypass":false,"mode":"zombies"}"""
+            redis.simulateExternalMessage(RedisEventNetworkRepository.EVENT_CHANNEL, legacyRaw, "survival")
+            received.single().requesterOnly shouldBe null
+            val regular = listOf(
+                EventNetworkMessage.create(EventNetworkSignal.START_REQUEST, 1_001, destinationServer = "parkour", mode = EventMode.ZOMBIES.id),
+                EventNetworkMessage.create(EventNetworkSignal.ROUTE_PLAYER, 1_002, matchId = uuid(90), playerId = uuid(2), destinationServer = "parkour"),
+                EventNetworkMessage.create(EventNetworkSignal.START_RESULT, 1_003, destinationServer = "survival", replyTo = uuid(1).toString(), startResult = "STARTED"),
+                EventNetworkMessage.create(EventNetworkSignal.NODE_ACK, 1_004, replyTo = uuid(1).toString()),
+            )
+            regular.forEach { message ->
+                bus.publish(message)
+                val raw = redis.getPublishedMessages().last().message
+                JsonParser.parseString(raw).asJsonObject.has("requesterOnly") shouldBe false
+                legacyCodec.decode(raw) shouldBe message
+            }
+            val solo = EventNetworkMessage.create(EventNetworkSignal.START_REQUEST, 1_005,
+                destinationServer = "parkour", requesterId = uuid(2), mode = EventMode.ZOMBIES.id, requesterOnly = true)
+            bus.publish(solo)
+            received.last() shouldBe solo
+            val soloRaw = redis.getPublishedMessages().last().message
+            shouldThrow<IllegalArgumentException> { legacyCodec.decode(soloRaw) }
+        }
     }
 
     "network listener rejects untrusted origins, malformed payloads, and replay" {

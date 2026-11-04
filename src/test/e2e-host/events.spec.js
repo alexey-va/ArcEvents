@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { expect, test } from '@drownek/plugwright';
+import { waitForQa } from './qa.js';
 
 function snapshot(player) {
   const item = (entry) => entry ? {
@@ -102,7 +103,7 @@ async function createConnected(createPlayer, prefix) {
 
 async function join(player) {
   player.chat('/arcevents join');
-  await expect(player).toHaveReceivedMessage(/Your queue place is confirmed\./);
+  await expect(player).toHaveReceivedMessage(/You joined the queue/);
 }
 
 async function seedPlayerState(admin, player, index) {
@@ -134,11 +135,11 @@ async function startGunGame(players) {
   await expect(players[0]).toHaveReceivedMessage('Set arcevents.start to true');
   for (const player of players) await join(player);
   players[0].chat('/arcevents start gungame');
-  await expect(players[0]).toHaveReceivedMessage(/Start confirmed\./);
+  await waitForQa(players[0], 'status', { game: 'gungame', phase: 'active', participants: players.length });
   for (const player of players) {
-    await expect(player).toHaveReceivedMessage(/Gun Game is preparing to start\./, { timeout: 15000 });
+    const weapon = await waitForWeapon(player, 'flintlock');
+    assert.match(JSON.stringify(weapon), /flintlock/i, `${player.username} did not receive the starting firearm`);
   }
-  await expect(players[0]).toHaveReceivedMessage(/Gun Game has started\./, { timeout: 15000 });
 }
 
 async function startTtt(players) {
@@ -147,9 +148,7 @@ async function startTtt(players) {
   await expect(players[0]).toHaveReceivedMessage('Set arcevents.start to true');
   for (const player of players) await join(player);
   players[0].chat('/arcevents start ttt');
-  await expect(players[0]).toHaveReceivedMessage(/Start confirmed\./);
-  await expect(players[0]).toHaveReceivedMessage(/Round preparation/i, { timeout: 15000 });
-  await expect(players[0]).toHaveReceivedMessage(/Round started/i, { timeout: 15000 });
+  await waitForQa(players[0], 'status', { game: 'ttt', phase: 'active', participants: players.length });
 }
 
 async function qaPlayer(admin, player, pattern) {
@@ -191,9 +190,9 @@ async function shoot(attacker, victim) {
   await pause(250);
   await attacker.bot.lookAt(victim.bot.entity.position.offset(0, 1.2, 0));
   attacker.bot.attack(victim.bot.entity);
-  await expect(victim).toHaveReceivedMessage(/You were eliminated\. Respawning in 1s\./, { since: eliminatedSince, timeout: 10000 });
+  await expect(victim).toHaveReceivedMessage(/Respawning in 1s/, { since: eliminatedSince, timeout: 10000 });
   const respawnSince = victim.getMessageBufferIndex();
-  await expect(victim).toHaveReceivedMessage(/You are back in the round\./, { since: respawnSince, timeout: 10000 });
+  await expect(victim).toHaveReceivedMessage(/Back in action/, { since: respawnSince, timeout: 10000 });
   await pause(250);
 }
 
@@ -226,10 +225,8 @@ test('Gun Game advances through every firearm and finishes on the real knife hit
     players[0].bot.setQuickBarSlot(0);
     await players[0].bot.lookAt(players[1].bot.entity.position.offset(0, 1.2, 0), true);
     players[0].bot.attack(players[1].bot.entity);
-    await expect(players[1]).toHaveReceivedMessage(/You were eliminated\. Respawning in 1s\./, { since: marker, timeout: 10000 });
+    await expect(players[1]).toHaveReceivedMessage(/Respawning in 1s/, { since: marker, timeout: 10000 });
     await expect(players[0]).toHaveReceivedMessage(new RegExp(`Winners:.*${players[0].username}`, 'i'), { timeout: 15000 });
-    await expect(players[0]).toHaveReceivedMessage(/Your pre-event state was restored\./, { timeout: 15000 });
-    await expect(players[1]).toHaveReceivedMessage(/Your pre-event state was restored\./, { timeout: 15000 });
     await Promise.all(players.map((entry, index) => waitForRestored(entry, before[index])));
     players.forEach((entry, index) => assertRestored(entry, before[index]));
   } finally {
@@ -270,7 +267,6 @@ test('TTT assigns hidden roles, completes a real traitor blade win, and restores
     }
     await qaPlayer(player, traitor, new RegExp(`player=${traitor.username}.*role=traitor.*kills=3`));
     await expect(traitor).toHaveReceivedMessage(/The report is ready/i, { timeout: 10000 });
-    for (const entry of players) await expect(entry).toHaveReceivedMessage(/Your pre-event state was restored\./, { timeout: 15000 });
     await Promise.all(players.map((entry, index) => waitForRestored(entry, before[index])));
     players.forEach((entry, index) => assertRestored(entry, before[index]));
   } finally {
@@ -295,13 +291,9 @@ test('Gun Game disconnect removes one participant while the two-player match sta
   try {
     await startGunGame(players);
     players[1].bot.quit();
-    const statusSince = players[0].getMessageBufferIndex();
-    players[0].chat('/arcevents status');
-    await expect(players[0]).toHaveReceivedMessage(/Gun Game.*round active/i, { since: statusSince, timeout: 5000 });
+    await waitForQa(players[0], 'status', { game: 'gungame', phase: 'active', alive: 2 });
     players[0].chat('/arcevents leave');
     players[2].chat('/arcevents leave');
-    await expect(players[0]).toHaveReceivedMessage(/Your pre-event state was restored\./, { timeout: 15000 });
-    await expect(players[2]).toHaveReceivedMessage(/Your pre-event state was restored\./, { timeout: 15000 });
     await Promise.all([
       waitForRestored(players[0], before[0]),
       waitForRestored(players[2], before[2]),

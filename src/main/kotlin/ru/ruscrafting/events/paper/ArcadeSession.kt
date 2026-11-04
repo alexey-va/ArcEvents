@@ -83,7 +83,6 @@ class ArcadeSession(
             player.inventory.armorContents = arrayOfNulls(4)
             player.inventory.setItemInOffHand(null)
             teleport(player, requireNotNull(arenaPool.active()).playerSpawn)
-            player.sendEventMessage(locale.render("arcade.preparing", player, mapOf("mode" to modeName(player))))
             val guideValues = if (mode == EventMode.FISHING) mapOf(
                 "phase" to locale.render("phase.${match.phase.name.lowercase()}", player),
                 "seconds" to locale.text(secondsRemaining()),
@@ -94,7 +93,7 @@ class ArcadeSession(
                 "minimum" to locale.text(rules.minimumPlayers),
                 "maximum" to locale.text(rules.maximumPlayers),
             ) else emptyMap()
-            locale.lore("arcade.${mode.id}-guide", player, guideValues).forEach(player::sendEventMessage)
+            player.sendEventMessage(locale.render("arcade.${mode.id}-briefing", player, guideValues))
             if (preservePlayerState) player.saveData()
         }
         val mutatePlayers: () -> CompletableFuture<Unit> = {
@@ -168,7 +167,9 @@ class ArcadeSession(
                         resetPlayer(player)
                         spawn(player)
                         giveLoadout(player)
-                        player.sendEventMessage(locale.render("arcade.started", player, mapOf("mode" to modeName(player))))
+                        if (match.mode != EventMode.ZOMBIES) {
+                            player.sendEventMessage(locale.render("arcade.started", player, mapOf("mode" to modeName(player))))
+                        }
                     }
                     if (match.mode == EventMode.DISASTERS) prepareHazard()
                     if (match.mode == EventMode.ZOMBIES) {
@@ -577,6 +578,8 @@ class ArcadeSession(
     fun handleZombiesMelee(player: Player, entity: org.bukkit.entity.Entity): Boolean = zombies?.melee(player, entity) == true
     fun zombiesAdventure(player: Player): ZombiesAdventure? = zombies?.takeIf { it.belongsTo(player) }
     fun zombiesDirector(): ZombiesDirector? = zombies?.director
+    fun zombiesBoxPhase(): String = zombies?.mysteryBoxPhase() ?: "-"
+    fun zombiesBarricadeBoards(): String = zombies?.barricadeBoards()?.joinToString(",") ?: "-"
     fun handleZombiesTarget(event: org.bukkit.event.entity.EntityTargetLivingEntityEvent): Boolean = zombies?.handleTarget(event) == true
     fun fishingAdventure(player: Player): FishingAdventure? {
         val match = current ?: return null

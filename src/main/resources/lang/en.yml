@@ -10,9 +10,7 @@ command:
     <#8c8c8c>   Shop: <#92bed8>/arcevents shop  <#8c8c8c>report: <#92bed8>/arcevents report
     <#e8dfd2>   Zombies, solo or team: <#92bed8>/arcevents zombies
   unknown: '<prefix> <#c42323>Unknown<#8c8c8c>: <#e6fff3><input>'
-  failed: |-
-    <prefix> <#c42323>Action failed.
-    <#8c8c8c>   Reason: <#e6fff3><reason>
+  failed: '<prefix> <#ff6b61>Could not complete: <#e8dfd2><reason>'
   reload-ok: '<prefix> <#2bba43>Configuration and locales reloaded.'
   reload-failed: '<prefix> <#c42323>Reload rejected. See the log.'
 
@@ -26,109 +24,61 @@ menu:
   main:
     title: '<#20252b>Events'
     main-body:
-      - '<#e8dfd2>Queue with players and join network events.'
-      - '<#8c8c8c>Choose a mode to open its queue and rules.'
-      - '<#aaa49a>Queue: <queue>/<minimum> | Arena: <arena_state>'
+    - '<#e8dfd2>Queued: <#ffffff><queue>'
     ttt-name: '<#e3b341><bold>Hidden Roles'
     ttt-lore:
-      - '<#f2f0e6>Find the traitors before'
-      - '<#f2f0e6>they eliminate the innocent team.'
-      - ''
-      - '<#e3b341><bold>Now:'
-      - '<#8c8c8c>   <#f2f0e6>Queue<#8c8c8c>: <#e3b341><queue><#8c8c8c>/<#e3b341><minimum>'
-      - '<#8c8c8c>   <#f2f0e6>Arena<#8c8c8c>: <arena_state>'
-      - ''
-      - '<#8c8c8c>[<#e3b341>▶<#8c8c8c>] <#e3b341>Click<#f2f0e6> — open event'
-    stats-name: '<#d6a8ff><bold>Your statistics'
+    - <#e8dfd2>Find the traitors among the players.
+    - <#e8dfd2>Hidden roles · team investigation
+    stats-name: <#c4a7e7>Statistics
     stats-lore:
-      - '<#f2f0e6>Your results across every event.'
-      - ''
-      - '<#8c8c8c>[<#d6a8ff>▶<#8c8c8c>] <#d6a8ff>Click<#f2f0e6> — view results'
-    help-name: '<#92bed8><bold>Help'
+    - <#e8dfd2>Your matches, wins and karma.
+    help-name: <#86dcf1>Rules
     help-lore:
-      - '<#f2f0e6>Rules, roles, evidence, and controls.'
-      - ''
-      - '<#8c8c8c>[<#92bed8>▶<#8c8c8c>] <#92bed8>Click<#f2f0e6> — open help'
-    admin-name: '<#c58cff><bold>Event admin panel'
+    - <#e8dfd2>Choose a mode and learn how to play.
+    admin-name: <#ffffff>Administration
     admin-lore:
-      - '<#f2f0e6>Administrators only.'
-      - '<#f2f0e6>Network, maps, launch, and recovery.'
-      - ''
-      - '<#8c8c8c>[<#c58cff>▶<#8c8c8c>] <#c58cff>Click<#f2f0e6> — open'
+    - <#e8dfd2>Matches, maps and player recovery.
   event:
     title: '<#20252b>Hidden Roles'
-    loading-name: '<#f4bd6a>Loading event state'
+    loading-name: <#ffb277>Queue
     loading-lore:
-      - '<#aaa49a>Please wait while the current queue is loaded.'
-    overview-name: '<#e3b341><bold>About this event'
+    - <#e8dfd2>Checking available actions…
+    overview-name: <#ffb277>Find the traitors
     overview-lore:
-      - '<#f2f0e6>Innocents and detectives hunt traitors'
-      - '<#f2f0e6>hidden among their team.'
-      - ''
-      - '<#e3b341><bold>Now:'
-      - '<#8c8c8c>   <#f2f0e6>Queue<#8c8c8c>: <#e3b341><queue><#8c8c8c>/<#e3b341><minimum>'
-      - '<#8c8c8c>   <#f2f0e6>Arena<#8c8c8c>: <arena_state>'
-    queue-name: '<#5fb3ff><bold>Your participation'
+    - <#e8dfd2>Innocents and detectives face hidden traitors.
+    queue-name: <#86dcf1>Your status
     queue-lore:
-      - '<#f2f0e6>The roster forms automatically.'
-      - ''
-      - '<#5fb3ff><bold>Information:'
-      - '<#8c8c8c>   <#f2f0e6>Your status<#8c8c8c>: <queue_state>'
-      - '<#8c8c8c>   <#f2f0e6>Roster<#8c8c8c>: <#e3b341><queue><#8c8c8c>/<#e3b341><minimum>'
-    join-name: '<#7bd88f><bold>Join the queue'
+    - <#e8dfd2><queue_state>
+    join-name: <#9bd48d>Join queue
     join-lore:
-      - '<#f2f0e6>Take a place in the next roster.'
-      - ''
-      - '<#8c8c8c>[<#7bd88f>▶<#8c8c8c>] <#7bd88f>Click<#f2f0e6> — join the queue'
+    - <#e8dfd2>Take a place in the next match.
     join-unavailable-name: '<#8c8c8c><bold>Queue unavailable'
     join-unavailable-lore:
-      - '<#f2f0e6>You cannot join the queue right now.'
-      - '<#969696>Open the menu later and try again.'
-    leave-name: '<#d84a4a><bold>Leave the queue'
+    - <#e8dfd2>The queue is temporarily unavailable. Try again later.
+    leave-name: <#ff6b61>Leave queue
     leave-lore:
-      - '<#f2f0e6>Your place will be released immediately.'
-      - ''
-      - '<#8c8c8c>[<#d84a4a>▶<#8c8c8c>] <#d84a4a>Click<#f2f0e6> — leave the queue'
-    start-name: '<#7bd88f><bold>Start the event'
+    - <#e8dfd2>Give up your place.
+    start-name: <#9bd48d>Start match
     start-lore:
-      - '<#f2f0e6>Start a match with the ready roster.'
-      - '<#8c8c8c>Players<#8c8c8c>: <#e3b341><queue><#8c8c8c>/<#e3b341><minimum>'
-      - ''
-      - '<#8c8c8c>[<#7bd88f>▶<#8c8c8c>] <#7bd88f>Click<#f2f0e6> — start'
-    arena-name: '<#92bed8>Choose a map'
+    - <#e8dfd2>Start with <queue> players. At least <minimum> required.
+    arena-name: <#ffffff>Choose map
     arena-lore:
-      - '<#f2f0e6>Next-round map: <selected_arena><#f2f0e6>.'
-      - '<#8c8c8c>The roster creator controls this choice.'
-      - ''
-      - '<#8c8c8c>[<#92bed8>▶<#8c8c8c>] <#92bed8>Click<#f2f0e6> — open maps'
-    roster-name: '<#92bed8><bold>Round roster'
+    - '<#e8dfd2>Next map: <selected_arena>.'
+    roster-name: <#ffffff>Players
     roster-lore:
-      - '<#f2f0e6>Living, missing, and discovered players.'
-      - '<#f2f0e6>Hidden roles appear through evidence.'
-      - ''
-      - '<#8c8c8c>[<#92bed8>▶<#8c8c8c>] <#92bed8>Click<#f2f0e6> — open roster'
-    shop-name: '<#ff9f0f><bold>Role shop'
+    - <#e8dfd2>Who is alive and whose role has been revealed.
+    shop-name: <#ffffff>Role equipment
     shop-lore:
-      - '<#f2f0e6>Traitor equipment'
-      - '<#f2f0e6>and detective tools.'
-      - ''
-      - '<#8c8c8c>[<#ff9f0f>▶<#8c8c8c>] <#ff9f0f>Click<#f2f0e6> — open shop'
-    report-name: '<#e3b341><bold>Round report'
+    - <#e8dfd2>Equipment bought with this round’s credits.
+    report-name: <#ffffff>Match results
     report-lore:
-      - '<#f2f0e6>Roles, damage, and the combat log.'
-      - ''
-      - '<#8c8c8c>[<#e3b341>▶<#8c8c8c>] <#e3b341>Click<#f2f0e6> — open report'
-    help-name: '<#92bed8><bold>Event rules'
+    - <#e8dfd2>Winner, roles and player results.
+    help-name: <#ffffff>Rules
     help-lore:
-      - '<#f2f0e6>Roles, round flow, weapons, and evidence.'
-      - ''
-      - '<#8c8c8c>[<#92bed8>▶<#8c8c8c>] <#92bed8>Click<#f2f0e6> — open help'
-    evacuate-name: '<#d84a4a><bold>Leave event now'
+    - <#e8dfd2>Roles, evidence and controls.
+    evacuate-name: <#ff6b61>Leave match
     evacuate-lore:
-      - '<#f2f0e6>Leave the current round immediately.'
-      - '<#f2f0e6>Your inventory and previous location are restored.'
-      - ''
-      - '<#8c8c8c>[<#d84a4a>▶<#8c8c8c>] <#d84a4a>Click<#f2f0e6> — evacuate'
+    - <#e8dfd2>Leave the round and restore your previous player state.
     state:
       queued: '<#7bd88f>queued'
       reserved: '<#e3b341>roster found'
@@ -139,14 +89,9 @@ menu:
     title: '<#20252b>Event Statistics'
     summary-name: '<#d6a8ff><bold>Your results'
     summary-lore:
-      - '<#f2f0e6>Combined results across every event.'
-      - ''
-      - '<#d6a8ff><bold>Information:'
-      - '<#8c8c8c>   <#f2f0e6>Matches<#8c8c8c>: <#f2f0e6><matches>'
-      - '<#8c8c8c>   <#f2f0e6>Wins<#8c8c8c>: <#7bd88f><wins>'
-      - '<#8c8c8c>   <#f2f0e6>Kills<#8c8c8c>: <#e3b341><kills>'
-      - '<#8c8c8c>   <#f2f0e6>Deaths<#8c8c8c>: <#d84a4a><deaths>'
-      - '<#8c8c8c>   <#f2f0e6>Karma<#8c8c8c>: <#5fb3ff><karma>'
+    - '<#e8dfd2>Matches: <#ffffff><matches>   <#9bd48d>Wins: <wins>'
+    - '<#e8dfd2>Kills: <#ffffff><kills>   Deaths: <deaths>'
+    - '<#e8dfd2>Karma: <#86dcf1><karma>'
   help:
     title: '<#20252b>Hidden Roles Rules'
     innocent-name: '<#7bd88f><bold>Innocent'
@@ -181,12 +126,9 @@ menu:
       - '<#8c8c8c>LMB — fire <#8c8c8c>F — reload'
     controls-name: '<#92bed8><bold>Commands'
     controls-lore:
-      - '<#8c8c8c>/arcevents shop <#f2f0e6>— role shop'
-      - '<#8c8c8c>/arcevents team [text]'
-      - '<#8c8c8c>   Own-role chat: living traitors and detectives.'
-      - '<#8c8c8c>/arcevents status <#f2f0e6>— match status'
-      - '<#8c8c8c>/arcevents leave <#f2f0e6>— leave the event immediately'
-      - '<#8c8c8c>/arcevents spawn <#f2f0e6>— return to the map spawn'
+    - <#86dcf1>/arcevents<#e8dfd2> — match menu
+    - <#86dcf1>/arcevents team message<#e8dfd2> — role chat
+    - <#86dcf1>/arcevents spawn<#e8dfd2> — map spawn
   admin:
     title: '<#20252b>Event Admin Panel'
     status-name: '<#5fb3ff><bold>Current status'
@@ -202,61 +144,42 @@ menu:
       - '<#8c8c8c>   <#f2f0e6>Status<#8c8c8c>: <network_state>'
     arenas-name: '<#92bed8><bold>Round maps'
     arenas-lore:
-      - '<#8c8c8c>Ready maps: <#f2f0e6><arenas>'
-      - '<#8c8c8c>Current: <active>'
-      - ''
-      - '<#8c8c8c>[<#92bed8>▶<#8c8c8c>] <#92bed8>Click<#f2f0e6> — choose the next map'
+    - '<#8c8c8c>Ready maps: <#f2f0e6><arenas>'
+    - '<#8c8c8c>Current: <active>'
     start-name: '<#7bd88f><bold>Start from queue'
     start-lore:
-      - '<#f2f0e6>Add you and start a ready roster.'
-      - '<#8c8c8c>The request works from any network server.'
-      - ''
-      - '<#8c8c8c>[<#7bd88f>▶<#8c8c8c>] <#7bd88f>Click<#f2f0e6> — start'
+    - <#f2f0e6>Add you and start a ready roster.
+    - <#8c8c8c>The request works from any network server.
     stop-name: '<#d84a4a><bold>Stop the match'
     stop-lore:
-      - '<#f2f0e6>End the round and restore every player.'
-      - '<#ff9f0f>An unfinished match is recorded as cancelled.'
-      - ''
-      - '<#8c8c8c>[<#d84a4a>▶<#8c8c8c>] <#d84a4a>Click<#f2f0e6> — stop the match'
+    - <#f2f0e6>End the round and restore every player.
+    - <#ff9f0f>An unfinished match is recorded as cancelled.
     reload-name: '<#e3b341><bold>Reload configuration'
     reload-lore:
-      - '<#f2f0e6>Validate and apply safe settings.'
-      - '<#8c8c8c>Node identity requires a restart.'
-      - ''
-      - '<#8c8c8c>[<#e3b341>▶<#8c8c8c>] <#e3b341>Click<#f2f0e6> — reload'
+    - <#f2f0e6>Validate and apply safe settings.
+    - <#8c8c8c>Node identity requires a restart.
     recover-name: '<#c58cff><bold>Retry recovery'
     recover-lore:
-      - '<#f2f0e6>Restore every currently available player.'
-      - '<#8c8c8c>A record is removed only after verification.'
-      - ''
-      - '<#8c8c8c>[<#c58cff>▶<#8c8c8c>] <#c58cff>Click<#f2f0e6> — retry'
+    - <#f2f0e6>Restore every currently available player.
+    - <#8c8c8c>A record is removed only after verification.
   arenas:
     title: '<#20252b>Hidden Roles Maps'
     entry-name: '<arena>'
     entry-lore:
-      - '<#8c8c8c>Status: <state>'
-      - '<#8c8c8c>World: <#f2f0e6><world>'
-      - '<#8c8c8c>Template: <#f2f0e6><template>'
-      - ''
-      - '<#8c8c8c>[<#92bed8>▶<#8c8c8c>] <#92bed8>Click<#f2f0e6> — make this the next map'
+    - '<#8c8c8c>Status: <state>'
+    - '<#8c8c8c>World: <#f2f0e6><world>'
+    - '<#8c8c8c>Template: <#f2f0e6><template>'
     auto-name: '<#e3b341><bold>Automatic rotation'
     auto-lore:
-      - '<#f2f0e6>Choose a ready map from the pool for every match.'
-      - '<#8c8c8c>The match id makes the choice reproducible.'
-      - ''
-      - '<#8c8c8c>[<#e3b341>▶<#8c8c8c>] <#e3b341>Click<#f2f0e6> — enable rotation'
+    - <#e8dfd2>The server selects a ready map for the next match.
   event-arenas:
     title: '<#20252b>Next-Round Map'
     entry-name: '<arena>'
     entry-lore:
-      - '<#8c8c8c>Selection: <selection>'
-      - ''
-      - '<#8c8c8c>[<#92bed8>▶<#8c8c8c>] <#92bed8>Click<#f2f0e6> — choose'
+    - '<#8c8c8c>Selection: <selection>'
     auto-name: '<#e3b341>Automatic rotation'
     auto-lore:
-      - '<#f2f0e6>The server chooses an available map automatically.'
-      - ''
-      - '<#8c8c8c>[<#e3b341>▶<#8c8c8c>] <#e3b341>Click<#f2f0e6> — choose'
+    - <#f2f0e6>The server chooses an available map automatically.
   shop:
     title: '<#20252b>Role Shop — <credits> cr.'
     credits-name: '<#e3b341><bold>Role credits'
@@ -301,27 +224,22 @@ menu:
   common:
     back-name: '<#ffffff>‹ Back'
     close-name: '<#ffffff>Close'
-    unavailable-prefix: '<#aaa49a>[Unavailable] '
+    unavailable-prefix: '<#ffffff>[Unavailable] '
     close-lore:
-      - '<#aaa49a>Close the event menu.'
+    - <#e8dfd2>Close this menu.
     back-lore:
       - '<#e8dfd2>Return to the previous menu.'
-    previous-name: '<#92bed8><bold>Previous page'
+    previous-name: <#86dcf1>‹ Previous page
     previous-lore:
-      - '<#f2f0e6>Show newer records.'
-      - ''
-      - '<#8c8c8c>[<#92bed8>▶<#8c8c8c>] <#92bed8>Click<#f2f0e6> — open'
-    next-name: '<#92bed8><bold>Next page'
+    - <#f2f0e6>Show newer records.
+    next-name: <#86dcf1>Next page ›
     next-lore:
-      - '<#f2f0e6>Show older records.'
-      - ''
-      - '<#8c8c8c>[<#92bed8>▶<#8c8c8c>] <#92bed8>Click<#f2f0e6> — open'
+    - <#f2f0e6>Show older records.
   roster:
     title: '<#20252b>Round roster'
     player-name: '<#f2f0e6><player>'
     player-lore:
-      - '<#8c8c8c>Status: <status>'
-      - '<#8c8c8c>Role: <role>'
+    - '<#e8dfd2><status> · Role: <role>'
   body:
     title: '<#20252b>Body inspection'
     victim-name: '<#f2f0e6><player>'
@@ -332,51 +250,37 @@ menu:
       - '<#f2f0e6>Elapsed: <#e3b341><seconds> s'
     cause-name: '<#d84a4a><bold>Cause of death'
     cause-lore:
-      - '<#8c8c8c>Weapon: <weapon>'
-      - '<#8c8c8c>Damage: <#f2f0e6><damage>'
-      - '<#8c8c8c>Impact: <hit>'
+    - <#e8dfd2><weapon> · <hit>
+    - '<#e8dfd2>Final damage: <damage>'
     dna-name: '<#5fb3ff><bold>Analyze DNA'
     dna-lore:
-      - '<#f2f0e6>Only a detective with a scanner can see'
-      - '<#f2f0e6>the direction to a living killer.'
-      - ''
-      - '<#8c8c8c>[<#5fb3ff>▶<#8c8c8c>] <#5fb3ff>Click<#f2f0e6> — scan DNA'
+    - <#e8dfd2>A detective with a DNA scanner can track the killer.
     dna-lost-name: '<#8c8c8c><bold>DNA unavailable'
     dna-lost-lore:
       - '<#f2f0e6>The trail expired or the killer is gone.'
     call-name: '<#92bed8><bold>Call a detective'
     call-lore:
-      - '<#f2f0e6>Send this body’s location to detectives.'
-      - ''
-      - '<#8c8c8c>[<#92bed8>▶<#8c8c8c>] <#92bed8>Click<#f2f0e6> — send coordinates'
+    - <#f2f0e6>Send this body’s location to detectives.
     called-name: '<#5fb3ff><bold>Detective notified'
     called-lore:
       - '<#f2f0e6>The coordinates were already sent.'
     roster-name: '<#92bed8><bold>Round roster'
     roster-lore:
-      - '<#f2f0e6>Compare the revealed role with the roster.'
-      - ''
-      - '<#8c8c8c>[<#92bed8>▶<#8c8c8c>] <#92bed8>Click<#f2f0e6> — open roster'
+    - <#f2f0e6>Compare the revealed role with the roster.
   report:
     title: '<#20252b>Round report'
     summary-name: '<#e3b341><bold>Result'
     summary-lore:
-      - '<#8c8c8c>Winners: <winner>'
-      - '<#8c8c8c>Reason: <#f2f0e6><reason>'
-      - '<#8c8c8c>Duration: <#f2f0e6><time>'
-      - '<#8c8c8c>Damage records: <#f2f0e6><events>'
+    - '<#e8dfd2>Winners: <winner>'
+    - <#e8dfd2><reason> · <time>
     player-name: '<#f2f0e6><player>'
     player-lore:
-      - '<#8c8c8c>Role: <role>'
-      - '<#8c8c8c>Eliminations: <#e3b341><kills>'
-      - '<#8c8c8c>Damage: <#f2f0e6><damage>'
-      - '<#8c8c8c>Friendly damage: <#d84a4a><friendly>'
+    - <#e8dfd2><role> · <kills> kills
+    - '<#e8dfd2>Damage: <damage> · Friendly: <friendly>'
     combat-name: '<#92bed8><bold>Combat log'
     combat-lore:
-      - '<#f2f0e6>Ordered record of every hit.'
-      - '<#8c8c8c>Records: <#f2f0e6><events>'
-      - ''
-      - '<#8c8c8c>[<#92bed8>▶<#8c8c8c>] <#92bed8>Click<#f2f0e6> — open log'
+    - <#f2f0e6>Ordered record of every hit.
+    - '<#8c8c8c>Records: <#f2f0e6><events>'
   combat:
     title: '<#20252b>Combat log — <page>/<pages>'
     entry-name: '<#f2f0e6>Record #<sequence>'
@@ -433,67 +337,29 @@ phase:
 
 queue:
   start-client-unsupported: '<#e3b341>This expedition requires enabled dialogs and Java 1.21.6 or newer.'
-  joined: |-
-    <prefix> <#55ff88>Your queue place is confirmed.
-    <#8c8c8c>   Roster: <#ffcc33><queue>/<minimum>
-  already: |-
-    <prefix> <#ff9f0f>You are already in this roster.
-    <#8c8c8c>   Current status: <#92bed8>/arcevents
-  left: |-
-    <prefix> <#7bd88f>You left the queue.
-    <#8c8c8c>   Your place has been released.
-  not-queued: |-
-    <prefix> <#ff9f0f>You have not joined a queue yet.
-    <#8c8c8c>   Choose an event: <#92bed8>/arcevents
-  leave-reserved: |-
-    <prefix> <#ff9f0f>The roster is already locked.
-    <#8c8c8c>   Emergency exit: <#32d6ff>/arcevents leave
-  unavailable: |-
-    <prefix> <#d84a4a>The event is unavailable.
-    <#8c8c8c>   Try again a little later.
-  full: |-
-    <prefix> <#d84a4a>The queue is full.
-    <#8c8c8c>   Wait for the current roster to start.
-  reserved: '<prefix> <#55ff88>The roster is ready.'
-  returned: |-
-    <prefix> <#7bd88f>Return complete.
-    <#8c8c8c>   You are back on your original server.
-  start-requested: |-
-    <prefix> <#7bd88f>Start confirmed.
-    <#8c8c8c>   The roster is locked.
-  start-insufficient: |-
-    <prefix> <#ff9f0f>The roster is not ready yet.
-    <#8c8c8c>   Wait for enough players to join.
-  start-arena-unavailable: |-
-    <prefix> <#d84a4a>The arena is not ready.
-    <#8c8c8c>   Try starting the event later.
-  start-busy: |-
-    <prefix> <#ff9f0f>Another match is already active.
-    <#8c8c8c>   Wait for it to finish.
-  start-recovery-pending: |-
-    <prefix> <#ff9f0f>The previous match is still finishing.
-    <#8c8c8c>   Restoring player state.
-  start-network-failed: |-
-    <prefix> <#d84a4a>The network did not confirm the start.
-    <#8c8c8c>   Try again a little later.
-  start-not-owner: |-
-    <prefix> <#ff9f0f>Only the roster creator can start it.
-    <#8c8c8c>   Control passes on if the creator leaves.
+  joined: <prefix> <#9bd48d>You joined the queue · <queue> players
+  already: '<prefix> <#f4d87a>Already queued. Menu: <#86dcf1>/arcevents'
+  left: <prefix> <#e8dfd2>You left the queue.
+  not-queued: '<prefix> <#f4d87a>You are not queued. Menu: <#86dcf1>/arcevents'
+  leave-reserved: '<prefix> <#f4d87a>Your match is starting. Leave: <#86dcf1>/arcevents leave'
+  unavailable: <prefix> <#ff6b61>Queue unavailable. Try again later.
+  full: <prefix> <#f4d87a>Queue full. Wait for the next match.
+  reserved: <prefix> <#9bd48d>Your match is starting.
+  returned: <prefix> <#9bd48d>You returned to your original server.
+  start-requested: <prefix> <#9bd48d>Your match is starting.
+  start-insufficient: <prefix> <#f4d87a>Not enough players to start yet.
+  start-arena-unavailable: <prefix> <#f4d87a>Map unavailable. Try again later.
+  start-busy: <prefix> <#f4d87a>Another match is still running.
+  start-recovery-pending: <prefix> <#f4d87a>The previous match is finishing. Try again shortly.
+  start-network-failed: <prefix> <#ff6b61>Could not start the match. Try again.
+  start-not-owner: <prefix> <#f4d87a>The queue creator starts the match.
   arena-selected: '<prefix> <#7bd88f>Next-round map: <arena><#f2f0e6>.'
 
 match:
   unavailable: '<prefix> <#ff9f0f>You are not participating in a match.'
   preparing-title: '<#e3b341>Explore the map'
   preparing-subtitle: '<#f2f0e6>Roles hidden <#8fa6b8>— <#d87a82>damage disabled'
-  preparing-guide: |-
-
-    <prefix> <#e3b341>Round preparation
-    <#8fa6b8>   <#f2f0e6>Explore the map and collect weapons.
-    <#8fa6b8>   <#f2f0e6>Roles are hidden and damage is disabled.
-    <#8fa6b8>   <#f2f0e6>The countdown starts after role reveal.
-    <#8fa6b8>   <#f2f0e6>Normal chat reaches nearby players.
-    <#8fa6b8>   <#f2f0e6>Eliminated players hear spectators only.
-    <#8fa6b8>   <#92bed8>LMB <#f2f0e6>— fire   <#92bed8>F <#f2f0e6>— reload
+  preparing-guide: <#e8dfd2>Rules and controls — <#86dcf1>/arcevents
   countdown-title: '<#ffcc33><bold><seconds>'
   countdown-subtitle: '<#ffffff>Get ready for the round'
   started: '<#55ff88><bold>Round started  <#ffffff>find bodies and evidence.'
@@ -515,21 +381,13 @@ match:
   cancelled-title: '<#ff9f0f>Match stopped'
   cancelled-subtitle: '<#f2f0e6>Player state is being restored'
   restored: '<prefix> <#2bba43>Your pre-event state was restored.'
-  evacuated: |-
-    <prefix> <#7bd88f>Evacuation complete.
-    <#8c8c8c>   Your pre-event state was restored.
-  spawn-return-requested: |-
-    <prefix> <#e3b341>Map spawn return started.
-    <#8c8c8c>   Do not move for <#e3b341><seconds> seconds<#8c8c8c>.
-  spawn-return-actionbar: '<#e3b341>Do not move <#f2f0e6>returning in <#e3b341><seconds>s'
-  spawn-return-cancelled: '<#d84a4a>Return cancelled <#f2f0e6>you moved or took damage'
+  evacuated: <prefix> <#9bd48d>You left the match. Your previous state is restored.
+  spawn-return-requested: '<prefix> <#e8dfd2>Returning to spawn: stay still for <seconds>s.'
+  spawn-return-actionbar: <#ffb277>Stay still · Returning in <seconds>s
+  spawn-return-cancelled: '<#f4d87a>Return cancelled: movement or damage'
   spawn-return-complete: '<prefix> <#7bd88f>You returned to the shared map spawn.'
-  spawn-return-unavailable: |-
-    <prefix> <#ff9f0f>You cannot return to spawn now.
-    <#8c8c8c>   This command only works inside an event.
-  spawn-return-already: |-
-    <prefix> <#ff9f0f>A return is already pending.
-    <#8c8c8c>   Stay still until the countdown finishes.
+  spawn-return-unavailable: <prefix> <#f4d87a>Map spawn is only available during a match.
+  spawn-return-already: <prefix> <#e8dfd2>Already returning. Stay still.
   restore-pending: |-
     <prefix> <#ff9f0f>Recovery is not confirmed.
     <#8c8c8c>   Do not change inventory. Contact an administrator.
@@ -554,39 +412,33 @@ role:
 
 hud:
   scoreboard-title: '<#ffcc33><bold>Hidden Roles'
-  phase-line: '<#ffffff>Phase: <phase>'
+  phase-line: <#ffffff><phase>
   time-line: '<#ffffff>Time: <#ffcc33><time>'
   alive-line: '<#ffffff>Alive: <#55ff88><alive><#8fa6b8>/<#55ff88><players>'
   role-line: '<#ffffff>Role: <role>'
   credits-line: '<#ffffff>Credits: <#ffcc33><credits>'
-  objective-line: '<#ffffff>Goal: <objective>'
+  objective-line: <#ffffff><objective>
   role-hidden: '<#ffcc33>Hidden'
   objective-preparing: '<#32d6ff>explore the map'
   objective-innocent: '<#7bd88f>find the traitors'
   objective-traitor: '<#d84a4a>eliminate innocents'
   objective-detective: '<#5fb3ff>inspect bodies'
-  bossbar-preparing: '<#e3b341>Event is forming  <#f2f0e6>roles in <#e3b341><time>'
+  bossbar-preparing: <#ffb277>Roles in <time>
   bossbar-countdown: '<role>  <#ffffff>start in <#ffcc33><time>'
-  bossbar-active: '<#32d6ff><bold>Round  <#ffcc33><time>  <#ffffff>alive <#55ff88><alive>'
+  bossbar-active: <#ffb277><time> remaining
   countdown-actionbar: '<role>  <#f2f0e6>Combat in <#e3b341><time>'
   preparing-tips:
-    - '<#e3b341>Preparation  <#f2f0e6>explore the map and collect weapons'
-    - '<#d87a82>Roles hidden  <#f2f0e6>damage is disabled'
-    - '<#92bed8>LMB <#f2f0e6>— fire   <#92bed8>RMB <#f2f0e6>— aim or throw   <#92bed8>F <#f2f0e6>— reload'
-
+  - <#e8dfd2>Find weapons on the map
+  - <#e8dfd2>LMB — fire · RMB — aim · F — reload
 nameplate:
   lines:
     - '<reset><#ff5b6e>❤ <#f2f0e6><health><#8fa6b8>/<#f2f0e6><max_health>'
     - '<reset><#92bed8>Karma <#f2f0e6><karma>   <#e3b341>Wins <#f2f0e6><wins><#8fa6b8>/<#f2f0e6><matches>'
 
 guide:
-  item-name: '<#e3b341><bold>Round briefing'
+  item-name: <#86dcf1>Match rules
   item-lore:
-    - '<#f2f0e6>Preparation is for scouting and collecting weapons.'
-    - '<#f2f0e6>Roles appear before the combat countdown.'
-    - ''
-    - '<#e3b341>Right-click<#f2f0e6> to open the rules'
-
+  - <#e8dfd2>RMB — roles, evidence and controls.
 loadout:
   blade: '<#f2f0e6>Blade'
   crossbow: '<#f2f0e6>Crossbow'
@@ -800,90 +652,92 @@ debug:
     internal-error: 'an internal error occurred; details were logged'
 
 arcade:
-  zombies-title: '<#ffb277>Zombies | Sector Zero'
-  zombies-name: '<#ffb277>Zombies: Sector Zero'
+  zombies-title: '<#ffb277>Zombies: Sector Zero'
+  zombies-name: '<#ffb277><bold>Zombies: Sector Zero'
   zombies-guide-name: '<#ffb277>Hold the sector'
   zombies-dialog-unavailable: '<#e8dfd2>Zombies requires Java 1.21.6 or newer with native dialog support.'
   zombies-hud: '<#ffb277>Sector Zero <#e8dfd2>| Starting in <seconds>s'
   zombies-lore:
-  - '<#e8dfd2>Play solo or as a team of up to four.'
-  - '<#e8dfd2>Infected waves, weapons and teammate rescues.'
+  - <#e8dfd2>Survive waves of zombies.
+  - <#e8dfd2>Solo or a team of up to four
   zombies-guide:
-  - '<#e8dfd2>Survive <waves> waves in the industrial Sector Zero.'
-  - '<#e8dfd2>Join the queue; its creator starts a roster of <minimum>–<maximum> players.'
-  - '<#e8dfd2>Left click fires, right click aims, F reloads. Your knife is in slot two.'
-  - '<#e8dfd2>Earn points from kills and waves. Entrance stations supply ammo, random weapons, damage upgrades and health.'
-  - '<#e8dfd2>Between waves, ammo is replenished and fallen players return. Health regenerates after six seconds without damage.'
-  - '<#e8dfd2>Hold Shift beside a downed teammate for three seconds within their 25-second window. Solo players have one self-revive.'
-  - '<#e8dfd2>A Brute arrives every fifth wave. Leave its fire circle before the slam.'
-  - '<#e8dfd2>Points and equipment last only for this match.'
+  - <#ffb277>Hold the sector
+  - <#e8dfd2>Survive <waves> waves with <minimum>–<maximum> players.
+  - <#e8dfd2>Spend kill and wave points at the entrance stations.
+  - ''
+  - <#ffb277>Mystery box
+  - <#e8dfd2>RMB to pay for a roll. Claim your weapon before it expires.
+  - <#e8dfd2>Unclaimed weapons do not refund the points.
+  - ''
+  - <#ffb277>Barricades
+  - <#e8dfd2>Hold Shift at a window to replace boards. Repairs are free.
   unsupported-mode: '<prefix> <#c42323>Unsupported mode: <mode>.'
   gungame-title: '<#20252b>Gun Game'
   gungame-name: '<#e3b341><bold>Gun Game'
   gungame-lore:
-    - '<#f2f0e6>Advance through 12 weapon levels, earning one for each elimination.'
-    - '<#f2f0e6>After them, one precise knife hit wins the race.'
-    - '<#8c8c8c>Queue: <#e3b341><queue><#8c8c8c>/<#e3b341><minimum>'
-    - ''
-    - '<#8c8c8c>[<#e3b341>▶<#8c8c8c>] <#e3b341>Click<#f2f0e6> — open mode'
+  - <#e8dfd2>A new weapon for every elimination.
+  - <#e8dfd2>Finish the race with a knife kill.
   gungame-guide-name: '<#e3b341><bold>Gun Game rules'
   gungame-guide:
-    - '<#f2f0e6>Advance through 12 weapon levels after each elimination.'
-    - '<#f2f0e6>Then land a knife hit to finish the race.'
-    - '<#8c8c8c>After an elimination you respawn with brief protection.'
-    - '<#8c8c8c>Your current level and score stay visible in the HUD.'
+  - <#ffb277>Goal
+  - <#e8dfd2>Eliminate a player with each weapon, then with the knife.
+  - ''
+  - <#ffb277>Controls
+  - <#e8dfd2>LMB — fire · RMB — aim · F — reload.
+  - ''
+  - <#ffb277>Respawning
+  - <#e8dfd2>After elimination, return with brief spawn protection.
   disasters-title: '<#20252b>Disasters'
   disasters-name: '<#ff9f0f><bold>Disasters'
   disasters-lore:
-    - '<#f2f0e6>Survive six disaster waves and return to the fight.'
-    - '<#8c8c8c>Queue: <#ff9f0f><queue><#8c8c8c>/<#ff9f0f><minimum>'
-    - ''
-    - '<#8c8c8c>[<#ff9f0f>▶<#8c8c8c>] <#ff9f0f>Click<#f2f0e6> — open mode'
+  - <#e8dfd2>Survive a series of disasters.
+  - <#e8dfd2>Watch for warnings before each strike.
   disasters-guide-name: '<#ff9f0f><bold>Disasters rules'
   disasters-guide:
-    - '<#f2f0e6>Survive six rounds; survivors earn the points.'
-    - '<#f2f0e6>Each hazard is announced before it strikes.'
-    - '<#8c8c8c>The wave and score stay visible in the HUD; follow the warning before impact.'
+  - <#ffb277>Goal
+  - <#e8dfd2>Survive <rounds> rounds. Survivors earn points.
+  - ''
+  - <#ffb277>Shelter
+  - '<#e8dfd2>Meteors: move out of the marked circles.'
+  - '<#e8dfd2>Lightning: shelter under a copper canopy.'
+  - '<#e8dfd2>Fog: climb onto a stone terrace.'
   fishing-title: '<#20252b>Islands of the Deep'
   fishing-name: '<#67d7ff><bold>Islands of the Deep'
   fishing-lore:
-    - '<#f2f0e6>Start solo and land a dangerous catch.'
-    - '<#f2f0e6>Sell catches, upgrade your weapons and unlock five islands.'
-    - ''
-    - '<#8c8c8c>[<#67d7ff>▶<#8c8c8c>] <#67d7ff>Click<#f2f0e6> — open mode'
+  - <#e8dfd2>Fish, fight and unlock five islands.
+  - <#e8dfd2>Solo expedition
   fishing-guide-name: '<#67d7ff><bold>Islands of the Deep rules'
   fishing-guide:
-    - '<#f2f0e6>Land a dangerous catch and survive the fight.'
-    - '<#f2f0e6>Cross five islands and defeat the final boss.'
-    - '<#8c8c8c>Status: <phase> | <seconds>s.'
-    - '<#8c8c8c>Expedition limit: <maximum>s.'
-    - '<#8c8c8c>Arena: <arena>.'
-    - '<#8c8c8c>Your current objective stays visible in the HUD.'
+  - <#86dcf1>Fish → fight → upgrade
+  - <#e8dfd2>Cast by the pier. Hold your catch and RMB the ground.
+  - <#e8dfd2>Defeat the catch and sell it to the trader under the canopy.
+  - ''
+  - <#86dcf1>Unlock the next island
+  - <#e8dfd2>Complete the trader’s task and claim the boss bait.
+  - <#e8dfd2>Catch the boss, defeat it and hand in its trophy.
+  - ''
+  - <#e8dfd2>Purchases and tokens last for this expedition only.
   fishing-start-name: '<#7bd88f><bold>Start solo'
   fishing-start-lore:
-    - '<#f2f0e6>Register only you and start the run.'
-    - '<#8c8c8c>No group or shared queue is needed.'
-    - ''
-    - '<#8c8c8c>[<#7bd88f>▶<#8c8c8c>] <#7bd88f>Click<#f2f0e6> — start'
+  - <#e8dfd2>Start a solo expedition.
   fishing-unavailable-name: '<#f2f0e6>Islands are closed'
   fishing-unavailable-lore:
-    - '<#f2f0e6>The host is busy or the fishing map is not ready.'
-    - '<#8c8c8c>Open the mode again later.'
+  - <#e8dfd2>Another match is running, or the islands are unavailable.
   fishing-loading-name: '<#e3b341>Preparing the islands'
   fishing-loading-lore:
-    - '<#f2f0e6>Checking the map and starting your solo run.'
+  - <#e8dfd2>Preparing your expedition…
   fishing-dialog-unavailable: '<prefix> <#ff9f0f>This page requires a client with dialog support.'
   preparing: '<#f2f0e6><mode> is preparing to start.'
-  countdown: '<#e3b341>Mode starts in <seconds>s.'
+  countdown: <#ffb277>Starting in <seconds>s
   started: '<#7bd88f><mode> has started.'
   hud: '<#f2f0e6><mode> <#8c8c8c>| <#e3b341><seconds>s <#8c8c8c>| Score: <#7bd88f><score> <#8c8c8c>| Stage: <#92bed8><stage>/<total> <#8c8c8c>| Round: <#92bed8><round>'
-  gungame-hud: '<#e3b341>Gun Game <#8c8c8c>| <#e3b341><stage>/<total> <#8c8c8c>| <#e3b341><seconds>s | Score: <#7bd88f><score>'
-  disasters-hud: '<#ff9f0f>Disasters <#8c8c8c>| Round: <#ff9f0f><round>/<rounds> <#8c8c8c>| <#ff9f0f><seconds>s | Score: <#7bd88f><score>'
-  fishing-hud: '<#67d7ff>Islands of the Deep <#8c8c8c>| Time left: <#e3b341><seconds>s <#8c8c8c>| Goal: <#f2f0e6>catch → fight → islands → boss'
-  result: '<#e3b341>Winners: <#f2f0e6><winners>'
-  eliminated: '<#d84a4a>You were eliminated. Respawning in <seconds>s.'
-  respawn: '<#7bd88f>You are back in the round.'
-  disaster-warning: '<#ff9f0f>Hazard: <hazard> in <seconds>s.'
+  gungame-hud: <#ffb277>Weapon <stage>/<total> <#ffffff>· <seconds>s · <score> kills
+  disasters-hud: <#ffb277>Round <round>/<rounds> <#ffffff>· <seconds>s · <score> pts
+  fishing-hud: <#86dcf1>Expedition <#ffffff>· <seconds>s
+  result: '<#ffb277>Winners: <#ffffff><winners>'
+  eliminated: <#ff6b61>Respawning in <seconds>s
+  respawn: <#9bd48d>Back in action
+  disaster-warning: <#ffb277><hazard> in <seconds>s
   hazard-meteors: 'Meteors'
   hazard-lightning: 'Lightning'
   hazard-fog: 'Fog'
@@ -897,39 +751,43 @@ arcade:
     - '<#8c8c8c>A knife hit finishes the race.'
   no-winners: '<#969696>There are no winners.'
   status: '<#92bed8><mode> <#8c8c8c>| <#f2f0e6><phase> <#8c8c8c>| <seconds>s | Score: <score>'
-  join-name: '<#7bd88f><bold>Join the queue'
+  join-name: <#9bd48d>Join queue
   join-lore:
-    - '<#f2f0e6>Take a place in the shared queue.'
-    - ''
-    - '<#8c8c8c>[<#7bd88f>▶<#8c8c8c>] <#7bd88f>Click<#f2f0e6> — join the queue'
-  leave-name: '<#d84a4a><bold>Leave the queue'
+  - <#e8dfd2>Join the shared roster.
+  leave-name: <#ff6b61>Leave queue
   leave-lore:
-    - '<#f2f0e6>Release your place.'
-    - ''
-    - '<#8c8c8c>[<#d84a4a>▶<#8c8c8c>] <#d84a4a>Click<#f2f0e6> — leave the queue'
-  start-name: '<#7bd88f><bold>Start mode'
+  - <#e8dfd2>Give up your place.
+  start-name: <#9bd48d>Start match
   start-lore:
-    - '<#f2f0e6>Start a match in the selected mode.'
-    - ''
-    - '<#8c8c8c>[<#7bd88f>▶<#8c8c8c>] <#7bd88f>Click<#f2f0e6> — start'
-  status-name: '<#92bed8><bold>Queue status'
-  status-lore: '<#8c8c8c>Status: <queue_state>'
+  - <#e8dfd2>Start this mode with the current roster.
+  status-name: <#86dcf1>Participation
+  status-lore: <#e8dfd2><queue_state>
 
+  zombies-briefing: <#ffb277>Survive <waves> waves.<newline>  <#e8dfd2>LMB — fire · RMB — aim · F — reload
+  gungame-briefing: <#ffb277>Each elimination advances your weapon. Finish with the knife.<newline>  <#e8dfd2>LMB — fire · RMB — aim · F — reload
+  disasters-briefing: <#ffb277>Survive and move away from marked strikes.
+  fishing-briefing: <#86dcf1>Take your rod and cast by the pier.
+  zombies-solo-name: <#9bd48d>Play solo
+  zombies-solo-lore:
+  - <#e8dfd2>Start a separate match just for you.
+  zombies-team-name: <#ffffff>Form a squad
+  zombies-team-lore:
+  - <#e8dfd2>Join the shared queue and launch your squad here.
 fishing:
-  start: "<#7bd88f>Fish with your rod (slot 1). Then right-click the ground with the fish, defeat it, and feed the catch to the trader under the canopy."
-  catch: "<#67d7ff>Caught <catches>! The fish is in your hand. Right-click nearby ground to start the fight."
+  start: <#86dcf1>Cast your rod into the marked water by the pier.
+  catch: '<#86dcf1>Caught: <catches>. <#e8dfd2>RMB the ground to release it.'
   complete: "<newline>  <#7bd88f>Expedition complete. All five trophies delivered.<newline>"
-  creature-defeated: "<#7bd88f>Catch in slot 5. Hold it and right-click the trader to feed your catch."
+  creature-defeated: '<#9bd48d>Catch defeated. <#e8dfd2>Fish in slot 5: RMB the trader.'
   creature-hit: "<#7bd88f>Prey health: <health>."
   creature-name: "<#ff9f0f>Dangerous catch"
   boss-name: "<#d6a8ff>Island boss"
-  boss-summoned: "<#d84a4a>The boss is on land! Your weapon is ready: left-click to attack and dodge the marked strikes."
-  creature-summoned: "<#ff9f0f>The fish is on land! Your weapon is ready: left-click to attack, then bring the catch to the trader."
+  boss-summoned: <#ff6b61>Boss ashore. <#e8dfd2>LMB to attack; avoid the marked strikes.
+  creature-summoned: <#ffb277>Catch ashore. <#e8dfd2>LMB to attack.
   creature-missing: "<#e3b341>Encounter restored. Keep fighting."
   boss-warning: "<#d84a4a>Leave the marker: the boss is preparing an attack."
   braced: "<#e3b341>The boss is stunned — attack now."
-  boss-defeated: "<#7bd88f>Trophy secured. Return to the trader to hand it in."
-  bait-ready: "<#67d7ff>Special bait ready. Your next catch will summon the boss."
+  boss-defeated: <#9bd48d>Trophy claimed. <#e8dfd2>Hand it to the trader.
+  bait-ready: <#86dcf1>Bait ready. <#e8dfd2>Your next catch is the boss.
   bag-full: "<#e3b341>Your bag is full. Feed your catch to the trader or eat some of it."
   dynamite-thrown: "<#ffb277>The fuse is burning. Move away from the dynamite!"
   dynamite-empty: "<#e3b341>Buy dynamite from the trader."
@@ -938,7 +796,7 @@ fishing:
   rare-prefix: "<#c4abff>Rare catch: "
   near-trader: "<#e3b341>Approach the stall under the canopy."
   trader-npc: "<#f4d87a>Catch trader"
-  fed: "<#7bd88f>The trader took one fish: +<value> expedition credits."
+  fed: <#9bd48d>Fish sold · +<value> tokens
   water-rescue: "<#67d7ff>You were brought back ashore."
   live-catch-name: "<#ff9f0f>Live catch: <species>"
   live-catch-lore:
@@ -955,13 +813,13 @@ fishing:
   food-full: "<#e3b341>Your health and hunger are already full."
   inventory-full: "<#e3b341>Make room for your purchase."
   purchase-failed: "<#e3b341>Purchase unavailable. Check your expedition credits and unlocked island."
-  hud: "<#67d7ff>Island <stage>/<total> <#e8dfd2>| <phase> | Catch <catches>/<needed> | <coins> credits | Bag <bag>"
+  hud: <#86dcf1>Island <stage>/<total> <#ffffff>· Catch <catches>/<needed> · <coins> tokens
   quest-ready: "<#7bd88f>Task complete. Collect special bait from the trader."
   quest-bait: "<#67d7ff>Special bait is on the hook: catch the boss."
   travel-unlocked: "<newline>  <#7bd88f>Trophy accepted. The next island is open.<newline>"
   travel-started: "<#67d7ff>Island <stage> unlocked. New gear is available at the trader."
   travel-marker: "<#67d7ff>Next island"
-  trader-marker: "<#f4d87a>Trader | Right-click the trader or barrel"
+  trader-marker: <#f4d87a>Trader<newline><#e8dfd2>RMB — trade and supplies
   invalid-catch: "<#e3b341>Cast into the marked water beside the dock."
   encounter-restored: "<#7bd88f>Encounter restored."
   telegraph: "<#d84a4a>Incoming attack! Move more than <radius> blocks away from the marker."
@@ -1010,9 +868,9 @@ fishing:
     - ""
     - "<#e8dfd2>Melee gear for hunting dangerous catches."
     - ""
-  result-success: "<#7bd88f>All five islands cleared. Expedition complete!"
-  result-timeout: "<#e3b341>Your expedition ran out of time. Try a different gear progression next time."
-  result-defeat: "<#d84a4a>Your catch won this time. Food and better weapons can help on your next run."
+  result-success: <#9bd48d>All five islands cleared
+  result-timeout: <#f4d87a>Expedition time is up
+  result-defeat: <#ff6b61>Expedition ended
   gear:
     knuckles-name: "<#e3b341>Knuckles"
     knuckles-description: "Fast close-range strikes. Always available."
@@ -1020,15 +878,15 @@ fishing:
     knife-description: "A quick blade for early encounters."
     machete-name: "<#e3b341>Machete"
     machete-description: "Hits harder than a knife, with a slower swing."
-    pistol-name: "<#e3b341>Five-Seven pistol"
+    pistol-name: <#ffb277>Five-SeveN
     pistol-description: "Single shots and a generous magazine."
     shotgun-name: "<#e3b341>Double-barrel shotgun"
     shotgun-description: "Strong up close; reload after two shots."
-    burst_rifle-name: "<#e3b341>G36 burst rifle"
+    burst_rifle-name: <#ffb277>G36
     burst_rifle-description: "Short bursts consume three rounds per click."
-    assault_rifle-name: "<#e3b341>AEK-971 rifle"
+    assault_rifle-name: <#ffb277>AEK-971
     assault_rifle-description: "Faster, tighter bursts for the later islands."
-    sniper-name: "<#e3b341>McMillan sniper rifle"
+    sniper-name: <#ffb277>McMillan
     sniper-description: "Accurate long-range shots with a long firing interval."
   species:
     clam: "Clam"
@@ -1062,65 +920,69 @@ fishing:
     armory-title: "Expedition weapons"
     armory: "Weapons ›"
     armory-help: "Progress from knuckles and blades to pistols, a shotgun and rifles."
-    status: "Island <stage>/5 | Expedition credits: <coins>\nCatch in bag: <bag> | Next fish: <value>\nRod: level <rod>"
-    session-only: "Credits, catches and gear last for this expedition only."
+    status: 'Tokens: <coins>   Catch: <bag>
+
+      Rod: <rod>   First fish value: <value>'
+    session-only: Tokens and purchases last for this expedition only.
     nearby: "Approach the trader under the canopy after the fight."
     client-required: "Trading requires a Java 1.21.6+ client with native dialogs."
-    done: "Done. Your balance and gear are up to date."
-    changed: "Action unavailable: your state or inventory space has changed."
-    feed: "Feed one fish for <value>"
-    feed-help: "The trader takes the first fish in your bag. Hold the catch and right-click the trader."
+    done: Done.
+    changed: Action unavailable. Check your catch, tokens and inventory space.
+    feed: Sell fish · +<value> tokens
+    feed-help: Sell the first fish in your bag.
     eat: "Eat one catch"
-    eat-help: "Restore 4 health and 4 hunger. An eaten catch cannot be fed to the trader."
+    eat-help: +4 health and +4 hunger. Consumes one fish.
     bait: "Collect boss bait"
-    bait-help: "Defeat <needed> ordinary catches on this island to earn special bait for your next cast."
+    bait-help: Defeat <needed> catches on this island first.
     trophy: "Deliver trophy"
     trophy-help: "Unlock the next island. Delivering the final trophy completes the expedition."
-    quest-catches: "Island task: defeat catches <catches>/<needed>. Then collect special bait."
-    quest-ready: "Task complete. Collect the bait and fish up the island boss."
-    quest-cast: "Bait collected. Your next cast into the marked water will summon the boss."
-    quest-trophy: "Boss defeated. Deliver the trophy to continue your journey."
-    purchase: "<item>: <price>"
-    gear-help: "Price: <price> credits. Available on island <island>.\nA new firearm includes one full magazine."
+    quest-catches: 'Defeat your catch: <catches>/<needed>.'
+    quest-ready: Task complete. Claim the boss bait.
+    quest-cast: Your next cast summons the boss.
+    quest-trophy: Hand in the trophy to unlock the next island.
+    purchase: <item> · <price>
+    gear-help: '<price> tokens · Island <island>
+
+      Firearms come with a full magazine.'
     equip-help: "Equip owned gear. Switching does not refill ammunition."
-    ammo: "32 rounds: <price>"
+    ammo: 32 rounds · <price>
     ammo-help: "Reserve ammunition for an owned firearm. Press the swap-hands key F to reload."
-    dynamite: "2 dynamite: <price>"
+    dynamite: 2 dynamite · <price>
     dynamite-help: "Right-click to throw. Hurts you too; marked water lures a catch."
-    rod_one: "Rod II: <price>"
+    rod_one: Rod II · <price>
     rod_one-help: "Shortens the wait for a bite. Buy this upgrade first."
-    rod_two: "Rod III: <price>"
+    rod_two: Rod III · <price>
     rod_two-help: "Attracts catches even faster. Requires rod II and the third island."
   dynamite-cap: "<#e3b341>Wait for the dynamite already thrown to explode."
 
 zombies:
-  ready: '<#ffb277>Sector Zero <#e8dfd2>| Pistol, knife and ammunition issued. Prepare for the first wave.'
+  ready: <#e8dfd2>LMB — fire · RMB — aim · F — reload
   wave-title: '<#ffb277>Wave <wave> / <total>'
-  wave-subtitle: '<#e8dfd2>Stay together and keep an escape route'
+  wave-subtitle: <#e8dfd2>Stay together
   brute-warning: '<#ff8b82>Brute incoming | watch the fire circle'
   brute-name: '<#ff8b82>Brute'
-  wave-cleared: '<#9bd48d>Wave cleared. <#e8dfd2>Ammo replenished; next wave in <seconds>s. Balance: <points> pts.'
+  wave-cleared: <#9bd48d>Wave cleared. <#e8dfd2>Ammo refilled.
   self-revive: '<#ffbe6b>Self-revive in 3 seconds. <#e8dfd2>Your single second chance has been used.'
-  downed: '<#ff8b82>You are down. <#e8dfd2>A teammate can revive you by holding Shift nearby for 3 seconds. You have 25 seconds.'
-  teammate-downed: '<#ff8b82><player> is down! <#e8dfd2>Stand nearby and hold Shift for three seconds.'
+  downed: <#ff6b61>You are down. <#e8dfd2>A teammate has 25 seconds to revive you.
+  teammate-downed: <#ff6b61><player> is down. <#e8dfd2>Hold Shift nearby to revive.
   reviving: '<#9bd48d>Reviving <player> | <seconds>s'
-  revived: '<#9bd48d>Back on your feet. <#e8dfd2>Four seconds of protection — get clear of the horde.'
+  revived: <#9bd48d>Back in action. <#e8dfd2>Protected for 4 seconds.
   waiting: '<#e8dfd2>You will return with ammunition when this wave ends.'
-  weapon-received: '<#9bd48d>New weapon: <weapon><#e8dfd2>. Ammo replenished; damage upgrades retained.'
+  weapon-received: '<#9bd48d>Received: <weapon>'
   hud-wave: '<#ffb277>Wave <wave>/<total> <#e8dfd2>| Zombies: <remaining> | <points> pts | Power <power>/3'
   hud-intermission: '<#9bd48d>Resupply <seconds>s <#e8dfd2>| Next wave <wave>/<total> | <points> pts'
   hud-self-revive: '<#ffbe6b>Self-revive in <seconds>s <#e8dfd2>| Last spare chance'
   hud-downed: '<#ff8b82>Down | <seconds>s <#e8dfd2>| Teammate: hold Shift nearby'
   hud-waiting: '<#e8dfd2>Returning after wave <wave> | Zombies left: <remaining>'
-  result-success: '<#9bd48d>Sector cleared | <wave> waves | Your kills: <kills>'
-  result-defeat: '<#ff8b82>Sector lost | Waves cleared: <wave> | Kills: <kills>'
-  result-timeout: '<#ffbe6b>Time expired | Waves cleared: <wave> | Kills: <kills>'
+  result-success: <#9bd48d>Sector cleared · <wave> waves · <kills> kills
+  result-defeat: <#ff6b61>Sector lost · <wave> waves · <kills> kills
+  result-timeout: <#f4d87a>Time is up · <wave> waves · <kills> kills
   supply-nearby: '<#e8dfd2>Stand beside the supply station while alive.'
   supply-balance: '<#e8dfd2>Match points: <#ffffff><points>'
   supply-price: '<#e8dfd2>Price: <#ffb277><price> pts'
   supply-maxed: '<#e8dfd2>This upgrade is already complete.'
   supply-poor: '<#ffbe6b>Not enough points. <#e8dfd2>Required: <price>; available: <points>.'
-  supply-session-only: '<#e8dfd2>This purchase lasts until the end of this match.'
+  supply-session-only: <#e8dfd2>For this match only.
   supply-buy: '<#9bd48d>Buy for <price> pts'
   supply-done: '<#9bd48d>Supplies received.'
   supply-changed: '<#e8dfd2>Your state changed. Open the station again.'
@@ -1131,10 +993,138 @@ zombies:
     vitality: '<#ff8b82>Vitality<newline><#e8dfd2>1,500 pts | Right click'
   offer:
     ammo: '<#9bd48d>Ammunition'
-    ammo-help: '<#e8dfd2>A full magazine and four spare magazines for your current gun. These remain event rounds.'
-    mystery: '<#ffb277>Random weapon'
-    mystery-help: '<#e8dfd2>One of eight shotguns and rifles with equal odds. Your current gun is excluded. The new gun replaces slot one; damage upgrades stay.'
+    ammo-help: <#e8dfd2>A full magazine and four spare magazines for your current weapon.
+    mystery: <#ffb277>Mystery box
+    mystery-help: '<#e8dfd2>A random replacement weapon. Power is kept. Claim it in time: expired weapons are not refunded.'
     power: '<#86dcf1>Weapon amplifier'
-    power-help: '<#e8dfd2>Add +35% of base damage to all your gun hits on zombies. Current level: <power>/3. Levels cost 1,000, 2,000 and 3,000 points.'
+    power-help: <#e8dfd2>+35% base damage against zombies. Power <power>/3.
     vitality: '<#ff8b82>Vitality'
-    vitality-help: '<#e8dfd2>Ten additional maximum hearts and a full heal. Persists through revives until the match ends.'
+    vitality-help: <#e8dfd2>+10 hearts and full healing. Kept after being revived.
+
+  box:
+    idle: <#ffb277>Mystery box<newline><#e8dfd2><price> pts · RMB to open
+    rolling: <#ffb277>Rolling…<newline><#e8dfd2><player>
+    ready: <#ffb277><weapon><newline><#e8dfd2><player> · RMB to claim · <seconds>s
+    busy: '<#e8dfd2>Box in use: <player>'
+    claim: <#ffb277><weapon> <#e8dfd2>· RMB to claim · <seconds>s
+    opened: <#e8dfd2>Box opened · −<price> pts
+    expired: <#f4d87a>Weapon expired. Points are not refunded.
+    cancelled: <#e8dfd2>Roll cancelled · +<price> pts
+    claimed: '<#9bd48d>Received: <weapon>'
+    hint: <#ffb277>Box · <price> pts <#e8dfd2>· Balance <points> · RMB
+    rolling-hint: <#ffb277>Rolling a weapon… <#e8dfd2>· <player>
+  barricade:
+    hint: <#e8dfd2>Boards <boards>/<max> · Hold Shift to repair
+    repairing: <#f4d87a>Repairing · Boards <boards>/<max>
+    full: <#9bd48d>Barricade intact
+    breached: <#ff6b61>Barricade breached
+    repaired: <#9bd48d>Board replaced · <boards>/<max>
+  box-nearby: <#e8dfd2>Walk up to the mystery box and right-click it.
+  supply-balance-label: <#e8dfd2>Your points
+  supply-price-label: <#e8dfd2>Price
+  supply-price-value: <#ffb277><price> pts
+dialog:
+  root-status: '<#e8dfd2>Queued: <#ffffff><queue>   <#e8dfd2><availability>'
+  ready: <#e8dfd2>No active match
+  busy: <#ffb277>Match in progress
+  unavailable: <#ff6b61>Events unavailable
+  queue-facts: <#e8dfd2>Queued <#ffffff><queue><#e8dfd2> · To start <#ffffff><minimum>–<maximum>
+  queue-status: <#e8dfd2><queue_state>
+  ttt-overview: <#ffb277>Find the traitors among the players.
+  ttt-map: '<#e8dfd2>Map: <#ffffff><selected_arena>'
+  gungame-overview: <#ffb277>Advance with each kill. Win with the knife.
+  disasters-overview: <#ffb277>Survive <rounds> rounds of disasters.
+  zombies-overview: <#ffb277>Survive <waves> waves of zombies.
+  fishing-overview: <#86dcf1>Five islands. Five bosses. One expedition.
+  fishing-facts: <#e8dfd2>One player · Up to <minutes> min.
+  fishing-active: <#e8dfd2><phase> · <minutes> min left
+  rules-title: '<#86dcf1>Rules: <mode>'
+  rules-index-title: <#86dcf1>Mode rules
+  rules-name: <#86dcf1>Rules
+  rules-tooltip: <#e8dfd2>Goal, controls and mode details.
+  rules-next: <#86dcf1>Controls and tips ›
+  rules-previous: <#86dcf1>‹ Main rules
+  rules-ttt-0:
+  - <#9bd48d>Innocent
+  - <#e8dfd2>Survive and use evidence to find the traitors.
+  - ''
+  - <#ff6b61>Traitor
+  - <#e8dfd2>Eliminate the innocents. Only your team knows your allies.
+  - ''
+  - <#86dcf1>Detective
+  - <#e8dfd2>Your role is public. Inspect bodies and protect innocents.
+  rules-ttt-1:
+  - <#ffb277>Before combat
+  - <#e8dfd2>Find weapons on the map. Roles are hidden; damage is off.
+  - ''
+  - <#ffb277>During combat
+  - <#e8dfd2>LMB — fire · RMB — aim · F — reload.
+  - '<#e8dfd2>RMB a body to inspect it. Role equipment: /arcevents.'
+  - ''
+  - <#ffb277>Communication
+  - <#e8dfd2>Chat is local. /arcevents team is your role’s team chat.
+  - <#e8dfd2>Spectators have a separate chat. Keep hidden roles secret.
+  rules-gungame-0:
+  - <#ffb277>Goal
+  - <#e8dfd2>Eliminate a player with each weapon, then with the knife.
+  - ''
+  - <#ffb277>Controls
+  - <#e8dfd2>LMB — fire · RMB — aim · F — reload.
+  - ''
+  - <#ffb277>Respawning
+  - <#e8dfd2>After elimination, return with brief spawn protection.
+  rules-disasters-0:
+  - <#ffb277>Goal
+  - <#e8dfd2>Survive <rounds> rounds. Survivors earn points.
+  - ''
+  - <#ffb277>Shelter
+  - '<#e8dfd2>Meteors: move out of the marked circles.'
+  - '<#e8dfd2>Lightning: shelter under a copper canopy.'
+  - '<#e8dfd2>Fog: climb onto a stone terrace.'
+  rules-fishing-0:
+  - <#86dcf1>Fish → fight → upgrade
+  - <#e8dfd2>Cast by the pier. Hold your catch and RMB the ground.
+  - <#e8dfd2>Defeat the catch and sell it to the trader under the canopy.
+  - ''
+  - <#86dcf1>Unlock the next island
+  - <#e8dfd2>Complete the trader’s task and claim the boss bait.
+  - <#e8dfd2>Catch the boss, defeat it and hand in its trophy.
+  - ''
+  - <#e8dfd2>Purchases and tokens last for this expedition only.
+  rules-zombies-0:
+  - <#ffb277>Hold the sector
+  - <#e8dfd2>Survive <waves> waves with <minimum>–<maximum> players.
+  - <#e8dfd2>Spend kill and wave points at the entrance stations.
+  - ''
+  - <#ffb277>Mystery box
+  - <#e8dfd2>RMB to pay for a roll. Claim your weapon before it expires.
+  - <#e8dfd2>Unclaimed weapons do not refund the points.
+  - ''
+  - <#ffb277>Barricades
+  - <#e8dfd2>Hold Shift at a window to replace boards. Repairs are free.
+  rules-zombies-1:
+  - <#ffb277>Controls
+  - <#e8dfd2>LMB — fire · RMB — aim · F — reload.
+  - <#e8dfd2>Knife in slot two. Get out of the Brute’s marked circle.
+  - ''
+  - <#9bd48d>Help your team
+  - <#e8dfd2>Hold Shift near a downed teammate for 3 seconds to revive.
+  - <#e8dfd2>You have 25 seconds. Solo players get one self-revive.
+  - ''
+  - <#9bd48d>Breather
+  - <#e8dfd2>Between waves, eliminated players return and ammo refills.
+  - <#e8dfd2>Health starts regenerating after 6 seconds without damage.
+  working: <#e8dfd2>Updating participation…
+  start-insufficient: <#f4d87a>Not enough players to start yet.
+  start-arena-unavailable: <#f4d87a>Map unavailable. Try again later.
+  start-busy: <#f4d87a>Another match is still running.
+  start-recovery-pending: <#f4d87a>The previous match is finishing. Try again shortly.
+  start-network-failed: <#ff6b61>Could not start the match. Try again.
+  start-not-owner: <#f4d87a>The queue creator starts the match.
+  start-client-unsupported: <#e3b341>This expedition requires enabled dialogs and Java 1.21.6 or newer.
+  error-unavailable: <#ff6b61>Queue unavailable. Try again later.
+  report-player: <#e8dfd2>Player
+  report-role: <#e8dfd2>Role
+  report-kills: <#e8dfd2>Kills
+  report-damage-header: <#e8dfd2>Damage / team
+  report-damage: <#ffffff><damage><#e8dfd2> / <#f4d87a><friendly>

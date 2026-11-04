@@ -58,6 +58,7 @@ class ArcEventsMenu(
     private val pendingClicks = mutableSetOf<UUID>()
     private val pendingDialogLoads = mutableMapOf<UUID, UUID>()
     private val pendingFishingActions = mutableMapOf<UUID, UUID>()
+    private val pendingArcadeActions = mutableMapOf<UUID, UUID>()
     private val selectedArenas = mutableMapOf<UUID, String>()
     private val dialogRuntime = PaperDialogRuntime(plugin)
     private val dialogs = ArcEventsDialogMenu(dialogRuntime, service, locale, settings,
@@ -88,6 +89,7 @@ class ArcEventsMenu(
         } else view
         pendingDialogLoads.remove(player.uniqueId)
         pendingFishingActions.remove(player.uniqueId)
+        pendingArcadeActions.remove(player.uniqueId)
         if (requestedView !in nativeDialogViews) dialogRuntime.close(player)
         dialogRuntime.beginFlow(player)
         open(player, requestedView)
@@ -108,7 +110,8 @@ class ArcEventsMenu(
             fishingTrader.open(player)
             return
         }
-        if (view != EventsView.Ttt) pendingDialogLoads.remove(player.uniqueId)
+        pendingArcadeActions.remove(player.uniqueId)
+        if (view != EventsView.Ttt && view !is EventsView.Arcade) pendingDialogLoads.remove(player.uniqueId)
         if (view != EventsView.Fishing) pendingFishingActions.remove(player.uniqueId)
         if (view !in nativeDialogViews) dialogRuntime.close(player)
         if (view == EventsView.Ttt) {
@@ -173,6 +176,7 @@ class ArcEventsMenu(
         activeFrames.clear()
         pendingDialogLoads.clear()
         pendingFishingActions.clear()
+        pendingArcadeActions.clear()
         menuRuntime.close()
         dialogRuntime.close()
     }
@@ -202,7 +206,7 @@ class ArcEventsMenu(
     }
 
     companion object {
-        val nativeDialogViews = setOf<EventsView>(EventsView.Main, EventsView.Help, EventsView.EventHelp, EventsView.Ttt, EventsView.Fishing, EventsView.Arcade(EventMode.ZOMBIES), EventsView.Statistics, EventsView.Admin)
+        val nativeDialogViews = setOf<EventsView>(EventsView.Main, EventsView.Help, EventsView.EventHelp, EventsView.Ttt, EventsView.Fishing, EventsView.Arcade(EventMode.ZOMBIES), EventsView.Arcade(EventMode.GUN_GAME), EventsView.Arcade(EventMode.DISASTERS), EventsView.Statistics, EventsView.Admin, EventsView.Report)
 
         internal fun closeSurfaceForPresentation(
             player: Player,
@@ -254,14 +258,20 @@ class ArcEventsMenu(
         }
     }
 
-    private fun openArcade(player: Player, mode: EventMode) {
+    private fun openArcade(player: Player, mode: EventMode, feedback: String? = null) {
         if (mode == EventMode.FISHING) {
             openFishing(player)
             return
         }
+        val token = UUID.randomUUID()
+        pendingDialogLoads[player.uniqueId] = token
+        dialogs.openArcadeLoading(player, mode, { openArcade(player, mode) }) {
+            pendingDialogLoads.remove(player.uniqueId, token)
+        }
         service.queueControl(player.uniqueId).whenComplete { control, failure ->
             Tasks.scheduler.runSync {
-                if (!player.isOnline) return@runSync
+                if (!player.isOnline || pendingDialogLoads[player.uniqueId] != token) return@runSync
+                pendingDialogLoads.remove(player.uniqueId, token)
                 val queueState = control?.state
                 val view = EventsView.Arcade(mode)
                 val state = service.snapshot()
@@ -274,15 +284,20 @@ class ArcEventsMenu(
                 val modeAvailable = service.modeAvailable(mode)
                 val canStart = queueState == QueueState.QUEUED && (adminOverride || creator ||
                     (!controls.creatorControlsEnabled && player.hasPermission("arcevents.start"))) &&
-                    modeAvailable && state.matchId == null && state.queueSize >= rules.minimumPlayers && failure == null
+                    modeAvailable && state.matchId == null && (control?.queueSize ?: 0) >= rules.minimumPlayers && failure == null
+                if (dialogs.openArcade(player, mode, queueState, canStart, inArcadeMatch, modeAvailable, failure != null,
+                        element(view, "center"), element(view, "right"), { openArcade(player, mode) }, feedback, control?.queueSize ?: 0)) return@runSync
                 if (mode == EventMode.ZOMBIES) {
-                    if (!dialogs.openZombies(player, queueState, canStart, inArcadeMatch, modeAvailable, failure != null,
-                            element(view, "center"), element(view, "right"), { openArcade(player, mode) })) {
-                        player.sendEventMessage(locale.render("arcade.zombies-dialog-unavailable", player))
-                    }
+                    player.sendEventMessage(locale.render("arcade.zombies-dialog-unavailable", player))
                     return@runSync
                 }
-                val values = mapOf("queue" to locale.text(state.queueSize), "minimum" to locale.text(rules.minimumPlayers), "mode" to locale.render("arcade.${mode.id}-name", player))
+                if (feedback != null) player.sendEventMessage(locale.render(feedback, player))
+                val values = mapOf(
+                    "queue" to locale.text(control?.queueSize ?: 0),
+                    "minimum" to locale.text(rules.minimumPlayers),
+                    "rounds" to locale.text(rules.disasterRounds),
+                    "mode" to locale.render("arcade.${mode.id}-name", player),
+                )
                 val inventory = inventory(player, view, "arcade.${mode.id}-title", values)
                 inventory.setItem(element(view, "overview"), item(Material.IRON_SWORD.takeIf { mode == EventMode.GUN_GAME } ?: Material.LIGHTNING_ROD, player, "arcade.${mode.id}-name", "arcade.${mode.id}-guide", values))
                 val queued = queueState == QueueState.QUEUED
@@ -300,8 +315,8 @@ class ArcEventsMenu(
         }
     }
 
-    private fun openFishing(player: Player) {
-        if (dialogs.openFishing(player, { openFishing(player) }) {
+    private fun openFishing(player: Player, feedback: String? = null) {
+        if (dialogs.openFishing(player, { openFishing(player) }, feedback) {
                 pendingFishingActions.remove(player.uniqueId)
             }) return
         player.sendEventMessage(locale.render("arcade.fishing-dialog-unavailable", player))
@@ -334,63 +349,92 @@ class ArcEventsMenu(
             Tasks.scheduler.runSync {
                 if (!player.isOnline || pendingFishingActions[player.uniqueId] != token) return@runSync
                 pendingFishingActions.remove(player.uniqueId, token)
-                player.sendEventMessage(locale.render(
-                    if (failure == null && result != null) reservationStartMessage(result, StartMessageAudience.PLAYER) else "command.failed",
-                    player,
-                    if (failure == null && result != null) emptyMap() else mapOf("reason" to locale.render("reason.network", player)),
-                ))
-                openFishing(player)
+                if (failure == null && result == ReservationStartResult.STARTED) closeSurface(player, nativePresentation)
+                else openFishing(player, if (failure == null && result != null)
+                    reservationStartMessage(result, StartMessageAudience.PLAYER) else "queue.start-network-failed")
+
             }
         }
     }
 
     private fun clickArcade(player: Player, mode: EventMode, slot: Int, nativePresentation: Boolean = false) {
         val view = EventsView.Arcade(mode)
-        when (slot) {
-            element(view, "back") -> open(player, EventsView.Main)
-            element(view, "center") -> {
-                val participant = service.arcadeSnapshot()?.participants?.get(player.uniqueId)
-                if (participant != null && participant.status != ParticipantStatus.RESTORED) {
+        if (slot == element(view, "back")) { open(player, EventsView.Main); return }
+        if (slot == element(view, "help")) { if (nativePresentation) dialogs.openRules(player, mode); return }
+        if (pendingArcadeActions.containsKey(player.uniqueId)) return
+        if (slot !in setOf(element(view, "center"), element(view, "right"), ZOMBIES_SOLO_SLOT)) return
+        if (slot == ZOMBIES_SOLO_SLOT && mode != EventMode.ZOMBIES) return
+        val participant = service.arcadeSnapshot()?.participants?.get(player.uniqueId)
+        if (slot == element(view, "center") && participant != null && participant.status != ParticipantStatus.RESTORED) {
+            closeSurface(player, nativePresentation)
+            service.leave(player)
+            return
+        }
+        val token = UUID.randomUUID()
+        pendingArcadeActions[player.uniqueId] = token
+        pendingDialogLoads.remove(player.uniqueId)
+        fun current() = player.isOnline && pendingArcadeActions[player.uniqueId] == token
+        dialogs.openArcadeLoading(player, mode, {
+            pendingArcadeActions.remove(player.uniqueId, token)
+            openArcade(player, mode)
+        }) { pendingArcadeActions.remove(player.uniqueId, token) }
+        fun completeStart(result: ReservationStartResult?, failure: Throwable?) {
+            Tasks.scheduler.runSync {
+                if (!current()) return@runSync
+                pendingArcadeActions.remove(player.uniqueId, token)
+                if (failure == null && result == ReservationStartResult.STARTED) {
                     closeSurface(player, nativePresentation)
-                    service.leave(player)
-                } else service.queueControl(player.uniqueId).whenComplete { control, _ ->
-                    Tasks.scheduler.runSync { if (player.isOnline) { closeSurface(player, nativePresentation); if (control?.state == QueueState.QUEUED) service.leaveQueue(player) else service.joinQueue(player) } }
+                } else {
+                    openArcade(player, mode, if (failure == null && result != null)
+                        reservationStartMessage(result, StartMessageAudience.PLAYER) else "queue.start-network-failed")
                 }
             }
-            element(view, "right") -> {
-                service.queueControl(player.uniqueId).whenComplete { control, failure ->
-                    Tasks.scheduler.runSync {
-                        if (!player.isOnline) return@runSync
-                        val controls = settings().eventControls
-                        val allowed = failure == null && control?.state == QueueState.QUEUED &&
-                            (controls.adminOverrideEnabled && player.hasPermission("arcevents.admin") ||
-                                (controls.creatorControlsEnabled && control.ownedBy(player.uniqueId)) ||
-                                (!controls.creatorControlsEnabled && player.hasPermission("arcevents.start"))) &&
-                            service.snapshot().queueSize >= settings().arcade.rules(mode).minimumPlayers &&
-                            service.modeAvailable(mode) && service.snapshot().matchId == null
-                        if (!allowed) {
-                            player.sendEventMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.contended", player))))
-                            open(player, view)
-                            return@runSync
-                        }
+        }
+        if (slot == ZOMBIES_SOLO_SLOT) {
+            service.startZombiesSolo(player).whenComplete(::completeStart)
+            return
+        }
+        service.queueControl(player.uniqueId).whenComplete { control, failure ->
+            Tasks.scheduler.runSync {
+                if (!current()) return@runSync
+                if (failure != null) {
+                    pendingArcadeActions.remove(player.uniqueId, token)
+                    openArcade(player, mode, "queue.start-network-failed")
+                    return@runSync
+                }
+                if (slot == element(view, "center")) {
+                    if (control?.state == QueueState.QUEUED) {
+                        pendingArcadeActions.remove(player.uniqueId, token)
                         closeSurface(player, nativePresentation)
-                        service.startFromQueue(player, null, mode).whenComplete { result, startFailure ->
+                        service.leaveQueue(player)
+                    } else {
+                        service.joinQueue(player).whenComplete { joined, joinFailure ->
                             Tasks.scheduler.runSync {
-                                if (!player.isOnline) return@runSync
-                                player.sendEventMessage(locale.render(
-                                    if (startFailure == null) reservationStartMessage(result, StartMessageAudience.PLAYER) else "command.failed",
-                                    player,
-                                    if (startFailure == null) emptyMap() else mapOf("reason" to locale.render("reason.network", player)),
-                                ))
+                                if (!current()) return@runSync
+                                pendingArcadeActions.remove(player.uniqueId, token)
+                                openArcade(player, mode, if (joinFailure != null || joined != true) "queue.unavailable" else null)
                             }
                         }
+                    }
+                } else {
+                    val controls = settings().eventControls
+                    val allowed = control?.state == QueueState.QUEUED &&
+                        (controls.adminOverrideEnabled && player.hasPermission("arcevents.admin") ||
+                            controls.creatorControlsEnabled && control.ownedBy(player.uniqueId) ||
+                            !controls.creatorControlsEnabled && player.hasPermission("arcevents.start")) &&
+                        control.queueSize >= settings().arcade.rules(mode).minimumPlayers &&
+                        service.modeAvailable(mode) && service.snapshot().matchId == null
+                    if (allowed) service.startFromQueue(player, null, mode).whenComplete(::completeStart)
+                    else {
+                        pendingArcadeActions.remove(player.uniqueId, token)
+                        openArcade(player, mode, "queue.start-not-owner")
                     }
                 }
             }
         }
     }
 
-    private fun openTtt(player: Player) {
+    private fun openTtt(player: Player, feedback: String? = null) {
         val loadToken = UUID.randomUUID()
         pendingDialogLoads[player.uniqueId] = loadToken
         val dialogLoading = dialogs.openTttLoading(player, { openTtt(player) }) {
@@ -421,9 +465,10 @@ class ArcEventsMenu(
                     canSelectArena = canControl && (controls.creatorArenaSelectionEnabled || adminOverride),
                 )
                 val selectedArena = arenaName(selectedArenaId(player.uniqueId), player)
-                if (dialogLoading && dialogs.openTtt(player, queueState, plan, selectedArena, { openTtt(player) }) {
+                if (dialogLoading && dialogs.openTtt(player, queueState, plan, selectedArena, { openTtt(player) }, {
                     pendingDialogLoads.remove(player.uniqueId, loadToken)
-                }) return@runSync
+                }, queueControl?.queueSize ?: 0, feedback)) return@runSync
+                if (feedback != null) player.sendEventMessage(locale.render(feedback, player))
                 val view = EventsView.Ttt
                 val inventory = inventory(player, view, "menu.event.title")
                 val values = mapOf(
@@ -472,20 +517,43 @@ class ArcEventsMenu(
             element(view, "left") -> if (service.roster(player.uniqueId) != null) open(player, EventsView.Roster)
             element(view, "center") -> when {
                 shopAccessible(service.currentMatch(), service.participant(player.uniqueId)) -> open(player, EventsView.Shop)
-                else -> service.queueState(player.uniqueId).whenComplete { queueState, _ ->
-                    Tasks.scheduler.runSync {
-                        if (!player.isOnline) return@runSync
-                        when {
-                            queueState == QueueState.QUEUED -> {
-                                selectedArenas.remove(player.uniqueId)
-                                closeSurface(player, nativePresentation)
-                                service.leaveQueue(player)
+                else -> {
+                    if (pendingArcadeActions.containsKey(player.uniqueId)) return
+                    val token = UUID.randomUUID()
+                    pendingArcadeActions[player.uniqueId] = token
+                    fun current() = player.isOnline && pendingArcadeActions[player.uniqueId] == token
+                    dialogs.openTttLoading(player, {
+                        pendingArcadeActions.remove(player.uniqueId, token)
+                        openTtt(player)
+                    }) { pendingArcadeActions.remove(player.uniqueId, token) }
+                    service.queueState(player.uniqueId).whenComplete { queueState, failure ->
+                        Tasks.scheduler.runSync {
+                            if (!current()) return@runSync
+                            when {
+                                failure != null -> {
+                                    pendingArcadeActions.remove(player.uniqueId, token)
+                                    openTtt(player)
+                                }
+                                queueState == QueueState.QUEUED -> {
+                                    pendingArcadeActions.remove(player.uniqueId, token)
+                                    selectedArenas.remove(player.uniqueId)
+                                    closeSurface(player, nativePresentation)
+                                    service.leaveQueue(player)
+                                }
+                                queueState == null && service.snapshot().hostAvailable -> {
+                                    service.joinQueue(player).whenComplete { _, _ ->
+                                        Tasks.scheduler.runSync {
+                                            if (!current()) return@runSync
+                                            pendingArcadeActions.remove(player.uniqueId, token)
+                                            openTtt(player)
+                                        }
+                                    }
+                                }
+                                else -> {
+                                    pendingArcadeActions.remove(player.uniqueId, token)
+                                    openTtt(player)
+                                }
                             }
-                            queueState == null && service.snapshot().hostAvailable -> {
-                                closeSurface(player, nativePresentation)
-                                service.joinQueue(player)
-                            }
-                            else -> open(player, EventsView.Ttt)
                         }
                     }
                 }
@@ -511,12 +579,23 @@ class ArcEventsMenu(
     }
 
     private fun startFromEventMenu(player: Player, nativePresentation: Boolean) {
-        closeSurface(player, nativePresentation)
-        service.startFromQueue(player, selectedArenas[player.uniqueId]).thenAccept { result ->
+        if (pendingArcadeActions.containsKey(player.uniqueId)) return
+        val token = UUID.randomUUID()
+        pendingArcadeActions[player.uniqueId] = token
+        dialogs.openTttLoading(player, {
+            pendingArcadeActions.remove(player.uniqueId, token)
+            openTtt(player)
+        }) { pendingArcadeActions.remove(player.uniqueId, token) }
+        service.startFromQueue(player, selectedArenas[player.uniqueId]).whenComplete { result, failure ->
             Tasks.scheduler.runSync {
-                if (player.isOnline) {
-                    if (result == ReservationStartResult.STARTED) selectedArenas.remove(player.uniqueId)
-                    player.sendEventMessage(locale.render(reservationStartMessage(result, StartMessageAudience.PLAYER), player))
+                if (!player.isOnline || pendingArcadeActions[player.uniqueId] != token) return@runSync
+                pendingArcadeActions.remove(player.uniqueId, token)
+                if (failure == null && result == ReservationStartResult.STARTED) {
+                    selectedArenas.remove(player.uniqueId)
+                    closeSurface(player, nativePresentation)
+                } else {
+                    openTtt(player, if (failure == null && result != null)
+                        reservationStartMessage(result, StartMessageAudience.PLAYER) else "queue.start-network-failed")
                 }
             }
         }
@@ -587,7 +666,7 @@ class ArcEventsMenu(
                     Tasks.scheduler.runSync {
                         if (!player.isOnline) return@runSync
                         if (result == ReservationStartResult.STARTED) selectedArenas.remove(player.uniqueId)
-                        player.sendEventMessage(locale.render(reservationStartMessage(result, StartMessageAudience.ADMIN), player))
+                        reservationStartMessage(result, StartMessageAudience.ADMIN)?.let { player.sendEventMessage(locale.render(it, player)) }
                         open(player, EventsView.Admin)
                     }
                 }
@@ -865,13 +944,14 @@ class ArcEventsMenu(
         }
     }
 
-    private fun openReport(player: Player) {
+    private fun openReport(player: Player, page: Int = 0) {
         val report = service.report()
         if (report == null || service.participant(player.uniqueId) == null) {
             player.sendEventMessage(locale.render("report.unavailable", player))
             return
         }
         val view = EventsView.Report
+        if (dialogs.openReport(player, report, page, element(view, "combat"), { openReport(player, page) }, { openReport(player, it) })) return
         val inventory = inventory(player, view, "menu.report.title")
         inventory.setItem(element(view, "summary"), item(
             if (report.winner == ru.ruscrafting.events.domain.TttTeam.INNOCENTS) Material.EMERALD else Material.REDSTONE,

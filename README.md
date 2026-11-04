@@ -1,6 +1,6 @@
 # ArcEvents
 
-ArcEvents is the network event engine for RusCrafting with four modes:
+ArcEvents is the network event engine for RusCrafting with five modes:
 
 - **TTT**: hidden traitors, detectives, evidence, role shops and living/spectator chat.
 - **GunGame** (`gungame`): each elimination advances through the twelve existing
@@ -13,6 +13,8 @@ ArcEvents is the network event engine for RusCrafting with four modes:
   reef ruins and an underwater shrine. Reel in dangerous creatures, defeat them,
   unlock the next island and defeat the final boss. The native menu offers
   **Start solo**; `/arcevents fishing` starts the same personal journey.
+- **Zombies: Sector Zero** (`zombies`): solo or 1–4-player cooperative waves,
+  a physical random-weapon chest, repairable ingress windows and match-local upgrades.
 
 Player-state handling is selected per host with `player-state.mode`. `PRESERVE`
 is the default: all modes use durable player-state escrow and origin-server
@@ -24,14 +26,17 @@ location when it can return on the same backend. Configure this only on a
 
 Public modes use a common FIFO queue; its creator selects the mode at start.
 Fishing reserves only its authenticated requester's row, even when someone else
-is first in the public queue. It never recruits other players. The host still
+is first in the public queue. Zombies' **Play solo** uses the same requester-only
+reservation policy; **Form a squad** keeps the shared queue and its creator gate.
+Joining refreshes the current dialog instead of closing it. Neither solo entry
+recruits other queued players. The host still
 owns one active match at a time; the solo menu reports a busy host before entry.
 GunGame and Disasters require three
 players by default (configurable under `arcade`), while TTT keeps its own rules.
 Arcade wins contribute to shared match/win statistics without changing TTT karma
 or role-specific wins. Old-round projectiles cannot affect a later match.
 
-Fishing owns a generated `fishing-v1` world, configured through
+Fishing owns a generated `fishing-v3` world, configured through
 `arcade.fishing.arena.world`. It is excluded from public combat-map rotation.
 Its temporary rod, weapons, creatures and hooks leave no permanent item or XP
 reward; original player state is restored on success, defeat, evacuation and
@@ -497,21 +502,43 @@ living participant inside it, including the thrower.
 
 ## Zombies: Sector Zero
 
-`/arcevents zombies` opens the native briefing and shared queue. Its creator can
-start a roster of one to four players. The host generates the dedicated
-`arcevents_zombies_zero` arena through `zombies-zero-v1`: a reactor, four cargo
-blocks, wide circulation routes and four supply bays beside the entry.
+`/arcevents zombies` opens a compact native menu. **Play solo** reserves and starts
+only the requester with one action. **Form a squad** joins the shared queue and
+keeps the dialog open with its current roster state and creator start action.
+The host generates `arcevents_zombies_zero_v2` through `zombies-zero-v2`: a reactor,
+four cargo blocks, wide circulation routes, three upgrade/supply bays, a physical
+weapon chest and six repairable ingress windows. The previous v1 world is retained.
 The mode requires a Java client with native dialog support (1.21.6 or newer).
 
 Survive ten escalating waves. Runners join from wave three; waves five and ten
 include a heavy zombie with a telegraphed area strike. A player starts with a
 pistol, knife and ammunition. Use left click to fire, right click to aim and
-F to reload; right click a physical supply station to buy ammunition, a random
-weapon, up to three damage upgrades or extra health. All points and purchased
+F to reload; right click a physical supply station to buy ammunition,
+up to three damage upgrades or extra health. All points and purchased
 equipment belong to this match. Wave completion refills ammunition and brings
 waiting teammates back. Crouch near a downed teammate for three uninterrupted
 seconds before their 25-second bleedout; a solo player has one automatic revive.
 Health regenerates after six seconds without taking damage.
+
+The double chest costs the existing 650 local points. Its lid opens and real
+weapon models cycle for 4.8 seconds before the chosen result remains available
+for 15 seconds. The owner can right-click either the case or the visible weapon;
+both inputs use the same bounded, occlusion-checked claim. A revealed result
+abandoned by expiry or departure stays spent, preventing free rerolls. Technical
+cancellation refunds only its exact unclaimed reservation once; item-delivery
+failure restores the owned weapon/ammo slots before refund.
+
+Each fixed window has three visible boards and native fence collision. Assigned
+zombies break one board every two seconds before entering; the ordinary unstuck
+path cannot bypass this ingress. From the arena side, hold Shift while aiming at
+the window within 3.25 blocks to repair one board per 1.5 seconds. Moving, looking
+away, taking damage or an occupied threshold interrupts repair. Repair is free,
+awards no points and does not enable arbitrary construction.
+
+All five mode screens expose their rules separately. Automatic preparation sends
+one short briefing rather than the rules list; reservation and start confirmation
+are not duplicated. Native results, traders and supply screens share compact
+panels, readable text and the existing Back/Escape history.
 
 `arcade.zombies` controls the roster, deadlines, wave count, intermission and
 active mob cap (default 28). Every actor is owned by the active arena lease.
@@ -523,9 +550,17 @@ recovery flow returns the original loadout. Normal ARC event statistics remain
 available, with no Vault, premium-token or item reward.
 
 Permission-gated host QA can use `/arcevents debug bootstrap zombies PlayerName`.
-`debug status` exposes wave, phase, alive and pending counts; `debug player`
-exposes local points, status, power level and remaining self-revives. These are
+`debug status` exposes wave, phase, alive, pending, `zombies_box` and comma-separated
+`zombies_boards` counts; `debug player` exposes local points, weapon, status,
+power level and remaining self-revives. These are
 operator diagnostics, not player-facing controls.
+
+Requester-only Zombies starts add an optional `requesterOnly=true` field only to
+their START_REQUEST. Ordinary network envelopes omit it and retain the previous
+closed-codec field set. Activate the new HOST before enabling the new relay UI;
+an old HOST rejects the new request rather than starting a team accidentally.
+Local balance assumptions and zero persistent-currency deltas are recorded in
+`docs/economy/zombies-box-barricades-20261105.{md,json}`.
 
 ## Build
 

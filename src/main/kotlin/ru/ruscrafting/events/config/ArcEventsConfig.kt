@@ -519,9 +519,9 @@ class ArcEventsConfig(private val config: Config) {
             }
 
     private fun zombiesArena(): ArenaSettings {
-        val world = config.string("arcade.zombies.arena.world", "arcevents_zombies_zero")
+        val world = config.string("arcade.zombies.arena.world", "arcevents_zombies_zero_v2")
         val spawn = EventLocation(world, .5, 65.0, -18.5)
-        return ArenaSettings("zombies", true, world, "zombies-zero-v1", spawn, spawn,
+        return ArenaSettings("zombies", true, world, "zombies-zero-v2", spawn, spawn,
             EventBounds(EventLocation(world, -28.0, 59.0, -28.0), EventLocation(world, 29.0, 91.0, 29.0)),
             listOf(spawn), emptyList())
     }
@@ -728,7 +728,7 @@ class ArcEventsConfig(private val config: Config) {
             }
             require(arena.spawns.size <= 1) { "Arena ${arena.id} must use one common player spawn" }
             require(arena.lootSpawns.size <= 128) { "Arena ${arena.id} has too many loot spawns" }
-            if (arena.enabled && weapons.enabled && arena.template !in setOf("", "citadel-v1", "disasters-v1", "fishing-v3", "zombies-zero-v1")) {
+            if (arena.enabled && weapons.enabled && arena.template !in setOf("", "citadel-v1", "disasters-v1", "fishing-v3", "zombies-zero-v2")) {
                 require(arena.lootSpawns.size >= ttt.maximumPlayers) {
                     "Imported arena ${arena.id} requires at least ${ttt.maximumPlayers} loot spawns"
                 }
@@ -751,7 +751,7 @@ class ArcEventsConfig(private val config: Config) {
             "citadel-v1",
             "disasters-v1",
             "fishing-v3",
-            "zombies-zero-v1",
+            "zombies-zero-v2",
             "ttt-minecraft-b5-v1",
             "cs2-inferno-v1",
             "cs2-mirage-v1",

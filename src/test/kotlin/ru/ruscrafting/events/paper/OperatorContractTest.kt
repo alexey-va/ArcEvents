@@ -97,9 +97,10 @@ class OperatorContractTest : StringSpec({
     }
 
     "player start messages never expose admin or debug surfaces" {
-        ReservationStartResult.entries.forEach { result ->
-            reservationStartMessage(result, StartMessageAudience.PLAYER).startsWith("queue.start-") shouldBe true
+        ReservationStartResult.entries.filter { it != ReservationStartResult.STARTED }.forEach { result ->
+            reservationStartMessage(result, StartMessageAudience.PLAYER)?.startsWith("queue.start-") shouldBe true
         }
+        reservationStartMessage(ReservationStartResult.STARTED, StartMessageAudience.PLAYER) shouldBe null
         reservationStartMessage(ReservationStartResult.STARTED, StartMessageAudience.ADMIN) shouldBe "admin.started"
         reservationStartMessage(ReservationStartResult.STARTED, StartMessageAudience.DEBUG) shouldBe "debug.applied"
     }

@@ -1,0 +1,191 @@
+{
+  "version": 1,
+  "title": "ArcEvents physical mystery box and repairable barricades, 2026-11-05",
+  "assumptions": [
+    "Current observed Spawn/Survival runtime ArcEvents0.5.43. Source and shared host rules retain starting500, existing kill/wave awards, mystery price650 and the existing single exclusive draw excluding the current weapon. No price, weight, award, magazine or damage value changes.",
+    "Low/base/high are scenarios, not telemetry: one solo run per player-day with5/8/10 cleared waves and gross9400/18775/27175 local points.1/5/20 participating players, no stacking of mutually exclusive games.",
+    "One/eight/twenty-four charged box openings per run spend650/5200/15600 points. Remaining8750/13575/11575 expire. A normal abandoned revealed weapon does not refund, preventing free rerolls. Technical cancellation releases the same reservation at most once; it does not mint a new award.",
+    "Repairing three-board ingress windows is free and awards no points, items, XP or entitlement. Bounded one-board repair takes1.5seconds and hostile breach strikes take2seconds. Fixed arena windows are not ordinary-world construction.",
+    "Both before and after, all local points and event weapons expire at match restoration. Barricades alter survival difficulty and opening latency changes purchase cadence, neither creates a permanent payout.",
+    "Vault, premium tokens, XP, ordinary ammunition and the current SELL/future SELL-to-contract transition remain unchanged. No assumed exchange rate or global economy repricing.",
+    "Maximum repeat/alternate-account activity cannot export box weapons or repair rewards: no repair awards, match-ID equipment, exact escrow restoration and same-match authority. Box reservation, claim, timeout, double-click, owner quit, technical failure and close need focused checks."
+  ],
+  "participants": [
+    1,
+    5,
+    20
+  ],
+  "currencies": {
+    "vault": {
+      "minor_per_unit": 100,
+      "disposable_per_player_day": {
+        "before": [
+          "0",
+          "0",
+          "0"
+        ],
+        "after": [
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      "flows": []
+    },
+    "tokens": {
+      "minor_per_unit": 1,
+      "disposable_per_player_day": {
+        "before": [
+          "0",
+          "0",
+          "0"
+        ],
+        "after": [
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      "flows": []
+    },
+    "xp": {
+      "minor_per_unit": 1,
+      "disposable_per_player_day": {
+        "before": [
+          "0",
+          "0",
+          "0"
+        ],
+        "after": [
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      "flows": []
+    },
+    "iron_nugget": {
+      "minor_per_unit": 1,
+      "disposable_per_player_day": {
+        "before": [
+          "0",
+          "0",
+          "0"
+        ],
+        "after": [
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      "flows": []
+    },
+    "zombie_points": {
+      "minor_per_unit": 1,
+      "disposable_per_player_day": {
+        "before": [
+          "0",
+          "0",
+          "0"
+        ],
+        "after": [
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      "flows": [
+        {
+          "id": "session_awards",
+          "kind": "mint",
+          "source": "ArcEvents/ZombiesDirector",
+          "basis": "Exact inherited solo wave5/8/10 upper-wallet scenarios; awards do not change.",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              9400,
+              18775,
+              27175
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              9400,
+              18775,
+              27175
+            ]
+          }
+        },
+        {
+          "id": "charged_box_openings",
+          "kind": "burn",
+          "source": "ArcEvents/ZombiesDirector reserved mystery purchase",
+          "basis": "One exclusive paid draw at650, unchanged price. Ordinary expiry remains spent. Technical cancellation reverses only its original reservation.",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "650",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              1,
+              8,
+              24
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "650",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              1,
+              8,
+              24
+            ]
+          }
+        },
+        {
+          "id": "remaining_wallet_expiry",
+          "kind": "burn",
+          "source": "ArcEvents/ZombiesAdventure.close",
+          "basis": "Gross wallet minus earlier650-per-opening spend; do not double count full wallet expiry and purchases.",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              8750,
+              13575,
+              11575
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              8750,
+              13575,
+              11575
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

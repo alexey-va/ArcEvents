@@ -24,6 +24,7 @@ internal const val FISHING_DIALOG_ID = "events.fishing"
 internal const val FISHING_MAIN_SLOT = 13
 internal const val FISHING_PRIMARY_SLOT = 2
 internal const val ZOMBIES_MAIN_SLOT = 15
+internal const val ZOMBIES_SOLO_SLOT = 1000
 private val WHITE_COLOR = TextColor.fromHexString("#ffffff")!!
 private val GREEN_COLOR = TextColor.fromHexString("#9bd48d")!!
 private val BLUE_COLOR = TextColor.fromHexString("#92bed8")!!
@@ -52,7 +53,7 @@ private enum class NativeButtonRole(
     UNAVAILABLE(WHITE_COLOR),
     BACK(WHITE_COLOR, prefix = "‹ "),
     CLOSE(WHITE_COLOR),
-    ORDINARY(WARM_NEUTRAL_COLOR),
+    ORDINARY(WHITE_COLOR),
 }
 
 private val NATIVE_DESTINATIONS = mapOf(
@@ -68,6 +69,7 @@ private val NATIVE_DESTINATIONS = mapOf(
     "menu.event.roster-name" to NativeButtonRole.PLAYER_DESTINATION,
     "menu.event.shop-name" to NativeButtonRole.TRADE_DESTINATION,
     "menu.event.report-name" to NativeButtonRole.PERSONAL_DESTINATION,
+    "menu.report.combat-name" to NativeButtonRole.PERSONAL_DESTINATION,
     "menu.event.help-name" to NativeButtonRole.HELP_DESTINATION,
     "menu.admin.arenas-name" to NativeButtonRole.PERSONAL_DESTINATION,
 )
@@ -76,6 +78,7 @@ private val NATIVE_TITLE_COLORS = mapOf(
     "menu.main.title" to WHITE_COLOR,
     "menu.event.title" to AMBER_COLOR,
     "menu.stats.title" to VIOLET_COLOR,
+    "menu.report.title" to VIOLET_COLOR,
     "menu.help.title" to CYAN_COLOR,
     "menu.admin.title" to WHITE_COLOR,
     "arcade.fishing-title" to AMBER_COLOR,
@@ -87,8 +90,8 @@ private val INVENTORY_ACTION_FOOTER = Regex("^\\s*\\[\\s*▶\\s*]\\s*(?:Нажм
 internal fun dialogFrontendSupported(enabled: Boolean, protocolVersion: Int, view: EventsView): Boolean =
     enabled && protocolVersion >= MIN_DIALOG_PROTOCOL && view in setOf(
         EventsView.Main, EventsView.Help, EventsView.EventHelp, EventsView.Ttt,
-        EventsView.Statistics, EventsView.Admin, EventsView.Fishing,
-        EventsView.Arcade(EventMode.ZOMBIES),
+        EventsView.Statistics, EventsView.Admin, EventsView.Fishing, EventsView.Report,
+        EventsView.Arcade(EventMode.ZOMBIES), EventsView.Arcade(EventMode.GUN_GAME), EventsView.Arcade(EventMode.DISASTERS),
     )
 
 @Suppress("UnstableApiUsage")
@@ -108,7 +111,8 @@ internal class ArcEventsDialogMenu(
         if (view == EventsView.Admin && !player.hasPermission("arcevents.admin")) return true
         val screen = when (view) {
             EventsView.Main -> main(player)
-            EventsView.Help, EventsView.EventHelp -> help(player, view)
+            EventsView.Help -> help(player)
+            EventsView.EventHelp -> { openRules(player, EventMode.TTT); return true }
             EventsView.Statistics -> statistics(player)
             EventsView.Admin -> admin(player)
             EventsView.Fishing -> fishing(player)
@@ -125,9 +129,11 @@ internal class ArcEventsDialogMenu(
         selectedArena: Component,
         reopen: (() -> Unit)? = null,
         onDismiss: () -> Unit = {},
+        queueSize: Int = 0,
+        feedback: String? = null,
     ): Boolean {
         if (!settings().ui.dialogsEnabled || !dialogFrontendSupported(true, protocols.resolve(player), EventsView.Ttt)) return false
-        show(player, EventsView.Ttt, ttt(player, queueState, plan, selectedArena), reopen, onDismiss)
+        show(player, EventsView.Ttt, ttt(player, queueState, plan, selectedArena, queueSize, feedback), reopen, onDismiss)
         return true
     }
 
@@ -138,9 +144,9 @@ internal class ArcEventsDialogMenu(
         return true
     }
 
-    fun openFishing(player: Player, reopen: (() -> Unit)? = null, onDismiss: () -> Unit = {}): Boolean {
+    fun openFishing(player: Player, reopen: (() -> Unit)? = null, feedback: String? = null, onDismiss: () -> Unit = {}): Boolean {
         if (!settings().ui.dialogsEnabled || !dialogFrontendSupported(true, protocols.resolve(player), EventsView.Fishing)) return false
-        show(player, EventsView.Fishing, fishing(player), reopen, onDismiss)
+        show(player, EventsView.Fishing, fishing(player, feedback), reopen, onDismiss)
         return true
     }
 
@@ -173,12 +179,16 @@ internal class ArcEventsDialogMenu(
             add(button(player, "menu.main.help-name", "menu.main.help-lore", EventsView.Main, 22))
             if (player.hasPermission("arcevents.admin")) add(button(player, "menu.main.admin-name", "menu.main.admin-lore", EventsView.Main, 26))
         }
-        return screen(player, "menu.main.title", listOf(body(player, "menu.main.title", "menu.main.main-body", mapOf(
-            "queue" to locale.text(state.queueSize), "minimum" to locale.text(settings().ttt.minimumPlayers),
-            "arena_state" to locale.render(if (state.arenaReady) "state.arena-ready" else "state.arena-unavailable", player)))), actions, 2, "events.main")
+        val availability = when {
+            !state.hostAvailable -> "dialog.unavailable"
+            state.matchId != null -> "dialog.busy"
+            else -> "dialog.ready"
+        }
+        return screen(player, "menu.main.title", listOf(panel(player, listOf("dialog.root-status"), mapOf(
+            "queue" to locale.text(state.queueSize), "availability" to locale.render(availability, player)))), actions, 2, "events.main")
     }
 
-    private fun fishing(player: Player): PaperDialogScreen {
+    private fun fishing(player: Player, feedback: String? = null): PaperDialogScreen {
         val state = service.snapshot()
         val currentMode = service.currentMode()
         val fishingMatch = currentMode == EventMode.FISHING
@@ -194,67 +204,125 @@ internal class ArcEventsDialogMenu(
         val busy = state.matchId != null && !participant
         val fishingArenaReady = service.modeAvailable(EventMode.FISHING)
         val startAvailable = !busy && fishingArenaReady
-        val action = when {
-            participant -> button(player, "menu.event.evacuate-name", "menu.event.evacuate-lore", EventsView.Fishing, FISHING_PRIMARY_SLOT)
-            startAvailable -> button(player, "arcade.fishing-start-name", "arcade.fishing-start-lore", EventsView.Fishing, FISHING_PRIMARY_SLOT, values)
-            else -> button(player, "arcade.fishing-unavailable-name", "arcade.fishing-unavailable-lore", EventsView.Fishing, FISHING_PRIMARY_SLOT, values)
+        val actions = buildList {
+            if (participant) add(button(player, "menu.event.evacuate-name", "menu.event.evacuate-lore", EventsView.Fishing, FISHING_PRIMARY_SLOT))
+            else if (startAvailable) add(button(player, "arcade.fishing-start-name", "arcade.fishing-start-lore", EventsView.Fishing, FISHING_PRIMARY_SLOT, values))
+            add(rulesButton(player, EventMode.FISHING))
         }
-        return screen(player, "arcade.fishing-title", listOf(
-            body(player, "arcade.fishing-guide-name", "arcade.fishing-guide", values),
-        ), listOf(action), 1, FISHING_DIALOG_ID)
+        val summary = values + ("minutes" to locale.text(((if (participant) state.secondsRemaining else settings().arcade.fishing.roundSeconds.toLong()) + 59) / 60))
+        return screen(player, "arcade.fishing-title", listOfNotNull(panel(player, buildList {
+            add("dialog.fishing-overview")
+            add(if (participant) "dialog.fishing-active" else "dialog.fishing-facts")
+            if (!startAvailable && !participant) add("dialog.busy")
+        }, summary), feedback?.let { feedbackPanel(player, it) }), actions, 2, FISHING_DIALOG_ID)
     }
 
     fun openZombies(player: Player, queueState: QueueState?, canStart: Boolean, participating: Boolean,
-                    available: Boolean, failed: Boolean, joinSlot: Int, startSlot: Int, reopen: () -> Unit): Boolean {
-        val view = EventsView.Arcade(EventMode.ZOMBIES)
-        if (!dialogFrontendSupported(settings().ui.dialogsEnabled, protocols.resolve(player), view)) return false
-        val values = mapOf("queue" to locale.text(service.snapshot().queueSize),
-            "minimum" to locale.text(settings().arcade.zombies.minimumPlayers),
-            "maximum" to locale.text(settings().arcade.zombies.maximumPlayers),
-            "waves" to locale.text(settings().zombies.waves), "mode" to locale.render("arcade.zombies-name", player),
+                    available: Boolean, failed: Boolean, joinSlot: Int, startSlot: Int, reopen: () -> Unit): Boolean =
+        openArcade(player, EventMode.ZOMBIES, queueState, canStart, participating, available, failed, joinSlot, startSlot, reopen)
+
+    fun openArcade(player: Player, mode: EventMode, queueState: QueueState?, canStart: Boolean, participating: Boolean,
+                   available: Boolean, failed: Boolean, joinSlot: Int, startSlot: Int, reopen: () -> Unit, feedback: String? = null, queueSize: Int = 0): Boolean {
+        val view = EventsView.Arcade(mode)
+        if (!settings().ui.dialogsEnabled || !dialogFrontendSupported(true, protocols.resolve(player), view)) return false
+        val values = ruleValues(mode) + mapOf("queue" to locale.text(queueSize),
+            "mode" to locale.render("arcade.${mode.id}-name", player),
             "queue_state" to locale.render(when {
-                failed || !available -> "state.network-degraded"
+                failed || !available -> "dialog.unavailable"
                 participating -> "menu.event.state.matched"
                 queueState != null -> queueStateLocaleKey(queueState)
                 else -> "state.idle"
             }, player))
         val queued = queueState == QueueState.QUEUED
         val actions = buildList {
-            if (!failed && (available || participating || queued)) add(button(player,
-                when { participating -> "menu.event.evacuate-name"; queued -> "arcade.leave-name"; else -> "arcade.join-name" },
-                when { participating -> "menu.event.evacuate-lore"; queued -> "arcade.leave-lore"; else -> "arcade.join-lore" },
-                view, joinSlot, values))
+            if (mode == EventMode.ZOMBIES && queueState == null && !participating && available && !failed && service.snapshot().matchId == null)
+                add(button(player, "arcade.zombies-solo-name", "arcade.zombies-solo-lore", view, ZOMBIES_SOLO_SLOT, values))
             if (canStart) add(button(player, "arcade.start-name", "arcade.start-lore", view, startSlot, values))
+            if (!failed && (available || participating || queued)) add(button(player,
+                when { participating -> "menu.event.evacuate-name"; queued -> "arcade.leave-name"; mode == EventMode.ZOMBIES -> "arcade.zombies-team-name"; else -> "arcade.join-name" },
+                when { participating -> "menu.event.evacuate-lore"; queued -> "arcade.leave-lore"; mode == EventMode.ZOMBIES -> "arcade.zombies-team-lore"; else -> "arcade.join-lore" },
+                view, joinSlot, values))
+            add(rulesButton(player, mode))
         }
-        show(player, view, screen(player, "arcade.zombies-title", listOf(
-            body(player, "arcade.zombies-guide-name", "arcade.zombies-guide", values),
-            body(player, "arcade.status-name", "arcade.status-lore", values),
-        ), actions, 2, "events.zombies"), reopen)
+        val content = buildList {
+            add("dialog.${mode.id}-overview")
+            if (!participating) add("dialog.queue-facts")
+            if (queued || participating || failed || !available || queueState != null) add("dialog.queue-status")
+        }
+        show(player, view, screen(player, "arcade.${mode.id}-title", listOfNotNull(panel(player, content, values), feedback?.let { feedbackPanel(player, it) }), actions, 2,
+            "events.${mode.id}"), reopen)
         return true
     }
 
-    private fun ttt(player: Player, queueState: QueueState?, plan: EventMenuPlan, selectedArena: Component): PaperDialogScreen {
-        val state = service.snapshot()
-        val values = mapOf("queue" to locale.text(state.queueSize), "minimum" to locale.text(settings().ttt.minimumPlayers),
-            "arena_state" to locale.render(if (state.arenaReady) "state.arena-ready" else "state.arena-unavailable", player), "selected_arena" to selectedArena)
-        val bodies = buildList {
-            add(body(player, "menu.event.overview-name", "menu.event.overview-lore", values))
-            if (plan.showQueueStatus) add(body(player, "menu.event.queue-name", "menu.event.queue-lore",
-                values + ("queue_state" to locale.render(queueStateLocaleKey(requireNotNull(queueState)), player))))
-        }
+    fun openArcadeLoading(player: Player, mode: EventMode, reopen: () -> Unit, onDismiss: () -> Unit): Boolean {
+        val view = EventsView.Arcade(mode)
+        if (!settings().ui.dialogsEnabled || !dialogFrontendSupported(true, protocols.resolve(player), view)) return false
+        show(player, view, screen(player, "arcade.${mode.id}-title", listOf(panel(player, listOf("dialog.working"))),
+            emptyList(), 1, "events.${mode.id}"), reopen, onDismiss)
+        return true
+    }
+
+    private fun ttt(player: Player, queueState: QueueState?, plan: EventMenuPlan, selectedArena: Component, queueSize: Int, feedback: String?): PaperDialogScreen {
+        val values = mapOf("queue" to locale.text(queueSize), "minimum" to locale.text(settings().ttt.minimumPlayers),
+            "maximum" to locale.text(settings().ttt.maximumPlayers), "selected_arena" to selectedArena,
+            "queue_state" to locale.render(queueState?.let(::queueStateLocaleKey) ?: "dialog.unavailable", player))
+        val bodies = listOfNotNull(panel(player, buildList {
+            add("dialog.ttt-overview")
+            if (!plan.showRoster) add("dialog.queue-facts")
+            if (plan.showQueueStatus || plan.showJoinUnavailable) add("dialog.queue-status")
+            if (plan.showArenaSelection) add("dialog.ttt-map")
+        }, values), feedback?.let { feedbackPanel(player, it) })
         val actions = buildList {
             when { plan.showJoin -> add(button(player, "menu.event.join-name", "menu.event.join-lore", EventsView.Ttt, 22))
-                plan.showJoinUnavailable -> add(button(player, "menu.event.join-unavailable-name", "menu.event.join-unavailable-lore", EventsView.Ttt, 22))
                 plan.showLeave -> add(button(player, "menu.event.leave-name", "menu.event.leave-lore", EventsView.Ttt, 22)) }
-            if (plan.showStart) add(button(player, "menu.event.start-name", "menu.event.start-lore", EventsView.Ttt, 24, values))
+            if (plan.showStart && queueSize >= settings().ttt.minimumPlayers) add(button(player, "menu.event.start-name", "menu.event.start-lore", EventsView.Ttt, 24, values))
             if (plan.showArenaSelection) add(button(player, "menu.event.arena-name", "menu.event.arena-lore", EventsView.Ttt, 29, values))
             if (plan.showRoster) add(button(player, "menu.event.roster-name", "menu.event.roster-lore", EventsView.Ttt, 20))
             if (plan.showShop) add(button(player, "menu.event.shop-name", "menu.event.shop-lore", EventsView.Ttt, 22))
             if (plan.showReport) add(button(player, "menu.event.report-name", "menu.event.report-lore", EventsView.Ttt, 24))
-            add(button(player, "menu.event.help-name", "menu.event.help-lore", EventsView.Ttt, 31))
+            add(rulesButton(player, EventMode.TTT))
             if (plan.showEvacuate) add(button(player, "menu.event.evacuate-name", "menu.event.evacuate-lore", EventsView.Ttt, 40))
         }
         return screen(player, "menu.event.title", bodies, actions, 2, TTT_DIALOG_ID)
+    }
+
+    fun openReport(player: Player, report: RoundReportView, page: Int, combatSlot: Int,
+                   reopen: () -> Unit, changePage: (Int) -> Unit): Boolean {
+        if (!settings().ui.dialogsEnabled || !dialogFrontendSupported(true, protocols.resolve(player), EventsView.Report)) return false
+        val pageSize = 8
+        val last = (report.participants.size - 1).coerceAtLeast(0) / pageSize
+        val current = page.coerceIn(0, last)
+        val values = mapOf(
+            "winner" to locale.render(if (report.winner == ru.ruscrafting.events.domain.TttTeam.INNOCENTS) "report.winner-innocents" else "report.winner-traitors", player),
+            "reason" to locale.render("report.reason.${report.reason.name.lowercase()}", player),
+            "time" to locale.text("%d:%02d".format(report.durationSeconds / 60, report.durationSeconds % 60)),
+            "events" to locale.text(report.combat.size),
+        )
+        val rows = report.participants.drop(current * pageSize).take(pageSize).map { entry -> listOf(
+            locale.text(entry.playerName),
+            locale.render("role.${entry.role.name.lowercase()}-label", player),
+            locale.text(entry.kills),
+            locale.render("dialog.report-damage", player, mapOf("damage" to locale.text("%.1f".format(entry.damage)),
+                "friendly" to locale.text("%.1f".format(entry.friendlyDamage)))),
+        ) }
+        val body = listOf(
+            DialogTables.filledBody(listOf(listOf(nativeText(Component.join(JoinConfiguration.newlines(),
+                locale.lore("menu.report.summary-lore", player, values))))), null, 400, listOf(1), DialogTables.PanelSkin.NAVY),
+            DialogTables.filledBody(rows.map { row -> row.map(::nativeText) },
+                listOf("player", "role", "kills", "damage-header").map { nativeText(locale.render("dialog.report-$it", player)) },
+                400, listOf(3, 2, 1, 2), DialogTables.PanelSkin.NAVY),
+        )
+        val actions = buildList {
+            add(button(player, "menu.report.combat-name", "menu.report.combat-lore", EventsView.Report, combatSlot, values))
+            if (current > 0) add(PaperDialogButton(PaperDialogActionId.of("previous"),
+                nativeText(locale.render("menu.common.previous-name", player)), width = 200,
+                onClick = PaperDialogClickHandler { changePage(current - 1) }))
+            if (current < last) add(PaperDialogButton(PaperDialogActionId.of("next"),
+                nativeText(locale.render("menu.common.next-name", player)), width = 200,
+                onClick = PaperDialogClickHandler { changePage(current + 1) }))
+        }
+        show(player, EventsView.Report, screen(player, "menu.report.title", body, actions, 2, "events.report"), reopen)
+        return true
     }
 
     private fun statistics(player: Player) = screen(player, "menu.stats.title",
@@ -264,10 +332,55 @@ internal class ArcEventsDialogMenu(
             "karma" to locale.text(service.stats(player.uniqueId).karma)))),
         emptyList(), 1, "events.stats")
 
-    private fun help(player: Player, view: EventsView) = screen(player, "menu.help.title",
-        listOf("innocent", "traitor", "detective", "flow", "evidence", "weapons", "controls").map {
-            body(player, "menu.help.$it-name", "menu.help.$it-lore")
-        }, emptyList(), 1, "events.help")
+    private fun help(player: Player) = screen(player, "dialog.rules-index-title", emptyList(),
+        EventMode.entries.map { mode ->
+            val key = if (mode == EventMode.TTT) "menu.main.ttt-name" else "arcade.${mode.id}-name"
+            PaperDialogButton(PaperDialogActionId.of("rules_${mode.id}"),
+                nativeLabel(player, locale.render(key, player), NativeButtonRole.ACTIVITY_DESTINATION),
+                width = 200, onClick = PaperDialogClickHandler { openRules(it.player, mode) })
+        }, 2, "events.help")
+
+    private fun ruleValues(mode: EventMode): Map<String, Component> {
+        if (mode == EventMode.TTT) return emptyMap()
+        val rules = settings().arcade.rules(mode)
+        return mapOf("waves" to locale.text(settings().zombies.waves), "minimum" to locale.text(rules.minimumPlayers),
+            "maximum" to locale.text(rules.maximumPlayers), "rounds" to locale.text(rules.disasterRounds))
+    }
+
+    private fun rulesButton(player: Player, mode: EventMode) = PaperDialogButton(PaperDialogActionId.of("rules_${mode.id}"),
+        nativeLabel(player, locale.render("dialog.rules-name", player), NativeButtonRole.HELP_DESTINATION),
+        tooltip = nativeText(locale.render("dialog.rules-tooltip", player)), width = 200,
+        onClick = PaperDialogClickHandler { openRules(it.player, mode) })
+
+    internal fun openRules(player: Player, mode: EventMode, page: Int = 0) {
+        val lastPage = if (mode in setOf(EventMode.TTT, EventMode.ZOMBIES)) 1 else 0
+        val safePage = page.coerceIn(0, lastPage)
+        val name = locale.render(if (mode == EventMode.TTT) "menu.main.ttt-name" else "arcade.${mode.id}-name", player)
+        val model = screen(player, "dialog.rules-title", listOf(panel(player,
+            listOf("dialog.rules-${mode.id}-$safePage"), ruleValues(mode))), buildList {
+            if (safePage > 0) add(PaperDialogButton(PaperDialogActionId.of("previous"),
+                nativeText(locale.render("dialog.rules-previous", player)), width = 220,
+                onClick = PaperDialogClickHandler { openRules(it.player, mode, safePage - 1) }))
+            if (safePage < lastPage) add(PaperDialogButton(PaperDialogActionId.of("next"),
+                nativeText(locale.render("dialog.rules-next", player)), width = 220,
+                onClick = PaperDialogClickHandler { openRules(it.player, mode, safePage + 1) }))
+        }, 1, "events.rules.${mode.id}.$safePage").copy(
+            title = nativeTint(locale.render("dialog.rules-title", player, mapOf("mode" to name)), CYAN_COLOR))
+        present(player, model, { openRules(player, mode, safePage) }, {}, model.exitButton!!.closeDialogBeforeAction)
+    }
+
+    private fun feedbackPanel(player: Player, key: String) = panel(player, listOf(when (key) {
+        "queue.unavailable" -> "dialog.error-unavailable"
+        else -> if (key.startsWith("queue.")) "dialog.${key.substringAfter('.')}" else key
+    }))
+
+    private fun panel(player: Player, keys: List<String>, values: Map<String, Component> = emptyMap()): PaperDialogBody =
+        DialogTables.filledBody(rows = listOf(listOf(nativeText(Component.join(JoinConfiguration.newlines(),
+            keys.flatMapIndexed { index, key ->
+                val lines = locale.lore(key, player, values)
+                if (index == 0 && key.endsWith("-overview") && keys.size > 1) lines + Component.empty() else lines
+            })))), headers = null, width = 340,
+            columnWeights = listOf(1), skin = DialogTables.PanelSkin.NAVY)
 
     private fun admin(player: Player): PaperDialogScreen {
         val state = service.snapshot()
@@ -293,8 +406,8 @@ internal class ArcEventsDialogMenu(
         return when (nameKey) {
             "menu.main.title", "menu.event.overview-name" -> DialogTables.filledBody(
                 rows = listOf(listOf(content)), headers = null, width = 400, columnWeights = listOf(1))
-            "menu.stats.summary-name" -> DialogTables.framedBody(content, frame = DialogTables.Frame.COMMON, width = 400)
-            "menu.admin.status-name" -> DialogTables.framedBody(content, frame = DialogTables.Frame.RARE, width = 400)
+            "menu.stats.summary-name" -> DialogTables.filledBody(listOf(listOf(content)), null, 320, listOf(1), DialogTables.PanelSkin.PLUM)
+            "menu.admin.status-name" -> DialogTables.filledBody(listOf(listOf(content)), null, 340, listOf(1), DialogTables.PanelSkin.NAVY)
             "arcade.fishing-guide-name" -> DialogTables.framedBody(content, frame = DialogTables.Frame.UNCOMMON, width = 400)
             else -> PaperDialogBody(content, 468)
         }
@@ -339,10 +452,10 @@ internal class ArcEventsDialogMenu(
 
     private fun isInventoryActionFooter(line: Component): Boolean {
         val text = PlainTextComponentSerializer.plainText().serialize(line).trim()
-        return INVENTORY_ACTION_FOOTER.matches(text)
+        return INVENTORY_ACTION_FOOTER.containsMatchIn(text)
     }
 
-    private fun button(player: Player, nameKey: String, loreKey: String, view: EventsView, slot: Int, values: Map<String, Component> = emptyMap(), width: Int = 230): PaperDialogButton {
+    private fun button(player: Player, nameKey: String, loreKey: String, view: EventsView, slot: Int, values: Map<String, Component> = emptyMap(), width: Int = 200): PaperDialogButton {
         val role = nativeRole(nameKey, slot)
         return PaperDialogButton(PaperDialogActionId.of(if (slot < 0) if (role == NativeButtonRole.CLOSE) "close" else "back" else "action_" + nameKey.replace(Regex("[^a-z0-9_]"), "_").take(38)), nativeLabel(player, locale.render(nameKey, player, values), role),
             tooltip = Component.join(JoinConfiguration.newlines(), nativeLore(loreKey, player, values)), width = width,
@@ -358,7 +471,7 @@ internal class ArcEventsDialogMenu(
         nameKey.contains("unavailable") -> NativeButtonRole.UNAVAILABLE
         nameKey in NATIVE_DESTINATIONS -> NATIVE_DESTINATIONS.getValue(nameKey)
         nameKey.contains("leave") || nameKey.contains("evacuate") || nameKey.contains("stop") -> NativeButtonRole.DESTRUCTIVE
-        nameKey.contains("join") || nameKey.contains("start") || nameKey.contains("recover") -> NativeButtonRole.COMMIT
+        nameKey.contains("join") || nameKey.contains("start") || nameKey.contains("recover") || nameKey == "arcade.zombies-solo-name" -> NativeButtonRole.COMMIT
         else -> NativeButtonRole.ORDINARY
     }
 

@@ -20,6 +20,7 @@ import org.bukkit.persistence.PersistentDataType
 import org.bukkit.plugin.Plugin
 import org.bukkit.potion.PotionEffect
 import org.bukkit.potion.PotionEffectType
+import ru.arc.core.LifecycleTaskScope
 import ru.arc.paper.display.PacketTextDisplay
 import ru.arc.paper.display.PaperPacketDisplays
 import ru.ruscrafting.events.config.ArcEventsLocale
@@ -53,7 +54,8 @@ class ZombiesAdventure(
     private val clock: () -> Long,
 ) : AutoCloseable {
     private data class Enemy(val mob: Zombie, val kind: ZombieKind, var health: Double,
-        var lastPosition: Location, var movedAt: Long, var attackAt: Long = 0, var feedbackAt: Long = 0, var slam: Location? = null, var slamAt: Long = 0)
+        var lastPosition: Location, var movedAt: Long, var attackAt: Long = 0, var feedbackAt: Long = 0, var slam: Location? = null,
+        var slamAt: Long = 0, var ingress: ZombiesArenaGenerator.Companion.Window? = null)
     private data class Rescue(val rescuer: UUID, val beganAt: Long)
     val director = ZombiesDirector(roster.mapTo(linkedSetOf(), Player::getUniqueId), rules, clock())
     private val roster = roster.associateBy(Player::getUniqueId)
@@ -65,6 +67,11 @@ class ZombiesAdventure(
     private val protectedUntil = mutableMapOf<UUID, Long>()
     private val damagedAt = mutableMapOf<UUID, Long>()
     private val knifeAt = mutableMapOf<UUID, Long>()
+    private val effects = LifecycleTaskScope()
+    private val barricades = ZombiesBarricades(world, locale, this.roster.values, displays, ::standing, ::belongsTo,
+        { enemies.values.map { it.mob } }, { damagedAt[it] ?: Long.MIN_VALUE }, sounds, particles)
+    private val mysteryBox = ZombiesMysteryBox(plugin, locale, firearms, matchId, world, this.roster.values, director,
+        displays, ::standing, ::belongsTo, ::receiveWeapon, sounds)
     private var closed = false
     private var signalled = false
     private var spawnCursor = 0
@@ -73,8 +80,10 @@ class ZombiesAdventure(
         check(!closed && active())
         // Only this dedicated, marker-bound world can contain our stale nonpersistent actors.
         world.entities.filter { TAG in it.scoreboardTags }.forEach(Entity::remove)
-        roster.values.forEach { equip(it); message(it, "zombies.ready") }
-        ZombiesArenaGenerator.STATIONS.forEach { (offer, x) ->
+        barricades.start()
+        mysteryBox.start()
+        roster.values.forEach(::equip)
+        ZombiesArenaGenerator.STATIONS.filterKeys { it != ZombiesOffer.MYSTERY }.forEach { (offer, x) ->
             val owner = roster.values.first()
             signs += displays.spawnText(Location(world, x + .5, 67.0, -21.4),
                 locale.render("zombies.station.${offer.name.lowercase()}", owner)).apply {
@@ -86,6 +95,20 @@ class ZombiesAdventure(
                 isVisibleByDefault = false
                 roster.values.forEach(::showTo)
             }
+        }
+        effects.runTimer(2L, 2L) { tickEffects() }
+    }
+
+    internal fun tickEffects() {
+        if (closed || !active()) return
+        try {
+            val now = clock()
+            mysteryBox.tick(now)
+            barricades.tick(now)
+        } catch (failure: Exception) {
+            plugin.logger.log(java.util.logging.Level.SEVERE, "Zombies world interaction failed for match $matchId", failure)
+            close()
+            if (!signalled) { signalled = true; complete(false) }
         }
     }
 
@@ -115,9 +138,9 @@ class ZombiesAdventure(
         val survivors = roster.values.filter(::standing)
         if (director.phase == ZombiesPhase.WAVE) {
             repeat((survivors.size + 1).coerceAtMost(4)) {
-                val location = spawnLocation(survivors) ?: return@repeat
+                val (window, location) = spawnLocation(survivors) ?: return@repeat
                 val kind = director.spawn() ?: return@repeat
-                try { spawn(kind, location, now) } catch (failure: Exception) {
+                try { spawn(kind, location, window, now) } catch (failure: Exception) {
                     plugin.logger.log(java.util.logging.Level.SEVERE, "Could not spawn a Zombies actor for match $matchId", failure)
                     close()
                     if (!signalled) { signalled = true; complete(false) }
@@ -136,11 +159,25 @@ class ZombiesAdventure(
                 val target = survivors.minByOrNull { it.location.distanceSquared(mob.location) }
                 if (mob.target?.uniqueId != target?.uniqueId) mob.target = target
                 if (target == null) continue
+                entry.ingress?.let { window ->
+                    if (!barricades.entering(mob, window, now)) {
+                        entry.ingress = null
+                        entry.lastPosition = mob.location
+                        entry.movedAt = now
+                    }
+                }
+                if (entry.ingress != null) continue
                 if (mob.location.distanceSquared(entry.lastPosition) > .16) {
                     entry.lastPosition = mob.location
                     entry.movedAt = now
                 } else if (now - entry.movedAt > 12_000 && mob.location.distanceSquared(target.location) > 9) {
-                    spawnLocation(survivors)?.let { mob.teleport(it); entry.lastPosition = it; entry.movedAt = now }
+                    spawnLocation(survivors)?.let { (window, point) ->
+                        entry.ingress = window
+                        mob.teleport(point)
+                        entry.lastPosition = point
+                        entry.movedAt = now
+                    }
+                    continue
                 }
                 if (entry.kind == ZombieKind.BRUTE) tickBrute(entry, survivors, target, now)
                 else if (now >= entry.attackAt && mob.location.distanceSquared(target.location) <= 3.2 && mob.hasLineOfSight(target)) {
@@ -160,17 +197,19 @@ class ZombiesAdventure(
         finish()
     }
 
-    private fun spawnLocation(players: List<Player>): Location? {
+    private fun spawnLocation(players: List<Player>): Pair<ZombiesArenaGenerator.Companion.Window, Location>? {
         if (players.isEmpty()) return null
-        val options = ZombiesArenaGenerator.SPAWNS.map { (x, z) -> Location(world, x + .5, 65.0, z + .5) }
-            .filter { world.isChunkLoaded(it.blockX shr 4, it.blockZ shr 4) && it.block.isPassable &&
-                it.block.getRelative(0, 1, 0).isPassable && it.block.getRelative(0, -1, 0).type.isSolid }
-            .sortedByDescending { point -> players.minOf { it.location.distanceSquared(point) } }
-            .filter { point -> players.all { it.location.distanceSquared(point) >= 64 } }.take(3)
+        val options = ZombiesArenaGenerator.WINDOWS.map { window ->
+            val point = ZombiesBarricades.spawnCoordinates(window)
+            window to Location(world, point[0], point[1], point[2])
+        }.filter { (_, point) -> world.isChunkLoaded(point.blockX shr 4, point.blockZ shr 4) && point.block.isPassable &&
+                point.block.getRelative(0, 1, 0).isPassable && point.block.getRelative(0, -1, 0).type.isSolid }
+            .sortedByDescending { (_, point) -> players.minOf { it.location.distanceSquared(point) } }
+            .filter { (_, point) -> players.all { it.location.distanceSquared(point) >= 64 } }.take(3)
         return options.takeIf { it.isNotEmpty() }?.let { it[spawnCursor++ % it.size] }
     }
 
-    private fun spawn(kind: ZombieKind, point: Location, now: Long) {
+    private fun spawn(kind: ZombieKind, point: Location, window: ZombiesArenaGenerator.Companion.Window, now: Long) {
         val mob = world.spawn(point, Zombie::class.java) { zombie ->
             zombie.addScoreboardTag(TAG)
             zombie.persistentDataContainer.set(matchKey, PersistentDataType.STRING, matchId.toString())
@@ -194,7 +233,7 @@ class ZombiesAdventure(
                 zombie.isCustomNameVisible = true
             }
         }
-        enemies[mob.uniqueId] = Enemy(mob, kind, director.health(kind), point, now)
+        enemies[mob.uniqueId] = Enemy(mob, kind, director.health(kind), point, now, ingress = window)
         if (particles()) world.spawnParticle(Particle.SMOKE, point.clone().add(0.0, .4, 0.0), 8, .3, .4, .3, .02)
     }
 
@@ -343,7 +382,25 @@ class ZombiesAdventure(
         }
     }
 
+    /** Called only for a main-hand right click; the listener still cancels native inventories and block edits. */
+    fun interact(player: Player, location: Location?): Boolean {
+        if (!belongsTo(player)) return false
+        if (location?.let(mysteryBox::at) == true || mysteryBox.aimedAt(player)) {
+            if (standing(player)) mysteryBox.interact(player, clock())
+            return true
+        }
+        if (location != null && barricades.at(location)) {
+            if (standing(player)) barricades.interact(player)
+            return true
+        }
+        return false
+    }
+
+    fun mysteryBoxPhase(): String = mysteryBox.phase()
+    fun barricadeBoards(): List<Int> = barricades.boardCounts()
+
     fun stationAt(location: Location): ZombiesOffer? = if (location.world.uid != world.uid || location.blockY != 65 || location.blockZ != -22) null
+        else if (location.blockX in ZombiesArenaGenerator.MYSTERY_CHEST_X) ZombiesOffer.MYSTERY
         else ZombiesArenaGenerator.STATIONS.entries.firstOrNull { it.value == location.blockX }?.key
 
     fun canTrade(player: Player, offer: ZombiesOffer): Boolean = standing(player) && player.location.distanceSquared(
@@ -351,16 +408,11 @@ class ZombiesAdventure(
 
     fun buy(player: Player, expected: ZombiesSurvivor, offer: ZombiesOffer): Boolean {
         if (!canTrade(player, offer) || director.players[player.uniqueId] != expected || !director.canBuy(player.uniqueId, offer)) return false
-        val weapon = if (offer == ZombiesOffer.MYSTERY) ZombiesDirector.MYSTERY_WEAPONS.filter { it != expected.weapon }.random() else null
-        // Construct an item before debiting the local balance; inventory slots are owned and cannot overflow.
-        val replacement = weapon?.let { firearms.firearmItem(it, player, matchId.toString()) }
-        if (!director.buy(player.uniqueId, offer, weapon)) return false
+        if (offer == ZombiesOffer.MYSTERY) return mysteryBox.open(player, clock())
+        if (!director.buy(player.uniqueId, offer)) return false
         when (offer) {
             ZombiesOffer.AMMO -> resupply(player)
-            ZombiesOffer.MYSTERY -> {
-                resupply(player, requireNotNull(replacement))
-                message(player, "zombies.weapon-received", mapOf("weapon" to locale.render("weapon.${weapon!!.name.lowercase()}-name", player)))
-            }
+            ZombiesOffer.MYSTERY -> error("Mystery purchases must use the world box")
             ZombiesOffer.POWER -> Unit
             ZombiesOffer.VITALITY -> applyVitality(player)
         }
@@ -379,9 +431,19 @@ class ZombiesAdventure(
         resupply(player)
     }
 
-    private fun resupply(player: Player, replacement: ItemStack? = null) {
+    private fun receiveWeapon(player: Player, weapon: FirearmId, replacement: ItemStack) {
+        val slots = listOf(0, 9, 10, 11, 12)
+        val before = slots.associateWith { player.inventory.getItem(it)?.clone() }
+        try { resupply(player, replacement, weapon) }
+        catch (failure: Exception) {
+            before.forEach { (slot, item) -> player.inventory.setItem(slot, item) }
+            throw failure
+        }
+    }
+
+    private fun resupply(player: Player, replacement: ItemStack? = null, weapon: FirearmId? = null) {
         clearWeaponState(player.uniqueId)
-        val id = director.players.getValue(player.uniqueId).weapon
+        val id = weapon ?: director.players.getValue(player.uniqueId).weapon
         val spec = firearms.spec(id)
         player.inventory.setItem(0, replacement ?: firearms.firearmItem(id, player, matchId.toString()))
         for (slot in 9..12) player.inventory.setItem(slot, null)
@@ -402,7 +464,7 @@ class ZombiesAdventure(
         }
     }
 
-    fun hud(player: Player): Component = locale.render(when {
+    fun hud(player: Player): Component = barricades.prompt(player) ?: mysteryBox.prompt(player, clock()) ?: locale.render(when {
         director.players[player.uniqueId]?.recoveryAt != null -> "zombies.hud-self-revive"
         director.players[player.uniqueId]?.status == ZombiesStatus.DOWNED -> "zombies.hud-downed"
         director.players[player.uniqueId]?.status == ZombiesStatus.WAITING -> "zombies.hud-waiting"
@@ -425,6 +487,7 @@ class ZombiesAdventure(
     }
 
     fun disconnect(player: Player, restored: Boolean = false) {
+        mysteryBox.cancel(player.uniqueId, technical = false)
         director.disconnect(player.uniqueId)
         downLocations.remove(player.uniqueId)
         rescues.remove(player.uniqueId)
@@ -446,6 +509,9 @@ class ZombiesAdventure(
     override fun close() {
         if (closed) return
         closed = true
+        effects.close()
+        mysteryBox.close()
+        barricades.close()
         enemies.values.forEach { it.mob.remove() }
         enemies.clear()
         signs.forEach { it.remove() }

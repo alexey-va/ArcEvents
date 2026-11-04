@@ -451,11 +451,9 @@ class ArcEventsCommand(
                 if (result == ReservationStartResult.STARTED && audience == StartMessageAudience.ADMIN) {
                     selectedAdminArenas.remove(senderSelectionKey(sender))
                 }
-                sender.sendEventMessage(locale.render(
-                    reservationStartMessage(result, audience),
-                    sender,
-                    mapOf("action" to locale.text("start")),
-                ))
+                reservationStartMessage(result, audience)?.let { key ->
+                    sender.sendEventMessage(locale.render(key, sender, mapOf("action" to locale.text("start"))))
+                }
             }
         }
     }

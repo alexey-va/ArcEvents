@@ -138,11 +138,52 @@ class ZombiesDirectorTest : StringSpec({
         game.buy(first, ZombiesOffer.POWER) shouldBe false
         game.buy(first, ZombiesOffer.VITALITY) shouldBe true
         game.buy(first, ZombiesOffer.VITALITY) shouldBe false
-        shouldThrow<IllegalArgumentException> { game.buy(first, ZombiesOffer.MYSTERY, FirearmId.FIVE_SEVEN) }
-        game.buy(first, ZombiesOffer.MYSTERY, FirearmId.G36) shouldBe true
+        shouldThrow<IllegalArgumentException> { game.reserveMystery(first, FirearmId.FIVE_SEVEN) }
+        game.buy(first, ZombiesOffer.MYSTERY) shouldBe false
+        game.reserveMystery(first, FirearmId.G36) shouldBe true
+        game.claimMystery(first) shouldBe FirearmId.G36
         game.players.getValue(first).weapon shouldBe FirearmId.G36
         game.down(first, 1)
         game.canBuy(first, ZombiesOffer.AMMO) shouldBe false
         game.canBuy(UUID.randomUUID(), ZombiesOffer.AMMO) shouldBe false
+    }
+
+    "a world box debits once and changes no weapon until its single claim" {
+        val game = director(first, second)
+        clearWave(game, first)
+        val before = game.players.getValue(first)
+        game.reserveMystery(first, FirearmId.G36) shouldBe true
+        game.reserveMystery(first, FirearmId.MCMILLAN) shouldBe false
+        game.players.getValue(first).points shouldBe before.points - 650
+        game.players.getValue(first).weapon shouldBe before.weapon
+        game.down(first, 20_000)
+        game.claimMystery(first) shouldBe null
+        game.revive(first) shouldBe true
+        game.claimMystery(first) shouldBe FirearmId.G36
+        game.claimMystery(first) shouldBe null
+        game.cancelMystery(first, refund = true) shouldBe false
+        game.players.getValue(first).points shouldBe before.points - 650
+    }
+
+    "technical cancellation refunds exactly once while expiry and leaving never permit a free reroll" {
+        val game = director(first, second)
+        clearWave(game, first)
+        val points = game.players.getValue(first).points
+        game.reserveMystery(first, FirearmId.G36) shouldBe true
+        game.cancelMystery(first, refund = true) shouldBe true
+        game.cancelMystery(first, refund = true) shouldBe false
+        game.players.getValue(first).points shouldBe points
+        game.reserveMystery(first, FirearmId.G36) shouldBe true
+        game.cancelMystery(first, refund = false) shouldBe true
+        game.cancelMystery(first, refund = true) shouldBe false
+        game.players.getValue(first).points shouldBe points - 650
+        game.players.getValue(first).weapon shouldBe FirearmId.FIVE_SEVEN
+        clearWave(game, first)
+        val leavingPoints = game.players.getValue(first).points
+        game.reserveMystery(first, FirearmId.G36) shouldBe true
+        game.disconnect(first)
+        game.claimMystery(first) shouldBe null
+        game.cancelMystery(first, refund = true) shouldBe false
+        game.players.getValue(first).points shouldBe leavingPoints - 650
     }
 })

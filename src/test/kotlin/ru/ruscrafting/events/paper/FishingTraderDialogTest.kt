@@ -35,7 +35,7 @@ class FishingTraderDialogTest : StringSpec({
                 trader.id shouldBe "events.fishing.trader"
                 armory.id shouldBe "events.fishing.armory"
                 trader.columns shouldBe 2
-                trader.buttons.size shouldBe 8
+                trader.buttons.size shouldBe 5
                 armory.buttons.size shouldBe 8
                 listOf(trader, armory).forEach { screen ->
                     // Core derives the trader's footer from actual entry history; armory has a real parent.
@@ -53,8 +53,8 @@ class FishingTraderDialogTest : StringSpec({
                 armory.exitButton!!.width shouldBe 200
                 plain(armory.buttons.first { it.id.value == "buy_pistol" }.label) shouldContain
                     if (language.language == "ru") "Недоступно" else "Unavailable"
-                plain(trader.body[1].text) shouldContain "300"
-                plain(trader.body[3].text) shouldContain
+                plain(trader.body.single().text) shouldContain "300"
+                plain(trader.body.single().text) shouldContain
                     if (language.language == "ru") "только в этом заходе" else "expedition only"
             }
         } finally { root.toFile().deleteRecursively() }

@@ -369,12 +369,12 @@ class ArcEventsService(
         return result
     }
 
-    fun joinQueue(player: Player) {
+    fun joinQueue(player: Player): CompletableFuture<Boolean> {
         if (hasPendingRecovery(player.uniqueId)) {
             player.sendEventMessage(locale.render("match.restore-pending", player))
-            return
+            return CompletableFuture.completedFuture(false)
         }
-        network.join(player)
+        return network.join(player)
     }
 
     fun leaveQueue(player: Player) = network.leave(player)
@@ -588,6 +588,16 @@ class ArcEventsService(
 
     fun startFishing(player: Player): CompletableFuture<ReservationStartResult> =
         startFromQueue(player, "fishing", EventMode.FISHING)
+
+    fun startZombiesSolo(player: Player): CompletableFuture<ReservationStartResult> {
+        if (!supportsAdventureClient(player)) {
+            return CompletableFuture.completedFuture(ReservationStartResult.CLIENT_UNSUPPORTED)
+        }
+        if (hasPendingRecovery(player.uniqueId)) {
+            return CompletableFuture.completedFuture(ReservationStartResult.RECOVERY_PENDING)
+        }
+        return network.reserveZombiesSolo(player)
+    }
 
     private fun supportsAdventureClient(player: Player): Boolean =
         dialogFrontendSupported(settings().ui.dialogsEnabled, clientProtocol(player), EventsView.Fishing)
@@ -1320,6 +1330,8 @@ class ArcEventsService(
             "zombies_phase" to (zombies?.phase?.name?.lowercase() ?: "-"),
             "zombies_alive" to (zombies?.alive ?: 0),
             "zombies_pending" to (zombies?.pending ?: 0),
+            "zombies_box" to arcade.zombiesBoxPhase(),
+            "zombies_boards" to arcade.zombiesBarricadeBoards(),
         )
     }
 
@@ -1339,6 +1351,7 @@ class ArcEventsService(
             "status" to ((participant?.status ?: arcadePlayer?.status)?.name?.lowercase() ?: "none"),
             "zombies_status" to (zombiePlayer?.status?.name?.lowercase() ?: "-"),
             "zombies_points" to (zombiePlayer?.points ?: 0),
+            "zombies_weapon" to (zombiePlayer?.weapon?.name?.lowercase() ?: "-"),
             "zombies_power" to (zombiePlayer?.power ?: 0),
             "zombies_self_revives" to (zombiePlayer?.selfRevives ?: 0),
             "credits" to (participant?.credits ?: 0),
@@ -1996,7 +2009,6 @@ class ArcEventsService(
         }
         val active = runtime.activate()
         active.participants.values.mapNotNull { plugin.server.getPlayer(it.playerId) }.forEach { player ->
-            player.sendEventMessage(locale.render("match.started", player))
             player.showTitle(Title.title(
                 locale.render("match.started-title", player),
                 locale.render("match.started-subtitle", player),

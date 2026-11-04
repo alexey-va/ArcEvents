@@ -89,8 +89,8 @@ class ArcEventsConfigTest : StringSpec({
             Files.writeString(file, original)
             val host = ArcEventsConfig.inspect(root)
             host.arenas.single { it.id == "zombies" }.let {
-                it.world shouldBe "arcevents_zombies_zero"
-                it.template shouldBe "zombies-zero-v1"
+                it.world shouldBe "arcevents_zombies_zero_v2"
+                it.template shouldBe "zombies-zero-v2"
                 it.operational(4) shouldBe true
             }
             Files.writeString(file, original.replace("waves: 10", "waves: 12"))

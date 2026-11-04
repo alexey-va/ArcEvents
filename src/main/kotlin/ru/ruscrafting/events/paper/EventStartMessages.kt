@@ -5,10 +5,11 @@ internal enum class StartMessageAudience { PLAYER, ADMIN, DEBUG }
 internal fun reservationStartMessage(
     result: ReservationStartResult,
     audience: StartMessageAudience,
-): String = when (result) {
+): String? = when (result) {
     ReservationStartResult.CLIENT_UNSUPPORTED -> "queue.start-client-unsupported"
     ReservationStartResult.STARTED -> when (audience) {
-        StartMessageAudience.PLAYER -> "queue.start-requested"
+        // The authoritative reservation notice already reaches every roster member.
+        StartMessageAudience.PLAYER -> null
         StartMessageAudience.ADMIN -> "admin.started"
         StartMessageAudience.DEBUG -> "debug.applied"
     }

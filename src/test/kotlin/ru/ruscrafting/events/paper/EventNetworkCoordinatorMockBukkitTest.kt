@@ -318,6 +318,154 @@ class EventNetworkCoordinatorMockBukkitTest : FunSpec({
         }
     }
 
+    test("solo Zombies starts only the requester and repeated clicks keep queued peers untouched") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture().use { fixture ->
+                fixture.start()
+                val peer = fixture.addPlayer("QueuedPeer")
+                fixture.queuePlayer(peer)
+                val peerBefore = fixture.queueEntry(peer)
+                fixture.advanceTime(1)
+                val requester = fixture.addPlayer("SoloZombies")
+
+                fixture.await(fixture.coordinator.reserveZombiesSolo(requester)) shouldBe ReservationStartResult.STARTED
+                fixture.await(fixture.coordinator.reserveZombiesSolo(requester)) shouldBe ReservationStartResult.RECOVERY_PENDING
+                fixture.reservations.single().apply {
+                    mode shouldBe EventMode.ZOMBIES
+                    entries.map(QueueEntry::playerId) shouldBe listOf(requester.uniqueId.toString())
+                }
+                fixture.queueEntry(peer) shouldBe peerBefore
+            }
+        }
+    }
+
+    test("ordinary Zombies team starts retain the creator gate and consume the full roster") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture().use { fixture ->
+                fixture.start()
+                val owner = fixture.addPlayer("ZombiesOwner")
+                fixture.queuePlayer(owner)
+                fixture.advanceTime(1)
+                val teammate = fixture.addPlayer("ZombiesMember")
+
+                fixture.await(fixture.coordinator.reserveNow(teammate, mode = EventMode.ZOMBIES)) shouldBe ReservationStartResult.NOT_OWNER
+                fixture.reservations shouldBe emptyList()
+                fixture.await(fixture.coordinator.reserveNow(owner, mode = EventMode.ZOMBIES)) shouldBe ReservationStartResult.STARTED
+                fixture.reservations.single().entries.map(QueueEntry::playerId) shouldContainExactlyInAnyOrder
+                    listOf(owner.uniqueId.toString(), teammate.uniqueId.toString())
+            }
+        }
+    }
+
+    test("solo requests bind the requester origin and ignore duplicate or stale messages") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture().use { fixture ->
+                fixture.start()
+                val requester = fixture.addPlayer("RemoteSolo")
+                val peer = fixture.addPlayer("RemotePeer")
+                fixture.queuePlayer(peer, origin = "spawn")
+                fixture.queuePlayer(requester, origin = "survival")
+                val peerBefore = fixture.queueEntry(peer)
+                fixture.publishSoloStart(requester, origin = "spawn")
+                fixture.tick(5)
+                fixture.reservations shouldBe emptyList()
+                fixture.queueEntry(requester)?.state shouldBe QueueState.QUEUED
+
+                fixture.publishSoloStart(requester, origin = "survival", ageMs = 10_001L)
+                fixture.tick(5)
+                fixture.reservations shouldBe emptyList()
+                val request = fixture.publishSoloStart(requester, origin = "survival")
+                fixture.tick(10)
+                fixture.publishMessage(request, "survival")
+                fixture.tick(5)
+                fixture.reservations.size shouldBe 1
+                fixture.reservations.single().entries.map(QueueEntry::playerId) shouldBe listOf(requester.uniqueId.toString())
+                fixture.queueEntry(peer) shouldBe peerBefore
+            }
+        }
+    }
+
+    test("queue join completes with durable queued state and a matching queue control size") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture().use { fixture ->
+                fixture.start()
+                val player = fixture.addPlayer("QueueJoin")
+                fixture.await(fixture.coordinator.join(player)) shouldBe true
+                fixture.coordinator.queueSize shouldBe 1
+                fixture.await(fixture.coordinator.join(player)) shouldBe true
+                fixture.coordinator.queueControl(player.uniqueId).get(5, TimeUnit.SECONDS).apply {
+                    state shouldBe QueueState.QUEUED
+                    ownerId shouldBe player.uniqueId
+                    queueSize shouldBe 1
+                }
+                fixture.seedReserved(player, UUID.randomUUID(), "survival")
+                fixture.await(fixture.coordinator.join(player)) shouldBe false
+                fixture.reservations shouldBe emptyList()
+            }
+        }
+    }
+
+    test("queue join failure and a closed generation never report joined or start a session") {
+        failOnUnsupportedMockBukkitOperation {
+            lateinit var redis: InMemoryRedis
+            EventNetworkCoordinatorFixture(repositoryRedis = { it.also { value -> redis = value } }).use { fixture ->
+                fixture.start()
+                val player = fixture.addPlayer("FailedQueueJoin")
+                redis.failOnSave = true
+                fixture.await(fixture.coordinator.join(player)) shouldBe false
+                redis.failOnSave = false
+                fixture.queueEntry(player) shouldBe null
+                fixture.coordinator.close()
+                fixture.await(fixture.coordinator.join(player)) shouldBe false
+                fixture.reservations shouldBe emptyList()
+            }
+        }
+    }
+
+    test("a failed authoritative refresh never completes queue admission as joined") {
+        failOnUnsupportedMockBukkitOperation {
+            var failRefresh = false
+            EventNetworkCoordinatorFixture(repositoryRedis = { delegate ->
+                object : RedisOperations by delegate {
+                    override fun loadMap(key: String): CompletableFuture<Map<String, String>> =
+                        if (failRefresh && key == RedisEventNetworkRepository.QUEUE_KEY) {
+                            CompletableFuture.failedFuture(IllegalStateException("Queue refresh failed"))
+                        } else delegate.loadMap(key)
+                }
+            }).use { fixture ->
+                fixture.start()
+                val player = fixture.addPlayer("FailedRefresh")
+                failRefresh = true
+
+                fixture.await(fixture.coordinator.join(player)) shouldBe false
+                fixture.queueEntry(player)?.state shouldBe QueueState.QUEUED
+                fixture.reservations shouldBe emptyList()
+            }
+        }
+    }
+
+    test("queue join and solo continuations cannot cross a coordinator generation") {
+        failOnUnsupportedMockBukkitOperation {
+            for (solo in listOf(false, true)) {
+                lateinit var controlled: ControlledQueueJoinRedis
+                EventNetworkCoordinatorFixture(repositoryRedis = { ControlledQueueJoinRedis(it).also { value -> controlled = value } }).use { fixture ->
+                    fixture.start()
+                    val player = fixture.addPlayer("GenerationJoin")
+                    controlled.delayWrites = true
+                    val joining = if (solo) fixture.coordinator.reserveZombiesSolo(player) else fixture.coordinator.join(player)
+                    controlled.stored.get(5, TimeUnit.SECONDS)
+                    joining.isDone shouldBe false
+                    fixture.coordinator.close()
+                    fixture.start()
+                    controlled.acknowledgement.complete(true)
+
+                    fixture.await(joining) shouldBe if (solo) ReservationStartResult.NETWORK_FAILURE else false
+                    fixture.reservations shouldBe emptyList()
+                }
+            }
+        }
+    }
+
     test("host availability follows the selected mode arena") {
         failOnUnsupportedMockBukkitOperation {
             EventNetworkCoordinatorFixture(includeCombatArena = false).use { fixture ->
@@ -326,6 +474,9 @@ class EventNetworkCoordinatorMockBukkitTest : FunSpec({
                 fixture.coordinator.hostAvailable(EventMode.TTT) shouldBe false
                 fixture.coordinator.hostAvailable(EventMode.GUN_GAME) shouldBe false
                 fixture.coordinator.hostAvailable(EventMode.FISHING) shouldBe true
+                val player = fixture.addPlayer("UnavailableQueue")
+                fixture.await(fixture.coordinator.join(player)) shouldBe false
+                fixture.queueEntry(player) shouldBe null
             }
         }
     }
@@ -561,6 +712,21 @@ private class EventNetworkCoordinatorFixture(
 
     fun addPlayer(name: String) = paper.addPlayer(name)
 
+    fun queuePlayer(player: org.bukkit.entity.Player, origin: String = settings.serverId) {
+        repository.joinQueue(player.uniqueId, player.name, origin, nowMs, 60_000L).get(5, TimeUnit.SECONDS)
+    }
+
+    fun publishSoloStart(player: org.bukkit.entity.Player, origin: String, ageMs: Long = 0): EventNetworkMessage {
+        val message = EventNetworkMessage.create(EventNetworkSignal.START_REQUEST, nowMs - ageMs,
+            destinationServer = "parkour", requesterId = player.uniqueId, mode = EventMode.ZOMBIES.id, requesterOnly = true)
+        publishMessage(message, origin)
+        return message
+    }
+
+    fun publishMessage(message: EventNetworkMessage, origin: String) {
+        redisStore.simulateExternalMessage(RedisEventNetworkRepository.EVENT_CHANNEL, Gson().toJson(message), origin)
+    }
+
     fun tick(count: Int) {
         repeat(count) {
             paper.performTicks(1)
@@ -674,6 +840,26 @@ private class EventNetworkCoordinatorFixture(
         Files.createDirectories(requireNotNull(target.parent))
         requireNotNull(EventNetworkCoordinatorMockBukkitTest::class.java.getResourceAsStream("/$name")).use { source ->
             Files.copy(source, target)
+        }
+    }
+}
+
+private class ControlledQueueJoinRedis(private val delegate: InMemoryRedis) : RedisOperations by delegate {
+    var delayWrites = false
+    val stored = CompletableFuture<Unit>()
+    val acknowledgement = CompletableFuture<Boolean>()
+
+    override fun compareAndSetMapEntry(
+        key: String,
+        mapKey: String,
+        expectedValue: String?,
+        replacementValue: String?,
+    ): CompletableFuture<Boolean> {
+        val write = delegate.compareAndSetMapEntry(key, mapKey, expectedValue, replacementValue)
+        if (!delayWrites || key != RedisEventNetworkRepository.QUEUE_KEY) return write
+        return write.thenCompose { accepted ->
+            stored.complete(Unit)
+            acknowledgement.thenApply { accepted }
         }
     }
 }

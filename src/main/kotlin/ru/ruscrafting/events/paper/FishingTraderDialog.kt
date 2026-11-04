@@ -90,13 +90,13 @@ internal class FishingTraderDialog(
                 join(listOf(text(if (owned) "equip-help" else "gear-help", details),
                     locale.render("fishing.gear.${gear.name.lowercase()}-description", player))), available, selected, owned)
         } else buildList {
-            add(button("feed", text("feed"), text("feed-help"), state.feedCatch() != state))
-            add(button("eat", text("eat"), text("eat-help"), state.bag.isNotEmpty() &&
-                (player.health < (player.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH)?.value ?: 20.0) || player.foodLevel < 20)))
+            if (state.feedCatch() != state) add(button("feed", text("feed"), text("feed-help"), true))
+            if (state.bag.isNotEmpty() && (player.health < (player.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH)?.value ?: 20.0) || player.foodLevel < 20))
+                add(button("eat", text("eat"), text("eat-help"), true))
             val trophy = state.phase == FishingPhase.TROPHY
-            add(button(if (trophy) "trophy" else "bait", text(if (trophy) "trophy" else "bait"),
-                text(if (trophy) "trophy-help" else "bait-help"),
-                if (trophy) state.handInTrophy() != state else state.claimBossBait() != state))
+            if (if (trophy) state.handInTrophy() != state else state.claimBossBait() != state)
+                add(button(if (trophy) "trophy" else "bait", text(if (trophy) "trophy" else "bait"),
+                    text(if (trophy) "trophy-help" else "bait-help"), true))
             add(PaperDialogButton(PaperDialogActionId.of("armory"), clean(text("armory"), GOLD),
                 text("armory-help"), 230, onClick = PaperDialogClickHandler { action("armory") }))
             listOf(FishingOffer.AMMO, FishingOffer.DYNAMITE, FishingOffer.ROD_ONE, FishingOffer.ROD_TWO).forEach { offer ->
@@ -114,13 +114,15 @@ internal class FishingTraderDialog(
         }
         return PaperDialogScreen(
             title = clean(text(if (armory) "armory-title" else "title"), GOLD),
-            body = buildList {
-                add(PaperDialogBody(clean(locale.render("fishing.island.${FishingArenaStage.entries[state.stage].name.lowercase()}", player), GOLD), 468))
-                add(DialogTables.filledBody(rows = listOf(listOf(text("status"))), headers = null, width = 400, columnWeights = listOf(1)))
-                add(PaperDialogBody(text(quest), 468))
-                add(PaperDialogBody(text("session-only"), 468))
-                feedback?.let { add(PaperDialogBody(text(it), 468)) }
-            },
+            body = listOf(DialogTables.filledBody(rows = listOf(listOf(Component.join(JoinConfiguration.newlines(), buildList {
+                add(clean(locale.render("fishing.island.${FishingArenaStage.entries[state.stage].name.lowercase()}", player), GOLD))
+                add(Component.empty())
+                add(text(quest))
+                add(text("status"))
+                add(Component.empty())
+                add(text("session-only"))
+                feedback?.let { add(text(it)) }
+            }))), headers = null, width = 340, columnWeights = listOf(1), skin = DialogTables.PanelSkin.NAVY)),
             buttons = buttons,
             exitButton = if (armory || escapeCloses(player)) {
                 val closes = escapeCloses(player)

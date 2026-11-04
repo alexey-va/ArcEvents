@@ -113,6 +113,32 @@ class EventNetworkProtocolTest : StringSpec({
         }
     }
 
+    "requester-only intent belongs only to an identified Zombies start" {
+        val solo = EventNetworkMessage.create(
+            EventNetworkSignal.START_REQUEST,
+            nowMs = 1_000,
+            destinationServer = "parkour",
+            requesterId = UUID.randomUUID(),
+            mode = EventMode.ZOMBIES.id,
+            requesterOnly = true,
+        )
+        solo.requesterOnly shouldBe true
+        solo.copy(requesterOnly = null).validated().requesterOnly shouldBe null
+        shouldThrow<IllegalArgumentException> { solo.copy(requesterId = null).validated() }
+        shouldThrow<IllegalArgumentException> { solo.copy(mode = EventMode.FISHING.id).validated() }
+        shouldThrow<IllegalArgumentException> { solo.copy(requesterOnly = false).validated() }
+        shouldThrow<IllegalArgumentException> {
+            solo.copy(signal = EventNetworkSignal.START_RESULT, replyTo = UUID.randomUUID().toString(), startResult = "STARTED").validated()
+        }
+        shouldThrow<IllegalArgumentException> { solo.copy(signal = EventNetworkSignal.NODE_PROBE).validated() }
+        EventNetworkMessage.create(
+            EventNetworkSignal.START_REQUEST,
+            nowMs = 1_000,
+            destinationServer = "parkour",
+            requesterOnly = false,
+        ).requesterOnly shouldBe null
+    }
+
     "reservation remains valid at the maximum queue and reservation boundary" {
         val joinedAtMs = 1_000L
         QueueEntry(

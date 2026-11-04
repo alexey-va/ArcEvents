@@ -3,8 +3,11 @@ package ru.ruscrafting.events.config
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldContainAll
 import io.kotest.matchers.shouldBe
+import org.yaml.snakeyaml.LoaderOptions
+import org.yaml.snakeyaml.Yaml
 import ru.arc.config.Config
 import java.nio.file.Files
+import java.nio.file.Path
 
 class LocaleContractTest : StringSpec({
     "only arcevents is registered and advertised as the event command" {
@@ -23,15 +26,16 @@ class LocaleContractTest : StringSpec({
         }
     }
 
-    "Russian and English catalogs have identical nonblank leaves" {
+    "Russian and English catalogs have identical nonblank leaves and parameters" {
         val root = Files.createTempDirectory("arcevents-locale-")
         try {
-            val ru = Config(root, "lang/ru.yml")
-            val en = Config(root, "lang/en.yml")
-            val ruLeaves = leaves(ru)
-            val enLeaves = leaves(en)
-            ruLeaves shouldBe enLeaves
-            ruLeaves.shouldContainAll(ArcEventsLocale.REQUIRED_SCALARS + ArcEventsLocale.REQUIRED_LISTS)
+            Config(root, "lang/ru.yml")
+            Config(root, "lang/en.yml")
+            val ru = catalog(root.resolve("lang/ru.yml"))
+            val en = catalog(root.resolve("lang/en.yml"))
+            ru.keys shouldBe en.keys
+            ru.keys.shouldContainAll(ArcEventsLocale.REQUIRED_SCALARS + ArcEventsLocale.REQUIRED_LISTS)
+            ru.forEach { (path, lines) -> parameters(lines.joinToString("\n")) shouldBe parameters(en.getValue(path).joinToString("\n")) }
             ArcEventsLocale.validateFiles(root)
         } finally {
             root.toFile().deleteRecursively()
@@ -65,59 +69,66 @@ class LocaleContractTest : StringSpec({
         }
     }
 
-    "catalog does not opt GUI text into italics or shouting caps" {
+    "GUI text avoids italics shouting and repeated chat prefixes" {
         val root = Files.createTempDirectory("arcevents-style-")
         try {
-            Config(root, "lang/ru.yml")
-            Config(root, "lang/en.yml")
             listOf("ru", "en").forEach { language ->
-                val raw = Files.readString(root.resolve("lang/$language.yml"))
-                raw.contains("<italic>") shouldBe false
-                raw.contains("&lt;") shouldBe false
-                raw.contains("&gt;") shouldBe false
-                raw.contains('•') shouldBe false
-                raw.contains('·') shouldBe false
-                Config(root, "lang/$language.yml").string("prefix") shouldBe "<white></white>"
-                Regex("[А-ЯA-Z]{8,}").containsMatchIn(raw) shouldBe false
-                Regex("(?m)^    title: '<#20252b>").findAll(raw).count() shouldBe 12
-                Regex("(?m)^  [a-z-]*actionbar: '.*<prefix>").containsMatchIn(raw) shouldBe false
-                Regex("(?m)^  reserved: '.*parkour").containsMatchIn(raw) shouldBe false
-                Regex("(?i)(we will move|transfer has begun|вас перенесут|перенос на арену)").containsMatchIn(raw) shouldBe false
+                val config = Config(root, "lang/$language.yml")
+                val text = catalog(root.resolve("lang/$language.yml"))
+                text.values.flatten().forEach { line ->
+                    line.contains("<italic>") shouldBe false
+                    line.contains("&lt;") shouldBe false
+                    line.contains("&gt;") shouldBe false
+                    Regex("[А-ЯA-Z]{8,}").containsMatchIn(visible(line)) shouldBe false
+                    (Regex("<prefix>").findAll(line).count() <= 1) shouldBe true
+                }
+                text.filterKeys { it.startsWith("dialog.") || it.startsWith("hud.") || "actionbar" in it }
+                    .values.flatten().none { "<prefix>" in it } shouldBe true
+                text.filterKeys { it.startsWith("menu.") && it.endsWith(".title") }.values.flatten()
+                    .all { visible(it).length in 1..36 } shouldBe true
+                config.string("prefix") shouldBe "<white></white>"
             }
         } finally {
             root.toFile().deleteRecursively()
         }
     }
 
-    "preparation guidance has one quiet leading break and no decorative bullets or bold text" {
+    "preparation points to optional rules and keeps controls compact" {
         val root = Files.createTempDirectory("arcevents-preparation-style-")
         try {
             listOf("ru", "en").forEach { language ->
                 val config = Config(root, "lang/$language.yml")
                 val guide = config.string("match.preparing-guide")
-                guide.startsWith("\n<prefix> ") shouldBe true
-                guide.endsWith('\n') shouldBe false
-                guide.contains("<bold>") shouldBe false
-                guide.contains('◆') shouldBe false
-                config.stringList("hud.preparing-tips").none { "<bold>" in it } shouldBe true
-                val preparingBossBar = config.string("hud.bossbar-preparing")
-                preparingBossBar.contains("<bold>") shouldBe false
-                preparingBossBar.contains(
-                    if (language == "ru") "Событие собирается" else "Event is forming",
-                ) shouldBe true
-                config.string("hud.countdown-actionbar").contains("<bold>") shouldBe false
+                authoredLines(guide).size shouldBe 1
+                visible(guide).trim() shouldBe visible(guide)
+                (visible(guide).length <= 64) shouldBe true
+                guide.contains("/arcevents") shouldBe true
+                guide.contains("<prefix>") shouldBe false
+                val tips = config.stringList("hud.preparing-tips")
+                (tips.size in 1..2) shouldBe true
+                tips.all { visible(it).length <= 80 && "<bold>" !in it && "<prefix>" !in it } shouldBe true
+                val controls = tips.joinToString(" ")
+                controls.contains(if (language == "ru") "ЛКМ" else "LMB") shouldBe true
+                controls.contains(if (language == "ru") "ПКМ" else "RMB") shouldBe true
+                controls.contains("F") shouldBe true
+                listOf("hud.bossbar-preparing", "hud.countdown-actionbar").forEach { path ->
+                    val line = config.string(path)
+                    authoredLines(line).size shouldBe 1
+                    line.contains("<time>") shouldBe true
+                    line.contains("<bold>") shouldBe false
+                    line.contains("<prefix>") shouldBe false
+                }
             }
         } finally {
             root.toFile().deleteRecursively()
         }
     }
 
-    "inventory actions end with the shared action footer" {
-        val root = Files.createTempDirectory("arcevents-action-footer-")
+    "inventory actions explain the outcome without a repeated click footer" {
+        val root = Files.createTempDirectory("arcevents-action-copy-")
         try {
             listOf("ru", "en").forEach { language ->
                 val config = Config(root, "lang/$language.yml")
-                val actionWord = if (language == "ru") "Нажмите" else "Click"
                 listOf(
                     "menu.admin.arenas-lore", "menu.admin.start-lore", "menu.admin.stop-lore",
                     "menu.admin.reload-lore", "menu.admin.recover-lore", "menu.arenas.entry-lore",
@@ -126,10 +137,11 @@ class LocaleContractTest : StringSpec({
                     "menu.common.next-lore", "arcade.gungame-lore", "arcade.disasters-lore", "arcade.join-lore",
                     "arcade.leave-lore", "arcade.start-lore", "arcade.fishing-lore", "arcade.fishing-start-lore",
                 ).forEach { path ->
-                    val footer = config.stringList(path).last()
-                    footer.contains("[<") shouldBe true
-                    footer.contains("▶") shouldBe true
-                    footer.contains(actionWord) shouldBe true
+                    val lines = config.stringList(path).map(::visible).filter(String::isNotBlank)
+                    (lines.size in 1..3) shouldBe true
+                    lines.all { it.length <= 88 } shouldBe true
+                    lines.none { "▶" in it || Regex("(?i)^(нажмите|click)\\b").containsMatchIn(it) } shouldBe true
+                    config.string(path.removeSuffix("-lore") + "-name").isNotBlank() shouldBe true
                 }
             }
         } finally {
@@ -137,21 +149,38 @@ class LocaleContractTest : StringSpec({
         }
     }
 
-    "mode entry and in-round guidance describe the current next action" {
+    "mode briefings use at most two lines and detailed rules remain separate" {
         val root = Files.createTempDirectory("arcevents-guidance-")
         try {
             listOf("ru", "en").forEach { language ->
                 val config = Config(root, "lang/$language.yml")
-                val actionWord = if (language == "ru") "Нажмите" else "Click"
-                config.stringList("arcade.gungame-lore").last().contains(actionWord) shouldBe true
-                config.stringList("arcade.disasters-lore").last().contains(actionWord) shouldBe true
-                val hudHint = if (language == "ru") "экранной подсказке" else "HUD"
-                config.stringList("arcade.gungame-guide").joinToString(" ").contains(hudHint) shouldBe true
-                config.stringList("arcade.disasters-guide").joinToString(" ").contains(hudHint) shouldBe true
-                val flow = config.stringList("menu.help.flow-lore").joinToString(" ")
-                val controls = config.stringList("menu.help.controls-lore").joinToString(" ")
-                flow.contains(if (language == "ru") "рядом" else "nearby") shouldBe true
+                listOf("gungame", "disasters", "fishing", "zombies").forEach { mode ->
+                    val briefing = config.string("arcade.$mode-briefing")
+                    val lines = authoredLines(briefing)
+                    (lines.size in 1..2) shouldBe true
+                    lines.all { it.isNotBlank() && visible(it).length <= 80 } shouldBe true
+                    briefing.contains("<prefix>") shouldBe false
+                    Regex("(?i)\\bHUD\\b").containsMatchIn(briefing) shouldBe false
+                }
+                listOf("ttt-0", "ttt-1", "gungame-0", "disasters-0", "fishing-0", "zombies-0", "zombies-1").forEach { page ->
+                    val rules = config.stringList("dialog.rules-$page")
+                    (rules.size in 1..12) shouldBe true
+                    (rules.sumOf { visible(it).length } <= 700) shouldBe true
+                    rules.any(String::isNotBlank) shouldBe true
+                }
+                listOf("dialog.rules-name", "dialog.rules-next", "dialog.rules-previous").forEach { path ->
+                    config.string(path).isNotBlank() shouldBe true
+                }
+                val controls = config.stringList("dialog.rules-ttt-1").joinToString(" ")
                 controls.contains("/arcevents team") shouldBe true
+                listOf("arcade.gungame-briefing", "arcade.zombies-briefing").forEach { path ->
+                    val line = config.string(path)
+                    line.contains(if (language == "ru") "ЛКМ" else "LMB") shouldBe true
+                    line.contains(if (language == "ru") "ПКМ" else "RMB") shouldBe true
+                    line.contains("F") shouldBe true
+                }
+                parameters(config.stringList("dialog.rules-disasters-0").joinToString(" ")) shouldBe setOf("rounds")
+                parameters(config.stringList("dialog.rules-zombies-0").joinToString(" ")) shouldBe setOf("waves", "minimum", "maximum")
             }
         } finally {
             root.toFile().deleteRecursively()
@@ -165,9 +194,14 @@ class LocaleContractTest : StringSpec({
                 val config = Config(root, "lang/$language.yml")
                 val guide = config.stringList("arcade.fishing-guide").joinToString(" ")
                 val entry = config.stringList("arcade.fishing-lore").joinToString(" ")
-                guide.contains(if (language == "ru") "пять островов" else "five islands") shouldBe true
-                guide.contains(if (language == "ru") "финального босса" else "final boss") shouldBe true
-                entry.contains(if (language == "ru") "одиночку" else "solo") shouldBe true
+                val facts = config.string("dialog.fishing-facts")
+                facts.contains("<minutes>") shouldBe true
+                facts.contains("<queue>") shouldBe false
+                entry.contains(if (language == "ru") "одиноч" else "solo", ignoreCase = true) shouldBe true
+                guide.contains(if (language == "ru") "ПКМ" else "RMB") shouldBe true
+                guide.contains(if (language == "ru") "босс" else "boss", ignoreCase = true) shouldBe true
+                guide.contains(if (language == "ru") "трофе" else "troph", ignoreCase = true) shouldBe true
+                listOf("success", "timeout", "defeat").map { visible(config.string("fishing.result-$it")) }.distinct().size shouldBe 3
                 config.string("fishing.result-success").isNotBlank() shouldBe true
                 config.string("fishing.result-timeout").isNotBlank() shouldBe true
                 config.string("fishing.result-defeat").isNotBlank() shouldBe true
@@ -186,8 +220,10 @@ class LocaleContractTest : StringSpec({
                     config.string("fishing.phase.$phase").isNotBlank() shouldBe true
                 }
                 config.string("fishing.catch").contains("<catches>") shouldBe true
-                config.string("fishing.hud").contains("<stage>") shouldBe true
-                config.string("fishing.hud").contains("<phase>") shouldBe true
+                val hud = config.string("fishing.hud")
+                parameters(hud) shouldBe setOf("stage", "total", "catches", "needed", "coins")
+                authoredLines(hud).size shouldBe 1
+                (visible(hud).length <= 88) shouldBe true
                 ru.ruscrafting.events.domain.FishingIsland.entries.forEach { island ->
                     (island.catchSpecies + island.bossSpecies).forEach { species ->
                         config.string("fishing.species.$species").isNotBlank() shouldBe true
@@ -220,23 +256,41 @@ class LocaleContractTest : StringSpec({
     }
 }) {
     companion object {
-        private val roots = listOf(
-            "prefix", "command", "reason", "menu", "arena", "state", "phase", "queue", "match", "role",
-            "loadout", "body", "weapon", "roster", "report", "shop", "team", "chat", "admin", "debug", "hud", "guide",
-            "nameplate", "arcade", "fishing", "zombies",
+        private val formattingTags = setOf(
+            "black", "dark_blue", "dark_green", "dark_aqua", "dark_red", "dark_purple", "gold", "gray", "dark_gray",
+            "blue", "green", "aqua", "red", "light_purple", "yellow", "white", "bold", "b", "italic", "i", "em",
+            "underlined", "u", "strikethrough", "st", "obfuscated", "obf", "reset", "r", "newline", "br",
         )
 
-        private fun leaves(config: Config): Set<String> = roots.flatMap { root -> collect(config, root) }.toSet()
+        private fun parameters(text: String): Set<String> = Regex("<([a-z][a-z0-9_-]*)>")
+            .findAll(text).map { it.groupValues[1] }.filterNot { it in formattingTags }.toSet()
 
-        private fun collect(config: Config, path: String): Set<String> {
-            val children = config.keys(path)
-            if (children.isEmpty()) {
-                val scalar = config.stringOrNull(path)
-                val list = config.stringListOrNull(path)
-                require(scalar?.isNotBlank() == true || list?.isNotEmpty() == true) { "Blank locale leaf $path" }
-                return setOf(path)
+        private fun visible(text: String): String = Regex("<[^>]+>").replace(text, "")
+
+        private fun authoredLines(text: String): List<String> = text.replace("<newline>", "\n").replace("<br>", "\n").lines()
+
+        private fun catalog(path: Path): Map<String, List<String>> {
+            val yaml = Yaml(LoaderOptions().also { it.setAllowDuplicateKeys(false) })
+            val root = Files.newBufferedReader(path).use { yaml.load<Map<String, Any?>>(it) }
+            val result = linkedMapOf<String, List<String>>()
+            fun visit(path: String, value: Any?) {
+                when (value) {
+                    is Map<*, *> -> value.forEach { (key, child) -> visit(if (path.isEmpty()) key.toString() else "$path.$key", child) }
+                    is String -> {
+                        require(value.isNotBlank()) { "Blank locale leaf $path" }
+                        result[path] = listOf(value)
+                    }
+                    is List<*> -> {
+                        require(value.isNotEmpty() && value.all { it is String } && value.any { (it as String).isNotBlank() }) {
+                            "Empty or non-text locale list $path"
+                        }
+                        result[path] = value.map { it as String }
+                    }
+                    else -> error("Non-text locale leaf $path")
+                }
             }
-            return children.flatMap { child -> collect(config, "$path.$child") }.toSet()
+            visit("", root)
+            return result
         }
     }
 }

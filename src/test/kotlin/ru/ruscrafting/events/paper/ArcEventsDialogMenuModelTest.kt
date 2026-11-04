@@ -63,20 +63,21 @@ class ArcEventsDialogMenuModelTest : StringSpec({
             displayed.drop(1).forEach { it.exitButton!!.closeDialogBeforeAction shouldBe false }
             displayed.map { it.id } shouldBe listOf("events.main", "events.help", "events.stats", "events.ttt", "events.fishing")
             displayed.first().body.isNotEmpty() shouldBe true
-            displayed[3].body.first().text.toString().lowercase().let { "loading" in it || "загружаем" in it } shouldBe true
+            displayed[3].buttons.isEmpty() shouldBe true
+            displayed[3].body.isNotEmpty() shouldBe true
             val mainButtons = displayed.first().buttons.associate { button ->
                 button.id.value to PlainTextComponentSerializer.plainText().serialize(button.label)
             }
             mainButtons.getValue("action_arcade_gungame_name") shouldContain "›"
             mainButtons.getValue("action_arcade_disasters_name") shouldContain "›"
             mainButtons.getValue("action_arcade_fishing_name") shouldContain "›"
-            PlainTextComponentSerializer.plainText().serialize(displayed.last().buttons.single().label) shouldContain "Начать одному"
+            PlainTextComponentSerializer.plainText().serialize(displayed.last().buttons.first().label) shouldContain "Начать одному"
 
             every { service.snapshot() } returns ServiceSnapshot("test", ru.ruscrafting.events.config.NodeMode.HOST, "test", true, true, true, null, 0,
                 UUID.randomUUID(), ru.ruscrafting.events.domain.MatchPhase.ACTIVE, 2, 2, 1, 1, 0, 12)
             every { service.currentMode() } returns ru.ruscrafting.events.domain.EventMode.TTT
             menu.open(player, EventsView.Fishing) shouldBe true
-            PlainTextComponentSerializer.plainText().serialize(displayed.last().body.first().text) shouldContain "Состояние: ожидание"
+            PlainTextComponentSerializer.plainText().serialize(displayed.last().body.first().text) shouldContain "Идёт матч"
         } finally {
             root.toFile().deleteRecursively()
         }
