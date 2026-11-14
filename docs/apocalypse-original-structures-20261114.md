@@ -108,5 +108,37 @@ no unknown-state fallback silently bypassed them.
 
 Publication and the supported no-restart delivery promote this same immutable
 JAR to classic, classic_survival and parkour. The loaded mode is not upgraded by
-disk replacement. Production activation, textured real-client acceptance and
-bit-identical Forge terrain/placement are not claimed.
+disk replacement. The subsequent production activation is recorded below;
+textured real-client acceptance and bit-identical Forge terrain/placement
+remain outside the observed evidence.
+
+## Production activation and menu observation
+
+On 2026-11-14 UTC, the owner requested activation on Spawn and Parkour only.
+Both runtimes reached a fresh `Done` and loaded ArcEvents0.6.1. Each active
+plugin root contained exactly one ArcEvents descriptor, named
+`ArcEvents-0.6.1.jar`, with the candidate SHA-256 above. Survival was not restarted.
+The supported shared restart operation was
+`b26179cc0531298a18a3f1f8bdeb5bdb633031f0a617b8c1d767aa01f29da2f0`;
+it completed with both targets ready. During its countdown, the owner specified
+immediate Parkour restarts, and the published CLI helper stopped Parkour
+immediately; the shared observer accepted that same new process generation.
+Spawn retained its original countdown.
+
+Parkour reported `plugin-ready` at20:52:20 UTC, `mode=HOST`, `redis=true`, and
+loaded `arcevents_apocalypse_v2`. Its marker was
+`apocalypse-original-v1:68200133`. Spawn reported ready at20:53:58 UTC with
+`mode=RELAY`, `player_state=PRESERVE`, `redis=true`. Both live configurations
+contained `apocalypse: {slot: 11}` after defaults migration.
+
+The ordinary `/arcevents` command was exercised with the authorized
+CodexQA_728 actor on Spawn at20:56:56 UTC and Parkour at20:57:55 UTC. Both native
+dialogs titled `Ивенты` contained `Апокалипсис ›`, the source tooltip, and a
+bound `action_apocalypse_menu_name` callback. This establishes menu presence
+and its registered action, not a live click or transfer into the bunker.
+The actor returned to Spawn and disconnected; offline state was confirmed.
+The observer's resource-pack request returned HTTP403, so these protocol
+observations do not establish textured client appearance. Startup logs also
+included a My_Worlds rejection of the older `zombies-zero-v1` generator marker;
+the configured V2 Zombies arena and the Apocalypse HOST subsequently became
+ready. General startup cleanliness is not claimed.
