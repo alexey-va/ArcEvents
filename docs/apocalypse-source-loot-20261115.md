@@ -104,3 +104,41 @@ these gameplay assertions. Book fallback and textured production appearance
 were inspected by code/layout review, not a real rendered game client.
 Native logs are task-local `/private/tmp/apocalypse-progression-native*.log`.
 The full-container branch is source-reviewed, not a native crash/replay test.
+
+## Production activation and owner-requested reset
+
+The immutable candidate above was delivered to Spawn and Parkour only through
+`mc jar --no-restart`; backup manifest `jar-20261114T223105Z-5906` retained the
+previous JAR. Both roots had one ArcEvents descriptor with that exact hash.
+Parkour restarted immediately under the owner's policy; Spawn's fresh typed
+empty player list permitted an immediate restart. Parkour reported HOST ready
+at22:34:43 UTC and Spawn RELAY ready at22:34:46 UTC. Source containers and guide
+callbacks were exercised in the native fixture, not with a production client.
+
+The owner subsequently explicitly requested resetting the Apocalypse world and
+expeditions. Parkour was fully stopped through the supported helper; no Java
+process remained. The V2 world and Apocalypse data were moved to
+`.mc-ops-backups/apocalypse-reset-20261114T2240Z`, outside the active journal.
+A new empty V2 directory retained only the verified ownership marker before
+My_Worlds autoload. The seed remains68200133: this loot/guide increment did not
+change geometry, and resetting with the same seed keeps source building layout.
+The old and new world UID hashes differ, confirming a new world instance.
+
+The one offline ACTIVE record could not safely be deleted: it contained the
+only pending origin-inventory snapshot. Its expedition was cleared and phase
+changed to RETURNING, preserving the origin envelope, route and native session
+exactly. The normal next-login recovery restores origin and returns to Spawn;
+then a new expedition receives the starter kit. This pending origin recovery is
+not retained expedition progress. No native player.dat or other mode was edited.
+All world loot/actor/horde/infection checkpoints were cleared. Parkour returned
+to HOST ready at22:42:21 UTC, with the new world, no saved expedition and the
+unchanged0.6.2 candidate. Actual owner login recovery remains a client observation.
+
+CI for source commit7b7565a passed all unit/package and storage integration
+checks. Its combined hosted run exposed test coupling: the preceding firearm
+case had already claimed armory index3, so replacing that container for the
+new double-chest fixture correctly did not issue a second batch. The isolated
+native case had passed on an unclaimed container. The regression fixture now
+uses the distinct deterministic rifle container at index4; it preserves the
+finite-claim contract rather than clearing production claims. CI is rerun for
+that test-only correction; no runtime source or deployed JAR changes.

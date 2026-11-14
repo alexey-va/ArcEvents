@@ -278,7 +278,8 @@ test('Apocalypse admits source loot from a player-added west double-chest half a
   try {
     player.chat('/arcevents apocalypse');await players(admin,1);
     admin.chat(`/gamemode creative ${player.username}`);await pause(200);
-    const marker=(await sourceMarkers(admin,'WEAPONS'))[3];assert.ok(marker);
+    // The firearm case claims index3; use a distinct deterministic rifle container.
+    const marker=(await sourceMarkers(admin,'WEAPONS'))[4];assert.ok(marker);
     await teleport(admin,player,marker.x+.5,marker.y+1,marker.z+.5);
     const run=async command=>{const since=admin.getMessageBufferIndex();admin.chat(`/execute in minecraft:arcevents_apocalypse_v2 run ${command}`);await expect(admin).toHaveReceivedMessage(/Changed the block|Modified block data/,{since,timeout:10000});};
     await run(`setblock ${marker.x} ${marker.y} ${marker.z} minecraft:air`);
