@@ -15,17 +15,17 @@ enum class ApocalypseMarkerKind(val block: ApocalypseBlock) {
     WAREHOUSE_SPAWNER(ApocalypseBlock.COPPER_GRATE),
 }
 
-data class ApocalypseSite(val id: String, val kind: ApocalypseSiteKind, val anchor: ApocalypsePoint) {
+data class ApocalypseSite(val id: String, val kind: ApocalypseSiteKind, val anchor: ApocalypsePoint, val source: String? = null) {
     internal val influenceRadius = if (kind == ApocalypseSiteKind.CITY) {
         125 + java.util.Random((anchor.z shr 4) * 100001653L + (anchor.x shr 4) * 295075153L).nextInt(100)
     } else 0
 }
 data class ApocalypseMarker(val siteId: String, val kind: ApocalypseMarkerKind, val x: Int, val y: Int, val z: Int)
 
-class ApocalypseWorldLayout(val seed: Long) {
+class ApocalypseWorldLayout(override val seed: Long) : ApocalypseLayout {
     internal val terrain = ApocalypseTerrain(seed)
-    val starter = ApocalypseSite("starter", ApocalypseSiteKind.STARTER_BUNKER, ApocalypsePoint(0, 71, 0))
-    val spawn = ApocalypsePoint(0, starter.anchor.y - 11, 17)
+    override val starter = ApocalypseSite("starter", ApocalypseSiteKind.STARTER_BUNKER, ApocalypsePoint(0, 71, 0))
+    override val spawn = ApocalypsePoint(0, starter.anchor.y - 11, 17)
 
     // The seed-independent center and radius rolls, additive distance field and threshold follow
     // McJty's Lost Cities 7.4.11 City class; the values are the CW custom2 Overworld profile.
@@ -76,7 +76,7 @@ class ApocalypseWorldLayout(val seed: Long) {
         candidates(82, 6, 480456315, false, ApocalypseSiteKind.OIL_RIG)
     }
 
-    fun sitesNear(x: Int, z: Int): List<ApocalypseSite> {
+    override fun sitesNear(x: Int, z: Int): List<ApocalypseSite> {
         val surrounding = centers(x - 1250, z - 1250, x + 1250, z + 1250) +
             outposts(x - 2050, z - 2050, x + 2050, z + 2050)
         return surrounding.distinctBy { it.id }.sortedBy {
@@ -132,11 +132,11 @@ class ApocalypseWorldLayout(val seed: Long) {
         return h.roundToInt()
     }
 
-    fun terrainHeight(x: Int, z: Int): Int = terrainHeight(x, z, environmentsFor(x, z, x, z))
+    override fun terrainHeight(x: Int, z: Int): Int = terrainHeight(x, z, environmentsFor(x, z, x, z))
 
-    fun markers(site: ApocalypseSite): List<ApocalypseMarker> = ApocalypseStructureGeometry.markers(this, site)
+    override fun markers(site: ApocalypseSite): List<ApocalypseMarker> = ApocalypseStructureGeometry.markers(this, site)
 
-    fun markersInChunk(chunkX: Int, chunkZ: Int): List<ApocalypseMarker> {
+    override fun markersInChunk(chunkX: Int, chunkZ: Int): List<ApocalypseMarker> {
         val x = chunkX * 16
         val z = chunkZ * 16
         val sites = environmentsFor(x, z, x + 15, z + 15)
@@ -146,18 +146,22 @@ class ApocalypseWorldLayout(val seed: Long) {
             .filter { it.x in x..x + 15 && it.z in z..z + 15 }
     }
 
-    fun generate(out: ApocalypseChunkCanvas) {
+    override fun generate(out: ApocalypseChunkCanvas) {
         val sites = environmentsFor(out.minX - 5, out.minZ - 5, out.maxX + 5, out.maxZ + 5)
-        for (z in out.minZ..out.maxZ) for (x in out.minX..out.maxX) {
-            terrain.drawColumn(out, x, z, terrainHeight(x, z, sites))
-        }
-        vegetation(out, sites)
+        generateLandscape(out, sites)
         ApocalypseStructureCity.draw(this, out, sites)
         for (site in sites) {
             if (site.kind == ApocalypseSiteKind.CITY) continue
             ApocalypseStructureGeometry.draw(this, out, site)
             for (marker in markers(site)) out.block(marker.x, marker.y, marker.z, marker.kind.block)
         }
+    }
+
+    internal fun generateLandscape(out: ApocalypseChunkCanvas, sites: List<ApocalypseSite>) {
+        for (z in out.minZ..out.maxZ) for (x in out.minX..out.maxX) {
+            terrain.drawColumn(out, x, z, terrainHeight(x, z, sites))
+        }
+        vegetation(out, sites)
     }
 
     private fun vegetation(out: ApocalypseChunkCanvas, sites: List<ApocalypseSite>) {

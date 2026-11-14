@@ -20,7 +20,11 @@ data class ApocalypseSettings(
     companion object {
         fun load(file: File): ApocalypseSettings {
             val c = YamlConfiguration.loadConfiguration(file)
-            return ApocalypseSettings(c.getString("world", "arcevents_apocalypse_v1")!!,
+            val world = c.getString("world", "arcevents_apocalypse_v2")!!.let {
+                // The prototype world's chunks and player data are preserved, never overwritten by a new generator.
+                if (it == "arcevents_apocalypse_v1") "arcevents_apocalypse_v2" else it
+            }
+            return ApocalypseSettings(world,
                 c.getLong("seed", 68200133), c.getInt("maximum-players", 24), c.getLong("horde-days", 10),
                 c.getLong("horde-duration-ticks", 6000), c.getLong("horde-pulse-ticks", 1000),
                 c.getInt("maximum-enemies", 256),

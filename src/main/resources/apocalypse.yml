@@ -1,5 +1,5 @@
 # Persistent, ArcEvents-owned survival world. Generation identity/seed require a new world.
-world: arcevents_apocalypse_v1
+world: arcevents_apocalypse_v2
 seed: 68200133
 maximum-players: 24
 horde-days: 10

@@ -69,6 +69,10 @@ open class ArcEventsPlugin : JavaPlugin() {
     private var reloading = false
     private var escrow: PlayerStateEscrow? = null
     private var apocalypse: ru.ruscrafting.events.paper.apocalypse.ApocalypseRuntime? = null
+    private var originalContent: ru.ruscrafting.events.paper.apocalypse.ApocalypseContent? = null
+
+    private fun originalContent() = originalContent ?: ru.ruscrafting.events.paper.apocalypse.ApocalypseContent(dataFolder.toPath())
+        .also { originalContent = it }
 
 
     /**
@@ -77,7 +81,9 @@ open class ArcEventsPlugin : JavaPlugin() {
      * an ArcEvents world during a later server start.
      */
     override fun getDefaultWorldGenerator(worldName: String, id: String?): ChunkGenerator? =
-        ArenaWorldGeneratorRegistry.generatorFor(server.worldContainer.toPath(), worldName)
+        ArenaWorldGeneratorRegistry.generatorFor(server.worldContainer.toPath(), worldName) { seed ->
+            ru.ruscrafting.events.paper.apocalypse.ApocalypseOriginalGenerator(seed, originalContent().layout(seed))
+        }
 
     private val hotload = PaperPluginHotload(this) {
         // During onDisable Bukkit has already marked the plugin disabled. Ordinary
@@ -155,15 +161,19 @@ open class ArcEventsPlugin : JavaPlugin() {
         if (settings.arenas.any { it.template == TttCitadelBlueprint.TEMPLATE }) TttCitadelLoot.validate()
         val provisioner = ArenaWorldProvisioner(this, chunkTickets).also { arenaProvisioner = it }
         val repository = RedisEventNetworkRepository(manager, Gson())
+        val sourceLayout = if (settings.nodeMode == ru.ruscrafting.events.config.NodeMode.HOST)
+            originalContent().layout(ru.ruscrafting.events.paper.apocalypse.ApocalypseSettings.load(dataFolder.resolve("apocalypse.yml")).seed)
+        else CompletableFuture.completedFuture<ru.ruscrafting.events.domain.apocalypse.ApocalypseLayout?>(null)
         // Shared schematic application and Paper chunk loads require native callbacks; never join them on main.
         provisioner.ensureLoadedAsync(settings, activeWork, mandatoryPoints = points::points)
-            .thenCombine(repository.loadFirearmSoundPreset()) { _, preset -> preset }.whenComplete { preset, failure ->
+            .thenCombine(sourceLayout) { _, layout -> layout }
+            .thenCombine(repository.loadFirearmSoundPreset()) { layout, preset -> layout to preset }.whenComplete { prepared, failure ->
                 activeWork.onMain {
                     if (pluginRuntime !== lifecycle) return@onMain
                     if (failure != null) {
                         logger.log(Level.SEVERE, "ArcEvents startup preparation failed closed", failure)
                         server.pluginManager.disablePlugin(this)
-                    } else activate(lifecycle, manager, repository, preset, recovery, points, activeWork)
+                    } else activate(lifecycle, manager, repository, prepared.second, recovery, points, activeWork, prepared.first)
                 }
             }
     }
@@ -176,6 +186,7 @@ open class ArcEventsPlugin : JavaPlugin() {
         recovery: RecoveryBatchStore,
         points: ArenaWeaponPointStore,
         activeWork: EventWork,
+        sourceLayout: ru.ruscrafting.events.domain.apocalypse.ApocalypseLayout?,
     ) {
         try {
             val debug = ArcEventsDebug({ settings.debugEnabled }, logger::info)
@@ -282,7 +293,7 @@ open class ArcEventsPlugin : JavaPlugin() {
                 firearms, activeWork, manager, backendTransfer,
                 occupied = { id -> activeService.isParticipant(id) || escrow.isLocked(id) || id in escrow.pendingPlayers() },
                 queued = { id -> coordinator.queueState(id).thenApply { it != null } },
-                returnToOrigin = coordinator::returnPlayer).also { apocalypse = it; lifecycle.own(it) }
+                returnToOrigin = coordinator::returnPlayer, sourceLayout = sourceLayout).also { apocalypse = it; lifecycle.own(it) }
             activeService.independentInventoryOwner = { id -> apocalypseRuntime.isPlaying(id) || apocalypseRuntime.isBusy(id) }
             menu = ArcEventsMenu(this, activeService, items, locale, { settings }, ::reloadPlugin, menuLayouts,
                 apocEntry = { player -> apocalypseRuntime.enter(player) },
@@ -377,6 +388,8 @@ open class ArcEventsPlugin : JavaPlugin() {
         val retiring = pluginRuntime
         pluginRuntime = null
         detach { retiring?.close() }
+        val sourceDrain = originalContent?.closeCompletion ?: CompletableFuture.completedFuture(Unit)
+        originalContent = null
         val apocalypseDrain = apocalypse?.closeCompletion ?: CompletableFuture.completedFuture(Unit)
         apocalypse = null
         var scopeDrain = CompletableFuture.completedFuture(Unit)
@@ -402,10 +415,10 @@ open class ArcEventsPlugin : JavaPlugin() {
             failure?.let { throw it }
         } else CompletableFuture.completedFuture(Unit)
         // The storage executor drains only IO actions; every native continuation has already been fenced.
-        detach { drain.join() }
+        detach { drain.join(); sourceDrain.join() }
         detach { hotload.retireGameplayRegistrations() }
         Tasks.reset()
-        return CompletableFuture.allOf(nativeDrain, displayCleanup, scopeDrain, apocalypseDrain,
+        return CompletableFuture.allOf(nativeDrain, displayCleanup, scopeDrain, apocalypseDrain, sourceDrain,
             retiredArenas?.closeCompletion ?: CompletableFuture.completedFuture(Unit)).handle { _, failure ->
             nativeFailure?.let { problem -> failure?.let(problem::addSuppressed); throw problem }
             failure?.let { throw it }
@@ -539,7 +552,7 @@ internal fun arenaGeneratorReplacementBarrier(worlds: Iterable<org.bukkit.World>
     val retained = worlds.filter { world ->
         val generator = world.generator
         generator is FishingArenaGenerator || generator is DisasterArenaGenerator || generator is TttCitadelChunkGenerator || generator is EmptyArenaChunkGenerator ||
-            generator is ru.ruscrafting.events.paper.apocalypse.ApocalypseChunkGenerator
+            generator is ru.ruscrafting.events.paper.apocalypse.ApocalypseChunkGenerator || generator is ru.ruscrafting.events.paper.apocalypse.ApocalypseOriginalGenerator
     }.map { it.name }.sorted()
     return if (retained.isEmpty()) CompletableFuture.completedFuture(Unit)
     else CompletableFuture.failedFuture(IllegalStateException(

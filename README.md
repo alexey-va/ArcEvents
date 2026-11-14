@@ -18,8 +18,11 @@ ArcEvents is the network event engine for RusCrafting. Its arcade modes are:
 
 Apocalypse is an independent, permanent cooperative survival world. Enter with
 `/arcevents apocalypse` or the main menu and return with `/arcevents leave`.
-It generates its own terrain, ruined cities, surface entrances and underground
-bunkers, with proximity guards, supply containers and switchable forcefields.
+Its V2 world imports original JCWS structure templates and Lost Cities/Keerdm
+city parts from three externally cached, hash-pinned archives (about 5.2 MB).
+Original layouts and pool connections supply the buildings and bunkers; mod-only
+blocks use explicit native replacements. Proximity guards, supply containers
+and switchable forcefields run inside ArcEvents, without executing Forge code.
 Its hordes and infection rules are derived from the pinned Cursed Walking v3.3
 pack. This mode always journals separate origin/expedition inventories, including
 on a DISPOSABLE arcade host; leaving and reentering resumes the expedition.
@@ -27,6 +30,11 @@ It does not consume the public match slot or its queue. A queued/active arcade
 player must leave that activity before entering survival.
 
 `plugins/ArcEvents/apocalypse.yml` owns the world/seed and bounded actor settings.
+The default world is `arcevents_apocalypse_v2`; the V1 prototype world is retained.
+Saved expedition gear resumes with its location normalized to the V2 starter
+spawn when migrating from an older world, without issuing another starter kit.
+Source container inventories and loot-table tags remain inert; expedition
+containers keep the existing finite ArcEvents loot.
 Changing the generation identity requires a new world. Loaded custom generators
 use the existing coordinated-restart replacement barrier. Administrator commands:
 `/arcevents apocalypse locate [kind]`, `day <n>`; scoped QA reads use `qa` and
@@ -35,7 +43,7 @@ After a failed transition, `/arcevents apocalypse recover` retries the stored
 origin recovery; it never issues another starter kit. Read the
 [reference and fidelity limits](docs/apocalypse-reference.md),
 [economy assessment](docs/economy/apocalypse-20261114.md) and
-[native acceptance evidence](docs/apocalypse-verification-20261114.md).
+[native acceptance evidence](docs/apocalypse-original-structures-20261114.md).
 
 Player-state handling is selected per host with `player-state.mode`. `PRESERVE`
 is the default: arcade modes use durable player-state escrow and origin-server

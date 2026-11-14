@@ -15,7 +15,8 @@ internal const val ARENA_TEMPLATE_MARKER = ".arcevents-template"
  * The owned provisioner performs its filesystem checks on a worker and supplies generators explicitly.
  */
 internal object ArenaWorldGeneratorRegistry {
-    fun generatorFor(worldContainer: Path, worldName: String): ChunkGenerator? {
+    fun generatorFor(worldContainer: Path, worldName: String,
+                     original: (Long) -> ChunkGenerator = { error("Original apocalypse content owner is unavailable") }): ChunkGenerator? {
         val container = worldContainer.toAbsolutePath().normalize()
         val worldFolder = container.resolve(worldName).normalize()
         if (worldFolder.parent != container) return null
@@ -29,6 +30,8 @@ internal object ArenaWorldGeneratorRegistry {
         require(Files.size(marker) in 1..MAX_MARKER_BYTES) { "ArcEvents arena template marker is invalid" }
         val template = Files.readString(marker, StandardCharsets.UTF_8).trim()
         return when {
+            template.startsWith("${ru.ruscrafting.events.paper.apocalypse.ApocalypseOriginalGenerator.TEMPLATE}:") ->
+                original(template.substringAfter(':').toLong())
             template.startsWith("${ru.ruscrafting.events.paper.apocalypse.ApocalypseChunkGenerator.TEMPLATE}:") ->
                 ru.ruscrafting.events.paper.apocalypse.ApocalypseChunkGenerator(
                     template.substringAfter(':').toLong())

@@ -6,6 +6,21 @@ import io.kotest.matchers.shouldBe
 import java.nio.file.Files
 
 class ArenaWorldGeneratorRegistryTest : StringSpec({
+    "original apocalypse resolves its content owner before enable and preserves the prototype identity" {
+        val container = Files.createTempDirectory("arcevents-original-generator-")
+        val original = Files.createDirectory(container.resolve("arcevents_apocalypse_v2"))
+        Files.writeString(original.resolve(ARENA_TEMPLATE_MARKER), "apocalypse-original-v1:68200133")
+        val deferred = EmptyArenaChunkGenerator()
+        var requested: Long? = null
+        ArenaWorldGeneratorRegistry.generatorFor(container, original.fileName.toString()) { seed ->
+            requested = seed; deferred
+        } shouldBe deferred
+        requested shouldBe 68200133L
+        val legacy = Files.createDirectory(container.resolve("arcevents_apocalypse_v1"))
+        Files.writeString(legacy.resolve(ARENA_TEMPLATE_MARKER), "apocalypse-v1:68200133")
+        (ArenaWorldGeneratorRegistry.generatorFor(container, legacy.fileName.toString()) is ru.ruscrafting.events.paper.apocalypse.ApocalypseChunkGenerator) shouldBe true
+    }
+
     "packaged arena keeps an empty border generator across server restarts" {
         val container = Files.createTempDirectory("arcevents-generator-")
         val arena = Files.createDirectory(container.resolve("events_b5"))

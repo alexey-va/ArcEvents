@@ -23,6 +23,16 @@ abstract class ApocalypseChunkCanvas(val chunkX: Int, val chunkZ: Int, val minY:
 
     fun block(x: Int, y: Int, z: Int, block: ApocalypseBlock) = box(x, y, z, x, y, z, block)
 
+    fun blockState(x: Int, y: Int, z: Int, state: String) {
+        if (x in minX..maxX && z in minZ..maxZ && y in minY..maxY) fillState(x - minX, y, z - minZ, state)
+    }
+
+    protected open fun fillState(x: Int, y: Int, z: Int, state: String) {
+        val known = ApocalypseBlock.entries.firstOrNull { it.blockState == state }
+            ?: error("This canvas does not support source state $state")
+        fill(x, y, z, x, y, z, known)
+    }
+
     protected abstract fun fill(x1: Int, y1: Int, z1: Int, x2: Int, y2: Int, z2: Int, block: ApocalypseBlock)
 }
 

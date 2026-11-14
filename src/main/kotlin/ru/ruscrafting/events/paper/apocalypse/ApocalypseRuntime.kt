@@ -5,7 +5,9 @@ import net.kyori.adventure.bossbar.BossBar
 import org.bukkit.*
 import org.bukkit.attribute.Attribute
 import org.bukkit.attribute.AttributeModifier
-import org.bukkit.block.Barrel
+import org.bukkit.block.Container
+import org.bukkit.block.Chest
+import org.bukkit.inventory.DoubleChestInventory
 import org.bukkit.entity.*
 import org.bukkit.event.*
 import org.bukkit.event.block.BlockBreakEvent
@@ -61,6 +63,7 @@ class ApocalypseRuntime(
     private val occupied: (UUID) -> Boolean,
     private val queued: (UUID) -> CompletableFuture<Boolean>,
     private val returnToOrigin: (Player, String) -> Boolean,
+    private val sourceLayout: ApocalypseLayout? = null,
 ) : Listener, AutoCloseable {
     private val options = ApocalypseSettings.load(plugin.dataFolder.resolve("apocalypse.yml"))
     private val host = config().nodeMode == NodeMode.HOST
@@ -76,6 +79,10 @@ class ApocalypseRuntime(
     private val bars = mutableMapOf<UUID, BossBar>()
     private val actors = linkedMapOf<String, UUID>()
     private val pendingChunks = ArrayDeque<Chunk>()
+    private data class SourceTileJob(val chunk: Chunk, val entries: Iterator<ru.ruscrafting.events.domain.apocalypse.source.ApocalypseSourceBlockEntity>)
+    private val pendingSourceTiles = ArrayDeque<SourceTileJob>()
+    private val sourceTilesDone = NamespacedKey(plugin, "apocalypse_original_tiles_v1")
+    private var sourceTileFailures = 0
     private val chunkMarkers = mutableMapOf<Long, List<ApocalypseMarker>>()
     private val stocking = mutableSetOf<String>()
     private val random = Random(options.seed)
@@ -91,7 +98,8 @@ class ApocalypseRuntime(
     private val medicine = NamespacedKey(plugin, "apocalypse_medicine")
     private val nativeSession = NamespacedKey(plugin, "apocalypse_session")
     private val playerStates = PaperPlayerStateService()
-    private val layout = ApocalypseWorldLayout(options.seed)
+    private val layout: ApocalypseLayout = sourceLayout ?: ApocalypseWorldLayout(options.seed)
+    private val template = if (sourceLayout != null) ApocalypseOriginalGenerator.TEMPLATE else ApocalypseChunkGenerator.TEMPLATE
     private var rules = ApocalypseSurvivalRules(ApocalypseSurvivalSettings(
         hordeEveryDays = options.hordeDays.toInt(), hordePulseTicks = options.hordePulse,
         hordePulseSize = 6, hordeAliveCap = minOf(125, options.maximumEnemies), hordeDurationTicks = options.hordeDuration,
@@ -124,7 +132,7 @@ class ApocalypseRuntime(
         if (host) {
             val gson = Gson()
             storage = ApocalypseStorage(plugin.dataFolder.toPath()).also { players.putAll(it.loadPlayers()) }
-            journal = DurableRecordJournal(plugin.dataFolder.toPath(), Path.of("data/apocalypse/world"), 32L * 1024 * 1024,
+            journal = DurableRecordJournal(plugin.dataFolder.toPath(), Path.of("data/apocalypse/world-${options.world}"), 32L * 1024 * 1024,
                 { s: ApocalypseCheckpoint -> gson.toJson(s).toByteArray(Charsets.UTF_8) },
                 { b -> gson.fromJson(b.toString(Charsets.UTF_8), ApocalypseCheckpoint::class.java) },
                 { s ->
@@ -140,7 +148,7 @@ class ApocalypseRuntime(
             committedSpawns = desiredSpawns(state).keys
             val folder = plugin.server.worldContainer.toPath().resolve(options.world)
             val marker = folder.resolve(".arcevents-template")
-            val identity = "${ApocalypseChunkGenerator.TEMPLATE}:${options.seed}"
+            val identity = "$template:${options.seed}"
             if (Files.exists(folder)) {
                 require(!Files.isSymbolicLink(folder) && Files.isRegularFile(marker) && !Files.isSymbolicLink(marker)) {
                     "Apocalypse world exists without its generator ownership marker: ${options.world}"
@@ -151,9 +159,10 @@ class ApocalypseRuntime(
                 Files.writeString(marker, identity)
             }
             world = plugin.server.getWorld(options.world) ?: WorldCreator(options.world).seed(options.seed)
-                .generator(ApocalypseChunkGenerator(layout)).generateStructures(false).createWorld()
+                .generator(if (sourceLayout != null) ApocalypseOriginalGenerator(options.seed, CompletableFuture.completedFuture(layout))
+                    else ApocalypseChunkGenerator(layout as ApocalypseWorldLayout)).generateStructures(false).createWorld()
             val target = requireNotNull(world)
-            require(target.generator is ApocalypseChunkGenerator && target.seed == options.seed)
+            require((target.generator is ApocalypseChunkGenerator || target.generator is ApocalypseOriginalGenerator) && target.seed == options.seed)
             target.difficulty = Difficulty.HARD
             target.setGameRule(GameRule.DO_MOB_SPAWNING, false)
             target.setGameRule(GameRule.DO_DAYLIGHT_CYCLE, false)
@@ -191,10 +200,15 @@ class ApocalypseRuntime(
                 "qa" -> if (player.hasPermission("arcevents.qa")) player.sendMessage(qaStatus()) else message(player, "denied")
                 "markers" -> if (host && player.hasPermission("arcevents.qa")) {
                     val kind = arguments.getOrNull(2)?.uppercase()
-                    layout.sitesNear(player.location.blockX, player.location.blockZ).take(8).flatMap(layout::markers)
-                        .filter { kind == null || it.kind.name == kind }.take(12).forEach {
+                    val x = player.location.blockX; val z = player.location.blockZ
+                    work.compute {
+                        layout.sitesNear(x, z).asSequence().flatMap { layout.markers(it).asSequence() }
+                            .filter { kind == null || it.kind.name == kind }.take(12).toList()
+                    }.thenCompose { entries -> work.onMain {
+                        if (player.isOnline) entries.forEach {
                             player.sendMessage("ARCEVENTS_APOCALYPSE_MARKER kind=${it.kind} x=${it.x} y=${it.y} z=${it.z}")
                         }
+                    } }.exceptionally { log("source-marker-read", it); null }
                 } else message(player, "denied")
                 "time" -> {
                     val ticks = arguments.getOrNull(2)?.toLongOrNull()
@@ -229,7 +243,7 @@ class ApocalypseRuntime(
         return true
     }
 
-    fun qaStatus(): String = "ARCEVENTS_APOCALYPSE ready=$ready world=${world?.key ?: "-"} day=${rules.dayAt(state.survival.worldTick)} tick=${state.survival.worldTick} players=${active.size} busy=${busy.size} enemies=${actors.size} hordes=${state.hordes.values.count { it.horde != null }} switches=${state.switches.size} spawners=${state.spawners.size}"
+    fun qaStatus(): String = "ARCEVENTS_APOCALYPSE ready=$ready world=${world?.key ?: "-"} day=${rules.dayAt(state.survival.worldTick)} tick=${state.survival.worldTick} players=${active.size} busy=${busy.size} enemies=${actors.size} hordes=${state.hordes.values.count { it.horde != null }} switches=${state.switches.size} spawners=${state.spawners.size} bunker_enemies=${actors.keys.count { ":bunker:" in it }} generation=$template spawn_x=${layout.spawn.x} spawn_y=${layout.spawn.y} spawn_z=${layout.spawn.z} tile_failures=$sourceTileFailures"
 
     fun status(player: Player) {
         player.sendMessage(locale.render("apocalypse.status", player, mapOf(
@@ -268,7 +282,7 @@ class ApocalypseRuntime(
         }
         if (isPlaying(player.uniqueId) || !busy.add(player.uniqueId)) return
         playerOperations += player.uniqueId
-        val previous = players[player.uniqueId]
+        val previous = players[player.uniqueId]?.let { record -> record.copy(expedition = normalizeExpedition(record.expedition)) }
         if (previous != null && previous.phase != ApocalypsePlayerPhase.PARKED) {
             playerOperations -= player.uniqueId; recoverOrigin(player, previous); return
         }
@@ -484,6 +498,17 @@ class ApocalypseRuntime(
         if (!opened || !host) return
         step++
         repeat(minOf(2, pendingChunks.size)) { prepareChunk(pendingChunks.removeFirst()) }
+        repeat(8) {
+            val job = pendingSourceTiles.firstOrNull() ?: return@repeat
+            if (!job.chunk.isLoaded) { pendingSourceTiles.removeFirst(); return@repeat }
+            if (job.entries.hasNext()) runCatching { applyApocalypseSourceTile(job.chunk.world, job.entries.next()) }.onFailure {
+                sourceTileFailures++; log("source-tile", it)
+            }
+            else {
+                job.chunk.persistentDataContainer.set(sourceTilesDone, PersistentDataType.BYTE, 1)
+                pendingSourceTiles.removeFirst()
+            }
+        }
         if (step % 25L == 0L) tickStructures(active.mapNotNull(plugin.server::getPlayer).filter { it.world == world && !it.isDead })
         if (step % 20L != 0L) return
         val survivors = active.mapNotNull(plugin.server::getPlayer).filter { it.world == world && !it.isDead && it.uniqueId !in busy }
@@ -645,6 +670,11 @@ class ApocalypseRuntime(
         if (!chunk.isLoaded || chunk.world != world) return
         val markers = layout.markersInChunk(chunk.x, chunk.z)
         chunkMarkers[chunk.chunkKey] = markers
+        if (layout is ApocalypseOriginalLayout && !chunk.persistentDataContainer.has(sourceTilesDone)) {
+            val entries = layout.blockEntitiesInChunk(chunk.x, chunk.z)
+            if (entries.isEmpty()) chunk.persistentDataContainer.set(sourceTilesDone, PersistentDataType.BYTE, 1)
+            else if (pendingSourceTiles.none { it.chunk.chunkKey == chunk.chunkKey }) pendingSourceTiles.addLast(SourceTileJob(chunk, entries.iterator()))
+        }
         markers.forEach { marker ->
             val block = chunk.world.getBlockAt(marker.x, marker.y, marker.z)
             if (marker.kind.name in setOf("FORCEFIELD", "SECURITY") && fieldDisabled(marker) ||
@@ -705,39 +735,62 @@ class ApocalypseRuntime(
 
     private fun stock(marker: ApocalypseMarker, player: Player): Boolean {
         val block = world!!.getBlockAt(marker.x, marker.y, marker.z)
-        val barrel = block.state as? Barrel ?: return true
-        val id = markerId(marker)
-        if (id in stocking) { message(player, "pending"); return false }
-        if (barrel.persistentDataContainer.has(stocked) || id in state.looted) return true
+        val container = block.state as? Container ?: return true
+        // Stock both original chest halves in one grant before opening their combined inventory.
+        val double = container.inventory as? DoubleChestInventory
+        val halves = double?.let { listOfNotNull(it.leftSide.holder as? Chest, it.rightSide.holder as? Chest) }.orEmpty()
+        val markers = (listOf(marker) + halves.mapNotNull { markerAt(it.block) }).distinctBy(::markerId)
+        if (markers.any { markerId(it) in stocking }) { message(player, "pending"); return false }
+        val needed = markers.filter {
+            val placed = world!!.getBlockAt(it.x, it.y, it.z).state as? Container
+            placed != null && !placed.persistentDataContainer.has(stocked) && markerId(it) !in state.looted
+        }
+        if (needed.isEmpty()) return true
         if (checkpointPending) { message(player, "pending"); return false }
-        // Commit finite world-container entitlement first: breaking/replacing a barrel cannot reroll it.
-        state = state.copy(looted = state.looted + id)
-        stocking += id
+        val ids = needed.map(::markerId).toSet()
+        state = state.copy(looted = state.looted + ids)
+        stocking += ids
         checkpoint {
-            val current = block.state as? Barrel ?: return@checkpoint
-            if (current.persistentDataContainer.has(stocked)) return@checkpoint
-            val loot = java.util.Random(options.seed xor id.hashCode().toLong())
-            val contents = mutableListOf<ItemStack>()
-            if (marker.kind.name == "MEDICAL") contents += listOf(vaccine(), ItemStack.of(Material.BREAD, 4), ItemStack.of(Material.HONEY_BOTTLE))
-            else {
-                contents += firearms.worldAmmunition(player, options.ammoMinimum + loot.nextInt(options.ammoMaximum - options.ammoMinimum + 1))
-                contents += ItemStack.of(Material.COOKED_BEEF, 2 + loot.nextInt(4))
-                contents += ItemStack.of(Material.IRON_INGOT, 1 + loot.nextInt(3))
-                if (marker.kind.name in setOf("ARMORY", "CORE") || loot.nextInt(4) == 0) {
-                    val catalog = listOf(FirearmId.FIVE_SEVEN, FirearmId.G36, FirearmId.M1_GARAND, FirearmId.VEPR_12)
-                    contents += firearms.worldFirearmItem(catalog[loot.nextInt(catalog.size)], player)
+            needed.forEach { source ->
+                val current = world!!.getBlockAt(source.x, source.y, source.z).state as? Container ?: return@forEach
+                val id = markerId(source)
+                if (current.persistentDataContainer.has(stocked)) return@forEach
+                val loot = java.util.Random(options.seed xor id.hashCode().toLong())
+                val contents = mutableListOf<ItemStack>()
+                if (source.kind.name == "MEDICAL") contents += listOf(vaccine(), ItemStack.of(Material.BREAD, 4), ItemStack.of(Material.HONEY_BOTTLE))
+                else {
+                    contents += firearms.worldAmmunition(player, options.ammoMinimum + loot.nextInt(options.ammoMaximum - options.ammoMinimum + 1))
+                    contents += ItemStack.of(Material.COOKED_BEEF, 2 + loot.nextInt(4))
+                    contents += ItemStack.of(Material.IRON_INGOT, 1 + loot.nextInt(3))
+                    if (source.kind.name in setOf("ARMORY", "CORE") || loot.nextInt(4) == 0) {
+                        val catalog = listOf(FirearmId.FIVE_SEVEN, FirearmId.G36, FirearmId.M1_GARAND, FirearmId.VEPR_12)
+                        contents += firearms.worldFirearmItem(catalog[loot.nextInt(catalog.size)], player)
+                    }
+                    if (loot.nextInt(5) == 0) contents += vaccine()
                 }
-                if (loot.nextInt(5) == 0) contents += vaccine()
+                // Preserve items placed through any native inventory route while the first entitlement was pending.
+                contents.forEachIndexed { i, item ->
+                    val slot = (i * 7 + 3) % current.snapshotInventory.size
+                    if (current.snapshotInventory.getItem(slot) == null) current.snapshotInventory.setItem(slot, item)
+                    else current.snapshotInventory.addItem(item)
+                }
+                current.persistentDataContainer.set(stocked, PersistentDataType.BYTE, 1.toByte())
+                check(current.update(true, false))
             }
-            current.snapshotInventory.clear()
-            contents.forEachIndexed { i, item -> current.snapshotInventory.setItem((i * 7 + 3) % 27, item) }
-            current.persistentDataContainer.set(stocked, PersistentDataType.BYTE, 1.toByte())
-            check(current.update(true, false))
-            stocking -= id
+            stocking -= ids
             if (player.isOnline && isPlaying(player.uniqueId) && player.world == world && player.location.distanceSquared(block.location) <= 36)
-                player.openInventory((block.state as Barrel).inventory)
+                player.openInventory((block.state as Container).inventory)
         }
         return false
+    }
+
+    private fun normalizeExpedition(envelope: ru.arc.paper.playerstate.PaperPlayerStateEnvelope?): ru.arc.paper.playerstate.PaperPlayerStateEnvelope? {
+        if (envelope == null) return null
+        val codec = PaperPlayerStateCodec()
+        val snapshot = codec.decode(envelope)
+        if (snapshot.location.worldName == options.world) return envelope
+        return codec.encode(snapshot.copy(location = PaperLocationSnapshot(requireNotNull(world).uid, options.world,
+            layout.spawn.x + .5, layout.spawn.y.toDouble(), layout.spawn.z + .5, 180f, 0f), fallDistance = 0f))
     }
 
     private fun vaccine() = ItemStack.of(Material.HONEY_BOTTLE).also { item -> item.editMeta {

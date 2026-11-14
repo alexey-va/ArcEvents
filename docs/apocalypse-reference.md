@@ -31,9 +31,10 @@ SHA-256:
 At audit time it was stored under
 `/private/tmp/cursed-walking-study-20261114/`, with selected text extracted into
 `text/`. Those temporary paths are research aids, not required runtime paths.
-The upstream project lists All Rights Reserved; the port uses its own Kotlin
-rules and geometry and does not bundle this archive or the upstream structure
-NBT/assets. [Project metadata](https://www.curseforge.com/minecraft/modpacks/cursed-walking-a-modern-zombie-apocalypse).
+The upstream project lists All Rights Reserved. The native Kotlin runtime reads
+original structure data from separately cached, pinned archives; the plugin and
+repository do not redistribute the upstream archive, structure NBT or city
+assets. [Project metadata](https://www.curseforge.com/minecraft/modpacks/cursed-walking-a-modern-zombie-apocalypse).
 
 Relevant exact manifest entries:
 
@@ -43,6 +44,8 @@ Relevant exact manifest entries:
 | Zombies+ | 1072974 / 5889911 | [2.1.2 file](https://www.curseforge.com/minecraft/mc-mods/zombies-plus-frenzied-horde/files/5889911), pinned Forge class bytecode |
 | JCWS | 1140880 / 8502762 | [Exact file](https://www.curseforge.com/minecraft/mc-mods/jeffs-cursed-walking-structures/files/8502762), structure sets and procedure bytecode |
 | Scaling Mob Difficulty | 506521 / 7398187 | [2.4.3 file](https://www.curseforge.com/minecraft/mc-mods/scaling-mobs/files/7398187), pack config and pinned bytecode |
+| Keerdm's Zombie Apocalypse Essentials | 1061079 / 7740113 | [1.42 file](https://www.curseforge.com/minecraft/mc-mods/keerdm-zombie-apocalypse-essentials/files/7740113), original city parts and overrides |
+| The Lost Cities | 269024 / 7432706 | [7.4.11 file](https://www.curseforge.com/minecraft/mc-mods/the-lost-cities/files/7432706), base city assets |
 
 Additional SHA-256 fingerprints of the inspected JARs:
 
@@ -50,7 +53,14 @@ Additional SHA-256 fingerprints of the inspected JARs:
 Zombies+5889911  1aa6b95b2036f754f2910f5026eb16df8a6fd16a1b24d489c1592bb1277dcf0c
 JCWS8502762      80da781a4c097f93d0be3f2139228508124f2af678abd036479de9f1f8b82e23
 Scaling7398187   d4ae69cabcaefd914f4a1601b7e33d831310350dedbd490e285b8d36c89ef5fb
+Keerdm7740113    1b9db7636db3a1bcfb015d19c6d44b663e454f05e12e472d128c60f2b5214d3e
+LostCities7432706 7a3f3c55de1b869380fdbdef4fa8865bc1daf3ae6c66fab1056ea44d6534b4fb
 ```
+
+The three structure-content JARs total **5228600 bytes** (about 5.2 MB).
+`plugins/ArcEvents/content/apocalypse-original/` is a local runtime cache. The
+loader verifies pinned hashes and decodes archive entries as data away from
+gameplay work. It does not load Forge classes or execute code from those JARs.
 
 ## Horde clock and infection
 
@@ -210,10 +220,42 @@ has a 3% per-tick chance to fire the custom blockbreak projectile.
 
 `lostcities/common.toml` selects `minecraft:overworld=custom2`. Its profile has
 city chance 0.0005, minimum/maximum radius 125/225, city threshold 0.2, ground 71,
-building chance 0.3, maximum floors 8 and cellars 0–3. The native layout follows
-the Lost Cities 16-block lattice and center/radius statistics, using its own
-parcel interiors and terrain fitting. It does not reproduce the complete Lost
-Cities asset library or all terrain/height/building selection behavior.
+building chance 0.3, maximum floors 8 and cellars 0–3. The active world style is
+`keerdm_zombie_essentials:testworld`, selecting its `standard` city style. The
+native V2 world uses original part layouts and palettes rather than the V1
+prototype's authored parcel interiors.
+
+The catalog loads base Lost Cities assets first, then overlays Keerdm's assets,
+including its overrides in the `lostcities` namespace. It contains **255 merged
+parts and 51 building definitions**. The active city-style closure reaches
+**25 distinct buildings and 126 building parts**: five regular building types
+plus seven multi-building definitions. Shopping, town hall, center, library and
+open shopping layouts use 2×2 footprints; `huge1` and `huge2` use 3×3 footprints.
+The source closure check found no missing definitions, undefined palette
+characters or undersized random-palette lists in those active building parts.
+
+Original floor, cellar and roof parts retain their dimensions and character
+layouts. Palette blocks use the source's cumulative **128-slot** selection;
+the value 1000 fills the remaining slots, rather than representing a normalized
+1000-based weight. Multi-building cells share their top-left height/cellar rolls,
+limits and building palette. Source roads and parks use their original parts.
+The shared loader and city renderer are
+[ApocalypseStructureAssets.kt](../src/main/kotlin/ru/ruscrafting/events/domain/apocalypse/source/ApocalypseStructureAssets.kt)
+and [ApocalypseLostCityAssets.kt](../src/main/kotlin/ru/ruscrafting/events/domain/apocalypse/source/ApocalypseLostCityAssets.kt).
+
+One literal source anomaly is handled narrowly: Keerdm's `top_crane` declares
+16×16×23 cells, but two layers contain 255 characters each. Their original
+flattened character positions are preserved. Only the absent final cell is
+omitted; rows are not padded and no solid replacement is fabricated. Other
+malformed parts are rejected.
+
+The retained base palette also contains two literal references to
+`minecraft:red_sandstone@2`. Legacy metadata 2 is canonicalized to
+`minecraft:cut_red_sandstone` before state validation and placement, using the
+official Minecraft 1.20.1 flattening entry 2866 (`179<<4 | 2`). It is distinct
+from the later `smooth_red_sandstone` block. The pinned Lost Cities parser
+delegates unbracketed legacy names to Mojang's `BlockStateData`; unsupported
+additional `@` forms are rejected rather than discarded or mapped generically.
 
 Pinned JCWS JAR data contains **131 structure NBT files**. Its relevant structure
 sets are:
@@ -227,13 +269,37 @@ sets are:
 | Starter bunker | 4000 / 67, salt 80085; initial-login placement is separate |
 | Teleporter | Concentric rings: count 32, distance 32, spread 2 |
 
-The native layout reuses the 75/6, 46/7 and 82/6 distribution parameters and salts,
-with bounded terrain checks, its own starter position and its own lab/reactor/
-ruin/oil-rig equivalents. Its approximate frequency/type selection and surface
-exclusion are not a byte-for-byte implementation of all JCWS placement rules.
-Its cities/bunkers are authored Kotlin geometry, not an import of the 131 NBT
-structures. Terralith and CW–Depths dimensions, biomes, decoration and progression
-are not reproduced exactly by the native terrain generator.
+All **131 original JCWS NBT templates**, their template-pool memberships and
+named/oriented jigsaw connector data are imported. The assembler uses those
+original pieces and connections for source structures, including the starter
+bunker, instead of the prototype's equivalent lab/reactor/ruin rooms. Template
+blocks retain source local coordinates and block states before native mapping.
+Source custom entities currently contribute spawn and spawner placement markers;
+their Forge implementations and the other custom entities are not materialized.
+
+The native layout reuses relevant 75/6, 46/7 and 82/6 spread parameters and salts,
+with bounded terrain checks and its own placement orchestration. Importing the
+original layouts does not reproduce the full Forge generator: city placement,
+RNG consumption, infrastructure selection, terrain fitting, biome rules and
+surface exclusion are not Forge-identical. Terralith and CW–Depths dimensions,
+decoration and progression are not reproduced by the native terrain generator.
+
+Mod-only block IDs and properties have explicit vanilla replacements. Original
+coordinates and template layouts are preserved, but the materials, textures and
+behavior of those replacement blocks remain native adaptations. Original sign
+text and supported skull/banner decoration are restored through a block-entity
+whitelist in
+[ApocalypseSourceTiles.kt](../src/main/kotlin/ru/ruscrafting/events/paper/apocalypse/ApocalypseSourceTiles.kt).
+Decoded source `Items` and `LootTable` data stay inert: hydration does not issue
+their contents, evaluate loot tables or execute commands. Existing finite
+expedition loot remains the container-content authority.
+
+V2 defaults to `arcevents_apocalypse_v2` and retains the V1 prototype world.
+When recovering a saved expedition from an older world, its location is
+normalized to the canonical V2 starter spawn while its inventory is preserved.
+This migration does not issue another starter kit. Origin-inventory recovery
+continues through its existing durable journal; this policy does not itself
+establish that a live migration has run.
 
 ## Start and loot evidence
 
@@ -286,6 +352,9 @@ are the existing WorldFirearms implementation, not TACZ weapon simulation.
 
 - The backend target is Paper/Purpur 1.21.11 with an unmodified Minecraft client,
   not Forge 1.20.1. No BetterStructures or new mod runtime is required.
+- Original external NBT/city layouts replace the prototype geometry. They do not
+  imply identical Forge terrain/RNG placement, native mod-block behavior or
+  materialization of source custom entities beyond spawn/spawner markers.
 - Actors are vanilla zombie carriers with
   [entity-owned Paper goals](../src/main/kotlin/ru/ruscrafting/events/paper/apocalypse/ApocalypseMobGoal.kt).
   Pursuit, 20-tick melee and leap math are implemented; full Zombies+/Feral/
@@ -299,9 +368,10 @@ are the existing WorldFirearms implementation, not TACZ weapon simulation.
   [boundary tests](../src/test/kotlin/ru/ruscrafting/events/paper/apocalypse/ApocalypseMobGoalTest.kt)
   do not establish native pathfinding, projectile physics or client rendering.
 - Source-derived timers/profiles and deterministic state recovery are narrower
-  claims than a complete reproduction of the modpack. Geometry, equipment
-  approximations, starting experience, weapon handling and provisional loot
-  still require native-server and in-client acceptance separately.
+  claims than a complete reproduction of the modpack. Original-template assembly,
+  native block replacements, equipment, starting experience, weapon handling and
+  provisional loot still require native-server and in-client acceptance
+  separately. Build and source-catalog checks do not prove rendered appearance.
 
 The native admission token is saved only with an applied expedition loadout and
 removed after verified origin restoration, before PARKED acknowledgement. A

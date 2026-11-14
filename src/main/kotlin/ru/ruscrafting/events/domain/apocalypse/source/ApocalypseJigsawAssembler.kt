@@ -1,0 +1,220 @@
+package ru.ruscrafting.events.domain.apocalypse.source
+
+import ru.ruscrafting.events.domain.apocalypse.ApocalypseMarker
+import ru.ruscrafting.events.domain.apocalypse.ApocalypseMarkerKind
+import ru.ruscrafting.events.domain.apocalypse.ApocalypsePoint
+import java.util.Collections
+import java.util.Random
+import kotlin.math.floor
+
+interface ApocalypseJigsawAssets {
+    fun template(id: String): ApocalypseSourceTemplate?
+    val pools: Map<String, ApocalypseSourcePool>
+    val structures: Map<String, ApocalypseSourceStructure>
+}
+
+data class ApocalypseSourcePool(val fallback: String, val elements: List<ApocalypsePoolElement>)
+data class ApocalypsePoolElement(
+    val template: String, val weight: Int, val processor: String? = null, val projection: String = "rigid",
+)
+data class ApocalypseSourceStructure(
+    val startPool: String, val size: Int, val maxDistance: Int, val startHeight: Int = 0, val heightmap: String? = null,
+)
+data class ApocalypseSourceBlockEntity(val x: Int, val y: Int, val z: Int, val state: String, val data: Map<String, Any?>)
+
+private const val JCWS = "jeffs_cursed_walking_structures:"
+private val fronts = mapOf("north" to ApocalypsePoint(0, 0, -1), "east" to ApocalypsePoint(1, 0, 0),
+    "south" to ApocalypsePoint(0, 0, 1), "west" to ApocalypsePoint(-1, 0, 0),
+    "up" to ApocalypsePoint(0, 1, 0), "down" to ApocalypsePoint(0, -1, 0))
+private val opposite = mapOf("north" to "south", "east" to "west", "south" to "north", "west" to "east", "up" to "down", "down" to "up")
+
+internal fun rotated(x: Int, y: Int, z: Int, rotation: Int): ApocalypsePoint = when (rotation and 3) {
+    0 -> ApocalypsePoint(x, y, z)
+    1 -> ApocalypsePoint(-z, y, x)
+    2 -> ApocalypsePoint(-x, y, -z)
+    else -> ApocalypsePoint(z, y, -x)
+}
+
+data class ApocalypseSourceBounds(val minX: Int, val minY: Int, val minZ: Int, val maxX: Int, val maxY: Int, val maxZ: Int) {
+    fun contains(x: Int, y: Int, z: Int) = x in minX..maxX && y in minY..maxY && z in minZ..maxZ
+    fun contains(other: ApocalypseSourceBounds) = contains(other.minX, other.minY, other.minZ) && contains(other.maxX, other.maxY, other.maxZ)
+    fun intersects(other: ApocalypseSourceBounds) = minX <= other.maxX && maxX >= other.minX &&
+        minY <= other.maxY && maxY >= other.minY && minZ <= other.maxZ && maxZ >= other.minZ
+}
+
+/** Its origin is the transformed template's (0,0,0), not the northwest corner of its rotated box. */
+class ApocalypseSourcePiece(val template: ApocalypseSourceTemplate, val x: Int, val y: Int, val z: Int,
+    val rotation: Int, val processor: String?) {
+    private val end = rotated(template.sizeX - 1, template.sizeY - 1, template.sizeZ - 1, rotation)
+    val bounds = ApocalypseSourceBounds(x + minOf(0, end.x), y, z + minOf(0, end.z),
+        x + maxOf(0, end.x), y + end.y, z + maxOf(0, end.z))
+    fun world(lx: Int, ly: Int, lz: Int): ApocalypsePoint {
+        val p = rotated(lx, ly, lz, rotation)
+        return ApocalypsePoint(x + p.x, y + p.y, z + p.z)
+    }
+    internal fun local(wx: Int, wy: Int, wz: Int) = rotated(wx - x, wy - y, wz - z, -rotation)
+}
+
+private data class JigsawSpace(val bounds: ApocalypseSourceBounds, val occupied: MutableList<ApocalypseSourceBounds> = mutableListOf())
+private data class JigsawStep(val piece: ApocalypseSourcePiece, val space: JigsawSpace, val depth: Int)
+
+/** Native rigid jigsaw placement: matching target/name, front/top axes, immediate neighbor, bounding volumes and fallback pools. */
+class ApocalypseJigsawAssembler(private val assets: ApocalypseJigsawAssets) {
+    fun assemble(structureId: String, seed: Long, x: Int, z: Int, surface: (Int, Int) -> Int): ApocalypseSourceAssembly {
+        val definition = requireNotNull(assets.structures[structureId]) { "Unknown source structure $structureId" }
+        val pool = requireNotNull(assets.pools[definition.startPool])
+        val random = Random(seed)
+        val rotation = random.nextInt(4)
+        val first = weighted(pool).let { it[random.nextInt(it.size)] }
+        val template = requireNotNull(assets.template(first.template))
+        val probe = ApocalypseSourcePiece(template, x, 0, z, rotation, first.processor)
+        val centerX = (probe.bounds.minX + probe.bounds.maxX) / 2
+        val centerZ = (probe.bounds.minZ + probe.bounds.maxZ) / 2
+        // WORLD_SURFACE_WG/OCEAN_FLOOR_WG return first free Y. A SinglePoolElement's ground-level delta is one.
+        val centerY = definition.startHeight + if (definition.heightmap == null) 0 else surface(centerX, centerZ) + 1
+        val root = ApocalypseSourcePiece(template, x, centerY - 1, z, rotation, first.processor)
+        val maximum = definition.maxDistance
+        val space = JigsawSpace(ApocalypseSourceBounds(centerX - maximum, centerY - maximum, centerZ - maximum,
+            centerX + maximum, centerY + maximum, centerZ + maximum), mutableListOf(root.bounds))
+        val result = mutableListOf(root)
+        val queue = ArrayDeque<JigsawStep>()
+        if (definition.size > 0) queue.addLast(JigsawStep(root, space, 0))
+        while (queue.isNotEmpty()) {
+            val (parent, outer, depth) = queue.removeFirst()
+            val interior = JigsawSpace(parent.bounds)
+            for (joint in shuffled(parent.template.connectors, random)) {
+                val position = parent.world(joint.x, joint.y, joint.z)
+                val front = ApocalypseSourcePalette.direction(joint.orientation.substringBefore('_'), parent.rotation)
+                val forward = requireNotNull(fronts[front])
+                val next = ApocalypsePoint(position.x + forward.x, position.y + forward.y, position.z + forward.z)
+                val available = if (parent.bounds.contains(next.x, next.y, next.z)) interior else outer
+                val candidates = assets.pools[joint.pool] ?: continue // Original templates reference several absent optional pools.
+                val fallback = assets.pools[candidates.fallback]
+                val options = (if (depth < definition.size) shuffled(weighted(candidates), random) else emptyList()) +
+                    (fallback?.let { shuffled(weighted(it), random) } ?: emptyList())
+                val top = ApocalypseSourcePalette.direction(joint.orientation.substringAfter('_'), parent.rotation)
+                val child = attach(options, next, front, top, joint, available, random) ?: continue
+                result += child
+                available.occupied += child.bounds
+                if (depth + 1 <= definition.size) queue.addLast(JigsawStep(child, available, depth + 1))
+            }
+        }
+        return ApocalypseSourceAssembly(result, seed)
+    }
+
+    private fun attach(options: List<ApocalypsePoolElement>, next: ApocalypsePoint, front: String, top: String,
+        joint: ApocalypseSourceConnector, space: JigsawSpace, random: Random): ApocalypseSourcePiece? {
+        // A weighted duplicate already tried in every rotation cannot fit a second time in this socket.
+        val tried = hashSetOf<ApocalypsePoolElement>()
+        for (option in options) {
+            if (option.template == "minecraft:empty") return null
+            if (!tried.add(option)) continue
+            require(option.projection == "rigid") { "Unsupported source projection ${option.projection}" }
+            val template = requireNotNull(assets.template(option.template)) { "Missing source pool template ${option.template}" }
+            for (rotation in shuffled(listOf(0, 1, 2, 3), random)) {
+                for (port in shuffled(template.connectors, random)) {
+                    if (port.name != joint.target) continue
+                    if (ApocalypseSourcePalette.direction(port.orientation.substringBefore('_'), rotation) != opposite[front]) continue
+                    if (joint.joint != "rollable" &&
+                        ApocalypseSourcePalette.direction(port.orientation.substringAfter('_'), rotation) != top) continue
+                    val offset = rotated(port.x, port.y, port.z, rotation)
+                    val child = ApocalypseSourcePiece(template, next.x - offset.x, next.y - offset.y, next.z - offset.z,
+                        rotation, option.processor)
+                    if (space.bounds.contains(child.bounds) && space.occupied.none { it.intersects(child.bounds) }) return child
+                }
+            }
+        }
+        return null
+    }
+
+    private fun weighted(pool: ApocalypseSourcePool) = buildList {
+        for (element in pool.elements) repeat(element.weight) { add(element) }
+    }
+    private fun <T> shuffled(items: List<T>, random: Random) = items.toMutableList().also { Collections.shuffle(it, random) }
+}
+
+class ApocalypseSourceAssembly(val pieces: List<ApocalypseSourcePiece>, private val seed: Long) {
+    private val connectors = pieces.associateWith { piece -> piece.template.connectors.associateBy { (it.y * piece.template.sizeZ + it.z) * piece.template.sizeX + it.x } }
+    private val originalMarkers: List<Pair<ApocalypsePoint, ApocalypseMarkerKind>> by lazy {
+        buildList {
+            for (piece in pieces) {
+                piece.template.entities.forEach { entity ->
+                    val kind = ApocalypseSourcePalette.entityMarker(entity.type) ?: return@forEach
+                    add(piece.world(floor(entity.x).toInt(), floor(entity.y).toInt(), floor(entity.z).toInt()) to kind)
+                }
+                for ((point, kind) in ApocalypseTemplateMarkers.of(piece.template)) {
+                    add(piece.world(point.x, point.y, point.z) to kind)
+                }
+            }
+        }.distinctBy { it.first }
+    }
+    val spawn: ApocalypsePoint? = pieces.firstNotNullOfOrNull { p -> p.template.entities.firstOrNull {
+        it.type == JCWS + "spawnpoint_entity" }?.let { p.world(floor(it.x).toInt(), floor(it.y).toInt(), floor(it.z).toInt()) } }
+
+    fun markers(siteId: String): List<ApocalypseMarker> = originalMarkers.map { (p, k) -> ApocalypseMarker(siteId, k, p.x, p.y, p.z) }
+
+    /** Original sign text, banners and decorative heads. Procedural blocks/loot remain owned by their gameplay handlers. */
+    fun blockEntities(chunkX: Int, chunkZ: Int): List<ApocalypseSourceBlockEntity> = buildList {
+        val x0 = chunkX * 16
+        val z0 = chunkZ * 16
+        for (piece in pieces) {
+            val box = piece.bounds
+            for (z in maxOf(z0, box.minZ)..minOf(z0 + 15, box.maxZ)) for (x in maxOf(x0, box.minX)..minOf(x0 + 15, box.maxX)) {
+                val local = piece.local(x, piece.y, z)
+                for (ly in 0 until piece.template.sizeY) {
+                    val state = piece.template.blockState(local.x, ly, local.z) ?: continue
+                    val id = state.substringBefore('[').removePrefix("minecraft:")
+                    if (!(id.endsWith("_sign") || id.endsWith("_banner") || id.endsWith("_head") || id.endsWith("_skull"))) continue
+                    val data = piece.template.blockEntity(local.x, ly, local.z) ?: continue
+                    val native = ApocalypseSourcePalette.vanillaState(state, piece.rotation) ?: continue
+                    add(ApocalypseSourceBlockEntity(x, piece.y + ly, z, native, data))
+                }
+            }
+        }
+    }
+
+    fun render(chunkX: Int, chunkZ: Int, put: (Int, Int, Int, String) -> Unit) {
+        val x0 = chunkX * 16
+        val z0 = chunkZ * 16
+        for (piece in pieces) {
+            val box = piece.bounds
+            for (z in maxOf(z0, box.minZ)..minOf(z0 + 15, box.maxZ)) for (x in maxOf(x0, box.minX)..minOf(x0 + 15, box.maxX)) {
+                val local = piece.local(x, piece.y, z)
+                for (ly in 0 until piece.template.sizeY) {
+                    var state = piece.template.blockState(local.x, ly, local.z) ?: continue
+                    val y = piece.y + ly
+                    if (state.startsWith("minecraft:jigsaw")) {
+                        val index = (ly * piece.template.sizeZ + local.z) * piece.template.sizeX + local.x
+                        state = connectors.getValue(piece)[index]?.finalState ?: "minecraft:air"
+                    }
+                    state = ApocalypseSourcePalette.process(state, piece.processor, x, y, z, seed)
+                    val nbt = if (state.startsWith("copycats:") || state.startsWith("create:copycat_"))
+                        piece.template.blockNbt(local.x, ly, local.z) else null
+                    val native = ApocalypseSourcePalette.vanillaState(state, piece.rotation, nbt) ?: continue
+                    put(x, y, z, native)
+                }
+            }
+            piece.template.entities.forEach { entity ->
+                val kind = ApocalypseSourcePalette.entityMarker(entity.type) ?: return@forEach
+                val at = piece.world(floor(entity.x).toInt(), floor(entity.y).toInt(), floor(entity.z).toInt())
+                if (at.x in x0..x0 + 15 && at.z in z0..z0 + 15 && kind.name.endsWith("_SPAWNER")) {
+                    put(at.x, at.y, at.z, "minecraft:copper_grate")
+                }
+            }
+        }
+    }
+}
+
+private object ApocalypseTemplateMarkers {
+    private val byTemplate = java.util.WeakHashMap<ApocalypseSourceTemplate, List<Pair<ApocalypsePoint, ApocalypseMarkerKind>>>()
+    @Synchronized fun of(template: ApocalypseSourceTemplate): List<Pair<ApocalypsePoint, ApocalypseMarkerKind>> =
+        byTemplate.getOrPut(template) {
+            buildList {
+                if (template.palette.any { ApocalypseSourcePalette.blockMarker(it) != null }) {
+                    template.forEachBlock { x, y, z, state, _ ->
+                        ApocalypseSourcePalette.blockMarker(state)?.let { add(ApocalypsePoint(x, y, z) to it) }
+                    }
+                }
+            }
+        }
+}

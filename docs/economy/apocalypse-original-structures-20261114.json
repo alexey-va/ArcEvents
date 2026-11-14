@@ -1,0 +1,335 @@
+{
+  "version": 1,
+  "title": "ArcEvents 0.6.1 original structures: unchanged finite supplies per container",
+  "assumptions": [
+    "Scenario, not telemetry: low/base/high=1/5/20 participants, 1/2/4 active hours/day, 2/8/32 ordinary supply barrels opened per participant-day and 1/3/8 medical barrels. Previously mode absent.",
+    "World loot is finite per generated container, shared between players; opening counts are exploratory scenarios, not a renewable per-player entitlement. Additional travel generates new locations, with no fixed global item budget.",
+    "The entry journal isolates the entire inventory, armor, offhand and native XP. Exit restores origin; expedition gear remains in saved expedition. Ender chest and external commands are blocked. No cash/token reward or shop/contract API is called. Lethal owned actors are removed before native death reward callbacks.",
+    "Standard supply: ammunition uniform12..32 (EV22), cooked beef uniform2..5 (EV3.5), iron ingot uniform1..3 (EV2), one of4 guns with chance.25, vaccine chance.2. Armory/core gun chance1. Medical vaccine1+bread4+honey1. Loaded rounds use the existing configured gun magazine; modeled separately from loose rounds and no monetary valuation.",
+    "Starter: one-time per expedition profile, source-equivalent axe wear42, bread9, vaccine6, iron boots, vanilla mask/binocular substitutes. Resume does not grant kit again; death does not reset the journal.",
+    "Zero external redemption is a design boundary, not an observed production ledger. Standard SELL and future SELL-to-contract transition remain unchanged. No item-to-currency exchange assumed. Multi-account accounts have separate starter profiles; supplies are shared only inside the expedition. Unknown third-party plugin commands/proxy bypass require native integration observation.",
+    "Journal entitlement precedes container materialization to avoid rerolls; a crash exactly between those writes can lose finite unmaterialized loot. No blind retry reissues an already-claimed container.",
+    "0.6.1 before=0.6.0 native supply rules and after=original-source geometry with same per-physical-container item amounts/chances. Original NBT item inventories and loot tables stay inert; only native finite stock grants are applied.",
+    "Imported JCWS templates expose136 Lootr barrels,268 Lootr chests and33 gun-part crates across the whole131-template catalog, not437 containers in every generated bunker. Active source city assets add containers. Exact travel/openings perhour remains unmeasured; the 2/8/32-perday opening scenarios are held constant to isolate unchanged grant arithmetic.",
+    "Original worldV2 has independent finite coordinate entitlements; prototypeV1 chunks are retained. Existing expedition inventories migrate to the authentic starter position, without another starter kit. A double chest reserves both physical halves together before opening; neither half rerolls."
+  ],
+  "participants": [
+    1,
+    5,
+    20
+  ],
+  "currencies": {
+    "vault": {
+      "minor_per_unit": 100,
+      "disposable_per_player_day": {
+        "before": [
+          "0",
+          "0",
+          "0"
+        ],
+        "after": [
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      "flows": []
+    },
+    "tokens": {
+      "minor_per_unit": 1,
+      "disposable_per_player_day": {
+        "before": [
+          "0",
+          "0",
+          "0"
+        ],
+        "after": [
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      "flows": []
+    },
+    "expedition_loose_round": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "finite_supply_expedition_loose_round",
+          "kind": "item",
+          "source": "ApocalypseRuntime.stock",
+          "basis": "Assumed ordinary supply openings; armory and medical separate; no external redemption",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "22",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              2,
+              8,
+              32
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "22",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              2,
+              8,
+              32
+            ]
+          }
+        }
+      ]
+    },
+    "expedition_cooked_beef": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "finite_supply_expedition_cooked_beef",
+          "kind": "item",
+          "source": "ApocalypseRuntime.stock",
+          "basis": "Assumed ordinary supply openings; armory and medical separate; no external redemption",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "3.5",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              2,
+              8,
+              32
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "3.5",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              2,
+              8,
+              32
+            ]
+          }
+        }
+      ]
+    },
+    "expedition_iron_ingot": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "finite_supply_expedition_iron_ingot",
+          "kind": "item",
+          "source": "ApocalypseRuntime.stock",
+          "basis": "Assumed ordinary supply openings; armory and medical separate; no external redemption",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "2",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              2,
+              8,
+              32
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "2",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              2,
+              8,
+              32
+            ]
+          }
+        }
+      ]
+    },
+    "expedition_native_gun": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "finite_supply_expedition_native_gun",
+          "kind": "item",
+          "source": "ApocalypseRuntime.stock",
+          "basis": "Assumed ordinary supply openings; armory and medical separate; no external redemption",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "0.25",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              2,
+              8,
+              32
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "0.25",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              2,
+              8,
+              32
+            ]
+          }
+        }
+      ]
+    },
+    "expedition_vaccine_supply": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "finite_supply_expedition_vaccine_supply",
+          "kind": "item",
+          "source": "ApocalypseRuntime.stock",
+          "basis": "Assumed ordinary supply openings; armory and medical separate; no external redemption",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "0.2",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              2,
+              8,
+              32
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "0.2",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              2,
+              8,
+              32
+            ]
+          }
+        }
+      ]
+    },
+    "expedition_medical_vaccine": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "medical_expedition_medical_vaccine",
+          "kind": "item",
+          "source": "ApocalypseRuntime.stock:MEDICAL",
+          "basis": "Medical openings scenarios; vaccine and plain honey are distinct objects",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              1,
+              3,
+              8
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              1,
+              3,
+              8
+            ]
+          }
+        }
+      ]
+    },
+    "expedition_medical_bread": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "medical_expedition_medical_bread",
+          "kind": "item",
+          "source": "ApocalypseRuntime.stock:MEDICAL",
+          "basis": "Medical openings scenarios; vaccine and plain honey are distinct objects",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "4",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              1,
+              3,
+              8
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "4",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              1,
+              3,
+              8
+            ]
+          }
+        }
+      ]
+    },
+    "expedition_medical_honey": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "medical_expedition_medical_honey",
+          "kind": "item",
+          "source": "ApocalypseRuntime.stock:MEDICAL",
+          "basis": "Medical openings scenarios; vaccine and plain honey are distinct objects",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              1,
+              3,
+              8
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              1,
+              3,
+              8
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

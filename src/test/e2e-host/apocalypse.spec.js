@@ -15,13 +15,17 @@ async function until(probe, message, timeout=20000) {
   assert.fail(message);
 }
 async function ready() {
-  await until(async()=> /ArcEvents enabled .*arenaReady=true redisConnected=true/.test(await readFile(new URL('../../../build/plugwright-host/logs/latest.log',import.meta.url),'utf8')), 'ArcEvents startup did not finish',60000);
+  await until(async()=> {
+    const log=await readFile(new URL('../../../build/plugwright-host/logs/latest.log',import.meta.url),'utf8');
+    assert.ok(!/ArcEvents startup preparation failed closed|ArcEvents failed closed during startup/.test(log),'ArcEvents failed closed during startup; inspect native log');
+    return /ArcEvents enabled .*arenaReady=true redisConnected=true/.test(log);
+  }, 'ArcEvents startup did not finish',60000);
 }
 async function qa(admin) {
   const since=admin.getMessageBufferIndex(); admin.chat('/arcevents apocalypse qa');
   await expect(admin).toHaveReceivedMessage(/^ARCEVENTS_APOCALYPSE /,{since,timeout:10000});
   const line=admin.messageBuffer.slice(since).find(x=>x.startsWith('ARCEVENTS_APOCALYPSE '));
-  return Object.fromEntries([...line.matchAll(/ ([a-z]+)=(\S+)/g)].map(([,k,v])=>[k,v]));
+  return Object.fromEntries([...line.matchAll(/ ([a-z_]+)=(\S+)/g)].map(([,k,v])=>[k,v]));
 }
 async function players(admin,n) { await until(async()=> (await qa(admin)).players===String(n),`Expected ${n} apocalypse players`,30000); }
 async function teleport(admin,player,x,y,z) {
@@ -45,7 +49,7 @@ async function reconnectFromFallbackWorld(player, admin) {
   parsed.value.Pos.value.value=[.5,-60,.5];
   await writeFile(file,gzipSync(nbt.writeUncompressed(parsed)));
   await player.rejoin({timeout:30000}); await players(admin,1);
-  await until(()=>player.bot.entity.position.distanceTo(new Vec3(.5,60,17.5))<2,'Fallback login did not resume at the apocalypse starter');
+  const state=await qa(admin); await until(()=>player.bot.entity.position.distanceTo(new Vec3(Number(state.spawn_x)+.5,Number(state.spawn_y),Number(state.spawn_z)+.5))<2,'Fallback login did not resume at the source starter');
 }
 test('Apocalypse preserves separate inventories through native loot, reconnect and repeated leave',async({player,createPlayer})=>{
   await ready(); const admin=await createPlayer({username:`ApocQA${Math.floor(Math.random()*100000)}`}); await admin.makeOp();
@@ -59,17 +63,20 @@ test('Apocalypse preserves separate inventories through native loot, reconnect a
     player.chat('/arcevents apocalypse'); await players(admin,1);
     assert.ok(!player.bot.inventory.items().some(i=>i.name==='diamond'),'Origin items leaked into expedition');
     assert.ok(player.bot.inventory.items().some(i=>i.name==='iron_axe'),'Starter tools missing');
-    assert.ok(player.bot.entity.position.distanceTo(new Vec3(.5,60,17.5))<2,'Starter bunker spawn differs from authored geometry');
-    await teleport(admin,player,7,60,22.5);
-    await until(()=>player.bot.blockAt(new Vec3(8,60,22))?.name==='barrel','Generated medical barrel missing');
-    const container=await player.bot.openContainer(player.bot.blockAt(new Vec3(8,60,22)));
-    assert.ok(container.containerItems().some(i=>i.name==='honey_bottle'),'Medical barrel did not materialize vaccine');
-    assert.equal(container.containerItems().find(i=>i.name==='bread')?.count,4,'Medical food bundle differs');
-    const vaccine=container.containerItems().find(i=>JSON.stringify(i).includes('apocalypse_medicine'));
-    assert.ok(vaccine,'Tagged vaccine missing from native item components'); assert.equal(vaccine.slot,3,'Fixture withdrawal must select the tagged first honey bottle');
-    await container.withdraw(vaccine.type,null,1);
-    await until(()=>!container.slots[3],'Tagged vaccine did not leave its container slot');
-    const remaining=JSON.stringify(container.slots.slice(0,27).map(itemState)); container.close();
+    const sourceState=await qa(admin);
+    assert.equal(sourceState.generation,'apocalypse-original-v1','The native world did not use source structures');
+    assert.ok(player.bot.entity.position.distanceTo(new Vec3(Number(sourceState.spawn_x)+.5,Number(sourceState.spawn_y),Number(sourceState.spawn_z)+.5))<2,'Spawn differs from source spawnpoint_entity');
+    const mark=admin.getMessageBufferIndex(); admin.chat('/arcevents apocalypse markers LOOT');
+    await expect(admin).toHaveReceivedMessage(/^ARCEVENTS_APOCALYPSE_MARKER /,{since:mark,timeout:15000});
+    const line=admin.messageBuffer.slice(mark).find(x=>x.startsWith('ARCEVENTS_APOCALYPSE_MARKER '));
+    const chest=Object.fromEntries([...line.matchAll(/ ([xyz])=(-?\d+)/g)].map(([,k,v])=>[k,Number(v)]));
+    await teleport(admin,player,chest.x+.5,chest.y+1,chest.z+.5);
+    const at=new Vec3(chest.x,chest.y,chest.z);
+    await until(()=>['chest','barrel','trapped_chest'].includes(player.bot.blockAt(at)?.name),'Original supply container missing');
+    const container=await player.bot.openContainer(player.bot.blockAt(at));
+    const supply=container.containerItems()[0]; assert.ok(supply,'Original container did not receive its finite expedition supply');
+    await container.withdraw(supply.type,null,1);
+    const remaining=JSON.stringify(container.slots.slice(0,container.inventoryStart).map(itemState)); container.close();
     await pause(200); const expedition=items(player);
     await player.rejoin({timeout:30000}); await players(admin,1);
     await until(()=>items(player)===expedition,'Reconnect changed expedition inventory').catch(error=>{
@@ -81,10 +88,10 @@ test('Apocalypse preserves separate inventories through native loot, reconnect a
     player.chat('/arcevents leave'); await players(admin,0); await until(()=>items(player)===origin,'Origin inventory was not restored exactly');
     player.chat('/arcevents apocalypse leave'); await pause(300); assert.equal((await qa(admin)).busy,'0','Repeated leave locked player');
     player.chat('/arcevents apocalypse'); await players(admin,1); await until(()=>items(player)===expedition,'Re-entry did not resume saved expedition');
-    await teleport(admin,player,7,60,22.5);
-    await until(()=>player.bot.blockAt(new Vec3(8,60,22))?.name==='barrel','Re-entry barrel chunk did not arrive');
-    const again=await player.bot.openContainer(player.bot.blockAt(new Vec3(8,60,22)));
-    assert.equal(JSON.stringify(again.slots.slice(0,27).map(itemState)),remaining,'Reopening changed the exact looted container'); again.close();
+    await teleport(admin,player,chest.x+.5,chest.y+1,chest.z+.5);
+    await until(()=>['chest','barrel','trapped_chest'].includes(player.bot.blockAt(at)?.name),'Re-entry source container chunk did not arrive');
+    const again=await player.bot.openContainer(player.bot.blockAt(at));
+    assert.equal(JSON.stringify(again.slots.slice(0,again.inventoryStart).map(itemState)),remaining,'Reopening changed the source container'); again.close();
     player.chat('/arcevents leave'); await players(admin,0); await until(()=>items(player)===origin,'Second exit changed origin inventory');
     console.log('[Apocalypse native] origin hotbar+armor+offhand restored; finite barrel; reconnect and expedition resume verified');
   } finally { player.chat('/arcevents leave'); }
@@ -113,26 +120,22 @@ test('Apocalypse refuses queued entry and starts independent cooperative hordes 
   }
 });
 
-test('Apocalypse bunker switch removes its native forcefield and proximity spawner emits guards',async({player,createPlayer})=>{
+test('Apocalypse original bunker spawner emits native guards at its source position',async({player,createPlayer})=>{
   await ready(); const admin=await createPlayer({username:`BunkerQA${Math.floor(Math.random()*100000)}`}); await admin.makeOp(); const origin=items(player);
   try {
     player.chat('/arcevents apocalypse'); await players(admin,1);
-    const since=admin.getMessageBufferIndex(); admin.chat('/arcevents apocalypse markers POWER');
-    await expect(admin).toHaveReceivedMessage(/^ARCEVENTS_APOCALYPSE_MARKER /,{since,timeout:10000});
+    const since=admin.getMessageBufferIndex(); admin.chat('/arcevents apocalypse markers BUNKER_SPAWNER');
+    await expect(admin).toHaveReceivedMessage(/^ARCEVENTS_APOCALYPSE_MARKER /,{since,timeout:15000});
     const line=admin.messageBuffer.slice(since).find(x=>x.startsWith('ARCEVENTS_APOCALYPSE_MARKER '));
     const m=Object.fromEntries([...line.matchAll(/ ([xyz])=(-?\d+)/g)].map(([,k,v])=>[k,Number(v)]));
-    admin.chat(`/execute in minecraft:arcevents_apocalypse_v1 run tp ${player.username} ${m.x+1.5} ${m.y} ${m.z+.5}`);
-    await until(()=>player.bot.entity.position.distanceTo(new Vec3(m.x+1.5,m.y,m.z+.5))<1,'Generated bunker teleport failed',30000);
-    await until(()=>player.bot.blockAt(new Vec3(m.x,m.y,m.z))?.name==='lever','Native bunker switch missing',30000);
-    const field=new Vec3(m.x+16,m.y,m.z+4);
-    await until(()=>player.bot.blockAt(field)?.name==='light_blue_stained_glass_pane','Generated native forcefield missing',30000);
-    await player.bot.activateBlock(player.bot.blockAt(new Vec3(m.x,m.y,m.z)));
-    await until(()=>player.bot.blockAt(field)?.name==='air','Switch failed to remove native forcefield');
-    await until(async()=>Number((await qa(admin)).switches)>=1,'Switch did not reach durable checkpoint');
-    await until(()=>Object.values(player.bot.entities).some(e=>e.name==='zombie'&&e.position.distanceTo(player.bot.entity.position)<35),'Proximity bunker guards did not appear near their spawner',40000);
-    assert.ok(player.bot.health>0,'Player died before first bunker interaction completed');
-    console.log('[Apocalypse native] generated switch+forcefield interaction and nearby guard entity packets observed');
+    admin.chat(`/execute in minecraft:arcevents_apocalypse_v2 run tp ${player.username} ${m.x+.5} ${m.y+1} ${m.z+.5}`);
+    await until(()=>player.bot.entity.position.distanceTo(new Vec3(m.x+.5,m.y+1,m.z+.5))<1,'Original bunker teleport failed',30000);
+    await until(()=>player.bot.blockAt(new Vec3(m.x,m.y,m.z))?.name==='copper_grate','Source placer did not create its native spawner',30000);
+    await until(async()=>Number((await qa(admin)).bunker_enemies)>0,'Original proximity spawner did not produce a native guard',40000);
+    await until(()=>Object.values(player.bot.entities).some(e=>e.name==='zombie'&&e.position.distanceTo(player.bot.entity.position)<35),'Native source guard packets were not observed',10000);
+    assert.equal((await qa(admin)).tile_failures,'0','Original sign/head/banner hydration failed');
+    console.log('[Apocalypse original] source spawner position, native guard and decorative data verified');
   } finally {
-    player.chat('/arcevents leave'); await players(admin,0); await until(()=>items(player)===origin,'Bunker exit did not restore origin');
+    player.chat('/arcevents leave'); await players(admin,0); await until(()=>items(player)===origin,'Original bunker exit did not restore origin');
   }
 });
