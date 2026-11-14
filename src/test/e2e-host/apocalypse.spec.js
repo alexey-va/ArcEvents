@@ -293,6 +293,9 @@ test('Apocalypse admits source loot from a player-added west double-chest half a
     const box=await player.bot.openContainer(player.bot.blockAt(added));
     assert.equal(box.inventoryStart,54,'Native fixture did not form a double chest');
     assert.ok(box.containerItems().some(i=>i.name==='diamond'&&i.count===2),'Source admission overwrote the player half');
+    const claimed=admin.getMessageBufferIndex();
+    admin.chat(`/execute in minecraft:arcevents_apocalypse_v2 run data get block ${marker.x} ${marker.y} ${marker.z} PublicBukkitValues."arcevents:apocalypse_original_loot_v1"`);
+    await expect(admin).toHaveReceivedMessage(/1b/,{since:claimed,timeout:10000});
     assert.ok(box.containerItems().some(i=>/world_firearm/.test(JSON.stringify(i.components??i.nbt))),'Opening the unmarked west half bypassed source stocking');
     const remaining=JSON.stringify(box.slots.slice(0,box.inventoryStart).map(itemState));box.close();await pause(100);
     const again=await player.bot.openContainer(player.bot.blockAt(added));assert.equal(JSON.stringify(again.slots.slice(0,again.inventoryStart).map(itemState)),remaining);again.close();

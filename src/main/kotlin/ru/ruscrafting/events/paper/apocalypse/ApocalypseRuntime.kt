@@ -800,8 +800,14 @@ class ApocalypseRuntime(
                 markerAt(block)?.kind?.name !in setOf("POWER", "SECURITY", "FORCEFIELD")
         }
 
-    private fun markerAt(block: org.bukkit.block.Block): ApocalypseMarker? = chunkMarkers[block.chunk.chunkKey].orEmpty()
-        .firstOrNull { it.x == block.x && it.y == block.y && it.z == block.z }
+    private fun markerAt(block: org.bukkit.block.Block): ApocalypseMarker? {
+        if (block.world != world) return null
+        // Chunk packets can arrive before the bounded decoration queue reaches this chunk.
+        // Generation already caches these pure markers; interactions must not bypass finite loot meanwhile.
+        val chunk = block.chunk
+        val markers = chunkMarkers.getOrPut(chunk.chunkKey) { layout.markersInChunk(chunk.x, chunk.z) }
+        return markers.firstOrNull { it.x == block.x && it.y == block.y && it.z == block.z }
+    }
     private fun markerId(marker: ApocalypseMarker) = "${marker.siteId}:${marker.x}:${marker.y}:${marker.z}"
     private fun siteMarkers(marker: ApocalypseMarker): List<ApocalypseMarker> = layout.sitesNear(marker.x, marker.z)
         .firstOrNull { it.id == marker.siteId }?.let(layout::markers).orEmpty()

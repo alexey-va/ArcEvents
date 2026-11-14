@@ -138,7 +138,36 @@ CI for source commit7b7565a passed all unit/package and storage integration
 checks. Its combined hosted run exposed test coupling: the preceding firearm
 case had already claimed armory index3, so replacing that container for the
 new double-chest fixture correctly did not issue a second batch. The isolated
-native case had passed on an unclaimed container. The regression fixture now
-uses the distinct deterministic rifle container at index4; it preserves the
-finite-claim contract rather than clearing production claims. CI is rerun for
-that test-only correction; no runtime source or deployed JAR changes.
+native case had passed on an unclaimed container. The fixture moved to the distinct deterministic rifle container at index4.
+The next combined run still observed no source loot there, although both the
+production-class oracle and an independent JavaRandom replay expect three
+guns, gunpowder6 and copper9. Earlier tests had not claimed that container.
+That second failure is not explained by an empty source roll or the first
+fixture coupling.
+
+A fresh post-delivery economy read at22:45:32 UTC, bounded from22:31:39 UTC,
+reported zero records/operations/players in that window. No per-currency flow
+was observed. This idle/restart-window observation does not exercise an
+ordinary survival session and does not resolve other plugins' world hooks.
+
+
+## 0.6.3: first interaction before chunk decoration
+
+The native block can reach a client before the runtime's bounded two-chunks-per-
+tick decoration queue registers its loot marker. `markerAt` previously searched
+only that runtime map, letting the interaction reach a vanilla empty container.
+Generation already caches the pure marker list in the domain layout. The lookup
+now verifies the world and populates the runtime marker entry from that cache
+on demand, while decorative/entity hydration stays in its existing queue.
+This closes the source-visible race; attributing the CI failure specifically to
+that queue is an inference, since CI did not inspect the runtime map directly.
+The regression also reads the original-loot PDC after opening instead of relying
+only on the presence of a firearm. Source loot quantities, claims, world seed,
+geometry, currencies and origin recovery are unchanged; the clean world is not
+reset again.
+
+Candidate0.6.3 SHA-256:
+`9a8aface9ce06d51e2b708400690f89db9b52313ede55f70997a213f350d42c8`.
+The focused source/item/guide gate passed13 cases; artifact ownership validation
+passed. The complete six-case native run and updated CI are evaluated before
+claiming the correction accepted.
