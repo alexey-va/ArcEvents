@@ -6,6 +6,8 @@ import dev.lone.itemsadder.api.CustomStack
 import io.github.retrooper.packetevents.util.SpigotConversionUtil
 import org.bukkit.inventory.ItemStack
 import org.bukkit.plugin.Plugin
+import org.bukkit.NamespacedKey
+import org.bukkit.persistence.PersistentDataType
 import ru.ruscrafting.events.domain.FirearmId
 
 internal const val SCOPE_PREVIEW_PERMISSION = "arcevents.scope-preview"
@@ -22,8 +24,12 @@ internal fun scopePreviewItemIdentity(
         Class.forName("dev.lone.itemsadder.api.CustomStack", false, plugin.javaClass.classLoader)
     }.isSuccess
     val apiIdentity = if (present) ItemsAdderScopeIdentity()::identity else null
+    val nativeGunKey = NamespacedKey(plugin, "world_firearm")
     return { item ->
-        if (apiIdentity != null && plugin.server.pluginManager.isPluginEnabled("ItemsAdder")) apiIdentity(item)
+        val native = item.itemMeta?.persistentDataContainer?.get(nativeGunKey, PersistentDataType.STRING)
+            ?.let { "arcevents:world_${it.lowercase()}" }?.takeIf { it in packedFirearms }
+        if (native != null) native
+        else if (apiIdentity != null && plugin.server.pluginManager.isPluginEnabled("ItemsAdder")) apiIdentity(item)
         else runCatching { nativeScopePreviewItemIdentity(customData(item)) }.getOrNull()
     }
 }

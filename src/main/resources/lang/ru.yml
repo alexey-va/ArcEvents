@@ -9,6 +9,7 @@ command:
     <#8c8c8c>   Матч: <#92bed8>/arcevents status  <#8c8c8c>состав: <#92bed8>/arcevents roster
     <#8c8c8c>   Магазин: <#92bed8>/arcevents shop  <#8c8c8c>итоги: <#92bed8>/arcevents report
     <#e8dfd2>   Зомби — одному или командой: <#92bed8>/arcevents zombies
+    <#e8dfd2>   Войти в мир апокалипсиса <#92bed8>/arcevents apocalypse
   unknown: '<prefix> <#c42323>Неизвестно<#8c8c8c>: <#e6fff3><input>'
   failed: '<prefix> <#ff6b61>Не удалось: <#e8dfd2><reason>'
   reload-ok: '<prefix> <#2bba43>Конфигурация и локали обновлены.'
@@ -1128,3 +1129,37 @@ dialog:
   report-kills: <#e8dfd2>Убил
   report-damage-header: <#e8dfd2>Урон / своим
   report-damage: <#ffffff><damage><#e8dfd2> / <#f4d87a><friendly>
+
+apocalypse:
+  menu-name: '<#ffb277><bold>Апокалипсис'
+  menu-lore:
+  - '<#e8dfd2>Исследуйте заброшенные города и бункеры.'
+  - '<#e8dfd2>Каждую десятую ночь приходит орда.'
+  - '<#9bd48d>Войти в мир выживания'
+  entered: '<#ffb277>Апокалипсис. <#e8dfd2>Обыщите бункер и поднимайтесь по лестнице. Для выхода введите <#92bed8>/arcevents leave<#e8dfd2>.'
+  resumed: '<#9bd48d>Вы снова в мире апокалипсиса.'
+  returned: '<#9bd48d>Вы вернулись из апокалипсиса.'
+  occupied: '<#ffb277>Сейчас войти нельзя. Завершите текущую игру или попробуйте позже, если мир заполнен.'
+  pending: '<#e8dfd2>Идёт переход между мирами.'
+  unavailable: '<#ffb277>Мир апокалипсиса сейчас недоступен.'
+  denied: '<#ffb277>Эта команда доступна администратору мира. Для смены дня укажите число от 1 до 10000.'
+  leave-first: '<#e8dfd2>Сначала выйдите из апокалипсиса командой <#92bed8>/arcevents leave<#e8dfd2>.'
+  restore-pending: '<#ffb277>Возврат ещё не завершён. Ваше снаряжение сохранено.'
+  horde: '<#ff6b61><bold>Орда! <reset><#e8dfd2>Зомби идут волнами. Найдите укрытие и приготовьте оружие.'
+  field-off: '<#9bd48d>Силовое поле отключено. Проход открыт.'
+  cured: '<#9bd48d>Лекарство подействовало.'
+  vaccine: '<#9bd48d>Вакцина от заражения'
+  status: '<#ffb277>День <day> <#e8dfd2>· <phase> · выживших <players> · врагов <enemies> · <infection>'
+  location: '<#e8dfd2>Ближайший объект <#ffffff><location>'
+  hud: '<#ffb277>День <day> <#e8dfd2>· <infection> · врагов <enemies>'
+  infection:
+    healthy: '<#9bd48d>Здоров'
+    incubating: '<#f4d87a>Инкубация'
+    fever: '<#ffb277>Лихорадка'
+    severe: '<#ff8d6f>Тяжёлое заражение'
+    critical: '<#ff6b61>Критическое заражение'
+  phase:
+    outbreak: 'первые случаи'
+    spread: 'распространение инфекции'
+    overrun: 'города захвачены'
+    collapse: 'коллапс'

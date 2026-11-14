@@ -22,9 +22,15 @@ import org.bukkit.event.player.PlayerItemDamageEvent
 import org.bukkit.event.player.PlayerSwapHandItemsEvent
 
 /** Protect a captured inventory while durable admission or exact recovery acknowledgement is pending. */
-internal class EventStateProtection(private val locked: (Player) -> Boolean) : Listener {
+internal class EventStateProtection(
+    private val locked: (Player) -> Boolean,
+    private val allowedCommand: (Player, String) -> Boolean = { _, _ -> false },
+) : Listener {
+    constructor(locked: (Player) -> Boolean) : this(locked, { _, _ -> false })
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    fun command(event: PlayerCommandPreprocessEvent) { if (locked(event.player)) event.isCancelled = true }
+    fun command(event: PlayerCommandPreprocessEvent) {
+        if (locked(event.player) && !allowedCommand(event.player, event.message)) event.isCancelled = true
+    }
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun experience(event: PlayerPickupExperienceEvent) { if (locked(event.player)) event.isCancelled = true }
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)

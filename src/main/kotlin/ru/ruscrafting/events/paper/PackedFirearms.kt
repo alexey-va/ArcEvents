@@ -30,6 +30,8 @@ internal data class PackedFirearm(
 }
 
 internal val packedFirearms: Map<String, PackedFirearm> = buildMap {
+    // Native ArcEvents items use the same sight/reload transport as configured pack guns.
+    FirearmId.entries.forEach { put("arcevents:world_${it.name.lowercase()}", PackedFirearm(it, animated = true)) }
     fun voxel(id: String, gun: PackedFirearm) { put("voxelspawns_megaflintlocks:$id", gun) }
     fun gold(id: String, gun: PackedFirearm) { put("gold_guns:$id", gun) }
     voxel("vs_pistol", PackedFirearm(FirearmId.FLINTLOCK, animated = true))

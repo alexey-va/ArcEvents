@@ -76,6 +76,17 @@ class TttFirearms(
         }
     }
 
+    /** Native ArcEvents gun; world combat uses the same profiles without an ItemsAdder identity. */
+    fun worldFirearmItem(id: FirearmId, player: Player?, loaded: Int = spec(id).magazineSize): ItemStack =
+        firearmItem(id, player, "world", loaded).also { item -> item.editMeta { meta ->
+            meta.persistentDataContainer.remove(itemKindKey)
+            meta.persistentDataContainer.remove(matchIdKey)
+            meta.persistentDataContainer.remove(firearmKey)
+            meta.persistentDataContainer.remove(loadedKey)
+            meta.persistentDataContainer.set(NamespacedKey(itemKindKey.namespace, "world_firearm"), PersistentDataType.STRING, id.name)
+            meta.persistentDataContainer.set(NamespacedKey(itemKindKey.namespace, "world_loaded_rounds"), PersistentDataType.INTEGER, loaded)
+        } }
+
     internal fun isWorldAmmunition(item: ItemStack): Boolean =
         !item.isEmpty && !item.itemMeta.persistentDataContainer.has(itemKindKey) &&
             item.itemMeta.persistentDataContainer.get(worldAmmoKey, PersistentDataType.BYTE) == 1.toByte()

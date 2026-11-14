@@ -127,6 +127,8 @@ class ArcEventsService(
     private val shots: FirearmShots = FirearmShots(packetDisplays, { settings().ui.particles }, { settings().ui.sounds },
         soundPreset = network::firearmSoundPreset),
 ) : ArcEventsGameplayBoundary, AutoCloseable {
+    /** Another ArcEvents mode may own a durable inventory without joining the finite match roster. */
+    internal var independentInventoryOwner: (UUID) -> Boolean = { false }
     private val localChat = TttLocalChat(plugin.server, settings, locale)
     private data class MapSpawnReturn(
         val matchId: UUID,
@@ -323,6 +325,7 @@ class ArcEventsService(
 
     fun onArrivalAsync(entry: QueueEntry): CompletableFuture<Boolean> {
         fun rejected() = CompletableFuture.completedFuture(false)
+        if (independentInventoryOwner(UUID.fromString(entry.playerId))) return rejected()
         val batch = reservation ?: return rejected()
         if (entry.matchId != batch.matchId.toString() || entry.mode != batch.mode.id) return rejected()
         val playerId = UUID.fromString(entry.playerId)
@@ -339,7 +342,7 @@ class ArcEventsService(
         val result = CompletableFuture<Boolean>()
         arrivalOperations[playerId] = result
         commitPlayerMutation(batch.matchId, listOf(player), mapOf(playerId to entry.originServer), clock(),
-            isCurrent = { started && reservation === batch && player.isOnline },
+            isCurrent = { started && reservation === batch && player.isOnline && !independentInventoryOwner(playerId) },
         ) {
             arrivalPlayers += playerId
             eventRecoveries[playerId] = PlayerRecovery(batch.matchId, entry.originServer)
@@ -2587,10 +2590,12 @@ class ArcEventsService(
         isCurrent: () -> Boolean,
         mutation: () -> CompletableFuture<Unit>,
     ): CompletableFuture<Unit> = try {
+        val admitted = { isCurrent() && players.none { independentInventoryOwner(it.uniqueId) } }
+        check(admitted()) { "Player inventory belongs to another ArcEvents mode" }
         if (disposablePlayerState()) {
-            check(isCurrent()) { "Event player mutation superseded" }
+            check(admitted()) { "Event player mutation superseded" }
             mutation()
-        } else escrow.commitThenMutateStagesAsync(matchId, players, returnServers, nowMs, isCurrent) { mutation() }
+        } else escrow.commitThenMutateStagesAsync(matchId, players, returnServers, nowMs, admitted) { mutation() }
             .thenApply { Unit }
     } catch (failure: Throwable) { CompletableFuture.failedFuture(failure) }
 

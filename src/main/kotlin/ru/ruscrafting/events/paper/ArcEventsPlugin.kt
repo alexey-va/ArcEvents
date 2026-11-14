@@ -68,6 +68,7 @@ open class ArcEventsPlugin : JavaPlugin() {
     private var preparing = false
     private var reloading = false
     private var escrow: PlayerStateEscrow? = null
+    private var apocalypse: ru.ruscrafting.events.paper.apocalypse.ApocalypseRuntime? = null
 
 
     /**
@@ -129,12 +130,12 @@ open class ArcEventsPlugin : JavaPlugin() {
         val root = dataFolder.toPath()
         val redisService = requireNotNull(server.servicesManager.load(ArcRedisService::class.java)) { "ARC shared Redis service is unavailable" }
         val owner = name
-        server.pluginManager.registerEvents(EventStateProtection { player ->
-            preparing || escrow?.isLocked(player.uniqueId) == true ||
+        server.pluginManager.registerEvents(EventStateProtection(locked = { player ->
+            preparing || apocalypse?.isBusy(player.uniqueId) == true || escrow?.isLocked(player.uniqueId) == true ||
                 (escrow?.pendingPlayers()?.contains(player.uniqueId) == true && service?.isParticipant(player.uniqueId) != true)
-        }, this)
+        }, allowedCommand = { player, command -> apocalypse?.allowsRecoveryCommand(player, command) == true }), this)
         saveDefaultConfig()
-        listOf("lang/ru.yml", "lang/en.yml", "modules/redis.yml").forEach(::saveResourceIfMissing)
+        listOf("lang/ru.yml", "lang/en.yml", "modules/redis.yml", "apocalypse.yml").forEach(::saveResourceIfMissing)
         settings = ArcEventsConfig.load(root)
         menuLayouts = ArcEventsMenuLayouts(root)
         ArcEventsLocale.mergeMissingFiles(root)
@@ -221,7 +222,7 @@ open class ArcEventsPlugin : JavaPlugin() {
                 onReservation = { activeService.onReservation(it) },
                 onArrival = { error("Production arrival requires its durable future") },
                 onArrivalAsync = { activeService.onArrivalAsync(it) },
-                recoveryPending = { activeService.escrowPending(it) },
+                recoveryPending = { activeService.escrowPending(it) || apocalypse?.isPlaying(it) == true || apocalypse?.isBusy(it) == true },
                 activeMatchParticipant = { activeService.ownsActiveRoute(it) },
                 initialFirearmSoundPreset = firearmSoundPreset,
             )
@@ -277,17 +278,24 @@ open class ArcEventsPlugin : JavaPlugin() {
                     dependencies = mapOf("redis" to redisReady),
                 )
             }
+            val apocalypseRuntime = ru.ruscrafting.events.paper.apocalypse.ApocalypseRuntime(this, { settings }, locale,
+                firearms, activeWork, manager, backendTransfer,
+                occupied = { id -> activeService.isParticipant(id) || escrow.isLocked(id) || id in escrow.pendingPlayers() },
+                queued = { id -> coordinator.queueState(id).thenApply { it != null } },
+                returnToOrigin = coordinator::returnPlayer).also { apocalypse = it; lifecycle.own(it) }
+            activeService.independentInventoryOwner = { id -> apocalypseRuntime.isPlaying(id) || apocalypseRuntime.isBusy(id) }
             menu = ArcEventsMenu(this, activeService, items, locale, { settings }, ::reloadPlugin, menuLayouts,
+                apocEntry = { player -> apocalypseRuntime.enter(player) },
                 escapeCloses = { player -> server.servicesManager.load(LuckPerms::class.java)?.userManager?.getUser(player.uniqueId)?.cachedData?.metaData?.getMetaValue("arc-menu-escape")?.equals("close", true) == true })
             lifecycle.own(menu)
-            val command = ArcEventsCommand(this, activeService, menu, weaponPointEditor, locale, { settings }, ::reloadPlugin)
+            val command = ArcEventsCommand(this, activeService, menu, weaponPointEditor, locale, { settings }, ::reloadPlugin, apocalypseRuntime)
             requireNotNull(getCommand("arcevents")).apply {
                 setExecutor(command)
                 tabCompleter = command
             }
             val worldGunIdentity = scopePreviewItemIdentity(this)
             val worldFirearms = WorldFirearms(this, firearms, locale, scopeRuntime, worldGunIdentity,
-                allowed = { player -> !preparing && !escrow.isLocked(player.uniqueId) && player.uniqueId !in escrow.pendingPlayers() &&
+                allowed = { player -> !preparing && !apocalypseRuntime.isBusy(player.uniqueId) && !escrow.isLocked(player.uniqueId) && player.uniqueId !in escrow.pendingPlayers() &&
                     !activeService.isParticipant(player.uniqueId) && !activeService.withinProtectedArena(player.location) },
                 canTarget = { _, entity -> !activeService.withinProtectedArena(entity.location) &&
                     (entity !is org.bukkit.entity.Player || !activeService.isParticipant(entity.uniqueId) &&
@@ -313,6 +321,7 @@ open class ArcEventsPlugin : JavaPlugin() {
             server.pluginManager.registerEvents(ArcEventsListener(activeService, menu, items, worldFirearms, firearmHud::clear), this)
             coordinator.start()
             activeService.start()
+            apocalypseRuntime.start()
             preparing = false
             if (settings.nodeMode == ru.ruscrafting.events.config.NodeMode.HOST) {
                 lifecycle.own(ProxyEventChatBridge(this, activeService::handlesMatchChat))
@@ -368,6 +377,8 @@ open class ArcEventsPlugin : JavaPlugin() {
         val retiring = pluginRuntime
         pluginRuntime = null
         detach { retiring?.close() }
+        val apocalypseDrain = apocalypse?.closeCompletion ?: CompletableFuture.completedFuture(Unit)
+        apocalypse = null
         var scopeDrain = CompletableFuture.completedFuture(Unit)
         detach { scopeDrain = scopes?.closeAsync() ?: scopeDrain }
         scopes = null
@@ -394,7 +405,7 @@ open class ArcEventsPlugin : JavaPlugin() {
         detach { drain.join() }
         detach { hotload.retireGameplayRegistrations() }
         Tasks.reset()
-        return CompletableFuture.allOf(nativeDrain, displayCleanup, scopeDrain,
+        return CompletableFuture.allOf(nativeDrain, displayCleanup, scopeDrain, apocalypseDrain,
             retiredArenas?.closeCompletion ?: CompletableFuture.completedFuture(Unit)).handle { _, failure ->
             nativeFailure?.let { problem -> failure?.let(problem::addSuppressed); throw problem }
             failure?.let { throw it }
@@ -527,7 +538,8 @@ open class ArcEventsPlugin : JavaPlugin() {
 internal fun arenaGeneratorReplacementBarrier(worlds: Iterable<org.bukkit.World>): CompletableFuture<Unit> {
     val retained = worlds.filter { world ->
         val generator = world.generator
-        generator is FishingArenaGenerator || generator is DisasterArenaGenerator || generator is TttCitadelChunkGenerator || generator is EmptyArenaChunkGenerator
+        generator is FishingArenaGenerator || generator is DisasterArenaGenerator || generator is TttCitadelChunkGenerator || generator is EmptyArenaChunkGenerator ||
+            generator is ru.ruscrafting.events.paper.apocalypse.ApocalypseChunkGenerator
     }.map { it.name }.sorted()
     return if (retained.isEmpty()) CompletableFuture.completedFuture(Unit)
     else CompletableFuture.failedFuture(IllegalStateException(

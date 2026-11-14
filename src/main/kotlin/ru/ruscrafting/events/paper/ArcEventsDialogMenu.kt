@@ -62,6 +62,7 @@ private val NATIVE_DESTINATIONS = mapOf(
     "arcade.disasters-name" to NativeButtonRole.ACTIVITY_DESTINATION,
     "arcade.fishing-name" to NativeButtonRole.ACTIVITY_DESTINATION,
     "arcade.zombies-name" to NativeButtonRole.ACTIVITY_DESTINATION,
+    "apocalypse.menu-name" to NativeButtonRole.ACTIVITY_DESTINATION,
     "menu.main.stats-name" to NativeButtonRole.PERSONAL_DESTINATION,
     "menu.main.help-name" to NativeButtonRole.HELP_DESTINATION,
     "menu.main.admin-name" to NativeButtonRole.ROOT_DESTINATION,
@@ -103,6 +104,7 @@ internal class ArcEventsDialogMenu(
     private val dispatch: (Player, EventsView, Int) -> Unit,
     private val protocols: ClientProtocolResolver = ClientProtocolResolver(),
     private val escapeCloses: (Player) -> Boolean = { false },
+    private val apocalypseSlot: () -> Int = { 11 },
     private val present: (Player, PaperDialogScreen, (() -> Unit)?, () -> Unit, Boolean) -> Unit =
         { target, model, reopen, dismissed, closeOnEscape -> runtime.open(target, model, reopen, dismissed, closeOnEscape) },
 ) {
@@ -175,6 +177,7 @@ internal class ArcEventsDialogMenu(
                 mapOf("queue" to locale.text(state.queueSize), "minimum" to locale.text(settings().arcade.rules(EventMode.DISASTERS).minimumPlayers))))
             add(button(player, "arcade.fishing-name", "arcade.fishing-lore", EventsView.Main, FISHING_MAIN_SLOT))
             add(button(player, "arcade.zombies-name", "arcade.zombies-lore", EventsView.Main, ZOMBIES_MAIN_SLOT))
+            add(button(player, "apocalypse.menu-name", "apocalypse.menu-lore", EventsView.Main, apocalypseSlot()))
             add(button(player, "menu.main.stats-name", "menu.main.stats-lore", EventsView.Main, 18))
             add(button(player, "menu.main.help-name", "menu.main.help-lore", EventsView.Main, 22))
             if (player.hasPermission("arcevents.admin")) add(button(player, "menu.main.admin-name", "menu.main.admin-lore", EventsView.Main, 26))

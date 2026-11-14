@@ -1,3 +1,5 @@
 .gradle/
 build/
 src/test/e2e/node_modules/
+.kotlin/
+src/test/e2e-host/node_modules/

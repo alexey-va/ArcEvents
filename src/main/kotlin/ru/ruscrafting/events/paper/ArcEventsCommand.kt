@@ -23,10 +23,12 @@ class ArcEventsCommand(
     private val locale: ArcEventsLocale,
     private val settings: () -> ArcEventsConfig,
     private val reload: () -> java.util.concurrent.CompletableFuture<Result<Unit>>,
+    private val apocalypse: ru.ruscrafting.events.paper.apocalypse.ApocalypseRuntime? = null,
 ) : TabExecutor {
     private val selectedAdminArenas = mutableMapOf<String, String>()
 
     override fun onCommand(sender: CommandSender, command: Command, label: String, args: Array<out String>): Boolean {
+        if (sender is Player && apocalypse?.command(sender, args.toList()) == true) return true
         if (args.isEmpty()) {
             if (sender is Player) menu.openRoot(sender) else sender.sendEventMessage(locale.render("command.help", sender))
             return true
@@ -73,7 +75,7 @@ class ArcEventsCommand(
         val options = when (args.size) {
             1 -> buildList {
                 if (sender is Player) {
-                    addAll(listOf("menu", "join", "fishing", "zombies", "leave", "spawn", "status", "shop", "roster", "report", "start"))
+                    addAll(listOf("menu", "join", "fishing", "zombies", "apocalypse", "leave", "spawn", "status", "shop", "roster", "report", "start"))
                     if (sender.hasPermission("arcevents.teamchat")) add("team")
                 }
                 add("help")

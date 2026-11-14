@@ -53,6 +53,7 @@ class ArcEventsMenu(
     private val reload: () -> java.util.concurrent.CompletableFuture<Result<Unit>>,
     private val layouts: ArcEventsMenuLayouts,
     private val escapeCloses: (Player) -> Boolean = { false },
+    private val apocEntry: (Player) -> Unit = {},
 ) : AutoCloseable {
 
     private val pendingClicks = mutableSetOf<UUID>()
@@ -63,7 +64,7 @@ class ArcEventsMenu(
     private val dialogRuntime = PaperDialogRuntime(plugin)
     private val dialogs = ArcEventsDialogMenu(dialogRuntime, service, locale, settings,
         { player, view, slot -> dispatchClick(player, view, slot, nativePresentation = true) },
-        escapeCloses = escapeCloses,
+        escapeCloses = escapeCloses, apocalypseSlot = { element(EventsView.Main, "apocalypse") },
     )
     private val fishingTrader = FishingTraderDialog(dialogRuntime, service, locale, settings, escapeCloses)
     private val zombiesSupply = ZombiesSupplyDialog(dialogRuntime, service, locale)
@@ -183,7 +184,7 @@ class ArcEventsMenu(
 
     private fun dispatchClick(player: Player, view: EventsView, slot: Int, nativePresentation: Boolean = false) {
         when (view) {
-            EventsView.Main -> clickMain(player, slot)
+            EventsView.Main -> clickMain(player, slot, nativePresentation)
             EventsView.Help -> if (slot == element(view, "back")) open(player, EventsView.Main)
             EventsView.EventHelp -> if (slot == element(view, "back")) open(player, EventsView.Ttt)
             EventsView.Ttt -> clickTtt(player, slot, nativePresentation)
@@ -236,6 +237,7 @@ class ArcEventsMenu(
         )))
         inventory.setItem(element(view, "fishing"), item(Material.FISHING_ROD, player, "arcade.fishing-name", "arcade.fishing-lore"))
         inventory.setItem(element(view, "zombies"), item(Material.ZOMBIE_HEAD, player, "arcade.zombies-name", "arcade.zombies-lore"))
+        inventory.setItem(element(view, "apocalypse"), item(Material.COPPER_GRATE, player, "apocalypse.menu-name", "apocalypse.menu-lore"))
         inventory.setItem(element(view, "statistics"), item(Material.WRITABLE_BOOK, player, "menu.main.stats-name", "menu.main.stats-lore"))
         inventory.setItem(element(view, "help"), item(Material.KNOWLEDGE_BOOK, player, "menu.main.help-name", "menu.main.help-lore"))
         if (player.hasPermission("arcevents.admin")) {
@@ -244,7 +246,7 @@ class ArcEventsMenu(
         show(player, view, inventory)
     }
 
-    private fun clickMain(player: Player, slot: Int) {
+    private fun clickMain(player: Player, slot: Int, nativePresentation: Boolean) {
         val view = EventsView.Main
         when (slot) {
             element(view, "ttt") -> open(player, EventsView.Ttt)
@@ -252,6 +254,10 @@ class ArcEventsMenu(
             element(view, "disasters") -> open(player, EventsView.Arcade(EventMode.DISASTERS))
             element(view, "fishing") -> open(player, EventsView.Fishing)
             element(view, "zombies") -> open(player, EventsView.Arcade(EventMode.ZOMBIES))
+            element(view, "apocalypse") -> {
+                closeSurface(player, nativePresentation)
+                apocEntry(player)
+            }
             element(view, "statistics") -> open(player, EventsView.Statistics)
             element(view, "help") -> open(player, EventsView.Help)
             element(view, "admin") -> if (player.hasPermission("arcevents.admin")) open(player, EventsView.Admin)

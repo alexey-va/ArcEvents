@@ -12,7 +12,7 @@ import ru.ruscrafting.events.domain.FirearmId
 import org.yaml.snakeyaml.Yaml
 
 class ScopePreviewItemsTest : StringSpec({
-    "preview recognizes all thirty-six vendor firearms with distinct native identities" {
+    "preview recognizes thirty-six vendor firearms and twelve native world profiles" {
         val ids = mapOf(
             "voxelspawns_megaflintlocks:vs_pistol" to FirearmId.FLINTLOCK,
             "voxelspawns_megaflintlocks:vs_revolver" to FirearmId.REVOLVER,
@@ -32,7 +32,11 @@ class ScopePreviewItemsTest : StringSpec({
             nativeScopePreviewItemIdentity(itemsAdderCustomData(id.substringBefore(':'), id.substringAfter(':'))) shouldBe id
         }
         ids.values.toSet() shouldBe FirearmId.entries.toSet()
-        packedFirearms.size shouldBe 36
+        packedFirearms.keys.count { !it.startsWith("arcevents:") } shouldBe 36
+        packedFirearms.keys.count { it.startsWith("arcevents:") } shouldBe 12
+        FirearmId.entries.forEach { profile ->
+            packedFirearms.getValue("arcevents:world_${profile.name.lowercase()}").profile shouldBe profile
+        }
         packedFirearms.forEach { (identity, gun) ->
             scopePreviewFirearm(identity) shouldBe gun.profile
             nativeScopePreviewItemIdentity(itemsAdderCustomData(identity.substringBefore(':'), identity.substringAfter(':'))) shouldBe identity

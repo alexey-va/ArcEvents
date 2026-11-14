@@ -36,6 +36,18 @@ import java.nio.file.Files
 import java.util.UUID
 
 class WorldFirearmsTest : FunSpec({
+    test("native ArcEvents guns fire and reload without an ItemsAdder item") {
+        WorldFirearmFixture().use { f ->
+            f.player.inventory.setItemInMainHand(f.firearms.worldFirearmItem(FirearmId.FIVE_SEVEN, f.player, 1))
+            f.runtime.state(f.player.inventory.itemInMainHand)?.loaded shouldBe 1
+            f.click() shouldBe true
+            f.runtime.state(f.player.inventory.itemInMainHand)?.loaded shouldBe 0
+            f.player.inventory.setItem(10, f.firearms.worldAmmunition(f.player, 6))
+            f.reload() shouldBe true
+            f.advance(f.firearms.spec(FirearmId.FIVE_SEVEN).reloadTicks.toLong())
+            f.runtime.state(f.player.inventory.itemInMainHand)?.loaded shouldBe 6
+        }
+    }
     test("ammunition recipe exchanges one plain nugget and is removed with its generation") {
         WorldFirearmFixture().use { f ->
             val key = f.ammoRecipe().use { recipe ->

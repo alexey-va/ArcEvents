@@ -1,6 +1,6 @@
 # ArcEvents
 
-ArcEvents is the network event engine for RusCrafting with five modes:
+ArcEvents is the network event engine for RusCrafting. Its arcade modes are:
 
 - **TTT**: hidden traitors, detectives, evidence, role shops and living/spectator chat.
 - **GunGame** (`gungame`): each elimination advances through the twelve existing
@@ -16,8 +16,29 @@ ArcEvents is the network event engine for RusCrafting with five modes:
 - **Zombies: Sector Zero** (`zombies`): solo or 1–4-player cooperative waves,
   a physical random-weapon chest, repairable ingress windows and match-local upgrades.
 
+Apocalypse is an independent, permanent cooperative survival world. Enter with
+`/arcevents apocalypse` or the main menu and return with `/arcevents leave`.
+It generates its own terrain, ruined cities, surface entrances and underground
+bunkers, with proximity guards, supply containers and switchable forcefields.
+Its hordes and infection rules are derived from the pinned Cursed Walking v3.3
+pack. This mode always journals separate origin/expedition inventories, including
+on a DISPOSABLE arcade host; leaving and reentering resumes the expedition.
+It does not consume the public match slot or its queue. A queued/active arcade
+player must leave that activity before entering survival.
+
+`plugins/ArcEvents/apocalypse.yml` owns the world/seed and bounded actor settings.
+Changing the generation identity requires a new world. Loaded custom generators
+use the existing coordinated-restart replacement barrier. Administrator commands:
+`/arcevents apocalypse locate [kind]`, `day <n>`; scoped QA reads use `qa` and
+`markers [kind]`. Debug-only `time <absolute ticks>` moves the world clock forward.
+After a failed transition, `/arcevents apocalypse recover` retries the stored
+origin recovery; it never issues another starter kit. Read the
+[reference and fidelity limits](docs/apocalypse-reference.md),
+[economy assessment](docs/economy/apocalypse-20261114.md) and
+[native acceptance evidence](docs/apocalypse-verification-20261114.md).
+
 Player-state handling is selected per host with `player-state.mode`. `PRESERVE`
-is the default: all modes use durable player-state escrow and origin-server
+is the default: arcade modes use durable player-state escrow and origin-server
 return routes. `DISPOSABLE` is for hosts whose inventory is independent of the
 origin backend: ArcEvents skips snapshots and restores, clears event loadout and
 temporary gameplay state on exit, and keeps a local participant's pre-event

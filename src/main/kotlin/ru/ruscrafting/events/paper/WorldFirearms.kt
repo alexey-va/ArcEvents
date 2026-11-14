@@ -111,7 +111,8 @@ class WorldFirearms(
 
     private fun firearmId(item: ItemStack?): FirearmId? {
         if (item == null || item.isEmpty || item.itemMeta.persistentDataContainer.has(eventItemKey)) return null
-        return scopePreviewFirearm(itemIdentity(item))
+        return scopePreviewFirearm(itemIdentity(item)) ?: item.itemMeta.persistentDataContainer
+            .get(firearmKey, PersistentDataType.STRING)?.let { runCatching { FirearmId.valueOf(it) }.getOrNull() }
     }
 
     private fun eligible(player: Player): Boolean = !closed && player.isOnline && !player.isDead &&
@@ -298,9 +299,11 @@ class WorldFirearms(
         item.isSimilar(vanillaAmmunition) || firearms.isWorldAmmunition(item) ||
             (!item.itemMeta.persistentDataContainer.has(eventItemKey) && itemIdentity(item) == "arc:firearm_ammo")
 
-    private fun spec(item: ItemStack) = requireNotNull(packedFirearms[itemIdentity(item)]).let { it.spec(firearms.spec(it.profile)) }
+    private fun spec(item: ItemStack) = packedFirearms[itemIdentity(item)]?.let { it.spec(firearms.spec(it.profile)) }
+        ?: firearms.spec(requireNotNull(firearmId(item)))
 
-    private fun scopeTarget(item: ItemStack, slot: Int) = requireNotNull(packedScopeTarget(requireNotNull(itemIdentity(item)), slot))
+    private fun scopeTarget(item: ItemStack, slot: Int) = itemIdentity(item)?.let { packedScopeTarget(it, slot) }
+        ?: FirearmScopeTarget(null, requireNotNull(firearmId(item)), slot)
 
     private fun reserve(contents: Array<ItemStack?>): Int = contents.sumOf { item ->
         if (item != null && usableAmmo(item)) item.amount else 0

@@ -215,6 +215,7 @@ ui:
         disasters: {slot: 6}
         fishing: {slot: 13}
         zombies: {slot: 15}
+        apocalypse: {slot: 11}
         statistics: {slot: 18}
         help: {slot: 22}
         admin: {slot: 26}

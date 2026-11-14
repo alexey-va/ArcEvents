@@ -1,0 +1,14 @@
+# Persistent, ArcEvents-owned survival world. Generation identity/seed require a new world.
+world: arcevents_apocalypse_v1
+seed: 68200133
+maximum-players: 24
+horde-days: 10
+horde-duration-ticks: 6000
+horde-pulse-ticks: 1000
+maximum-enemies: 256
+infection-chance: 0.25
+infection-stage-ticks: 6000
+immunity-ticks: 7000
+# Every generated supply container is stocked once. Loot stays inside the expedition.
+loot-ammo-min: 12
+loot-ammo-max: 32

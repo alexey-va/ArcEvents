@@ -29,6 +29,9 @@ internal object ArenaWorldGeneratorRegistry {
         require(Files.size(marker) in 1..MAX_MARKER_BYTES) { "ArcEvents arena template marker is invalid" }
         val template = Files.readString(marker, StandardCharsets.UTF_8).trim()
         return when {
+            template.startsWith("${ru.ruscrafting.events.paper.apocalypse.ApocalypseChunkGenerator.TEMPLATE}:") ->
+                ru.ruscrafting.events.paper.apocalypse.ApocalypseChunkGenerator(
+                    template.substringAfter(':').toLong())
             template == FishingArenaGenerator.TEMPLATE -> FishingArenaGenerator()
             // Retired generated worlds keep their chunks; new geometry uses its own marker.
             template == "fishing-v1" || template == "fishing-v2" -> EmptyArenaChunkGenerator()
