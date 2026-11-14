@@ -171,3 +171,23 @@ Candidate0.6.3 SHA-256:
 The focused source/item/guide gate passed13 cases; artifact ownership validation
 passed. The complete six-case native run and updated CI are evaluated before
 claiming the correction accepted.
+
+The final local0.6.3 native run executed all six scenarios together on a fresh
+fixture:6 passed,0 failed (41.9s/3.5s/20.2s/1.3s/15.1s/2.4s; total84.4s).
+The double-chest case verified source stock PDC as well as items and no refill.
+The immutable JAR is11,422,462 bytes and passed the shadow ownership guard.
+
+Supported manifest `jar-20261114T230300Z-18019` delivered0.6.3 to Spawn/Parkour.
+Both active roots contained exactly one ArcEvents JAR with the candidate hash.
+Parkour HOST reported ready at23:06:10 UTC and Spawn RELAY at23:06:35 UTC;
+Spawn restart operation `8b9f25a5c3191e58f69340621595de7df842b6a181184512328f406ffb5d045f`
+completed ready. The reset world's UID remained unchanged across this update.
+The pending origin recovery record still has no saved expedition and preserves
+its origin envelope; actual owner login recovery is not yet observed.
+
+CI [43651138098](https://github.com/alexey-va/ArcEvents/actions/runs/43651138098)
+for runtime source commit `1d039df395bd14db5a8f910a690ef1ea13c73518`
+completed successfully: unit/package, storage integration and the complete
+real-Paper E2E job all passed. This includes the combined cold-chunk/double-chest
+regression under the CI ARC runtime. The0.6.3 correction is accepted by the
+focused local and full CI checks; no further world reset or activation is needed.
