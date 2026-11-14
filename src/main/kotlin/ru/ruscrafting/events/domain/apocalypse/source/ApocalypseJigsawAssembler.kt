@@ -11,6 +11,7 @@ interface ApocalypseJigsawAssets {
     fun template(id: String): ApocalypseSourceTemplate?
     val pools: Map<String, ApocalypseSourcePool>
     val structures: Map<String, ApocalypseSourceStructure>
+    val loot: ApocalypseSourceLoot? get() = null
 }
 
 data class ApocalypseSourcePool(val fallback: String, val elements: List<ApocalypsePoolElement>)
@@ -99,7 +100,7 @@ class ApocalypseJigsawAssembler(private val assets: ApocalypseJigsawAssets) {
                 if (depth + 1 <= definition.size) queue.addLast(JigsawStep(child, available, depth + 1))
             }
         }
-        return ApocalypseSourceAssembly(result, seed)
+        return ApocalypseSourceAssembly(result, seed, assets.loot)
     }
 
     private fun attach(options: List<ApocalypsePoolElement>, next: ApocalypsePoint, front: String, top: String,
@@ -133,25 +134,49 @@ class ApocalypseJigsawAssembler(private val assets: ApocalypseJigsawAssets) {
     private fun <T> shuffled(items: List<T>, random: Random) = items.toMutableList().also { Collections.shuffle(it, random) }
 }
 
-class ApocalypseSourceAssembly(val pieces: List<ApocalypseSourcePiece>, private val seed: Long) {
+class ApocalypseSourceAssembly(val pieces: List<ApocalypseSourcePiece>, private val seed: Long,
+    private val loot: ApocalypseSourceLoot? = null) {
     private val connectors = pieces.associateWith { piece -> piece.template.connectors.associateBy { (it.y * piece.template.sizeZ + it.z) * piece.template.sizeX + it.x } }
-    private val originalMarkers: List<Pair<ApocalypsePoint, ApocalypseMarkerKind>> by lazy {
+    private val originalMarkers: List<ApocalypseMarker> by lazy {
         buildList {
             for (piece in pieces) {
                 piece.template.entities.forEach { entity ->
                     val kind = ApocalypseSourcePalette.entityMarker(entity.type) ?: return@forEach
-                    add(piece.world(floor(entity.x).toInt(), floor(entity.y).toInt(), floor(entity.z).toInt()) to kind)
+                    val p = piece.world(floor(entity.x).toInt(), floor(entity.y).toInt(), floor(entity.z).toInt())
+                    add(ApocalypseMarker("", kind, p.x, p.y, p.z))
                 }
                 for ((point, kind) in ApocalypseTemplateMarkers.of(piece.template)) {
-                    add(piece.world(point.x, point.y, point.z) to kind)
+                    val p = piece.world(point.x, point.y, point.z)
+                    val state = requireNotNull(piece.template.blockState(point.x, point.y, point.z))
+                    val source = piece.template.blockEntity(point.x, point.y, point.z)?.get("LootTable") as? String
+                    val table = loot?.processedTable(piece.processor, state, source, p.x, p.y, p.z, point.x, point.y, point.z) ?: source
+                    val blockId = ApocalypseSourcePalette.process(state, piece.processor, p.x, p.y, p.z, seed).substringBefore('[')
+                    add(ApocalypseMarker("", kind, p.x, p.y, p.z, table, blockId,
+                        piece.template.containerItems(point.x, point.y, point.z)))
                 }
             }
-        }.distinctBy { it.first }
+        }.distinctBy { Triple(it.x, it.y, it.z) }
     }
     val spawn: ApocalypsePoint? = pieces.firstNotNullOfOrNull { p -> p.template.entities.firstOrNull {
         it.type == JCWS + "spawnpoint_entity" }?.let { p.world(floor(it.x).toInt(), floor(it.y).toInt(), floor(it.z).toInt()) } }
 
-    fun markers(siteId: String): List<ApocalypseMarker> = originalMarkers.map { (p, k) -> ApocalypseMarker(siteId, k, p.x, p.y, p.z) }
+    fun markers(siteId: String): List<ApocalypseMarker> = originalMarkers.map { it.copy(siteId = siteId) }
+
+    val highestLadder: ApocalypsePoint? by lazy {
+        var highest: ApocalypsePoint? = null
+        for (piece in pieces) {
+            val ladders = piece.template.palette.filterTo(hashSetOf()) {
+                ApocalypseSourcePalette.vanillaState(it, piece.rotation)?.substringBefore('[') == "minecraft:ladder"
+            }
+            if (ladders.isNotEmpty()) piece.template.forEachBlock { x, y, z, state, _ ->
+                if (state in ladders) {
+                    val point = piece.world(x, y, z)
+                    if (highest == null || point.y > highest!!.y) highest = point
+                }
+            }
+        }
+        highest
+    }
 
     /** Original sign text, banners and decorative heads. Procedural blocks/loot remain owned by their gameplay handlers. */
     fun blockEntities(chunkX: Int, chunkZ: Int): List<ApocalypseSourceBlockEntity> = buildList {
@@ -210,9 +235,13 @@ private object ApocalypseTemplateMarkers {
     @Synchronized fun of(template: ApocalypseSourceTemplate): List<Pair<ApocalypsePoint, ApocalypseMarkerKind>> =
         byTemplate.getOrPut(template) {
             buildList {
-                if (template.palette.any { ApocalypseSourcePalette.blockMarker(it) != null }) {
+                fun marker(state: String) = ApocalypseSourcePalette.blockMarker(state) ?: when (state.substringBefore('[')) {
+                    "minecraft:chest", "minecraft:trapped_chest", "minecraft:barrel" -> ApocalypseMarkerKind.LOOT
+                    else -> null
+                }
+                if (template.palette.any { marker(it) != null }) {
                     template.forEachBlock { x, y, z, state, _ ->
-                        ApocalypseSourcePalette.blockMarker(state)?.let { add(ApocalypsePoint(x, y, z) to it) }
+                        marker(state)?.let { add(ApocalypsePoint(x, y, z) to it) }
                     }
                 }
             }

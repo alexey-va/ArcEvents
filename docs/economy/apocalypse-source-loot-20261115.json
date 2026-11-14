@@ -1,0 +1,1214 @@
+{
+  "version": 1,
+  "title": "ArcEvents 0.6.2 source loot: finite shared original tables, isolated items and one-time migration",
+  "assumptions": [
+    "Proposed ArcEvents 0.6.2 source-loot rules versus the 0.6.1 generic LOOT grant; source review and analytical expectation, not production activation or measured opening rates. Ninety-three original loot tables retain source rolls, counts, weights and empty/air outcomes; mod items map explicitly to native equivalents.",
+    "Low/base/high are modeled sensitivity: 1/5/20 participating accounts, assumed 1/2/4 active hours per player-day, 2/8/32 unique supply openings, 1/3/8 unique ammo openings, and 0.25/1/4 unique armory openings. All modeled participants use this activity; server-wide participation share is unknown. These imply total 3.25/6/11 eligible openings per active hour, not observed throughput.",
+    "Ammo uses an explicit assumed 50/50 ammo_tacz/ammo_tacz_2 mix; armory uses an explicit assumed 50/50 armory_chest/armory_chest_tacz mix. Actual generated mix and travel time are unmeasured. Resource and component crates have separate per-opening EV only and are excluded from this requested daily mix.",
+    "Every counted opening is a distinct physical shared container eligible for its source-loot-v1 batch. Reopening or a second participant cannot grant again. Additional travel can generate new sites indefinitely; no fixed network item budget or renewable per-container allowance exists. Network-week figures require seven days of new eligible containers.",
+    "Every actual table-based container in this comparison was a LOOT marker in 0.6.1, including the armory tables; do not apply the unused CORE guaranteed-gun rule. Each old opening: loose rounds22, cooked beef3.5, actual iron ingots2, gun0.25, vaccine0.2.",
+    "Correction to the supplied analysis scope: legacySupplies calls worldFirearmItem without loaded; it defaults to a full configured magazine. The four equally likely default magazines are20/30/8/8, mean16.5 per gun; old LOOT loaded-round EV=0.25*16.5=4.125 per opening. Current source-default configuration is evidence, not verification of deployed overrides. The supplied raw analysis baseline loaded_rounds=0 is not used as actual old behavior.",
+    "The new mapper defaults missing GunCurrentAmmoCount to zero. None of the modeled source firearm table entries declares that field, so new loaded-round EV is0; no additional full native magazine is awarded on top of source ammo.",
+    "Loose reload units are a potential-use accounting category: tagged native ammo and plain IRON_NUGGET accepted by WorldFirearms each supply one round. They are not an extra item grant. Supplychest has no firearm/direct ammunition entry; its3.5 units are plain nuggets:3.5 expected rolls*(weight4/24)*mean count6. Do not add those same nuggets again under another item category.",
+    "Food units count edible item quantity including rotten/negative food, not nutrition, healing, hunger points or saturation. Vaccines are only cure:vaccine mapped medicine-tagged HONEY_BOTTLE. Actual iron ingots and iron blocks stay separate; crafting conversion into nuggets is excluded rather than counted twice. Other original resources, armor, weapons, tools, maps, potions and enchantments are not assigned money values or claimed absent.",
+    "Fresh containers receive only source loot. Existing sourceV2 containers may receive one source-loot-v1 batch once while preserving previous items and legacy claims; their unknown count and remaining contents are not added to recurring player-day/network-week totals. Capacity failure consumes no source claim; deterministic planning and a persisted claim prevent reroll/reissue. A crash after claim persistence but before materialization may lose a batch; retry does not duplicate it.",
+    "The two physical starter barrels use source supplychest once each and are shared, not a per-account reward. Their actual deterministic seeded contents are not inferred from EV. The existing one-time personal starter kit is unchanged; reentry/resume/migration does not issue a second kit.",
+    "The complete native inventory, armor, offhand and XP remain in the expedition journal; exit restores origin and keeps expedition gear isolated. Ender chest and external shop/contract commands are blocked. ArcEvents calls no Vault/tokens/shop/contract payout API. Owned actors are removed before native lethal-death reward callbacks. Other plugins world/proxy hooks remain an integration unknown rather than a measured zero.",
+    "Vault and tokens direct before/after mint/burn are individually0. XP and items are separate; no item-to-currency or Vault-to-token exchange rate is assumed. There is no currency price, paid progression, savings target or purchasable full loadout in this change. Current EconomyShopGUI SELL and the owner planned SELL-to-contract transition are unchanged; mode isolation prevents ordinary export, not a global SELL-off.",
+    "No additional jobs, contracts, boosts or flight/mining income is stacked with the same expedition hours. Currency ledger totals are context from the parent fresh read-only168h observation, not an ArcEvents attribution, earning-per-hour estimate or proof of isolation. Activity buckets are only a proxy; concentration and unknown callers prevent a typical-income claim.",
+    "All loot EVs come from the supplied analytical exact-fraction file; no Monte Carlo simulation or inferred sampling error is used. Decimal amount strings are rounded from exact rational inputs to50 significant digits; evaluate.py uses Decimal arithmetic and checks units/scenario aggregation, not completeness or live behavior. Exact fraction fields are authoritative for repeating expectations."
+  ],
+  "participants": [
+    1,
+    5,
+    20
+  ],
+  "currencies": {
+    "vault": {
+      "minor_per_unit": 100,
+      "disposable_per_player_day": {
+        "before": [
+          "0",
+          "0",
+          "0"
+        ],
+        "after": [
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      "flows": []
+    },
+    "tokens": {
+      "minor_per_unit": 1,
+      "disposable_per_player_day": {
+        "before": [
+          "0",
+          "0",
+          "0"
+        ],
+        "after": [
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      "flows": []
+    },
+    "expedition_native_gun": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "supply_native_guns",
+          "kind": "item",
+          "source": "ApocalypseRuntime.legacySupplies -> ApocalypseSourceLoot + ApocalypseLootItems",
+          "basis": "supply unique physical-container openings; after table mixture supplychest=1; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "0.25",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "2",
+              "8",
+              "32"
+            ],
+            "amount_per_event_exact_fraction": "1/4"
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "2",
+              "8",
+              "32"
+            ],
+            "amount_per_event_exact_fraction": "0"
+          }
+        },
+        {
+          "id": "ammo_native_guns",
+          "kind": "item",
+          "source": "ApocalypseRuntime.legacySupplies -> ApocalypseSourceLoot + ApocalypseLootItems",
+          "basis": "ammo unique physical-container openings; after table mixture ammo_tacz=1/2, ammo_tacz_2=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "0.25",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "1",
+              "3",
+              "8"
+            ],
+            "amount_per_event_exact_fraction": "1/4"
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "1",
+              "3",
+              "8"
+            ],
+            "amount_per_event_exact_fraction": "0"
+          }
+        },
+        {
+          "id": "armory_native_guns",
+          "kind": "item",
+          "source": "ApocalypseRuntime.legacySupplies -> ApocalypseSourceLoot + ApocalypseLootItems",
+          "basis": "armory unique physical-container openings; after table mixture armory_chest=1/2, armory_chest_tacz=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "0.25",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "0.25",
+              "1",
+              "4"
+            ],
+            "amount_per_event_exact_fraction": "1/4"
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "0.48630136986301369863013698630136986301369863013699",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "0.25",
+              "1",
+              "4"
+            ],
+            "amount_per_event_exact_fraction": "71/146"
+          }
+        }
+      ]
+    },
+    "expedition_loose_reload_unit": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "supply_universal_rounds",
+          "kind": "item",
+          "source": "ApocalypseRuntime.legacySupplies -> ApocalypseSourceLoot + ApocalypseLootItems",
+          "basis": "supply unique physical-container openings; after table mixture supplychest=1; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "22",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "2",
+              "8",
+              "32"
+            ],
+            "amount_per_event_exact_fraction": "22"
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "3.5",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "2",
+              "8",
+              "32"
+            ],
+            "amount_per_event_exact_fraction": "7/2"
+          }
+        },
+        {
+          "id": "ammo_universal_rounds",
+          "kind": "item",
+          "source": "ApocalypseRuntime.legacySupplies -> ApocalypseSourceLoot + ApocalypseLootItems",
+          "basis": "ammo unique physical-container openings; after table mixture ammo_tacz=1/2, ammo_tacz_2=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "22",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "1",
+              "3",
+              "8"
+            ],
+            "amount_per_event_exact_fraction": "22"
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "63.967391304347826086956521739130434782608695652174",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "1",
+              "3",
+              "8"
+            ],
+            "amount_per_event_exact_fraction": "5885/92"
+          }
+        },
+        {
+          "id": "armory_universal_rounds",
+          "kind": "item",
+          "source": "ApocalypseRuntime.legacySupplies -> ApocalypseSourceLoot + ApocalypseLootItems",
+          "basis": "armory unique physical-container openings; after table mixture armory_chest=1/2, armory_chest_tacz=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "22",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "0.25",
+              "1",
+              "4"
+            ],
+            "amount_per_event_exact_fraction": "22"
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "0.25",
+              "1",
+              "4"
+            ],
+            "amount_per_event_exact_fraction": "0"
+          }
+        }
+      ]
+    },
+    "expedition_iron_ingot": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "supply_native_iron_ingots",
+          "kind": "item",
+          "source": "ApocalypseRuntime.legacySupplies -> ApocalypseSourceLoot + ApocalypseLootItems",
+          "basis": "supply unique physical-container openings; after table mixture supplychest=1; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "2",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "2",
+              "8",
+              "32"
+            ],
+            "amount_per_event_exact_fraction": "2"
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1.4583333333333333333333333333333333333333333333333",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "2",
+              "8",
+              "32"
+            ],
+            "amount_per_event_exact_fraction": "35/24"
+          }
+        },
+        {
+          "id": "ammo_native_iron_ingots",
+          "kind": "item",
+          "source": "ApocalypseRuntime.legacySupplies -> ApocalypseSourceLoot + ApocalypseLootItems",
+          "basis": "ammo unique physical-container openings; after table mixture ammo_tacz=1/2, ammo_tacz_2=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "2",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "1",
+              "3",
+              "8"
+            ],
+            "amount_per_event_exact_fraction": "2"
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "1",
+              "3",
+              "8"
+            ],
+            "amount_per_event_exact_fraction": "0"
+          }
+        },
+        {
+          "id": "armory_native_iron_ingots",
+          "kind": "item",
+          "source": "ApocalypseRuntime.legacySupplies -> ApocalypseSourceLoot + ApocalypseLootItems",
+          "basis": "armory unique physical-container openings; after table mixture armory_chest=1/2, armory_chest_tacz=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "2",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "0.25",
+              "1",
+              "4"
+            ],
+            "amount_per_event_exact_fraction": "2"
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "0.25",
+              "1",
+              "4"
+            ],
+            "amount_per_event_exact_fraction": "0"
+          }
+        }
+      ]
+    },
+    "expedition_food_item": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "supply_food_units",
+          "kind": "item",
+          "source": "ApocalypseRuntime.legacySupplies -> ApocalypseSourceLoot + ApocalypseLootItems",
+          "basis": "supply unique physical-container openings; after table mixture supplychest=1; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "3.5",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "2",
+              "8",
+              "32"
+            ],
+            "amount_per_event_exact_fraction": "7/2"
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "4.4838709677419354838709677419354838709677419354839",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "2",
+              "8",
+              "32"
+            ],
+            "amount_per_event_exact_fraction": "139/31"
+          }
+        },
+        {
+          "id": "ammo_food_units",
+          "kind": "item",
+          "source": "ApocalypseRuntime.legacySupplies -> ApocalypseSourceLoot + ApocalypseLootItems",
+          "basis": "ammo unique physical-container openings; after table mixture ammo_tacz=1/2, ammo_tacz_2=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "3.5",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "1",
+              "3",
+              "8"
+            ],
+            "amount_per_event_exact_fraction": "7/2"
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "1",
+              "3",
+              "8"
+            ],
+            "amount_per_event_exact_fraction": "0"
+          }
+        },
+        {
+          "id": "armory_food_units",
+          "kind": "item",
+          "source": "ApocalypseRuntime.legacySupplies -> ApocalypseSourceLoot + ApocalypseLootItems",
+          "basis": "armory unique physical-container openings; after table mixture armory_chest=1/2, armory_chest_tacz=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "3.5",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "0.25",
+              "1",
+              "4"
+            ],
+            "amount_per_event_exact_fraction": "7/2"
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "0.25",
+              "1",
+              "4"
+            ],
+            "amount_per_event_exact_fraction": "0"
+          }
+        }
+      ]
+    },
+    "expedition_vaccine": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "supply_vaccines",
+          "kind": "item",
+          "source": "ApocalypseRuntime.legacySupplies -> ApocalypseSourceLoot + ApocalypseLootItems",
+          "basis": "supply unique physical-container openings; after table mixture supplychest=1; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "0.2",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "2",
+              "8",
+              "32"
+            ],
+            "amount_per_event_exact_fraction": "1/5"
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "0.21875",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "2",
+              "8",
+              "32"
+            ],
+            "amount_per_event_exact_fraction": "7/32"
+          }
+        },
+        {
+          "id": "ammo_vaccines",
+          "kind": "item",
+          "source": "ApocalypseRuntime.legacySupplies -> ApocalypseSourceLoot + ApocalypseLootItems",
+          "basis": "ammo unique physical-container openings; after table mixture ammo_tacz=1/2, ammo_tacz_2=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "0.2",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "1",
+              "3",
+              "8"
+            ],
+            "amount_per_event_exact_fraction": "1/5"
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "1",
+              "3",
+              "8"
+            ],
+            "amount_per_event_exact_fraction": "0"
+          }
+        },
+        {
+          "id": "armory_vaccines",
+          "kind": "item",
+          "source": "ApocalypseRuntime.legacySupplies -> ApocalypseSourceLoot + ApocalypseLootItems",
+          "basis": "armory unique physical-container openings; after table mixture armory_chest=1/2, armory_chest_tacz=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "0.2",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "0.25",
+              "1",
+              "4"
+            ],
+            "amount_per_event_exact_fraction": "1/5"
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "0.25",
+              "1",
+              "4"
+            ],
+            "amount_per_event_exact_fraction": "0"
+          }
+        }
+      ]
+    },
+    "expedition_iron_block": {
+      "minor_per_unit": 1,
+      "flows": []
+    },
+    "expedition_loaded_round": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "supply_loaded_rounds_in_guns",
+          "kind": "item",
+          "source": "ApocalypseRuntime.legacySupplies -> ApocalypseSourceLoot + ApocalypseLootItems",
+          "basis": "supply unique physical-container openings; after table mixture supplychest=1; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "4.125",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "2",
+              "8",
+              "32"
+            ],
+            "amount_per_event_exact_fraction": "33/8"
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "2",
+              "8",
+              "32"
+            ],
+            "amount_per_event_exact_fraction": "0"
+          }
+        },
+        {
+          "id": "ammo_loaded_rounds_in_guns",
+          "kind": "item",
+          "source": "ApocalypseRuntime.legacySupplies -> ApocalypseSourceLoot + ApocalypseLootItems",
+          "basis": "ammo unique physical-container openings; after table mixture ammo_tacz=1/2, ammo_tacz_2=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "4.125",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "1",
+              "3",
+              "8"
+            ],
+            "amount_per_event_exact_fraction": "33/8"
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "1",
+              "3",
+              "8"
+            ],
+            "amount_per_event_exact_fraction": "0"
+          }
+        },
+        {
+          "id": "armory_loaded_rounds_in_guns",
+          "kind": "item",
+          "source": "ApocalypseRuntime.legacySupplies -> ApocalypseSourceLoot + ApocalypseLootItems",
+          "basis": "armory unique physical-container openings; after table mixture armory_chest=1/2, armory_chest_tacz=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "4.125",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "0.25",
+              "1",
+              "4"
+            ],
+            "amount_per_event_exact_fraction": "33/8"
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              "0.25",
+              "1",
+              "4"
+            ],
+            "amount_per_event_exact_fraction": "0"
+          }
+        }
+      ]
+    }
+  },
+  "source_evidence": {
+    "input_path_at_review": "/private/tmp/apocalypse-loot-balance-20261115.json",
+    "input_sha256": "54d341245dee478df43b05f3ae042483413d6741e628f167ba8cd3a1568baf53",
+    "generated_utc": "2026-11-14T22:01:27.902803+00:00",
+    "method": {
+      "kind": "analytical rational expectation, no Monte Carlo",
+      "monte_carlo_samples": 0,
+      "sampling_standard_error": null,
+      "tables": "EV=sum(pool expected rolls * sum(entry weight/total weight * expected source count * native category units)); uniform integer endpoints inclusive; air remains in total weight",
+      "procedures": "nominal source decimal probabilities treated as exact rational Bernoulli probabilities; source Math.random finite-grid discretization and runtime RNG stream not reproduced",
+      "quantity_scope": "raw source batch mapped to native items, before physical container capacity/claim replay; no attempt to value enchanted gear or other resources",
+      "sampling_standard_error_note": "not applicable: no sampling; these are expectations, not per-opening guarantees or measured rates"
+    },
+    "input_archives": [
+      {
+        "id": "jcws",
+        "bytes": 3716418,
+        "sha256": "80da781a4c097f93d0be3f2139228508124f2af678abd036479de9f1f8b82e23"
+      },
+      {
+        "id": "keerdm",
+        "bytes": 258713,
+        "sha256": "1b9db7636db3a1bcfb015d19c6d44b663e454f05e12e472d128c60f2b5214d3e"
+      },
+      {
+        "id": "lostcities",
+        "bytes": 1253469,
+        "sha256": "7a3f3c55de1b869380fdbdef4fa8865bc1daf3ae6c66fab1056ea44d6534b4fb"
+      },
+      {
+        "id": "cwpack",
+        "bytes": 294201586,
+        "sha256": "9e27be83c25a78d13508134be65d2fe70efb389ce015d2a9f54f8dd0f9861901"
+      },
+      {
+        "id": "deepvoid",
+        "bytes": 8982052,
+        "sha256": "05b5c6cd8b5dd2f78528e3b8d6a183afe51476e6897b493c55c2a6f0974e7d69"
+      },
+      {
+        "id": "depths",
+        "bytes": 4141187,
+        "sha256": "d20a72131f49c91d03ab709ac7f08451d95ccf84d637389ed0a6629b0ef68f08"
+      }
+    ],
+    "mapper_sha256_from_input": "69cf45caddfdcf42167b03de81cdb75a1f17c4344e9ab98f0a10346bfeffb6f1",
+    "procedural_facts_sha256": "bcb9eb1467335e18ae8581ff4ea3069320d42e463f3a0a7b401d546ee3048876",
+    "procedural_facts_provenance": "literal item/count/probability tuples independently extracted from pinned JCWS right-click procedure bytecode; no Minecraft/Forge execution",
+    "legacy_magazines": {
+      "FIVE_SEVEN": 20,
+      "G36": 30,
+      "M1_GARAND": 8,
+      "VEPR_12": 8
+    },
+    "legacy_loaded_round_ev_per_loot_opening": "33/8",
+    "baseline_scope_correction": "Supplied loaded_rounds baseline0 omitted default full native magazines; corrected from reviewed source and config defaults."
+  },
+  "table_expectations_exact": {
+    "supplychest": {
+      "source_archive": "jcws",
+      "source_entry": "data/jeffs_cursed_walking_structures/loot_tables/chests/supplychest.json",
+      "per_opening_ev": {
+        "native_guns": "0",
+        "universal_rounds": "7/2",
+        "native_iron_ingots": "35/24",
+        "food_units": "139/31",
+        "vaccines": "7/32",
+        "native_iron_blocks": "0",
+        "loaded_rounds_in_guns": "0"
+      },
+      "pools": [
+        {
+          "expected_rolls": "7/2",
+          "total_weight": 24,
+          "gun_weight": "0"
+        },
+        {
+          "expected_rolls": "2",
+          "total_weight": 31,
+          "gun_weight": "0"
+        }
+      ],
+      "probability_at_least_one_gun": "0"
+    },
+    "ammo_tacz": {
+      "source_archive": "jcws",
+      "source_entry": "data/jeffs_cursed_walking_structures/loot_tables/chests/ammo_tacz.json",
+      "per_opening_ev": {
+        "native_guns": "0",
+        "universal_rounds": "3421/46",
+        "native_iron_ingots": "0",
+        "food_units": "0",
+        "vaccines": "0",
+        "native_iron_blocks": "0",
+        "loaded_rounds_in_guns": "0"
+      },
+      "pools": [
+        {
+          "expected_rolls": "2",
+          "total_weight": 15,
+          "gun_weight": "0"
+        },
+        {
+          "expected_rolls": "11/2",
+          "total_weight": 115,
+          "gun_weight": "0"
+        }
+      ],
+      "probability_at_least_one_gun": "0"
+    },
+    "ammo_tacz_2": {
+      "source_archive": "jcws",
+      "source_entry": "data/jeffs_cursed_walking_structures/loot_tables/chests/ammo_tacz_2.json",
+      "per_opening_ev": {
+        "native_guns": "0",
+        "universal_rounds": "1232/23",
+        "native_iron_ingots": "0",
+        "food_units": "0",
+        "vaccines": "0",
+        "native_iron_blocks": "0",
+        "loaded_rounds_in_guns": "0"
+      },
+      "pools": [
+        {
+          "expected_rolls": "2",
+          "total_weight": 15,
+          "gun_weight": "0"
+        },
+        {
+          "expected_rolls": "4",
+          "total_weight": 115,
+          "gun_weight": "0"
+        }
+      ],
+      "probability_at_least_one_gun": "0"
+    },
+    "armory_chest": {
+      "source_archive": "jcws",
+      "source_entry": "data/jeffs_cursed_walking_structures/loot_tables/blocks/armory_chest.json",
+      "per_opening_ev": {
+        "native_guns": "69/146",
+        "universal_rounds": "0",
+        "native_iron_ingots": "0",
+        "food_units": "0",
+        "vaccines": "0",
+        "native_iron_blocks": "0",
+        "loaded_rounds_in_guns": "0"
+      },
+      "pools": [
+        {
+          "expected_rolls": "2",
+          "total_weight": 10,
+          "gun_weight": "0"
+        },
+        {
+          "expected_rolls": "3/2",
+          "total_weight": 73,
+          "gun_weight": "23"
+        }
+      ],
+      "probability_at_least_one_gun": "2254/5329"
+    },
+    "armory_chest_tacz": {
+      "source_archive": "jcws",
+      "source_entry": "data/jeffs_cursed_walking_structures/loot_tables/blocks/armory_chest_tacz.json",
+      "per_opening_ev": {
+        "native_guns": "1/2",
+        "universal_rounds": "0",
+        "native_iron_ingots": "0",
+        "food_units": "0",
+        "vaccines": "0",
+        "native_iron_blocks": "0",
+        "loaded_rounds_in_guns": "0"
+      },
+      "pools": [
+        {
+          "expected_rolls": "2",
+          "total_weight": 10,
+          "gun_weight": "0"
+        },
+        {
+          "expected_rolls": "4",
+          "total_weight": 120,
+          "gun_weight": "15"
+        }
+      ],
+      "probability_at_least_one_gun": "528631/1310720"
+    },
+    "resource_chest": {
+      "source_archive": "jcws",
+      "source_entry": "data/jeffs_cursed_walking_structures/loot_tables/chests/resource_chest.json",
+      "per_opening_ev": {
+        "native_guns": "0",
+        "universal_rounds": "0",
+        "native_iron_ingots": "32001/4256",
+        "food_units": "0",
+        "vaccines": "0",
+        "native_iron_blocks": "45/112",
+        "loaded_rounds_in_guns": "0"
+      },
+      "pools": [
+        {
+          "expected_rolls": "9/2",
+          "total_weight": 168,
+          "gun_weight": "0"
+        },
+        {
+          "expected_rolls": "1",
+          "total_weight": 38,
+          "gun_weight": "0"
+        }
+      ],
+      "probability_at_least_one_gun": "0"
+    },
+    "gun_part_chest": {
+      "source_archive": "jcws",
+      "source_entry": "net/mcreator/jeffscursedwalkingstructures/procedures/GunPartChestOnBlockRightClickedProcedure.class",
+      "per_opening_ev": {
+        "native_guns": "0",
+        "universal_rounds": "0",
+        "native_iron_ingots": "343/20",
+        "food_units": "0",
+        "vaccines": "0",
+        "native_iron_blocks": "0",
+        "loaded_rounds_in_guns": "0"
+      },
+      "method": "independent Bernoulli source probability times inclusive uniform integer quantity; all source guaranteed rows retained"
+    },
+    "create_part_chest": {
+      "source_archive": "jcws",
+      "source_entry": "net/mcreator/jeffscursedwalkingstructures/procedures/CreatePartChestOnBlockRightClickedProcedure.class",
+      "per_opening_ev": {
+        "native_guns": "0",
+        "universal_rounds": "0",
+        "native_iron_ingots": "27/4",
+        "food_units": "0",
+        "vaccines": "0",
+        "native_iron_blocks": "0",
+        "loaded_rounds_in_guns": "0"
+      },
+      "method": "independent Bernoulli source probability times inclusive uniform integer quantity; all source guaranteed rows retained"
+    }
+  },
+  "scenario_expectations_exact": [
+    {
+      "name": "low",
+      "participants": 1,
+      "unique_openings_per_participant_day": {
+        "supply": "2",
+        "ammo": "1",
+        "armory": "1/4"
+      },
+      "before_per_participant_day": {
+        "native_guns": "13/16",
+        "universal_rounds": "143/2",
+        "native_iron_ingots": "13/2",
+        "food_units": "91/8",
+        "vaccines": "13/20",
+        "native_iron_blocks": "0",
+        "loaded_rounds_in_guns": "429/32"
+      },
+      "after_per_participant_day": {
+        "native_guns": "71/584",
+        "universal_rounds": "6529/92",
+        "native_iron_ingots": "35/12",
+        "food_units": "278/31",
+        "vaccines": "7/16",
+        "native_iron_blocks": "0",
+        "loaded_rounds_in_guns": "0"
+      },
+      "delta_per_participant_day": {
+        "native_guns": "-807/1168",
+        "universal_rounds": "-49/92",
+        "native_iron_ingots": "-43/12",
+        "food_units": "-597/248",
+        "vaccines": "-17/80",
+        "native_iron_blocks": "0",
+        "loaded_rounds_in_guns": "-429/32"
+      },
+      "before_network_7_day_sensitivity": {
+        "native_guns": "91/16",
+        "universal_rounds": "1001/2",
+        "native_iron_ingots": "91/2",
+        "food_units": "637/8",
+        "vaccines": "91/20",
+        "native_iron_blocks": "0",
+        "loaded_rounds_in_guns": "3003/32"
+      },
+      "after_network_7_day_sensitivity": {
+        "native_guns": "497/584",
+        "universal_rounds": "45703/92",
+        "native_iron_ingots": "245/12",
+        "food_units": "1946/31",
+        "vaccines": "49/16",
+        "native_iron_blocks": "0",
+        "loaded_rounds_in_guns": "0"
+      }
+    },
+    {
+      "name": "base",
+      "participants": 5,
+      "unique_openings_per_participant_day": {
+        "supply": "8",
+        "ammo": "3",
+        "armory": "1"
+      },
+      "before_per_participant_day": {
+        "native_guns": "3",
+        "universal_rounds": "264",
+        "native_iron_ingots": "24",
+        "food_units": "42",
+        "vaccines": "12/5",
+        "native_iron_blocks": "0",
+        "loaded_rounds_in_guns": "99/2"
+      },
+      "after_per_participant_day": {
+        "native_guns": "71/146",
+        "universal_rounds": "20231/92",
+        "native_iron_ingots": "35/3",
+        "food_units": "1112/31",
+        "vaccines": "7/4",
+        "native_iron_blocks": "0",
+        "loaded_rounds_in_guns": "0"
+      },
+      "delta_per_participant_day": {
+        "native_guns": "-367/146",
+        "universal_rounds": "-4057/92",
+        "native_iron_ingots": "-37/3",
+        "food_units": "-190/31",
+        "vaccines": "-13/20",
+        "native_iron_blocks": "0",
+        "loaded_rounds_in_guns": "-99/2"
+      },
+      "before_network_7_day_sensitivity": {
+        "native_guns": "105",
+        "universal_rounds": "9240",
+        "native_iron_ingots": "840",
+        "food_units": "1470",
+        "vaccines": "84",
+        "native_iron_blocks": "0",
+        "loaded_rounds_in_guns": "3465/2"
+      },
+      "after_network_7_day_sensitivity": {
+        "native_guns": "2485/146",
+        "universal_rounds": "708085/92",
+        "native_iron_ingots": "1225/3",
+        "food_units": "38920/31",
+        "vaccines": "245/4",
+        "native_iron_blocks": "0",
+        "loaded_rounds_in_guns": "0"
+      }
+    },
+    {
+      "name": "high",
+      "participants": 20,
+      "unique_openings_per_participant_day": {
+        "supply": "32",
+        "ammo": "8",
+        "armory": "4"
+      },
+      "before_per_participant_day": {
+        "native_guns": "11",
+        "universal_rounds": "968",
+        "native_iron_ingots": "88",
+        "food_units": "154",
+        "vaccines": "44/5",
+        "native_iron_blocks": "0",
+        "loaded_rounds_in_guns": "363/2"
+      },
+      "after_per_participant_day": {
+        "native_guns": "142/73",
+        "universal_rounds": "14346/23",
+        "native_iron_ingots": "140/3",
+        "food_units": "4448/31",
+        "vaccines": "7",
+        "native_iron_blocks": "0",
+        "loaded_rounds_in_guns": "0"
+      },
+      "delta_per_participant_day": {
+        "native_guns": "-661/73",
+        "universal_rounds": "-7918/23",
+        "native_iron_ingots": "-124/3",
+        "food_units": "-326/31",
+        "vaccines": "-9/5",
+        "native_iron_blocks": "0",
+        "loaded_rounds_in_guns": "-363/2"
+      },
+      "before_network_7_day_sensitivity": {
+        "native_guns": "1540",
+        "universal_rounds": "135520",
+        "native_iron_ingots": "12320",
+        "food_units": "21560",
+        "vaccines": "1232",
+        "native_iron_blocks": "0",
+        "loaded_rounds_in_guns": "25410"
+      },
+      "after_network_7_day_sensitivity": {
+        "native_guns": "19880/73",
+        "universal_rounds": "2008440/23",
+        "native_iron_ingots": "19600/3",
+        "food_units": "622720/31",
+        "vaccines": "980",
+        "native_iron_blocks": "0",
+        "loaded_rounds_in_guns": "0"
+      }
+    }
+  ],
+  "one_time_migration": {
+    "recurring_in_evaluator": false,
+    "cohort": "existing generated sourceV2 physical containers without source-loot-v1 claim; count by source table unknown",
+    "additional_grant": "For each eligible existing physical container, exactly one source batch with table_expectations_exact[t].per_opening_ev; native capacity must admit whole batch first.",
+    "preservation": "Retain old items and legacy claim keys; previously consumed items are not restored; new containers receive no generic batch.",
+    "network_total_formula": "sum over eligible existing containers of their source-table expectation; cannot report a finite number without the cohort inventory",
+    "retained_old_contents": "unknown; do not automatically add baseline EV as physical inventory",
+    "old_intact_table_loot_upper_accounting": {
+      "supplychest": {
+        "native_guns": "1/4",
+        "universal_rounds": "51/2",
+        "native_iron_ingots": "83/24",
+        "food_units": "495/62",
+        "vaccines": "67/160",
+        "native_iron_blocks": "0",
+        "loaded_rounds_in_guns": "33/8"
+      },
+      "ammo_tacz": {
+        "native_guns": "1/4",
+        "universal_rounds": "4433/46",
+        "native_iron_ingots": "2",
+        "food_units": "7/2",
+        "vaccines": "1/5",
+        "native_iron_blocks": "0",
+        "loaded_rounds_in_guns": "33/8"
+      },
+      "ammo_tacz_2": {
+        "native_guns": "1/4",
+        "universal_rounds": "1738/23",
+        "native_iron_ingots": "2",
+        "food_units": "7/2",
+        "vaccines": "1/5",
+        "native_iron_blocks": "0",
+        "loaded_rounds_in_guns": "33/8"
+      },
+      "armory_chest": {
+        "native_guns": "211/292",
+        "universal_rounds": "22",
+        "native_iron_ingots": "2",
+        "food_units": "7/2",
+        "vaccines": "1/5",
+        "native_iron_blocks": "0",
+        "loaded_rounds_in_guns": "33/8"
+      },
+      "armory_chest_tacz": {
+        "native_guns": "3/4",
+        "universal_rounds": "22",
+        "native_iron_ingots": "2",
+        "food_units": "7/2",
+        "vaccines": "1/5",
+        "native_iron_blocks": "0",
+        "loaded_rounds_in_guns": "33/8"
+      },
+      "resource_chest": {
+        "native_guns": "1/4",
+        "universal_rounds": "22",
+        "native_iron_ingots": "40513/4256",
+        "food_units": "7/2",
+        "vaccines": "1/5",
+        "native_iron_blocks": "45/112",
+        "loaded_rounds_in_guns": "33/8"
+      }
+    },
+    "old_intact_scope": "Only table-based old LOOT containers if the entire old generic batch is still intact; not a recurring grant or a claim that procedure crates had that baseline."
+  },
+  "two_shared_starter_barrels": {
+    "recurring_in_evaluator": false,
+    "number_of_shared_physical_barrels": 2,
+    "source_table": "supplychest",
+    "fresh_pair_expected_item_units": {
+      "native_guns": "0",
+      "universal_rounds": "7",
+      "native_iron_ingots": "35/12",
+      "food_units": "278/31",
+      "vaccines": "7/16",
+      "native_iron_blocks": "0",
+      "loaded_rounds_in_guns": "0"
+    },
+    "old_pair_expected_item_units_if_both_generic_batches_intact": {
+      "native_guns": "1/2",
+      "universal_rounds": "44",
+      "native_iron_ingots": "4",
+      "food_units": "7",
+      "vaccines": "2/5",
+      "native_iron_blocks": "0",
+      "loaded_rounds_in_guns": "33/4"
+    },
+    "note": "No source firearm/direct ammunition entry; plain nugget EV7 across pair supplies potential reload units. Actual deterministic seed outcome is unobserved. A shared physical pair, not two new barrels per participant or day."
+  },
+  "ledger_context": {
+    "provenance": "fresh read-only arc_ops_server economy_hours=168 observation supplied by parent; not queried again by documentation worker",
+    "generated_at_ms": 1794692593091,
+    "since_ms": 1794087793086,
+    "requested_hours": 168,
+    "coverage": {
+      "records": 4989,
+      "operations": 45926,
+      "players": 18
+    },
+    "vault": {
+      "mint": "439469.7090980104",
+      "burn": "3806196.669999985",
+      "net": "-3366726.9609019747",
+      "jobs_mint": "275114.1652759985",
+      "jobs_top_player_share_approx": "0.65"
+    },
+    "tokens": {
+      "mint": "61",
+      "burn": "3",
+      "net": "58"
+    },
+    "unknown": {
+      "operations": 37,
+      "raw_mixed_unit_absolute_amount_not_a_currency_total": "222893",
+      "vault_casino_operations": 36,
+      "vault_casino_net": "46090",
+      "tokens_crate_key_shop_burn": "3"
+    },
+    "limitations": [
+      "Do not sum the unknown mixed-unit amount as Vault or tokens.",
+      "No player-hours derived from five-minute activity buckets.",
+      "No ArcEvents attribution, per-mode opening telemetry or post-deployment observation established."
+    ]
+  },
+  "decision": {
+    "status": "source-level economic assessment; delivery, activation and native integration evidence remain separate",
+    "direct_vault_delta": "0",
+    "direct_tokens_delta": "0",
+    "finding": "Same modeled unique-opening mix reduces ordinary gun/iron/food/vaccine EV; ammo concentrates in actual ammo tables. Source firearms add no default loaded magazine. Migration adds a one-time finite source batch to an unknown existing cohort.",
+    "unknowns": [
+      "Actual eligible-container cohort and remaining old stock",
+      "Travel/opening rate and actual table mix",
+      "Active configured magazine overrides for old baseline",
+      "Third-party world and proxy hooks, including jobs/quests and possible item export",
+      "Native runtime crash/capacity/double-chest and origin-state behavior"
+    ]
+  }
+}

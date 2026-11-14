@@ -18,6 +18,9 @@ import org.bukkit.event.world.ChunkLoadEvent
 import org.bukkit.event.world.ChunkUnloadEvent
 import org.bukkit.inventory.EquipmentSlot
 import org.bukkit.inventory.ItemStack
+import org.bukkit.inventory.Inventory
+import org.bukkit.loot.LootContext
+import ru.ruscrafting.events.domain.apocalypse.source.ApocalypseSourceLootDrop
 import org.bukkit.persistence.PersistentDataType
 import org.bukkit.plugin.java.JavaPlugin
 import ru.arc.core.LifecycleTaskScope
@@ -77,6 +80,11 @@ class ApocalypseRuntime(
     private val recoveryOperations = linkedSetOf<UUID>()
     private val playerSaves = mutableMapOf<UUID, CompletableFuture<Unit>>()
     private val bars = mutableMapOf<UUID, BossBar>()
+    private val guideRequests = mutableSetOf<UUID>()
+    private val guideSnapshots = mutableMapOf<UUID, ApocalypseGuideSnapshot>()
+    private val trackedGuides = mutableMapOf<UUID, GuideTarget>()
+    private val guide: ApocalypseGuide = ApocalypseGuide(plugin, locale, ::openGuide, ::trackGuide, ::leave,
+        dialogsEnabled = { config().ui.dialogsEnabled })
     private val actors = linkedMapOf<String, UUID>()
     private val pendingChunks = ArrayDeque<Chunk>()
     private data class SourceTileJob(val chunk: Chunk, val entries: Iterator<ru.ruscrafting.events.domain.apocalypse.source.ApocalypseSourceBlockEntity>)
@@ -90,6 +98,8 @@ class ApocalypseRuntime(
     private var committedSwitches = emptySet<String>()
     private var committedSpawns = emptySet<String>()
     private val stocked = NamespacedKey(plugin, "apocalypse_stocked")
+    private val originalStocked = NamespacedKey(plugin, "apocalypse_original_loot_v1")
+    private val lootItems = ApocalypseLootItems(plugin, locale, firearms)
     private val actorId = NamespacedKey(plugin, "apocalypse_actor")
     private val actorVariant = NamespacedKey(plugin, "apocalypse_variant")
     private val actorSource = NamespacedKey(plugin, "apocalypse_source")
@@ -195,18 +205,29 @@ class ApocalypseRuntime(
         }
         if (action == "leave") { leave(player); return true }
         if (action == "status") { status(player); return true }
+        if (isPlaying(player.uniqueId) && action in setOf(null, "menu", "help")) { openGuide(player); return true }
         if (action == "apocalypse") {
             when (arguments.getOrNull(1)?.lowercase()) {
+                "guide", "help" -> openGuide(player)
+                "track" -> {
+                    val target = arguments.getOrNull(2)?.uppercase()?.let { runCatching { GuideTarget.valueOf(it) }.getOrNull() }
+                    if (target == null) openGuide(player) else trackGuide(player, target)
+                }
                 "qa" -> if (player.hasPermission("arcevents.qa")) player.sendMessage(qaStatus()) else message(player, "denied")
                 "markers" -> if (host && player.hasPermission("arcevents.qa")) {
                     val kind = arguments.getOrNull(2)?.uppercase()
                     val x = player.location.blockX; val z = player.location.blockZ
                     work.compute {
                         layout.sitesNear(x, z).asSequence().flatMap { layout.markers(it).asSequence() }
-                            .filter { kind == null || it.kind.name == kind }.take(12).toList()
+                            .filter { marker -> when (kind) {
+                                "WEAPONS" -> marker.lootTable?.let { (layout as? ApocalypseOriginalLayout)?.lootCatalog?.hasFirearm(it) } == true
+                                "AMMO" -> marker.lootTable?.substringAfterLast('/') in setOf("ammo_chest", "ammo_tacz", "ammo_tacz_2", "tacz_ammochest")
+                                "CRATES" -> marker.sourceBlock in setOf("jeffs_cursed_walking_structures:gun_part_chest", "jeffs_cursed_walking_structures:create_part_chest")
+                                else -> kind == null || marker.kind.name == kind
+                            } }.take(12).toList()
                     }.thenCompose { entries -> work.onMain {
                         if (player.isOnline) entries.forEach {
-                            player.sendMessage("ARCEVENTS_APOCALYPSE_MARKER kind=${it.kind} x=${it.x} y=${it.y} z=${it.z}")
+                            player.sendMessage("ARCEVENTS_APOCALYPSE_MARKER kind=${it.kind} x=${it.x} y=${it.y} z=${it.z} loot_table=${it.lootTable ?: "-"} source_block=${it.sourceBlock ?: "-"}")
                         }
                     } }.exceptionally { log("source-marker-read", it); null }
                 } else message(player, "denied")
@@ -235,7 +256,7 @@ class ApocalypseRuntime(
                         checkpoint(); status(player)
                     }
                 }
-                else -> if (isPlaying(player.uniqueId)) status(player) else enter(player)
+                else -> if (isPlaying(player.uniqueId)) openGuide(player) else enter(player)
             }
             return true
         }
@@ -251,6 +272,64 @@ class ApocalypseRuntime(
             "phase" to locale.render("apocalypse.phase.${rules.phaseAt(state.survival.worldTick).name.lowercase()}", player),
             "players" to locale.text(active.size), "enemies" to locale.text(actors.size),
             "infection" to locale.render("apocalypse.infection.${(state.infections[player.uniqueId.toString()]?.stage ?: ApocalypseInfectionStage.HEALTHY).name.lowercase()}", player))))
+    }
+
+    private fun openGuide(player: Player): Unit = prepareGuide(player) { guide.show(player, it) }
+
+    private fun trackGuide(player: Player, target: GuideTarget): Unit = prepareGuide(player) { snapshot ->
+        val from = ApocalypsePoint(player.location.blockX, player.location.blockY, player.location.blockZ)
+        if (snapshot.route(target, from) == null) message(player, "guide.route-unavailable")
+        else {
+            trackedGuides[player.uniqueId] = target
+            val tracking = snapshot.copy(tracked = target)
+            guideSnapshots[player.uniqueId] = tracking
+            guide.trackingHud(player, tracking)?.let { player.sendMessage(it) }
+        }
+    }
+
+    /** Source planning may assemble many pieces; only the final small presentation reads native player state. */
+    private fun prepareGuide(player: Player, show: (ApocalypseGuideSnapshot) -> Unit) {
+        if (!isPlaying(player.uniqueId) || isBusy(player.uniqueId) || player.world != world) {
+            message(player, "unavailable"); return
+        }
+        if (!guideRequests.add(player.uniqueId)) return
+        val id = player.uniqueId
+        val x = player.location.blockX; val z = player.location.blockZ
+        val claimed = state.looted.toSet()
+        work.compute {
+            val original = layout as? ApocalypseOriginalLayout
+            val supplies = (original?.starterSupplyMarkers ?: layout.markers(layout.starter)
+                .filter { it.kind.name in setOf("LOOT", "MEDICAL") }).map {
+                    GuideRoute(ApocalypsePoint(it.x, it.y, it.z), lootClaimId(it) in claimed)
+                }
+            val sites = layout.sitesNear(x, z)
+            val city = sites.firstOrNull { it.kind == ApocalypseSiteKind.CITY }?.anchor?.let(::GuideRoute)
+            val weapons = sites.asSequence().filter { it.kind in setOf(ApocalypseSiteKind.LAB, ApocalypseSiteKind.REACTOR, ApocalypseSiteKind.OIL_RIG) }
+                .take(12).firstNotNullOfOrNull { site -> layout.markers(site).firstOrNull {
+                    if (original == null) it.kind.name in setOf("ARMORY", "CORE")
+                    else it.lootTable?.let(original.lootCatalog::hasFirearm) == true
+                }?.let { GuideRoute(ApocalypsePoint(it.x, it.y, it.z)) } }
+            Triple(supplies, original?.starterExit?.let(::GuideRoute) ?: GuideRoute(layout.starter.anchor), city to weapons)
+        }.whenComplete { routes, failure -> work.onMain {
+            guideRequests -= id
+            if (failure != null) { log("guide-plan", failure); if (player.isOnline) message(player, "unavailable"); return@onMain }
+            if (!opened || !player.isOnline || !isPlaying(id) || isBusy(id) || player.world != world) return@onMain
+            val day = rules.dayAt(state.survival.worldTick)
+            val horde = state.hordes[id.toString()]
+            val nextHorde = horde?.horde?.day ?: horde?.nextHordeDay?.takeIf { it > 0 }
+                ?: (((day / options.hordeDays) + 1) * options.hordeDays)
+            val snapshot = ApocalypseGuideSnapshot(day, nextHorde,
+                state.infections[id.toString()]?.stage ?: ApocalypseInfectionStage.HEALTHY,
+                player.inventory.storageContents.any { item -> item != null && !item.isEmpty &&
+                    item.itemMeta.persistentDataContainer.get(NamespacedKey(plugin, "world_firearm"), PersistentDataType.STRING)
+                        ?.let { runCatching { FirearmId.valueOf(it) }.isSuccess } == true },
+                player.inventory.storageContents.sumOf { item -> if (item != null &&
+                    (firearms.isWorldAmmunition(item) || item.isSimilar(ItemStack.of(Material.IRON_NUGGET)))) item.amount else 0 },
+                isInStarter(player),
+                routes.first, routes.second, routes.third.first, routes.third.second, trackedGuides[id])
+            guideSnapshots[id] = snapshot
+            show(snapshot)
+        } }
     }
 
     fun enter(player: Player, originServer: String = config().serverId, queueChecked: Boolean = false) {
@@ -322,7 +401,7 @@ class ApocalypseRuntime(
                         players[player.uniqueId] = record
                         active += player.uniqueId
                         busy -= player.uniqueId
-                        message(player, "entered")
+                        announceArrival(player)
                     } finally { moving -= player.uniqueId }
                 } }
             }.thenCompose { it }
@@ -384,6 +463,8 @@ class ApocalypseRuntime(
             player.persistentDataContainer.remove(nativeSession)
             player.saveData()
             active -= player.uniqueId
+            guideSnapshots.remove(player.uniqueId)
+            trackedGuides.remove(player.uniqueId)
             bars.remove(player.uniqueId)?.let(player::hideBossBar)
             val parked = record.copy(phase = ApocalypsePlayerPhase.PARKED, origin = null,
                 returnPending = record.originServer != config().serverId)
@@ -430,9 +511,20 @@ class ApocalypseRuntime(
         return PaperPlayerStateCodec().encode(snapshot)
     }
 
+    private fun isInStarter(player: Player): Boolean {
+        val position = player.location
+        val point = ApocalypsePoint(position.blockX, position.blockY, position.blockZ)
+        val original = layout as? ApocalypseOriginalLayout
+        val pieces = original?.structure(original.starter)?.pieces
+        return if (pieces.isNullOrEmpty()) point == layout.spawn else
+            point.y < pieces.first().bounds.minY && pieces.any { it.bounds.contains(point.x, point.y, point.z) }
+    }
+
+    private fun announceArrival(player: Player) = guide.entryNotice(player, isInStarter(player))
+
     private fun resumeNative(player: Player, record: ApocalypsePlayerRecord) {
         if (player.world == world) {
-            busy -= player.uniqueId; active += player.uniqueId; message(player, "resumed"); return
+            busy -= player.uniqueId; active += player.uniqueId; announceArrival(player); return
         }
         busy += player.uniqueId
         playerOperations += player.uniqueId
@@ -444,7 +536,7 @@ class ApocalypseRuntime(
                 check(player.teleport(location(layout.spawn)))
                 player.fallDistance = 0f
                 player.saveData()
-                active += player.uniqueId; busy -= player.uniqueId; message(player, "resumed")
+                active += player.uniqueId; busy -= player.uniqueId; announceArrival(player)
             } finally { moving -= player.uniqueId }
         } }.whenComplete { _, failure -> work.onMain {
             playerOperations -= player.uniqueId
@@ -551,6 +643,9 @@ class ApocalypseRuntime(
                 "enemies" to locale.text(actors.size)))
             val bar = bars.getOrPut(player.uniqueId) { BossBar.bossBar(title, 1f, BossBar.Color.RED, BossBar.Overlay.PROGRESS).also(player::showBossBar) }
             bar.name(title)
+            guideSnapshots[player.uniqueId]?.let { snapshot ->
+                guide.trackingHud(player, snapshot.copy(day = rules.dayAt(state.survival.worldTick), infection = infection.stage))?.let(bar::name)
+            }
         }
         tickActors(survivors)
         if (step % 600L == 0L) checkpoint()
@@ -733,55 +828,121 @@ class ApocalypseRuntime(
         }
     }
 
+    private fun lootClaimId(marker: ApocalypseMarker): String = markerId(marker) +
+        if (layout is ApocalypseOriginalLayout) ":source-loot-v1" else ""
+
     private fun stock(marker: ApocalypseMarker, player: Player): Boolean {
         val block = world!!.getBlockAt(marker.x, marker.y, marker.z)
         val container = block.state as? Container ?: return true
-        // Stock both original chest halves in one grant before opening their combined inventory.
+        val sourceLayout = layout as? ApocalypseOriginalLayout
+        val stockKey = if (sourceLayout == null) stocked else originalStocked
         val double = container.inventory as? DoubleChestInventory
         val halves = double?.let { listOfNotNull(it.leftSide.holder as? Chest, it.rightSide.holder as? Chest) }.orEmpty()
         val markers = (listOf(marker) + halves.mapNotNull { markerAt(it.block) }).distinctBy(::markerId)
         if (markers.any { markerId(it) in stocking }) { message(player, "pending"); return false }
         val needed = markers.filter {
             val placed = world!!.getBlockAt(it.x, it.y, it.z).state as? Container
-            placed != null && !placed.persistentDataContainer.has(stocked) && markerId(it) !in state.looted
+            placed != null && !placed.persistentDataContainer.has(stockKey) && lootClaimId(it) !in state.looted
         }
         if (needed.isEmpty()) return true
-        if (checkpointPending) { message(player, "pending"); return false }
-        val ids = needed.map(::markerId).toSet()
-        state = state.copy(looted = state.looted + ids)
-        stocking += ids
-        checkpoint {
-            needed.forEach { source ->
-                val current = world!!.getBlockAt(source.x, source.y, source.z).state as? Container ?: return@forEach
-                val id = markerId(source)
-                if (current.persistentDataContainer.has(stocked)) return@forEach
-                val loot = java.util.Random(options.seed xor id.hashCode().toLong())
-                val contents = mutableListOf<ItemStack>()
-                if (source.kind.name == "MEDICAL") contents += listOf(vaccine(), ItemStack.of(Material.BREAD, 4), ItemStack.of(Material.HONEY_BOTTLE))
-                else {
-                    contents += firearms.worldAmmunition(player, options.ammoMinimum + loot.nextInt(options.ammoMaximum - options.ammoMinimum + 1))
-                    contents += ItemStack.of(Material.COOKED_BEEF, 2 + loot.nextInt(4))
-                    contents += ItemStack.of(Material.IRON_INGOT, 1 + loot.nextInt(3))
-                    if (source.kind.name in setOf("ARMORY", "CORE") || loot.nextInt(4) == 0) {
-                        val catalog = listOf(FirearmId.FIVE_SEVEN, FirearmId.G36, FirearmId.M1_GARAND, FirearmId.VEPR_12)
-                        contents += firearms.worldFirearmItem(catalog[loot.nextInt(catalog.size)], player)
-                    }
-                    if (loot.nextInt(5) == 0) contents += vaccine()
-                }
-                // Preserve items placed through any native inventory route while the first entitlement was pending.
-                contents.forEachIndexed { i, item ->
-                    val slot = (i * 7 + 3) % current.snapshotInventory.size
-                    if (current.snapshotInventory.getItem(slot) == null) current.snapshotInventory.setItem(slot, item)
-                    else current.snapshotInventory.addItem(item)
-                }
-                current.persistentDataContainer.set(stocked, PersistentDataType.BYTE, 1.toByte())
-                check(current.update(true, false))
-            }
-            stocking -= ids
-            if (player.isOnline && isPlaying(player.uniqueId) && player.world == world && player.location.distanceSquared(block.location) <= 36)
-                player.openInventory((block.state as Container).inventory)
+        if (sourceLayout != null && needed.any { it.sourceBlock in setOf(
+                "jeffs_cursed_walking_structures:gun_part_chest", "jeffs_cursed_walking_structures:create_part_chest") } &&
+            !ApocalypseLootItems.isCrowbar(player.inventory.itemInMainHand, plugin)) {
+            message(player, "guide.crowbar-needed"); return false
         }
+        if (checkpointPending) { message(player, "pending"); return false }
+        val locks = markers.map(::markerId).toSet()
+        stocking += locks
+        // All source planning/rolls finish before the finite entitlement is consumed.
+        work.compute {
+            needed.map { source ->
+                val random = java.util.Random(options.seed xor markerId(source).hashCode().toLong())
+                val drops = sourceLayout?.loot(source, random)
+                val mapTarget = if (drops.orEmpty().any { it is ApocalypseSourceLootDrop.Item && it.item.explorationMap != null })
+                    layout.sitesNear(source.x, source.z).firstOrNull { it.source?.endsWith(":teleporter") == true }?.anchor else null
+                Triple(source, drops, mapTarget)
+            }
+        }.whenComplete { plans, failure -> work.onMain {
+            if (failure != null) {
+                stocking -= locks; log("source-loot-plan", failure)
+                if (player.isOnline) message(player, "unavailable")
+                return@onMain
+            }
+            if (!opened || checkpointPending) { stocking -= locks; return@onMain }
+            try {
+                val prepared = plans.map { (source, drops, target) ->
+                    val current = world!!.getBlockAt(source.x, source.y, source.z).state as? Container
+                        ?: error("Original loot container disappeared before admission")
+                    val random = java.util.Random(options.seed xor markerId(source).hashCode().toLong())
+                    val contents = if (drops == null) legacySupplies(source, player, random) else drops.flatMap { drop ->
+                        when (drop) {
+                            is ApocalypseSourceLootDrop.Item -> lootItems.create(drop.item, player, random, target?.let(::location))
+                            is ApocalypseSourceLootDrop.VanillaTable -> {
+                                val key = requireNotNull(NamespacedKey.fromString(drop.tableId))
+                                require(key.namespace == "minecraft")
+                                requireNotNull(Bukkit.getLootTable(key)) { "Missing native source loot table $key" }
+                                    .populateLoot(random, LootContext.Builder(current.location).lootedEntity(player).killer(player).build()).toList()
+                            }
+                        }
+                    }
+                    val capacity = Bukkit.createInventory(null, current.snapshotInventory.size)
+                    capacity.contents = current.snapshotInventory.contents.map { it?.clone() }.toTypedArray()
+                    val leftovers = capacity.addItem(*contents.map(ItemStack::clone).toTypedArray())
+                    if (leftovers.isNotEmpty()) {
+                        stocking -= locks
+                        if (player.isOnline) {
+                            message(player, "guide.container-full")
+                            player.openInventory(container.inventory)
+                        }
+                        return@onMain
+                    }
+                    source to contents
+                }
+                state = state.copy(looted = state.looted + needed.map(::lootClaimId))
+                checkpoint {
+                    var success = true
+                    try {
+                        prepared.forEach { (source, contents) ->
+                            val current = world!!.getBlockAt(source.x, source.y, source.z).state as? Container ?: return@forEach
+                            if (current.persistentDataContainer.has(stockKey)) return@forEach
+                            // Preserve existing player items and older provisional supplies during the one-time source migration.
+                            contents.forEachIndexed { index, item ->
+                                val slot = (index * 7 + 3) % current.snapshotInventory.size
+                                if (current.snapshotInventory.getItem(slot) == null) current.snapshotInventory.setItem(slot, item)
+                                else check(current.snapshotInventory.addItem(item).isEmpty()) { "Reserved source-loot capacity changed" }
+                            }
+                            current.persistentDataContainer.set(stockKey, PersistentDataType.BYTE, 1.toByte())
+                            check(current.update(true, false))
+                        }
+                    } catch (problem: Throwable) {
+                        success = false
+                        log("source-loot-apply", problem)
+                        if (player.isOnline) message(player, "unavailable")
+                    } finally { stocking -= locks }
+                    if (success && player.isOnline && isPlaying(player.uniqueId) && player.world == world && player.location.distanceSquared(block.location) <= 36)
+                        player.openInventory((block.state as Container).inventory)
+                }
+
+            } catch (problem: Throwable) {
+                stocking -= locks; log("source-loot-materialize", problem)
+                if (player.isOnline) message(player, "unavailable")
+            }
+        } }
         return false
+    }
+
+    private fun legacySupplies(source: ApocalypseMarker, player: Player, loot: java.util.Random): List<ItemStack> = buildList {
+        if (source.kind.name == "MEDICAL") addAll(listOf(vaccine(), ItemStack.of(Material.BREAD, 4), ItemStack.of(Material.HONEY_BOTTLE)))
+        else {
+            add(firearms.worldAmmunition(player, options.ammoMinimum + loot.nextInt(options.ammoMaximum - options.ammoMinimum + 1)))
+            add(ItemStack.of(Material.COOKED_BEEF, 2 + loot.nextInt(4)))
+            add(ItemStack.of(Material.IRON_INGOT, 1 + loot.nextInt(3)))
+            if (source.kind.name in setOf("ARMORY", "CORE") || loot.nextInt(4) == 0) {
+                val catalog = listOf(FirearmId.FIVE_SEVEN, FirearmId.G36, FirearmId.M1_GARAND, FirearmId.VEPR_12)
+                add(firearms.worldFirearmItem(catalog[loot.nextInt(catalog.size)], player))
+            }
+            if (loot.nextInt(5) == 0) add(vaccine())
+        }
     }
 
     private fun normalizeExpedition(envelope: ru.arc.paper.playerstate.PaperPlayerStateEnvelope?): ru.arc.paper.playerstate.PaperPlayerStateEnvelope? {
@@ -808,6 +969,8 @@ class ApocalypseRuntime(
     fun onQuit(event: PlayerQuitEvent) {
         busy -= event.player.uniqueId
         active -= event.player.uniqueId
+        guideSnapshots.remove(event.player.uniqueId)
+        trackedGuides.remove(event.player.uniqueId)
         bars.remove(event.player.uniqueId)?.let(event.player::hideBossBar)
         // ACTIVE native player data stays in the expedition on disconnect; the origin journal remains intact.
     }
@@ -836,7 +999,7 @@ class ApocalypseRuntime(
         if (isBusy(event.player.uniqueId)) { event.isCancelled = true; return }
         if (!event.action.isRightClick) return
         val block = event.clickedBlock ?: return
-        val marker = markerAt(block) ?: return
+        val marker = containerMarker(block) ?: return
         when (marker.kind.name) {
             "LOOT", "MEDICAL", "ARMORY", "CORE" -> if (!stock(marker, event.player)) event.isCancelled = true
             "POWER" -> {
@@ -859,7 +1022,7 @@ class ApocalypseRuntime(
     fun onBreak(event: BlockBreakEvent) {
         if (event.block.world != world) return
         if (!isPlaying(event.player.uniqueId) || isBusy(event.player.uniqueId)) { event.isCancelled = true; return }
-        val marker = markerAt(event.block) ?: return
+        val marker = containerMarker(event.block) ?: return
         if (marker.kind.name in setOf("POWER", "SECURITY", "FORCEFIELD")) event.isCancelled = true
         else if (marker.kind.name in setOf("LOOT", "MEDICAL", "ARMORY", "CORE") && !stock(marker, event.player)) event.isCancelled = true
         else if (marker.kind.name.endsWith("_SPAWNER")) {
@@ -870,13 +1033,27 @@ class ApocalypseRuntime(
         }
     }
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    fun onInventory(event: InventoryClickEvent) { if (isBusy(event.whoClicked.uniqueId)) event.isCancelled = true }
+    fun onInventory(event: InventoryClickEvent) {
+        if (isBusy(event.whoClicked.uniqueId) || lockedSupply(event.view.topInventory)) event.isCancelled = true
+    }
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    fun onInventoryMove(event: InventoryMoveItemEvent) {
+        if (lockedSupply(event.source) || lockedSupply(event.destination)) event.isCancelled = true
+    }
+    // Paper reports a double chest's midpoint, which can fall in a non-source player-placed half.
+    private fun inventoryLocations(inventory: Inventory): List<Location> = if (inventory is DoubleChestInventory)
+        listOfNotNull(inventory.leftSide.location, inventory.rightSide.location) else listOfNotNull(inventory.location)
+    private fun containerMarker(block: org.bukkit.block.Block): ApocalypseMarker? = markerAt(block)
+        ?: (block.state as? Container)?.inventory?.let(::inventoryLocations)?.asSequence()
+            ?.filter { it.world == world }?.mapNotNull { markerAt(it.block) }?.firstOrNull()
+    private fun lockedSupply(inventory: Inventory): Boolean = inventoryLocations(inventory).any { at ->
+        at.world == world && markerAt(at.block)?.let(::markerId) in stocking
+    }
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onOpen(event: InventoryOpenEvent) {
         if (isBusy(event.player.uniqueId) || isPlaying(event.player.uniqueId) && event.inventory.type == InventoryType.ENDER_CHEST)
             event.isCancelled = true
-        val at = event.inventory.location
-        if (at != null && at.world == world && markerAt(at.block)?.let(::markerId) in stocking) event.isCancelled = true
+        if (lockedSupply(event.inventory)) event.isCancelled = true
     }
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     fun onMove(event: PlayerMoveEvent) {
@@ -894,7 +1071,9 @@ class ApocalypseRuntime(
         }
     }
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    fun onDrag(event: InventoryDragEvent) { if (isBusy(event.whoClicked.uniqueId)) event.isCancelled = true }
+    fun onDrag(event: InventoryDragEvent) {
+        if (isBusy(event.whoClicked.uniqueId) || lockedSupply(event.view.topInventory)) event.isCancelled = true
+    }
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onDrop(event: PlayerDropItemEvent) { if (isBusy(event.player.uniqueId)) event.isCancelled = true }
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -963,6 +1142,8 @@ class ApocalypseRuntime(
         opened = false
         if (host) network.advertise(false)
         tasks.close()
+        guide.close()
+        guideRequests.clear(); guideSnapshots.clear(); trackedGuides.clear()
         bars.forEach { (id, bar) -> plugin.server.getPlayer(id)?.hideBossBar(bar) }; bars.clear()
         actors.values.mapNotNull(plugin.server::getEntity).forEach(Entity::remove); actors.clear()
         val snapshot = state

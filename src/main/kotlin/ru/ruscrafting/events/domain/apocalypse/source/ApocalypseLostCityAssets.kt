@@ -16,7 +16,8 @@ import java.util.zip.ZipFile
  * Parts/palettes are read from external archives, never invented or embedded in the plugin.
  * Chunk placement uses CW's configured area budgets; it is not a Forge terrain/RNG oracle.
  */
-class ApocalypseLostCityAssets private constructor(private val assets: Map<String, Map<String, JsonObject>>) {
+class ApocalypseLostCityAssets private constructor(private val assets: Map<String, Map<String, JsonObject>>,
+    private val loot: ApocalypseSourceLoot) {
     val partIds: Set<String> = Collections.unmodifiableSet(assets.getValue("parts").keys.toSet())
     val buildingIds: Set<String> = Collections.unmodifiableSet(assets.getValue("buildings").keys.toSet())
     val sourceStates: Set<String> = Collections.unmodifiableSet(buildSet {
@@ -60,7 +61,7 @@ class ApocalypseLostCityAssets private constructor(private val assets: Map<Strin
                 slices.size == 23 && short.size == 2 && short.all { it.length == 255 })) { "Invalid source part rows: $id" }
         }
     }
-    private data class Placement(val part: String, val y: Int, val buildingPalette: JsonObject? = null)
+    private data class Placement(val part: String, val y: Int, val buildingPalette: JsonObject? = null, val floor: Int = 0)
     private data class Lot(val placements: List<Placement>, val clearFrom: Int? = null, val clearUntil: Int? = null)
     private data class MultiBuilding(val building: String, val anchorX: Int, val anchorZ: Int, val rootBuilding: String)
 
@@ -70,13 +71,18 @@ class ApocalypseLostCityAssets private constructor(private val assets: Map<Strin
         if (lot.clearFrom != null && lot.clearUntil != null) {
             for (y in lot.clearFrom until lot.clearUntil) for (z in 0..15) for (x in 0..15) put(cx * 16 + x, y, cz * 16 + z, "minecraft:air")
         }
-        visit(lot, seed, cx, cz) { x, y, z, state, _ -> put(cx * 16 + x, y, cz * 16 + z, state) }
+        visit(lot, seed, cx, cz) { x, y, z, state, _, _ -> put(cx * 16 + x, y, cz * 16 + z, state) }
     }
 
     fun markers(seed: Long, cx: Int, cz: Int, groundY: Int, cityFactor: Double, siteId: String): List<ApocalypseMarker> = buildList {
-        visit(lot(seed, cx, cz, groundY, cityFactor), seed, cx, cz) { x, y, z, state, entry ->
+        visit(lot(seed, cx, cz, groundY, cityFactor), seed, cx, cz) { x, y, z, state, entry, context ->
             if (entry.loot != null || state.substringBefore('[') in setOf("minecraft:chest", "minecraft:trapped_chest", "minecraft:barrel")) {
-                add(ApocalypseMarker(siteId, ApocalypseMarkerKind.LOOT, cx * 16 + x, y, cz * 16 + z))
+                // The loot stream is separate: selecting a table must never consume palette/geometry RNG.
+                val random = Random(seed xor ((cx * 16L + x) * -7046029254386353131L) xor
+                    (y * -4658895280553007687L) xor ((cz * 16L + z) * -7723592293110705685L))
+                val table = entry.loot?.let { loot.selectCondition(it, context, random) }
+                    ?: entry.nbt?.let { JsonParser.parseString(it).asJsonObject.get("LootTable")?.asString }?.let(loot::canonicalTable)
+                add(ApocalypseMarker(siteId, ApocalypseMarkerKind.LOOT, cx * 16 + x, y, cz * 16 + z, table, state.substringBefore('[')))
             }
         }
     }.distinctBy { Triple(it.x, it.y, it.z) }
@@ -88,7 +94,7 @@ class ApocalypseLostCityAssets private constructor(private val assets: Map<Strin
         if (lot.clearFrom != null && lot.clearUntil != null) {
             for (y in lot.clearFrom until lot.clearUntil) for (z in 0..15) for (x in 0..15) put(cx * 16 + x, y, cz * 16 + z, "minecraft:air")
         }
-        visit(lot, seed, cx, cz) { x, y, z, state, _ -> put(cx * 16 + x, y, cz * 16 + z, state) }
+        visit(lot, seed, cx, cz) { x, y, z, state, _, _ -> put(cx * 16 + x, y, cz * 16 + z, state) }
     }
 
     /** Original part coordinates and local palette, useful for source fixtures and infrastructure. */
@@ -181,7 +187,7 @@ class ApocalypseLostCityAssets private constructor(private val assets: Map<Strin
                 }
                 val selected = id(candidates[random.nextInt(candidates.size)].asJsonObject.get("part").asString)
                 require(selected in parts) { "Missing original part: $selected" }
-                add(Placement(selected, groundY + floor * 6, local))
+                add(Placement(selected, groundY + floor * 6, local, floor))
             }
         }
         return Lot(placements, groundY - cellars * 6,
@@ -212,10 +218,12 @@ class ApocalypseLostCityAssets private constructor(private val assets: Map<Strin
         return true
     }
 
-    private fun visit(lot: Lot, seed: Long, cx: Int, cz: Int, put: (Int, Int, Int, String, Entry) -> Unit) {
+    private fun visit(lot: Lot, seed: Long, cx: Int, cz: Int, put: (Int, Int, Int, String, Entry, ApocalypseSourceLootContext) -> Unit) {
         lot.placements.forEachIndexed { index, placed ->
             visitPart(parts.getValue(placed.part), placed.y, Random(chunkSeed(seed, cx, cz) xor placed.part.hashCode().toLong() xor index.toLong()),
-                placed.buildingPalette, put)
+                placed.buildingPalette) { x, y, z, state, entry ->
+                put(x, y, z, state, entry, ApocalypseSourceLootContext(placed.floor, placed.part))
+            }
         }
     }
 
@@ -336,7 +344,8 @@ class ApocalypseLostCityAssets private constructor(private val assets: Map<Strin
         internal fun id(value: String): String = if (':' in value) value else "lostcities:$value"
         private fun chunkSeed(seed: Long, x: Int, z: Int): Long = seed + x * 341873128712L + z * 132897987541L
 
-        fun load(lostCities: Path, keerdm: Path): ApocalypseLostCityAssets {
+        fun load(lostCities: Path, keerdm: Path,
+                 loot: ApocalypseSourceLoot = ApocalypseSourceLoot.load(listOf(lostCities, keerdm))): ApocalypseLostCityAssets {
             val assets = linkedMapOf<String, MutableMap<String, JsonObject>>()
             for (path in listOf(lostCities, keerdm)) ZipFile(path.toFile()).use { zip ->
                 val entries = zip.entries()
@@ -355,7 +364,7 @@ class ApocalypseLostCityAssets private constructor(private val assets: Map<Strin
                     assets.getOrPut(pieces[3]) { linkedMapOf() }[id] = json
                 }
             }
-            return ApocalypseLostCityAssets(assets.mapValues { it.value.toMap() })
+            return ApocalypseLostCityAssets(assets.mapValues { it.value.toMap() }, loot)
         }
     }
 }

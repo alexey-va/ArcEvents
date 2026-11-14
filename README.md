@@ -19,10 +19,11 @@ ArcEvents is the network event engine for RusCrafting. Its arcade modes are:
 Apocalypse is an independent, permanent cooperative survival world. Enter with
 `/arcevents apocalypse` or the main menu and return with `/arcevents leave`.
 Its V2 world imports original JCWS structure templates and Lost Cities/Keerdm
-city parts from three externally cached, hash-pinned archives (about 5.2 MB).
+city parts from externally cached, hash-pinned archives. Source loot also reads
+the pinned pack datapack and two supporting data archives (six files, about 300 MiB total).
 Original layouts and pool connections supply the buildings and bunkers; mod-only
 blocks use explicit native replacements. Proximity guards, supply containers
-and switchable forcefields run inside ArcEvents, without executing Forge code.
+run inside ArcEvents, without executing Forge code.
 Its hordes and infection rules are derived from the pinned Cursed Walking v3.3
 pack. This mode always journals separate origin/expedition inventories, including
 on a DISPOSABLE arcade host; leaving and reentering resumes the expedition.
@@ -33,8 +34,17 @@ player must leave that activity before entering survival.
 The default world is `arcevents_apocalypse_v2`; the V1 prototype world is retained.
 Saved expedition gear resumes with its location normalized to the V2 starter
 spawn when migrating from an older world, without issuing another starter kit.
-Source container inventories and loot-table tags remain inert; expedition
-containers keep the existing finite ArcEvents loot.
+Original containers now use 93 source loot tables, authored chest/barrel items
+and source component-crate rolls. Native item equivalents preserve source
+weights, empty outcomes and quantities; source firearms use existing ArcEvents
+weapon profiles and start unloaded unless source NBT specifies rounds.
+Supply barrels contain food/materials; firearms and direct ammunition come from
+appropriate armories and city containers. Component crates require a crowbar.
+Loot is finite and shared; already-stocked V2 containers receive one source
+batch without removing existing contents. There is no repeat refill.
+Inside an expedition, `/arcevents` opens an optional field guide with the next
+step, actual supply/exit/city/weapon routes and survival controls. It uses native
+dialogs, or a virtual book on older clients; no inventory slot is consumed.
 Changing the generation identity requires a new world. Loaded custom generators
 use the existing coordinated-restart replacement barrier. Administrator commands:
 `/arcevents apocalypse locate [kind]`, `day <n>`; scoped QA reads use `qa` and
@@ -44,6 +54,8 @@ origin recovery; it never issues another starter kit. Read the
 [reference and fidelity limits](docs/apocalypse-reference.md),
 [economy assessment](docs/economy/apocalypse-20261114.md) and
 [native acceptance evidence](docs/apocalypse-original-structures-20261114.md).
+The source-loot increment and native substitutions are recorded in
+[0.6.2 evidence](docs/apocalypse-source-loot-20261115.md).
 
 Player-state handling is selected per host with `player-state.mode`. `PRESERVE`
 is the default: arcade modes use durable player-state escrow and origin-server

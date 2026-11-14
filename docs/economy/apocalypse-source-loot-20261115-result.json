@@ -1,0 +1,2821 @@
+{
+  "title": "ArcEvents 0.6.2 source loot: finite shared original tables, isolated items and one-time migration",
+  "assumptions": [
+    "Proposed ArcEvents 0.6.2 source-loot rules versus the 0.6.1 generic LOOT grant; source review and analytical expectation, not production activation or measured opening rates. Ninety-three original loot tables retain source rolls, counts, weights and empty/air outcomes; mod items map explicitly to native equivalents.",
+    "Low/base/high are modeled sensitivity: 1/5/20 participating accounts, assumed 1/2/4 active hours per player-day, 2/8/32 unique supply openings, 1/3/8 unique ammo openings, and 0.25/1/4 unique armory openings. All modeled participants use this activity; server-wide participation share is unknown. These imply total 3.25/6/11 eligible openings per active hour, not observed throughput.",
+    "Ammo uses an explicit assumed 50/50 ammo_tacz/ammo_tacz_2 mix; armory uses an explicit assumed 50/50 armory_chest/armory_chest_tacz mix. Actual generated mix and travel time are unmeasured. Resource and component crates have separate per-opening EV only and are excluded from this requested daily mix.",
+    "Every counted opening is a distinct physical shared container eligible for its source-loot-v1 batch. Reopening or a second participant cannot grant again. Additional travel can generate new sites indefinitely; no fixed network item budget or renewable per-container allowance exists. Network-week figures require seven days of new eligible containers.",
+    "Every actual table-based container in this comparison was a LOOT marker in 0.6.1, including the armory tables; do not apply the unused CORE guaranteed-gun rule. Each old opening: loose rounds22, cooked beef3.5, actual iron ingots2, gun0.25, vaccine0.2.",
+    "Correction to the supplied analysis scope: legacySupplies calls worldFirearmItem without loaded; it defaults to a full configured magazine. The four equally likely default magazines are20/30/8/8, mean16.5 per gun; old LOOT loaded-round EV=0.25*16.5=4.125 per opening. Current source-default configuration is evidence, not verification of deployed overrides. The supplied raw analysis baseline loaded_rounds=0 is not used as actual old behavior.",
+    "The new mapper defaults missing GunCurrentAmmoCount to zero. None of the modeled source firearm table entries declares that field, so new loaded-round EV is0; no additional full native magazine is awarded on top of source ammo.",
+    "Loose reload units are a potential-use accounting category: tagged native ammo and plain IRON_NUGGET accepted by WorldFirearms each supply one round. They are not an extra item grant. Supplychest has no firearm/direct ammunition entry; its3.5 units are plain nuggets:3.5 expected rolls*(weight4/24)*mean count6. Do not add those same nuggets again under another item category.",
+    "Food units count edible item quantity including rotten/negative food, not nutrition, healing, hunger points or saturation. Vaccines are only cure:vaccine mapped medicine-tagged HONEY_BOTTLE. Actual iron ingots and iron blocks stay separate; crafting conversion into nuggets is excluded rather than counted twice. Other original resources, armor, weapons, tools, maps, potions and enchantments are not assigned money values or claimed absent.",
+    "Fresh containers receive only source loot. Existing sourceV2 containers may receive one source-loot-v1 batch once while preserving previous items and legacy claims; their unknown count and remaining contents are not added to recurring player-day/network-week totals. Capacity failure consumes no source claim; deterministic planning and a persisted claim prevent reroll/reissue. A crash after claim persistence but before materialization may lose a batch; retry does not duplicate it.",
+    "The two physical starter barrels use source supplychest once each and are shared, not a per-account reward. Their actual deterministic seeded contents are not inferred from EV. The existing one-time personal starter kit is unchanged; reentry/resume/migration does not issue a second kit.",
+    "The complete native inventory, armor, offhand and XP remain in the expedition journal; exit restores origin and keeps expedition gear isolated. Ender chest and external shop/contract commands are blocked. ArcEvents calls no Vault/tokens/shop/contract payout API. Owned actors are removed before native lethal-death reward callbacks. Other plugins world/proxy hooks remain an integration unknown rather than a measured zero.",
+    "Vault and tokens direct before/after mint/burn are individually0. XP and items are separate; no item-to-currency or Vault-to-token exchange rate is assumed. There is no currency price, paid progression, savings target or purchasable full loadout in this change. Current EconomyShopGUI SELL and the owner planned SELL-to-contract transition are unchanged; mode isolation prevents ordinary export, not a global SELL-off.",
+    "No additional jobs, contracts, boosts or flight/mining income is stacked with the same expedition hours. Currency ledger totals are context from the parent fresh read-only168h observation, not an ArcEvents attribution, earning-per-hour estimate or proof of isolation. Activity buckets are only a proxy; concentration and unknown callers prevent a typical-income claim.",
+    "All loot EVs come from the supplied analytical exact-fraction file; no Monte Carlo simulation or inferred sampling error is used. Decimal amount strings are rounded from exact rational inputs to50 significant digits; evaluate.py uses Decimal arithmetic and checks units/scenario aggregation, not completeness or live behavior. Exact fraction fields are authoritative for repeating expectations."
+  ],
+  "scenario_order": [
+    "low",
+    "base",
+    "high"
+  ],
+  "currencies": {
+    "vault": {
+      "before": {
+        "totals": {
+          "mint_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "0",
+            "0",
+            "0"
+          ],
+          "player_daily_potential_net": [
+            "0",
+            "0",
+            "0"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": []
+      },
+      "after": {
+        "totals": {
+          "mint_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "0",
+            "0",
+            "0"
+          ],
+          "player_daily_potential_net": [
+            "0",
+            "0",
+            "0"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": []
+      },
+      "weekly_net_delta": [
+        "0",
+        "0",
+        "0"
+      ]
+    },
+    "tokens": {
+      "before": {
+        "totals": {
+          "mint_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "0",
+            "0",
+            "0"
+          ],
+          "player_daily_potential_net": [
+            "0",
+            "0",
+            "0"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": []
+      },
+      "after": {
+        "totals": {
+          "mint_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "0",
+            "0",
+            "0"
+          ],
+          "player_daily_potential_net": [
+            "0",
+            "0",
+            "0"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": []
+      },
+      "weekly_net_delta": [
+        "0",
+        "0",
+        "0"
+      ]
+    },
+    "expedition_native_gun": {
+      "before": {
+        "totals": {
+          "mint_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "0",
+            "0",
+            "0"
+          ],
+          "player_daily_potential_net": [
+            "0",
+            "0",
+            "0"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "0.8125",
+              "3.00",
+              "11.00"
+            ],
+            "network_weekly": [
+              "5.6875",
+              "105.00",
+              "1540.00"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "id": "supply_native_guns",
+            "kind": "item",
+            "player_daily_potential": [
+              "0.50",
+              "2.00",
+              "8.00"
+            ],
+            "network_weekly_after_cap": [
+              "3.50",
+              "70.00",
+              "1120.00"
+            ],
+            "basis": "supply unique physical-container openings; after table mixture supplychest=1; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          },
+          {
+            "id": "ammo_native_guns",
+            "kind": "item",
+            "player_daily_potential": [
+              "0.25",
+              "0.75",
+              "2.00"
+            ],
+            "network_weekly_after_cap": [
+              "1.75",
+              "26.25",
+              "280.00"
+            ],
+            "basis": "ammo unique physical-container openings; after table mixture ammo_tacz=1/2, ammo_tacz_2=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          },
+          {
+            "id": "armory_native_guns",
+            "kind": "item",
+            "player_daily_potential": [
+              "0.0625",
+              "0.25",
+              "1.00"
+            ],
+            "network_weekly_after_cap": [
+              "0.4375",
+              "8.75",
+              "140.00"
+            ],
+            "basis": "armory unique physical-container openings; after table mixture armory_chest=1/2, armory_chest_tacz=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          }
+        ]
+      },
+      "after": {
+        "totals": {
+          "mint_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "0",
+            "0",
+            "0"
+          ],
+          "player_daily_potential_net": [
+            "0",
+            "0",
+            "0"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "0.1215753424657534246575342466",
+              "0.4863013698630136986301369863",
+              "1.945205479452054794520547945"
+            ],
+            "network_weekly": [
+              "0.8510273972602739726027397262",
+              "17.02054794520547945205479452",
+              "272.3287671232876712328767123"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "id": "supply_native_guns",
+            "kind": "item",
+            "player_daily_potential": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly_after_cap": [
+              "0",
+              "0",
+              "0"
+            ],
+            "basis": "supply unique physical-container openings; after table mixture supplychest=1; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          },
+          {
+            "id": "ammo_native_guns",
+            "kind": "item",
+            "player_daily_potential": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly_after_cap": [
+              "0",
+              "0",
+              "0"
+            ],
+            "basis": "ammo unique physical-container openings; after table mixture ammo_tacz=1/2, ammo_tacz_2=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          },
+          {
+            "id": "armory_native_guns",
+            "kind": "item",
+            "player_daily_potential": [
+              "0.1215753424657534246575342466",
+              "0.4863013698630136986301369863",
+              "1.945205479452054794520547945"
+            ],
+            "network_weekly_after_cap": [
+              "0.8510273972602739726027397262",
+              "17.02054794520547945205479452",
+              "272.3287671232876712328767123"
+            ],
+            "basis": "armory unique physical-container openings; after table mixture armory_chest=1/2, armory_chest_tacz=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          }
+        ]
+      },
+      "weekly_net_delta": [
+        "0",
+        "0",
+        "0"
+      ]
+    },
+    "expedition_loose_reload_unit": {
+      "before": {
+        "totals": {
+          "mint_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "0",
+            "0",
+            "0"
+          ],
+          "player_daily_potential_net": [
+            "0",
+            "0",
+            "0"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "71.50",
+              "264",
+              "968"
+            ],
+            "network_weekly": [
+              "500.50",
+              "9240",
+              "135520"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "id": "supply_universal_rounds",
+            "kind": "item",
+            "player_daily_potential": [
+              "44",
+              "176",
+              "704"
+            ],
+            "network_weekly_after_cap": [
+              "308",
+              "6160",
+              "98560"
+            ],
+            "basis": "supply unique physical-container openings; after table mixture supplychest=1; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          },
+          {
+            "id": "ammo_universal_rounds",
+            "kind": "item",
+            "player_daily_potential": [
+              "22",
+              "66",
+              "176"
+            ],
+            "network_weekly_after_cap": [
+              "154",
+              "2310",
+              "24640"
+            ],
+            "basis": "ammo unique physical-container openings; after table mixture ammo_tacz=1/2, ammo_tacz_2=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          },
+          {
+            "id": "armory_universal_rounds",
+            "kind": "item",
+            "player_daily_potential": [
+              "5.50",
+              "22",
+              "88"
+            ],
+            "network_weekly_after_cap": [
+              "38.50",
+              "770",
+              "12320"
+            ],
+            "basis": "armory unique physical-container openings; after table mixture armory_chest=1/2, armory_chest_tacz=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          }
+        ]
+      },
+      "after": {
+        "totals": {
+          "mint_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "0",
+            "0",
+            "0"
+          ],
+          "player_daily_potential_net": [
+            "0",
+            "0",
+            "0"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "70.96739130434782608695652174",
+              "219.9021739130434782608695652",
+              "623.7391304347826086956521739"
+            ],
+            "network_weekly": [
+              "496.7717391304347826086956522",
+              "7696.576086956521739130434782",
+              "87323.47826086956521739130436"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "id": "supply_universal_rounds",
+            "kind": "item",
+            "player_daily_potential": [
+              "7.0",
+              "28.0",
+              "112.0"
+            ],
+            "network_weekly_after_cap": [
+              "49.0",
+              "980.0",
+              "15680.0"
+            ],
+            "basis": "supply unique physical-container openings; after table mixture supplychest=1; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          },
+          {
+            "id": "ammo_universal_rounds",
+            "kind": "item",
+            "player_daily_potential": [
+              "63.96739130434782608695652174",
+              "191.9021739130434782608695652",
+              "511.7391304347826086956521739"
+            ],
+            "network_weekly_after_cap": [
+              "447.7717391304347826086956522",
+              "6716.576086956521739130434782",
+              "71643.47826086956521739130436"
+            ],
+            "basis": "ammo unique physical-container openings; after table mixture ammo_tacz=1/2, ammo_tacz_2=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          },
+          {
+            "id": "armory_universal_rounds",
+            "kind": "item",
+            "player_daily_potential": [
+              "0.00",
+              "0",
+              "0"
+            ],
+            "network_weekly_after_cap": [
+              "0.00",
+              "0",
+              "0"
+            ],
+            "basis": "armory unique physical-container openings; after table mixture armory_chest=1/2, armory_chest_tacz=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          }
+        ]
+      },
+      "weekly_net_delta": [
+        "0",
+        "0",
+        "0"
+      ]
+    },
+    "expedition_iron_ingot": {
+      "before": {
+        "totals": {
+          "mint_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "0",
+            "0",
+            "0"
+          ],
+          "player_daily_potential_net": [
+            "0",
+            "0",
+            "0"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "6.50",
+              "24",
+              "88"
+            ],
+            "network_weekly": [
+              "45.50",
+              "840",
+              "12320"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "id": "supply_native_iron_ingots",
+            "kind": "item",
+            "player_daily_potential": [
+              "4",
+              "16",
+              "64"
+            ],
+            "network_weekly_after_cap": [
+              "28",
+              "560",
+              "8960"
+            ],
+            "basis": "supply unique physical-container openings; after table mixture supplychest=1; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          },
+          {
+            "id": "ammo_native_iron_ingots",
+            "kind": "item",
+            "player_daily_potential": [
+              "2",
+              "6",
+              "16"
+            ],
+            "network_weekly_after_cap": [
+              "14",
+              "210",
+              "2240"
+            ],
+            "basis": "ammo unique physical-container openings; after table mixture ammo_tacz=1/2, ammo_tacz_2=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          },
+          {
+            "id": "armory_native_iron_ingots",
+            "kind": "item",
+            "player_daily_potential": [
+              "0.50",
+              "2",
+              "8"
+            ],
+            "network_weekly_after_cap": [
+              "3.50",
+              "70",
+              "1120"
+            ],
+            "basis": "armory unique physical-container openings; after table mixture armory_chest=1/2, armory_chest_tacz=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          }
+        ]
+      },
+      "after": {
+        "totals": {
+          "mint_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "0",
+            "0",
+            "0"
+          ],
+          "player_daily_potential_net": [
+            "0",
+            "0",
+            "0"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "2.916666666666666666666666666",
+              "11.66666666666666666666666666",
+              "46.66666666666666666666666666"
+            ],
+            "network_weekly": [
+              "20.41666666666666666666666666",
+              "408.3333333333333333333333331",
+              "6533.333333333333333333333332"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "id": "supply_native_iron_ingots",
+            "kind": "item",
+            "player_daily_potential": [
+              "2.916666666666666666666666666",
+              "11.66666666666666666666666666",
+              "46.66666666666666666666666666"
+            ],
+            "network_weekly_after_cap": [
+              "20.41666666666666666666666666",
+              "408.3333333333333333333333331",
+              "6533.333333333333333333333332"
+            ],
+            "basis": "supply unique physical-container openings; after table mixture supplychest=1; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          },
+          {
+            "id": "ammo_native_iron_ingots",
+            "kind": "item",
+            "player_daily_potential": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly_after_cap": [
+              "0",
+              "0",
+              "0"
+            ],
+            "basis": "ammo unique physical-container openings; after table mixture ammo_tacz=1/2, ammo_tacz_2=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          },
+          {
+            "id": "armory_native_iron_ingots",
+            "kind": "item",
+            "player_daily_potential": [
+              "0.00",
+              "0",
+              "0"
+            ],
+            "network_weekly_after_cap": [
+              "0.00",
+              "0",
+              "0"
+            ],
+            "basis": "armory unique physical-container openings; after table mixture armory_chest=1/2, armory_chest_tacz=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          }
+        ]
+      },
+      "weekly_net_delta": [
+        "0",
+        "0",
+        "0"
+      ]
+    },
+    "expedition_food_item": {
+      "before": {
+        "totals": {
+          "mint_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "0",
+            "0",
+            "0"
+          ],
+          "player_daily_potential_net": [
+            "0",
+            "0",
+            "0"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "11.375",
+              "42.0",
+              "154.0"
+            ],
+            "network_weekly": [
+              "79.625",
+              "1470.0",
+              "21560.0"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "id": "supply_food_units",
+            "kind": "item",
+            "player_daily_potential": [
+              "7.0",
+              "28.0",
+              "112.0"
+            ],
+            "network_weekly_after_cap": [
+              "49.0",
+              "980.0",
+              "15680.0"
+            ],
+            "basis": "supply unique physical-container openings; after table mixture supplychest=1; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          },
+          {
+            "id": "ammo_food_units",
+            "kind": "item",
+            "player_daily_potential": [
+              "3.5",
+              "10.5",
+              "28.0"
+            ],
+            "network_weekly_after_cap": [
+              "24.5",
+              "367.5",
+              "3920.0"
+            ],
+            "basis": "ammo unique physical-container openings; after table mixture ammo_tacz=1/2, ammo_tacz_2=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          },
+          {
+            "id": "armory_food_units",
+            "kind": "item",
+            "player_daily_potential": [
+              "0.875",
+              "3.5",
+              "14.0"
+            ],
+            "network_weekly_after_cap": [
+              "6.125",
+              "122.5",
+              "1960.0"
+            ],
+            "basis": "armory unique physical-container openings; after table mixture armory_chest=1/2, armory_chest_tacz=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          }
+        ]
+      },
+      "after": {
+        "totals": {
+          "mint_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "0",
+            "0",
+            "0"
+          ],
+          "player_daily_potential_net": [
+            "0",
+            "0",
+            "0"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "8.967741935483870967741935484",
+              "35.87096774193548387096774194",
+              "143.4838709677419354838709677"
+            ],
+            "network_weekly": [
+              "62.77419354838709677419354839",
+              "1255.483870967741935483870968",
+              "20087.74193548387096774193548"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "id": "supply_food_units",
+            "kind": "item",
+            "player_daily_potential": [
+              "8.967741935483870967741935484",
+              "35.87096774193548387096774194",
+              "143.4838709677419354838709677"
+            ],
+            "network_weekly_after_cap": [
+              "62.77419354838709677419354839",
+              "1255.483870967741935483870968",
+              "20087.74193548387096774193548"
+            ],
+            "basis": "supply unique physical-container openings; after table mixture supplychest=1; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          },
+          {
+            "id": "ammo_food_units",
+            "kind": "item",
+            "player_daily_potential": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly_after_cap": [
+              "0",
+              "0",
+              "0"
+            ],
+            "basis": "ammo unique physical-container openings; after table mixture ammo_tacz=1/2, ammo_tacz_2=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          },
+          {
+            "id": "armory_food_units",
+            "kind": "item",
+            "player_daily_potential": [
+              "0.00",
+              "0",
+              "0"
+            ],
+            "network_weekly_after_cap": [
+              "0.00",
+              "0",
+              "0"
+            ],
+            "basis": "armory unique physical-container openings; after table mixture armory_chest=1/2, armory_chest_tacz=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          }
+        ]
+      },
+      "weekly_net_delta": [
+        "0",
+        "0",
+        "0"
+      ]
+    },
+    "expedition_vaccine": {
+      "before": {
+        "totals": {
+          "mint_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "0",
+            "0",
+            "0"
+          ],
+          "player_daily_potential_net": [
+            "0",
+            "0",
+            "0"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "0.650",
+              "2.4",
+              "8.8"
+            ],
+            "network_weekly": [
+              "4.550",
+              "84.0",
+              "1232.0"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "id": "supply_vaccines",
+            "kind": "item",
+            "player_daily_potential": [
+              "0.4",
+              "1.6",
+              "6.4"
+            ],
+            "network_weekly_after_cap": [
+              "2.8",
+              "56.0",
+              "896.0"
+            ],
+            "basis": "supply unique physical-container openings; after table mixture supplychest=1; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          },
+          {
+            "id": "ammo_vaccines",
+            "kind": "item",
+            "player_daily_potential": [
+              "0.2",
+              "0.6",
+              "1.6"
+            ],
+            "network_weekly_after_cap": [
+              "1.4",
+              "21.0",
+              "224.0"
+            ],
+            "basis": "ammo unique physical-container openings; after table mixture ammo_tacz=1/2, ammo_tacz_2=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          },
+          {
+            "id": "armory_vaccines",
+            "kind": "item",
+            "player_daily_potential": [
+              "0.050",
+              "0.2",
+              "0.8"
+            ],
+            "network_weekly_after_cap": [
+              "0.350",
+              "7.0",
+              "112.0"
+            ],
+            "basis": "armory unique physical-container openings; after table mixture armory_chest=1/2, armory_chest_tacz=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          }
+        ]
+      },
+      "after": {
+        "totals": {
+          "mint_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "0",
+            "0",
+            "0"
+          ],
+          "player_daily_potential_net": [
+            "0",
+            "0",
+            "0"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "0.43750",
+              "1.75000",
+              "7.00000"
+            ],
+            "network_weekly": [
+              "3.06250",
+              "61.25000",
+              "980.00000"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "id": "supply_vaccines",
+            "kind": "item",
+            "player_daily_potential": [
+              "0.43750",
+              "1.75000",
+              "7.00000"
+            ],
+            "network_weekly_after_cap": [
+              "3.06250",
+              "61.25000",
+              "980.00000"
+            ],
+            "basis": "supply unique physical-container openings; after table mixture supplychest=1; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          },
+          {
+            "id": "ammo_vaccines",
+            "kind": "item",
+            "player_daily_potential": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly_after_cap": [
+              "0",
+              "0",
+              "0"
+            ],
+            "basis": "ammo unique physical-container openings; after table mixture ammo_tacz=1/2, ammo_tacz_2=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          },
+          {
+            "id": "armory_vaccines",
+            "kind": "item",
+            "player_daily_potential": [
+              "0.00",
+              "0",
+              "0"
+            ],
+            "network_weekly_after_cap": [
+              "0.00",
+              "0",
+              "0"
+            ],
+            "basis": "armory unique physical-container openings; after table mixture armory_chest=1/2, armory_chest_tacz=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          }
+        ]
+      },
+      "weekly_net_delta": [
+        "0",
+        "0",
+        "0"
+      ]
+    },
+    "expedition_iron_block": {
+      "before": {
+        "totals": {
+          "mint_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "0",
+            "0",
+            "0"
+          ],
+          "player_daily_potential_net": [
+            "0",
+            "0",
+            "0"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": []
+      },
+      "after": {
+        "totals": {
+          "mint_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "0",
+            "0",
+            "0"
+          ],
+          "player_daily_potential_net": [
+            "0",
+            "0",
+            "0"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": []
+      },
+      "weekly_net_delta": [
+        "0",
+        "0",
+        "0"
+      ]
+    },
+    "expedition_loaded_round": {
+      "before": {
+        "totals": {
+          "mint_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "0",
+            "0",
+            "0"
+          ],
+          "player_daily_potential_net": [
+            "0",
+            "0",
+            "0"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "13.40625",
+              "49.500",
+              "181.500"
+            ],
+            "network_weekly": [
+              "93.84375",
+              "1732.500",
+              "25410.000"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "id": "supply_loaded_rounds_in_guns",
+            "kind": "item",
+            "player_daily_potential": [
+              "8.250",
+              "33.000",
+              "132.000"
+            ],
+            "network_weekly_after_cap": [
+              "57.750",
+              "1155.000",
+              "18480.000"
+            ],
+            "basis": "supply unique physical-container openings; after table mixture supplychest=1; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          },
+          {
+            "id": "ammo_loaded_rounds_in_guns",
+            "kind": "item",
+            "player_daily_potential": [
+              "4.125",
+              "12.375",
+              "33.000"
+            ],
+            "network_weekly_after_cap": [
+              "28.875",
+              "433.125",
+              "4620.000"
+            ],
+            "basis": "ammo unique physical-container openings; after table mixture ammo_tacz=1/2, ammo_tacz_2=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          },
+          {
+            "id": "armory_loaded_rounds_in_guns",
+            "kind": "item",
+            "player_daily_potential": [
+              "1.03125",
+              "4.125",
+              "16.500"
+            ],
+            "network_weekly_after_cap": [
+              "7.21875",
+              "144.375",
+              "2310.000"
+            ],
+            "basis": "armory unique physical-container openings; after table mixture armory_chest=1/2, armory_chest_tacz=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          }
+        ]
+      },
+      "after": {
+        "totals": {
+          "mint_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "0",
+            "0",
+            "0"
+          ],
+          "player_daily_potential_net": [
+            "0",
+            "0",
+            "0"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "0.00",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0.00",
+              "0",
+              "0"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "id": "supply_loaded_rounds_in_guns",
+            "kind": "item",
+            "player_daily_potential": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly_after_cap": [
+              "0",
+              "0",
+              "0"
+            ],
+            "basis": "supply unique physical-container openings; after table mixture supplychest=1; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          },
+          {
+            "id": "ammo_loaded_rounds_in_guns",
+            "kind": "item",
+            "player_daily_potential": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly_after_cap": [
+              "0",
+              "0",
+              "0"
+            ],
+            "basis": "ammo unique physical-container openings; after table mixture ammo_tacz=1/2, ammo_tacz_2=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          },
+          {
+            "id": "armory_loaded_rounds_in_guns",
+            "kind": "item",
+            "player_daily_potential": [
+              "0.00",
+              "0",
+              "0"
+            ],
+            "network_weekly_after_cap": [
+              "0.00",
+              "0",
+              "0"
+            ],
+            "basis": "armory unique physical-container openings; after table mixture armory_chest=1/2, armory_chest_tacz=1/2; exact analytical EV includes source empty choices; old actual marker is LOOT; no external redemption"
+          }
+        ]
+      },
+      "weekly_net_delta": [
+        "0",
+        "0",
+        "0"
+      ]
+    }
+  },
+  "prices": []
+}

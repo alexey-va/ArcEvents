@@ -43,6 +43,7 @@ class ApocalypseSourceTemplate(
     entities: List<ApocalypseSourceEntity>,
     val dataVersion: Int = 0,
     blockEntities: Map<Int, Map<String, Any?>> = emptyMap(),
+    containerItems: Map<Int, List<ApocalypseSourceLootItem>> = emptyMap(),
 ) {
     val palette: List<String> = Collections.unmodifiableList(palette.toList())
     private val states = stateIndices.copyOf()
@@ -52,6 +53,8 @@ class ApocalypseSourceTemplate(
     })
     val connectors: List<ApocalypseSourceConnector> = Collections.unmodifiableList(connectors.toList())
     val entities: List<ApocalypseSourceEntity> = Collections.unmodifiableList(entities.toList())
+    private val inventory = containerItems.mapValues { Collections.unmodifiableList(it.value.toList()) }
+    val authoredItems: List<ApocalypseSourceLootItem> = Collections.unmodifiableList(inventory.values.flatten())
 
     init {
         require(sizeX in 1..512 && sizeY in 1..512 && sizeZ in 1..512)
@@ -70,6 +73,9 @@ class ApocalypseSourceTemplate(
     fun blockEntity(x: Int, y: Int, z: Int): Map<String, Any?>? =
         if (x in 0 until sizeX && y in 0 until sizeY && z in 0 until sizeZ) entityData[index(x, y, z)] else null
 
+    fun containerItems(x: Int, y: Int, z: Int): List<ApocalypseSourceLootItem> =
+        if (x in 0 until sizeX && y in 0 until sizeY && z in 0 until sizeZ) inventory[index(x, y, z)].orEmpty() else emptyList()
+
     fun forEachBlockEntity(action: (x: Int, y: Int, z: Int, data: Map<String, Any?>) -> Unit) {
         entityData.forEach { (index, data) -> action(index % sizeX, index / (sizeX * sizeZ), index / sizeX % sizeZ, data) }
     }
@@ -82,7 +88,8 @@ class ApocalypseSourceTemplate(
     }
 }
 
-data class ApocalypseSourceArchive(val id: String, val filename: String, val url: String, val sha256: String)
+data class ApocalypseSourceArchive(val id: String, val filename: String, val url: String, val sha256: String,
+    val maximumBytes: Long = 16L * 1024 * 1024)
 
 /** Immutable parsed data from externally cached, pinned archives; no original assets are bundled. */
 class ApocalypseStructureAssets private constructor(
@@ -90,6 +97,7 @@ class ApocalypseStructureAssets private constructor(
     pools: Map<String, ApocalypseSourcePool>,
     structures: Map<String, ApocalypseSourceStructure>,
     val city: ApocalypseLostCityAssets,
+    override val loot: ApocalypseSourceLoot,
     sourceHashes: Map<String, String>,
 ) : ApocalypseJigsawAssets {
     val templates: Map<String, ApocalypseSourceTemplate> = Collections.unmodifiableMap(templates.toMap())
@@ -109,10 +117,20 @@ class ApocalypseStructureAssets private constructor(
             ApocalypseSourceArchive("lostcities", "lostcities-1.20-7.4.11.jar",
                 "https://mediafilez.forgecdn.net/files/7432/706/lostcities-1.20-7.4.11.jar",
                 "7a3f3c55de1b869380fdbdef4fa8865bc1daf3ae6c66fab1056ea44d6534b4fb"),
+            ApocalypseSourceArchive("cwpack", "Cursed Walking-v3.3 (patch).zip",
+                "https://mediafilez.forgecdn.net/files/8603/430/Cursed%20Walking-v3.3%20%28patch%29.zip",
+                "9e27be83c25a78d13508134be65d2fe70efb389ce015d2a9f54f8dd0f9861901", 350L * 1024 * 1024),
+            ApocalypseSourceArchive("deepvoid", "the_deep_void-1.28-forge-1.20.1.jar",
+                "https://mediafilez.forgecdn.net/files/5788/605/the_deep_void-1.28-forge-1.20.1.jar",
+                "05b5c6cd8b5dd2f78528e3b8d6a183afe51476e6897b493c55c2a6f0974e7d69"),
+            ApocalypseSourceArchive("depths", "the_deeper_void-2.0.5-forge-1.20.1.jar",
+                "https://mediafilez.forgecdn.net/files/8145/376/the_deeper_void-2.0.5-forge-1.20.1.jar",
+                "d20a72131f49c91d03ab709ac7f08451d95ccf84d637389ed0a6629b0ef68f08"),
         ))
 
         /** Caller verifies pinned checksums and performs this bounded archive I/O away from gameplay. */
-        fun load(jcws: Path, keerdm: Path, lostCities: Path): ApocalypseStructureAssets {
+        fun load(jcws: Path, keerdm: Path, lostCities: Path, cwPack: Path? = null,
+                 extraLootArchives: List<Path> = emptyList()): ApocalypseStructureAssets {
             val templates = linkedMapOf<String, ApocalypseSourceTemplate>()
             val pools = linkedMapOf<String, ApocalypseSourcePool>()
             val structures = linkedMapOf<String, ApocalypseSourceStructure>()
@@ -147,8 +165,12 @@ class ApocalypseStructureAssets private constructor(
                 }
             }
             require(templates.isNotEmpty()) { "No JCWS structure templates" }
-            return ApocalypseStructureAssets(templates, pools, structures, ApocalypseLostCityAssets.load(lostCities, keerdm),
-                mapOf("jcws" to hash(jcws), "keerdm" to hash(keerdm), "lostcities" to hash(lostCities)))
+            val loot = ApocalypseSourceLoot.load(listOf(lostCities, keerdm, jcws) + extraLootArchives, cwPack,
+                templates.values.flatMap { it.authoredItems })
+            val hashes = linkedMapOf("jcws" to hash(jcws), "keerdm" to hash(keerdm), "lostcities" to hash(lostCities))
+            cwPack?.let { hashes["cwpack"] = hash(it) }
+            extraLootArchives.forEachIndexed { index, path -> hashes[pinnedSources.getOrNull(index + 4)?.id ?: "loot$index"] = hash(path) }
+            return ApocalypseStructureAssets(templates, pools, structures, ApocalypseLostCityAssets.load(lostCities, keerdm, loot), loot, hashes)
         }
 
         private const val MAX_NBT_BYTES = 64 * 1024 * 1024
@@ -181,6 +203,7 @@ class ApocalypseStructureAssets private constructor(
             val indices = IntArray(size[0] * size[1] * size[2]) { -1 }
             val nbt = linkedMapOf<Int, String>()
             val blockEntities = linkedMapOf<Int, Map<String, Any?>>()
+            val containerItems = linkedMapOf<Int, List<ApocalypseSourceLootItem>>()
             val connectors = mutableListOf<ApocalypseSourceConnector>()
             root.getCompoundListTagOrThrow("blocks").tags.forEach { block ->
                 val pos = block.getNumberTagListTagOrThrow("pos").tags.map { it.asInt }
@@ -192,6 +215,21 @@ class ApocalypseStructureAssets private constructor(
                 block.getCompoundTagOrNull("nbt")?.let { tag ->
                     nbt[index] = snbt(tag)
                     blockEntities[index] = tag.tags.mapValues { plain(it.value) }
+                    // Preserve authored contents only for normal loot inventories. Furnace/smoker/bookshelf slots
+                    // have different native semantics and remain outside this finite chest-loot adapter.
+                    if (palette[state].substringBefore('[') in setOf("minecraft:chest", "minecraft:trapped_chest", "minecraft:barrel",
+                            "lootr:lootr_chest", "lootr:lootr_barrel", "jeffs_cursed_walking_structures:gun_storage_unit")) {
+                        containerItems[index] = tag.getCompoundListTagOrNull("Items")?.tags.orEmpty().mapNotNull { item ->
+                            val itemId = item.getStringTagValueOrDefault("id", "minecraft:air")
+                            val count = (item.getNumberTagValueOrDefault("Count", 0) ?: 0).toInt()
+                            if (itemId == "minecraft:air" || count <= 0) null else {
+                                require(count <= 4096)
+                                val data = item.getCompoundTagOrNull("tag")
+                                fun identity(key: String) = data?.getStringTagValueOrDefault(key, "")?.takeIf(String::isNotBlank)
+                                ApocalypseSourceLootItem(itemId, count, data?.let(::snbt), identity("GunId"), identity("AmmoId"), identity("AttachmentId"))
+                            }
+                        }
+                    }
                     if (palette[state].substringBefore('[') == "minecraft:jigsaw") {
                         connectors += ApocalypseSourceConnector(pos[0], pos[1], pos[2],
                             palette[state].substringAfter("orientation=", "north_up").substringBefore(',').substringBefore(']'),
@@ -210,7 +248,7 @@ class ApocalypseStructureAssets private constructor(
                 ApocalypseSourceEntity(pos[0], pos[1], pos[2], tag.getStringTagValueOrThrow("id"), snbt(tag))
             }
             return ApocalypseSourceTemplate(id, size[0], size[1], size[2], palette, indices, nbt, connectors, entities,
-                (root.getNumberTagValueOrDefault("DataVersion", 0) ?: 0).toInt(), blockEntities)
+                (root.getNumberTagValueOrDefault("DataVersion", 0) ?: 0).toInt(), blockEntities, containerItems)
         }
 
         private fun decodePool(json: JsonObject): ApocalypseSourcePool = ApocalypseSourcePool(

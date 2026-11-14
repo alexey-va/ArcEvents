@@ -73,7 +73,13 @@ test('Apocalypse preserves separate inventories through native loot, reconnect a
     await teleport(admin,player,chest.x+.5,chest.y+1,chest.z+.5);
     const at=new Vec3(chest.x,chest.y,chest.z);
     await until(()=>['chest','barrel','trapped_chest'].includes(player.bot.blockAt(at)?.name),'Original supply container missing');
+    // Reproduce the previous version's stocked flag and preserve a pre-existing player item.
+    const migrate=admin.getMessageBufferIndex();
+    admin.chat(`/execute in minecraft:arcevents_apocalypse_v2 run data merge block ${chest.x} ${chest.y} ${chest.z} {Items:[{Slot:26b,id:"minecraft:diamond",count:1}],PublicBukkitValues:{"arcevents:apocalypse_stocked":1b}}`);
+    await expect(admin).toHaveReceivedMessage(/Modified block data/,{since:migrate,timeout:10000});
     const container=await player.bot.openContainer(player.bot.blockAt(at));
+    assert.ok(container.containerItems().some(i=>i.name==='diamond'&&i.count===1),'Source migration removed pre-existing items');
+    assert.ok(container.containerItems().some(i=>i.name!=='diamond'),'Legacy stocked flag suppressed the one-time source batch');
     const supply=container.containerItems()[0]; assert.ok(supply,'Original container did not receive its finite expedition supply');
     await container.withdraw(supply.type,null,1);
     const remaining=JSON.stringify(container.slots.slice(0,container.inventoryStart).map(itemState)); container.close();
@@ -138,4 +144,157 @@ test('Apocalypse original bunker spawner emits native guards at its source posit
   } finally {
     player.chat('/arcevents leave'); await players(admin,0); await until(()=>items(player)===origin,'Original bunker exit did not restore origin');
   }
+});
+
+function watchApocalypseDialogs(player) {
+  const result={screens:[]};
+  const show=({dialog})=>result.screens.push(dialog.data?nbt.simplify(dialog.data):{});
+  player.bot._client.on('show_dialog',show);
+  result.stop=()=>player.bot._client.removeListener('show_dialog',show);
+  return result;
+}
+function apocButtons(value) {
+  if(!value||typeof value!=='object')return[];
+  if(value.action?.id&&value.label)return[value];
+  return Object.values(value).flatMap(apocButtons);
+}
+const apocButton=(screen,id)=>apocButtons(screen).find(x=>x.action.id.endsWith(`/${id}`));
+function nativePdc(value,key) {
+  if(!value||typeof value!=='object')return undefined;
+  if(Object.hasOwn(value,key)) {const found=value[key];return found&&typeof found==='object'&&'value' in found?found.value:found;}
+  for(const child of Object.values(value)){const found=nativePdc(child,key);if(found!==undefined)return found;}
+  return undefined;
+}
+function apocClick(player,screen,id) {
+  const button=apocButton(screen,id);assert.ok(button,`Missing native ${id} button`);
+  const params={id:button.action.id,nbt:{type:'end'}};
+  const wire=player.bot._client.serializer.createPacketBuffer({name:'custom_click_action',params});
+  assert.equal(wire.subarray(-2).toString('hex'),'0100');
+  player.bot._client.write('custom_click_action',params);
+}
+async function sourceMarkers(admin,kind) {
+  const since=admin.getMessageBufferIndex();admin.chat(`/arcevents apocalypse markers ${kind}`);
+  await expect(admin).toHaveReceivedMessage(/^ARCEVENTS_APOCALYPSE_MARKER /,{since,timeout:20000});
+  await pause(150);
+  return admin.messageBuffer.slice(since).filter(x=>x.startsWith('ARCEVENTS_APOCALYPSE_MARKER ')).map(line=>{
+    const values=Object.fromEntries([...line.matchAll(/ ([a-z_]+)=(\S+)/g)].map(([,k,v])=>[k,v]));
+    return {...values,x:Number(values.x),y:Number(values.y),z:Number(values.z)};
+  });
+}
+async function sourceContainer(admin,player,marker) {
+  await teleport(admin,player,marker.x+.5,marker.y+1,marker.z+.5);
+  const at=new Vec3(marker.x,marker.y,marker.z);
+  await until(()=>['chest','barrel','trapped_chest'].includes(player.bot.blockAt(at)?.name),'Source loot container block did not arrive');
+  return player.bot.openContainer(player.bot.blockAt(at));
+}
+
+test('Apocalypse enters through the native menu and opens actionable guide routes without granting items',async({player,createPlayer})=>{
+  await ready();const admin=await createPlayer({username:`GuideQA${Math.floor(Math.random()*100000)}`});await admin.makeOp();
+  const origin=items(player),dialogs=watchApocalypseDialogs(player);
+  try {
+    player.chat('/arcevents');
+    const menu=await until(()=>dialogs.screens.find(s=>apocButton(s,'action_apocalypse_menu_name')),'Apocalypse entry missing from native main menu');
+    apocClick(player,menu,'action_apocalypse_menu_name');await players(admin,1);
+    const expedition=items(player);let since=dialogs.screens.length;
+    player.chat('/arcevents');
+    const guide=await until(()=>dialogs.screens.slice(since).find(s=>apocButton(s,'track_supplies')),'Bare /arcevents did not open the field guide');
+    assert.match(JSON.stringify(guide.title),/Field guide/);
+    assert.ok(apocButton(guide,'track_exit'),'The real surface exit has no guide route');
+    assert.ok(apocButton(guide,'track_weapons')||apocButton(guide,'track_city'),'Guide has no actual destination for finding firearms');
+    const trackSince=player.getMessageBufferIndex();
+    apocClick(player,guide,'track_supplies');
+    await expect(player).toHaveReceivedMessage(/^Day \d+ · .*Barrel · (?:N|NE|E|SE|S|SW|W|NW) \d+$/,{since:trackSince});
+    assert.equal(items(player),expedition,'Tracking a source barrel changed expedition items');
+    since=dialogs.screens.length;player.chat('/arcevents apocalypse guide');
+    const fresh=await until(()=>dialogs.screens.slice(since).find(s=>apocButton(s,'survival')),'Guide refresh failed');
+    apocClick(player,fresh,'survival');
+    const help=await until(()=>dialogs.screens.slice(since).find(s=>apocButton(s,'leave')),'Survival controls did not open');
+    assert.match(JSON.stringify(help.body),/crowbar/i);
+    assert.match(JSON.stringify(help.body),/reload/i);
+    apocClick(player,help,'back');
+    await until(()=>dialogs.screens.slice(since).filter(s=>apocButton(s,'track_supplies')).length>=2,'Back did not return to the guide');
+    player.chat('/arcevents leave');await players(admin,0);await until(()=>items(player)===origin,'Guide flow did not preserve origin inventory');
+  }finally{dialogs.stop();player.chat('/arcevents leave');admin.bot.quit();}
+});
+
+test('Apocalypse original armories and ammo supply usable native firearms and crowbar crates stay finite',async({player,createPlayer})=>{
+  await ready();const admin=await createPlayer({username:`LootQA${Math.floor(Math.random()*100000)}`});await admin.makeOp();
+  const origin=items(player);
+  try {
+    player.chat('/arcevents apocalypse');await players(admin,1);
+    // Actor-only setup isolates supply interaction from the already-advanced world's hostile pressure.
+    admin.chat(`/gamemode creative ${player.username}`);await pause(300);
+    const armed=await sourceMarkers(admin,'WEAPONS');let found=null;
+    for(const marker of armed) {
+      const chest=await sourceContainer(admin,player,marker);
+      const gun=chest.containerItems().find(i=>/world_firearm/.test(JSON.stringify(i.components??i.nbt)));
+      if(gun){await chest.withdraw(gun.type,null,1);found=marker;chest.close();break;}
+      chest.close();
+    }
+    assert.ok(found,'No firearm in the deterministic bounded sample of source armories');
+    const ammunition=await sourceMarkers(admin,'AMMO');let received=false;
+    for(const marker of ammunition) {
+      const chest=await sourceContainer(admin,player,marker);
+      const ammo=chest.containerItems().find(i=>/world_ammunition/.test(JSON.stringify(i.components??i.nbt))||i.name==='iron_nugget');
+      if(ammo){await chest.withdraw(ammo.type,null,Math.min(ammo.count,32));received=true;chest.close();break;}
+      chest.close();
+    }
+    assert.ok(received,'Source ammo containers supplied no usable rounds');
+    const gun=player.bot.inventory.items().find(i=>/world_firearm/.test(JSON.stringify(i.components??i.nbt)));
+    assert.ok(gun);await player.bot.equip(gun,'hand');
+    const loaded=()=>nativePdc(player.bot.heldItem?.components??player.bot.heldItem?.nbt,'arcevents:world_loaded_rounds');
+    assert.equal(loaded(),0,'Original unloaded gun was given a free native magazine');
+    admin.chat(`/effect give ${player.username} minecraft:resistance 30 255 true`);await pause(200);
+    admin.chat(`/gamemode survival ${player.username}`);await pause(200);
+    player.bot._client.write('block_dig',{status:6,location:new Vec3(0,0,0),face:0,sequence:0});
+    await until(()=>Number(loaded())>0,'Source firearm did not reload with source ammo',12000);
+    const beforeShot=Number(loaded());
+    admin.chat(`/execute at ${player.username} run summon minecraft:zombie ~2 ~ ~ {NoAI:1b,Tags:["apoc_gun_qa"]}`);
+    await pause(300);
+    const enemy=player.bot.nearestEntity(e=>e.name==='zombie');assert.ok(enemy,'Native firearm target missing');
+    await player.bot.lookAt(enemy.position.offset(0,1.5,0),true);player.bot.attack(enemy);
+    await until(()=>Number(loaded())===beforeShot-1,'Accepted native shot did not consume its source-loaded round');
+    admin.chat('/execute in minecraft:arcevents_apocalypse_v2 run kill @e[tag=apoc_gun_qa]');
+    admin.chat(`/gamemode creative ${player.username}`);await pause(200);
+    const crate=(await sourceMarkers(admin,'CRATES'))[0];assert.ok(crate);
+    await teleport(admin,player,crate.x+.5,crate.y+1,crate.z+.5);
+    const at=new Vec3(crate.x,crate.y,crate.z);
+    await until(()=>player.bot.blockAt(at)?.name==='barrel','Source component crate missing');
+    admin.chat(`/item replace entity ${player.username} weapon.mainhand with minecraft:iron_sword`);await pause(250);
+    let since=player.getMessageBufferIndex();await player.bot.activateBlock(player.bot.blockAt(at));
+    await expect(player).toHaveReceivedMessage(/crowbar/i,{since,timeout:6000});
+    admin.chat(`/item replace entity ${player.username} weapon.mainhand with minecraft:iron_sword[custom_data={PublicBukkitValues:{"arcevents:apocalypse_tool":"CROWBAR"}}]`);await pause(250);
+    const parts=await player.bot.openContainer(player.bot.blockAt(at));assert.ok(parts.containerItems().length>0,'A source crowbar did not open the materials crate');
+    const one=parts.containerItems()[0];await parts.withdraw(one.type,null,1);
+    const remaining=JSON.stringify(parts.slots.slice(0,parts.inventoryStart).map(itemState));parts.close();await pause(100);
+    const again=await player.bot.openContainer(player.bot.blockAt(at));
+    assert.equal(JSON.stringify(again.slots.slice(0,again.inventoryStart).map(itemState)),remaining,'Reopening rerolled or refilled a source component crate');again.close();
+    player.chat('/arcevents leave');await players(admin,0);await until(()=>items(player)===origin,'Source armory/crate flow changed origin items');
+  }finally{player.chat('/arcevents leave');admin.bot.quit();}
+});
+
+test('Apocalypse admits source loot from a player-added west double-chest half and preserves both halves',async({player,createPlayer})=>{
+  await ready();const admin=await createPlayer({username:`DoubleQA${Math.floor(Math.random()*100000)}`});await admin.makeOp();const origin=items(player);
+  try {
+    player.chat('/arcevents apocalypse');await players(admin,1);
+    admin.chat(`/gamemode creative ${player.username}`);await pause(200);
+    const marker=(await sourceMarkers(admin,'WEAPONS'))[3];assert.ok(marker);
+    await teleport(admin,player,marker.x+.5,marker.y+1,marker.z+.5);
+    const run=async command=>{const since=admin.getMessageBufferIndex();admin.chat(`/execute in minecraft:arcevents_apocalypse_v2 run ${command}`);await expect(admin).toHaveReceivedMessage(/Changed the block|Modified block data/,{since,timeout:10000});};
+    await run(`setblock ${marker.x} ${marker.y} ${marker.z} minecraft:air`);
+    await run(`setblock ${marker.x-1} ${marker.y} ${marker.z} minecraft:air`);
+    await run(`setblock ${marker.x} ${marker.y} ${marker.z} minecraft:chest[facing=north,type=right]`);
+    await run(`setblock ${marker.x-1} ${marker.y} ${marker.z} minecraft:chest[facing=north,type=left]`);
+    await run(`data merge block ${marker.x-1} ${marker.y} ${marker.z} {Items:[{Slot:26b,id:"minecraft:diamond",count:2}]}`);
+    await pause(250);
+    const added=new Vec3(marker.x-1,marker.y,marker.z);
+    await until(()=>player.bot.blockAt(added)?.name==='chest','Player-added half did not arrive in native chunk packets',30000);
+    const box=await player.bot.openContainer(player.bot.blockAt(added));
+    assert.equal(box.inventoryStart,54,'Native fixture did not form a double chest');
+    assert.ok(box.containerItems().some(i=>i.name==='diamond'&&i.count===2),'Source admission overwrote the player half');
+    assert.ok(box.containerItems().some(i=>/world_firearm/.test(JSON.stringify(i.components??i.nbt))),'Opening the unmarked west half bypassed source stocking');
+    const remaining=JSON.stringify(box.slots.slice(0,box.inventoryStart).map(itemState));box.close();await pause(100);
+    const again=await player.bot.openContainer(player.bot.blockAt(added));assert.equal(JSON.stringify(again.slots.slice(0,again.inventoryStart).map(itemState)),remaining);again.close();
+    player.chat('/arcevents leave');await players(admin,0);await until(()=>items(player)===origin,'Double-chest flow changed origin inventory');
+  }finally{player.chat('/arcevents leave');admin.bot.quit();}
 });

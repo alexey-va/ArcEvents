@@ -15,6 +15,18 @@ class ApocalypseOriginalLayout(override val seed: Long, private val catalog: Apo
     override val starter = ApocalypseSite("starter", ApocalypseSiteKind.STARTER_BUNKER, ApocalypsePoint(0, 71, 0), NS + "starterbunker")
     private val starterAssembly = requireNotNull(assemble(starter))
     override val spawn = requireNotNull(starterAssembly.spawn) { "Source starter did not assemble its spawnpoint_entity" }
+    val lootCatalog: ApocalypseSourceLoot get() = catalog.loot
+    val starterExit: ApocalypsePoint by lazy { requireNotNull(starterAssembly.highestLadder) { "Source starter has no exit ladder" } }
+    val starterSupplyMarkers: List<ApocalypseMarker> by lazy {
+        java.util.Collections.unmodifiableList(markers(starter).filter { it.lootTable == NS + "chests/supplychest" })
+    }
+    fun loot(marker: ApocalypseMarker, random: Random): List<ApocalypseSourceLootDrop> = when {
+        marker.lootTable != null -> catalog.loot.roll(marker.lootTable, random)
+        marker.sourceItems.isNotEmpty() -> marker.sourceItems.map { ApocalypseSourceLootDrop.Item(it) }
+        marker.sourceBlock in setOf(NS + "gun_part_chest", NS + "create_part_chest") ->
+            catalog.loot.rollPartCrate(requireNotNull(marker.sourceBlock), random)
+        else -> emptyList()
+    }
 
     private val teleports: List<Pair<Int, Int>> = buildList {
         val random = Random(seed)

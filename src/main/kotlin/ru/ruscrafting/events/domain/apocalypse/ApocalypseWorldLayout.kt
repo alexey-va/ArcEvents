@@ -20,7 +20,9 @@ data class ApocalypseSite(val id: String, val kind: ApocalypseSiteKind, val anch
         125 + java.util.Random((anchor.z shr 4) * 100001653L + (anchor.x shr 4) * 295075153L).nextInt(100)
     } else 0
 }
-data class ApocalypseMarker(val siteId: String, val kind: ApocalypseMarkerKind, val x: Int, val y: Int, val z: Int)
+data class ApocalypseMarker(val siteId: String, val kind: ApocalypseMarkerKind, val x: Int, val y: Int, val z: Int,
+    val lootTable: String? = null, val sourceBlock: String? = null,
+    val sourceItems: List<ru.ruscrafting.events.domain.apocalypse.source.ApocalypseSourceLootItem> = emptyList())
 
 class ApocalypseWorldLayout(override val seed: Long) : ApocalypseLayout {
     internal val terrain = ApocalypseTerrain(seed)
