@@ -13,6 +13,7 @@ import org.bukkit.block.BlockSupport
 import org.bukkit.block.TileState
 import org.bukkit.block.data.BlockData
 import org.bukkit.block.data.MultipleFacing
+import org.bukkit.block.data.type.Snow
 import org.bukkit.entity.Player
 import org.bukkit.persistence.PersistentDataType
 import org.bukkit.plugin.Plugin
@@ -96,8 +97,8 @@ internal class ApocalypseAtmosphere(plugin: Plugin) : AutoCloseable {
             val p = cell.position
             val block = job.chunk.getBlock(p.x and 15, p.y, p.z and 15)
             val actual = block.blockData
-            val before = actual == state(cell.previous)
-            val after = actual == state(cell.state)
+            val before = waterfrontMatches(actual, state(cell.previous))
+            val after = waterfrontMatches(actual, state(cell.state))
             if (!job.applying) {
                 job.old = job.old && before
                 job.fresh = job.fresh && after
@@ -111,6 +112,14 @@ internal class ApocalypseAtmosphere(plugin: Plugin) : AutoCloseable {
             }
         }
     }
+
+    /** A snowfall toggles grass.snowy and puts a single, passable layer in the air directly above the ground. */
+    private fun waterfrontMatches(actual: BlockData, planned: BlockData): Boolean =
+        actual == planned || when (planned.material) {
+            Material.GRASS_BLOCK -> actual.material == Material.GRASS_BLOCK
+            Material.AIR -> actual is Snow && actual.layers == 1
+            else -> false
+        }
 
     private fun finish(job: LotJob, status: Byte) {
         job.chunk.persistentDataContainer.set(districtKey, PersistentDataType.BYTE, status)
@@ -166,7 +175,8 @@ internal class ApocalypseAtmosphere(plugin: Plugin) : AutoCloseable {
     private companion object {
         const val STARTED: Byte = 1
         const val COMPLETE: Byte = 2
-        const val SKIPPED: Byte = 3
+        // A v1 rejection (3) must be checked once more with the weather-aware baseline.
+        const val SKIPPED: Byte = 4
     }
 }
 

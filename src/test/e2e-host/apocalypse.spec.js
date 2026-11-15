@@ -191,6 +191,28 @@ async function sourceContainer(admin,player,marker) {
   await until(()=>['chest','barrel','trapped_chest'].includes(player.bot.blockAt(at)?.name),'Source loot container block did not arrive');
   return player.bot.openContainer(player.bot.blockAt(at));
 }
+async function withdrawSourceStack(player,container) {
+  await player.bot._syncWindow(container);
+  assert.equal(container.selectedItem,null,'Source crate transfer started with a non-empty native cursor');
+  const one=container.containerItems().find(item=>nativePdc([item.components,item.nbt],'arcevents:apocalypse_source_item'));
+  assert.ok(one,'Source component crate contained no identified source material');
+  const identity=JSON.stringify({...itemState(one),count:0}),amount=one.count;
+  const count=()=>player.bot.inventory.items().filter(item=>JSON.stringify({...itemState(item),count:0})===identity)
+    .reduce((total,item)=>total+item.count,0);
+  const before=count(),expected=container.slots.slice(0,container.inventoryStart).map(itemState);
+  expected[one.slot]=null;
+  const remaining=JSON.stringify(expected);
+  const destination=container.firstEmptySlotRange(container.hotbarStart,container.inventoryEnd);
+  assert.notEqual(destination,null,'Source crate fixture requires one empty hotbar slot');
+  // Type-only withdraw merges distinct component-backed ingots in the pinned client. A native empty-slot swap preserves identity.
+  await player.bot.clickWindow(one.slot,destination-container.hotbarStart,2);
+  await player.bot._syncWindow(container);
+  assert.equal(count(),before+amount,'Native source stack transfer changed its identity or quantity');
+  assert.equal(container.selectedItem,null,'Native source stack transfer left items on the cursor');
+  assert.equal(JSON.stringify(container.slots.slice(0,container.inventoryStart).map(itemState)),remaining,
+    'Native source stack transfer changed unrelated crate contents');
+  return remaining;
+}
 
 test('Apocalypse enters through the native menu and opens actionable guide routes without granting items',async({player,createPlayer})=>{
   await ready();const admin=await createPlayer({username:`GuideQA${Math.floor(Math.random()*100000)}`});await admin.makeOp();
@@ -207,7 +229,7 @@ test('Apocalypse enters through the native menu and opens actionable guide route
     assert.ok(apocButton(guide,'track_weapons')||apocButton(guide,'track_city'),'Guide has no actual destination for finding firearms');
     const trackSince=player.getMessageBufferIndex();
     apocClick(player,guide,'track_supplies');
-    await expect(player).toHaveReceivedMessage(/^Day \d+ · .*Barrel · (?:N|NE|E|SE|S|SW|W|NW) \d+$/,{since:trackSince});
+    await expect(player).toHaveReceivedMessage(/^Supply barrels · [A-Za-z -]+ · \d+ blocks\nX -?\d+ · Y -?\d+ · Z -?\d+\nFollow the arrow at the top of the screen\. ↑ means the landmark is straight ahead\.$/,{since:trackSince});
     assert.equal(items(player),expedition,'Tracking a source barrel changed expedition items');
     since=dialogs.screens.length;player.chat('/arcevents apocalypse guide');
     const fresh=await until(()=>dialogs.screens.slice(since).find(s=>apocButton(s,'survival')),'Guide refresh failed');
@@ -269,9 +291,12 @@ test('Apocalypse original armories and ammo supply usable native firearms and cr
     await expect(player).toHaveReceivedMessage(/crowbar/i,{since,timeout:6000});
     admin.chat(`/item replace entity ${player.username} weapon.mainhand with minecraft:iron_sword[custom_data={PublicBukkitValues:{"arcevents:apocalypse_tool":"CROWBAR"}}]`);await pause(250);
     const parts=await player.bot.openContainer(player.bot.blockAt(at));assert.ok(parts.containerItems().length>0,'A source crowbar did not open the materials crate');
-    const one=parts.containerItems()[0];await parts.withdraw(one.type,null,1);
-    const remaining=JSON.stringify(parts.slots.slice(0,parts.inventoryStart).map(itemState));parts.close();await pause(100);
+    const expected=await withdrawSourceStack(player,parts);parts.close();
+    const fresh=await player.bot.openContainer(player.bot.blockAt(at));await player.bot._syncWindow(fresh);
+    const remaining=JSON.stringify(fresh.slots.slice(0,fresh.inventoryStart).map(itemState));
+    assert.equal(remaining,expected,'The first native reopen changed the confirmed source crate withdrawal');fresh.close();
     const again=await player.bot.openContainer(player.bot.blockAt(at));
+    await player.bot._syncWindow(again);
     assert.equal(JSON.stringify(again.slots.slice(0,again.inventoryStart).map(itemState)),remaining,'Reopening rerolled or refilled a source component crate');again.close();
     player.chat('/arcevents leave');await players(admin,0);await until(()=>items(player)===origin,'Source armory/crate flow changed origin items');
   }finally{player.chat('/arcevents leave');admin.bot.quit();}

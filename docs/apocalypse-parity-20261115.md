@@ -1,4 +1,4 @@
-# Cursed Walking parity — ArcEvents 0.6.5
+# Cursed Walking parity — ArcEvents 0.6.6
 
 Reference: the inspected Cursed Walking v3.3(patch) archive. This is a native
 Paper adaptation inside ArcEvents. Archive/config imports, executable native
@@ -29,6 +29,8 @@ mechanics and rendered client acceptance are separate evidence.
   ammunition, press, source-bound ore mining and a working compact refinery.
   Six packet-rendered workstations, a close waterfront, personal supply cues,
   actionable navigation and administrator flight support the ordinary route.
+  Version 0.6.6 also retries old bridge lots skipped because of natural snow;
+  existing player edits still prevent their replacement.
   See [workbenches and explicit adaptations](apocalypse-workbenches-20261115.md).
 
 ## Material gaps

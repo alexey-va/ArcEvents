@@ -1,4 +1,4 @@
-# Apocalypse workbenches — ArcEvents 0.6.5
+# Apocalypse workbenches — ArcEvents 0.6.6
 
 The native adaptation now connects bunker supplies to BF1 → TaCZ → SFMS
 progression. The pinned Cursed Walking v3.3(patch) recipes are bundled as data;
@@ -84,6 +84,10 @@ The source palette now preserves floor ivy as moss; an exact-coordinate repair
 fixes the nine existing generated cases. Old waterfront chunks are compared to
 the previous generated baseline before bounded placement. Edited lots are kept
 out of source-loot adoption. No world, expedition or player-data reset is used.
+The migration accepts naturally accumulated single-layer snow and the grass
+block's snowy flag when comparing the original surface. Revision two retries
+lots that the first revision skipped for those changes, while foreign blocks
+still veto the complete lot. Existing completed lots stay completed.
 Outdoor ash, vent smoke and quiet infrastructure sounds add atmosphere without
 changing global weather or spawning visual-only threats.
 
