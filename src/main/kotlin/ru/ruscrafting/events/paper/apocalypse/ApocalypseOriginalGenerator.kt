@@ -7,7 +7,9 @@ import org.bukkit.World
 import org.bukkit.block.data.BlockData
 import org.bukkit.block.Biome
 import org.bukkit.generator.BiomeProvider
+import org.bukkit.generator.BlockPopulator
 import org.bukkit.generator.ChunkGenerator
+import org.bukkit.generator.LimitedRegion
 import org.bukkit.generator.WorldInfo
 import ru.ruscrafting.events.domain.apocalypse.*
 import java.util.Random
@@ -18,6 +20,25 @@ import java.util.concurrent.ConcurrentHashMap
 class ApocalypseOriginalGenerator(private val seed: Long, private val layout: CompletableFuture<ApocalypseLayout>) : ChunkGenerator() {
     private val terrain = ApocalypseChunkGenerator(seed)
     private val states = ConcurrentHashMap<String, BlockData>()
+    private val shapePopulator = object : BlockPopulator() {
+        override fun populate(info: WorldInfo, random: Random, cx: Int, cz: Int, region: LimitedRegion) {
+            val original = layout.join() as? ApocalypseOriginalLayout ?: return
+            for ((p, legacy, fitTorch) in original.shapeCells(cx, cz)) {
+                if (p.y !in info.minHeight until info.maxHeight) continue
+                val old = region.getBlockData(p.x, p.y, p.z)
+                if (old != state(legacy)) continue
+                val fixed = ApocalypseSourceShapes.resolve(old, fitTorch, { cap ->
+                    cap.getCollisionShape(Location(region.world, p.x.toDouble(), p.y + 1.0, p.z.toDouble())).boundingBoxes
+                }) { side ->
+                    val y = p.y + side.modY
+                    if (y !in info.minHeight until info.maxHeight) state("minecraft:air")
+                    else region.getBlockData(p.x + side.modX, y, p.z + side.modZ)
+                }
+                if (fixed != old) region.setBlockData(p.x, p.y, p.z, fixed)
+            }
+        }
+    }
+    override fun getDefaultPopulators(world: World): List<BlockPopulator> = listOf(shapePopulator)
     override fun generateSurface(info: WorldInfo, random: Random, chunkX: Int, chunkZ: Int, data: ChunkData) {
         check(!Bukkit.isPrimaryThread()) { "Original structure generation must run on Paper's generation worker" }
         layout.join().generate(object : ApocalypseChunkCanvas(chunkX, chunkZ, data.minHeight, data.maxHeight - 1) {

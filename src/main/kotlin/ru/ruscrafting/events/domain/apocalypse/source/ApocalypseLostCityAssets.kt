@@ -45,7 +45,8 @@ class ApocalypseLostCityAssets private constructor(private val assets: Map<Strin
     private val globalPalette = basePalette()
     private val parts = assets.getValue("parts").mapValues { (id, value) -> SourcePart(id, value) }
 
-    private data class Entry(val states: List<String>, val alias: Char? = null, val loot: String? = null, val nbt: String? = null) {
+    private data class Entry(val states: List<String>, val alias: Char? = null, val loot: String? = null,
+                             val nbt: String? = null, val fitTorch: Boolean = false) {
         fun pick(random: Random): String = if (states.size == 1) states.first() else states[random.nextInt(128)]
     }
     private class SourcePart(val id: String, val json: JsonObject) {
@@ -65,13 +66,20 @@ class ApocalypseLostCityAssets private constructor(private val assets: Map<Strin
     private data class Lot(val placements: List<Placement>, val clearFrom: Int? = null, val clearUntil: Int? = null)
     private data class MultiBuilding(val building: String, val anchorX: Int, val anchorZ: Int, val rootBuilding: String)
 
-    fun render(seed: Long, cx: Int, cz: Int, groundY: Int, cityFactor: Double, put: (Int, Int, Int, String) -> Unit) {
+    fun render(seed: Long, cx: Int, cz: Int, groundY: Int, cityFactor: Double, put: (Int, Int, Int, String) -> Unit) =
+        renderCells(seed, cx, cz, groundY, cityFactor) { x, y, z, state, _ -> put(x, y, z, state) }
+
+    internal fun renderCells(seed: Long, cx: Int, cz: Int, groundY: Int, cityFactor: Double,
+                             put: (Int, Int, Int, String, Boolean) -> Unit) {
         require(cityFactor.isFinite())
-        val lot = lot(seed, cx, cz, groundY, cityFactor)
+        renderLot(lot(seed, cx, cz, groundY, cityFactor), seed, cx, cz, put)
+    }
+
+    private fun renderLot(lot: Lot, seed: Long, cx: Int, cz: Int, put: (Int, Int, Int, String, Boolean) -> Unit) {
         if (lot.clearFrom != null && lot.clearUntil != null) {
-            for (y in lot.clearFrom until lot.clearUntil) for (z in 0..15) for (x in 0..15) put(cx * 16 + x, y, cz * 16 + z, "minecraft:air")
+            for (y in lot.clearFrom until lot.clearUntil) for (z in 0..15) for (x in 0..15) put(cx * 16 + x, y, cz * 16 + z, "minecraft:air", false)
         }
-        visit(lot, seed, cx, cz) { x, y, z, state, _, _ -> put(cx * 16 + x, y, cz * 16 + z, state) }
+        visit(lot, seed, cx, cz) { x, y, z, state, entry, _ -> put(cx * 16 + x, y, cz * 16 + z, state, entry.fitTorch) }
     }
 
     fun markers(seed: Long, cx: Int, cz: Int, groundY: Int, cityFactor: Double, siteId: String): List<ApocalypseMarker> =
@@ -92,13 +100,12 @@ class ApocalypseLostCityAssets private constructor(private val assets: Map<Strin
 
     /** Explicit original building selection for callers assembling a known multi footprint. */
     fun renderBuilding(id: String, seed: Long, cx: Int, cz: Int, groundY: Int, floors: Int, cellars: Int,
-                       put: (Int, Int, Int, String) -> Unit) {
-        val lot = buildingLot(Companion.id(id), seed, cx, cz, groundY, floors, cellars)
-        if (lot.clearFrom != null && lot.clearUntil != null) {
-            for (y in lot.clearFrom until lot.clearUntil) for (z in 0..15) for (x in 0..15) put(cx * 16 + x, y, cz * 16 + z, "minecraft:air")
-        }
-        visit(lot, seed, cx, cz) { x, y, z, state, _, _ -> put(cx * 16 + x, y, cz * 16 + z, state) }
-    }
+                       put: (Int, Int, Int, String) -> Unit) =
+        renderBuildingCells(id, seed, cx, cz, groundY, floors, cellars) { x, y, z, state, _ -> put(x, y, z, state) }
+
+    internal fun renderBuildingCells(id: String, seed: Long, cx: Int, cz: Int, groundY: Int, floors: Int, cellars: Int,
+                                     put: (Int, Int, Int, String, Boolean) -> Unit) =
+        renderLot(buildingLot(Companion.id(id), seed, cx, cz, groundY, floors, cellars), seed, cx, cz, put)
 
     internal fun buildingMarkers(name: String, seed: Long, cx: Int, cz: Int, groundY: Int, floors: Int, siteId: String) =
         markers(buildingLot(id(name), seed, cx, cz, groundY, floors, 0), seed, cx, cz, siteId)
@@ -265,9 +272,10 @@ class ApocalypseLostCityAssets private constructor(private val assets: Map<Strin
             val character = value.get("char").asString.single()
             val loot = value.get("loot")?.asString
             val tag = value.get("tag")?.toString()
+            val fitTorch = value.get("torch")?.asBoolean == true
             when {
-                value.has("frompalette") -> target[character] = Entry(emptyList(), value.get("frompalette").asString.single(), loot, tag)
-                value.has("block") -> target[character] = Entry(listOf(canonicalState(value.get("block").asString)), loot = loot, nbt = tag)
+                value.has("frompalette") -> target[character] = Entry(emptyList(), value.get("frompalette").asString.single(), loot, tag, fitTorch)
+                value.has("block") -> target[character] = Entry(listOf(canonicalState(value.get("block").asString)), loot = loot, nbt = tag, fitTorch = fitTorch)
                 else -> {
                     val choices = if (value.has("variant")) asset("variants", id(value.get("variant").asString)).getAsJsonArray("blocks")
                         else value.getAsJsonArray("blocks")
@@ -278,7 +286,7 @@ class ApocalypseLostCityAssets private constructor(private val assets: Map<Strin
                         if (slots.size == 128) break
                     }
                     require(slots.size == 128) { "Source random palette has fewer than 128 slots: $character" }
-                    target[character] = Entry(slots.toList(), loot = loot, nbt = tag)
+                    target[character] = Entry(slots.toList(), loot = loot, nbt = tag, fitTorch = fitTorch)
                 }
             }
         }
@@ -291,7 +299,8 @@ class ApocalypseLostCityAssets private constructor(private val assets: Map<Strin
                 val alias = entry.alias ?: return@forEach
                 val original = palette[alias]
                 if (original != null && original.alias == null) {
-                    palette[character] = original.copy(loot = entry.loot ?: original.loot, nbt = entry.nbt ?: original.nbt)
+                    palette[character] = original.copy(loot = entry.loot ?: original.loot, nbt = entry.nbt ?: original.nbt,
+                        fitTorch = original.fitTorch || entry.fitTorch)
                     changed = true
                 }
             }

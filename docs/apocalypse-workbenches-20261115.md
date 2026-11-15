@@ -1,4 +1,4 @@
-# Apocalypse workbenches — ArcEvents 0.6.6
+# Apocalypse workbenches — ArcEvents 0.6.7
 
 The native adaptation now connects bunker supplies to BF1 → TaCZ → SFMS
 progression. The pinned Cursed Walking v3.3(patch) recipes are bundled as data;
@@ -94,6 +94,17 @@ changing global weather or spawning visual-only threats.
 Administrators can use `/arcevents apocalypse fly` or their native self `/fly`.
 Non-administrators cannot enable it; expedition resume revokes it after the
 permission is removed. Exit still restores the exact original flight state.
+
+Version 0.6.7 removes the global once-a-second crowd jump. Native pathfinding
+owns ordinary steps and pursuit; source leaper abilities remain independent.
+It also restores the missing Lost Cities attachment pass for fences, bars,
+glass panes, stone walls and torches. New chunks use a buffered native
+`LimitedRegion` populator. Existing chunks receive bounded, source-guarded
+repairs after scenery migration settles; both the center and resulting support
+must still match the original geometry. Repaired wall caps are evaluated from
+top to bottom. Removed blocks and changed player geometry are preserved.
+Moving-piston and shulker-box caps retain their original wall state because
+their collision shape depends on a live block entity.
 
 ## State and validation boundaries
 

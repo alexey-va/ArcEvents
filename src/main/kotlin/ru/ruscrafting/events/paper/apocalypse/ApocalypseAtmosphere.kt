@@ -69,6 +69,8 @@ internal class ApocalypseAtmosphere(plugin: Plugin) : AutoCloseable {
     fun allowsMarker(chunk: Chunk, layout: ApocalypseOriginalLayout, marker: ApocalypseMarker): Boolean =
         !layout.isWaterfront(marker.siteId) || chunk.persistentDataContainer.get(districtKey, PersistentDataType.BYTE) == COMPLETE
 
+    fun isPending(chunk: Chunk): Boolean = chunk.chunkKey in jobs
+
     /** Preflight the complete lot before the first write. Mark/persist a resumable partial lot in the same chunk. */
     fun tickRepairs() {
         val entry = jobs.entries.firstOrNull() ?: return

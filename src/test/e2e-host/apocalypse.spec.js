@@ -197,7 +197,9 @@ async function withdrawSourceStack(player,container) {
   const one=container.containerItems().find(item=>nativePdc([item.components,item.nbt],'arcevents:apocalypse_source_item'));
   assert.ok(one,'Source component crate contained no identified source material');
   const identity=JSON.stringify({...itemState(one),count:0}),amount=one.count;
-  const count=()=>player.bot.inventory.items().filter(item=>JSON.stringify({...itemState(item),count:0})===identity)
+  // The server syncs an open container's player slots before Mineflayer copies them back to window 0 on close.
+  const count=()=>container.slots.slice(container.inventoryStart,container.inventoryEnd)
+    .filter(item=>item&&JSON.stringify({...itemState(item),count:0})===identity)
     .reduce((total,item)=>total+item.count,0);
   const before=count(),expected=container.slots.slice(0,container.inventoryStart).map(itemState);
   expected[one.slot]=null;

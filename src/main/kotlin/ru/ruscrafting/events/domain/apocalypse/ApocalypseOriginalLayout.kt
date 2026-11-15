@@ -12,6 +12,7 @@ class ApocalypseOriginalLayout(override val seed: Long, private val catalog: Apo
     private val assemblies = LinkedHashMap<String, ApocalypseSourceAssembly>(80, .75f, true)
     private val markerChunks = LinkedHashMap<Long, List<ApocalypseMarker>>(512, .75f, true)
     private val blockEntityChunks = LinkedHashMap<Long, List<ApocalypseSourceBlockEntity>>(512, .75f, true)
+    private val shapeChunks = LinkedHashMap<Long, List<ApocalypseShapeCell>>(128, .75f, true)
     override val starter = ApocalypseSite("starter", ApocalypseSiteKind.STARTER_BUNKER, ApocalypsePoint(0, 71, 0), NS + "starterbunker")
     private val starterAssembly = requireNotNull(assemble(starter))
     override val spawn = requireNotNull(starterAssembly.spawn) { "Source starter did not assemble its spawnpoint_entity" }
@@ -238,28 +239,76 @@ class ApocalypseOriginalLayout(override val seed: Long, private val catalog: Apo
     override fun generate(out: ApocalypseChunkCanvas) {
         val city = centers(out.minX - 250, out.minZ - 250, out.maxX + 250, out.maxZ + 250)
         val structures = inventorySites(out.minX, out.minZ)
-        drawOriginal(out, city, structures)
-        val table = starterCraftingTable
-        out.blockState(table.x, table.y, table.z, "minecraft:crafting_table")
-        waterfrontLot(out.chunkX, out.chunkZ)?.forEach { cell ->
-            val p = cell.position
-            if (cell.previous != cell.state) out.blockState(p.x, p.y, p.z, cell.state)
+        landscape.generateLandscape(out, city + structures)
+        val shapes = ApocalypseShapeCollector()
+        finalImports(out.chunkX, out.chunkZ, city, structures) { x, y, z, state, fit ->
+            out.blockState(x, y, z, state)
+            shapes.put(x, y, z, state, fit)
         }
+        rememberShapes(out.chunkX, out.chunkZ, shapes)
         remember(out.chunkX, out.chunkZ, chunkMarkers(out.chunkX, out.chunkZ, city, structures))
         rememberBlockEntities(out.chunkX, out.chunkZ, structures)
     }
 
-    private fun drawOriginal(out: ApocalypseChunkCanvas) =
-        drawOriginal(out, centers(out.minX - 250, out.minZ - 250, out.maxX + 250, out.maxZ + 250), inventorySites(out.minX, out.minZ))
+    internal fun shapeCells(cx: Int, cz: Int): List<ApocalypseShapeCell> {
+        synchronized(shapeChunks) { shapeChunks[markerKey(cx, cz)]?.let { return it } }
+        val x = cx * 16
+        val z = cz * 16
+        val shapes = ApocalypseShapeCollector()
+        finalImports(cx, cz, centers(x - 250, z - 250, x + 265, z + 265), inventorySites(x, z), shapes::put)
+        return rememberShapes(cx, cz, shapes)
+    }
 
-    private fun drawOriginal(out: ApocalypseChunkCanvas, city: List<ApocalypseSite>, structures: List<ApocalypseSite>) {
+    private fun rememberShapes(cx: Int, cz: Int, collector: ApocalypseShapeCollector): List<ApocalypseShapeCell> {
+        val result = collector.cells()
+        synchronized(shapeChunks) {
+            shapeChunks[markerKey(cx, cz)] = result
+            if (shapeChunks.size > 512) shapeChunks.entries.iterator().let { it.next(); it.remove() }
+        }
+        return result
+    }
+
+    /** Read only requested legacy cells. Reproduce each involved chunk once on the source worker. */
+    internal fun shapeSupports(points: Set<ApocalypsePoint>): Map<ApocalypsePoint, String> = buildMap {
+        for ((chunk, targets) in points.groupBy { it.x shr 4 to (it.z shr 4) }) {
+            val canvas = ApocalypseShapeSamples(chunk.first, chunk.second, targets)
+            drawOriginal(canvas)
+            val table = starterCraftingTable
+            canvas.blockState(table.x, table.y, table.z, "minecraft:crafting_table")
+            waterfrontLot(chunk.first, chunk.second)?.forEach { cell ->
+                val p = cell.position
+                if (cell.previous != cell.state) canvas.blockState(p.x, p.y, p.z, cell.state)
+            }
+            putAll(canvas.result)
+        }
+    }
+
+    private fun finalImports(cx: Int, cz: Int, city: List<ApocalypseSite>, structures: List<ApocalypseSite>,
+                             put: (Int, Int, Int, String, Boolean) -> Unit) {
+        drawImports(cx, cz, city, structures, put)
+        val table = starterCraftingTable
+        if (table.x shr 4 == cx && table.z shr 4 == cz) put(table.x, table.y, table.z, "minecraft:crafting_table", false)
+        waterfrontLot(cx, cz)?.forEach { cell ->
+            val p = cell.position
+            if (cell.previous != cell.state) put(p.x, p.y, p.z, cell.state, p in waterfront.fittedTorches)
+        }
+    }
+
+    private fun drawOriginal(out: ApocalypseChunkCanvas) {
+        val city = centers(out.minX - 250, out.minZ - 250, out.maxX + 250, out.maxZ + 250)
+        val structures = inventorySites(out.minX, out.minZ)
         landscape.generateLandscape(out, city + structures)
-        if (landscape.developed(city, out.minX, out.minZ)) {
-            catalog.city.render(seed, out.chunkX, out.chunkZ, 71, landscape.cityFactor(city, out.minX, out.minZ)) { x, y, z, state ->
-                ApocalypseSourcePalette.vanillaState(state)?.let { out.blockState(x, y, z, it) }
+        drawImports(out.chunkX, out.chunkZ, city, structures) { x, y, z, state, _ -> out.blockState(x, y, z, state) }
+    }
+
+    private fun drawImports(cx: Int, cz: Int, city: List<ApocalypseSite>, structures: List<ApocalypseSite>,
+                            put: (Int, Int, Int, String, Boolean) -> Unit) {
+        if (landscape.developed(city, cx * 16, cz * 16)) {
+            catalog.city.renderCells(seed, cx, cz, 71, landscape.cityFactor(city, cx * 16, cz * 16)) { x, y, z, state, fit ->
+                ApocalypseSourcePalette.vanillaState(state)?.let { put(x, y, z, it, fit) }
             }
         }
-        for (site in structures) structure(site)?.render(out.chunkX, out.chunkZ, out::blockState)
+        for (site in structures) structure(site)?.render(cx, cz) { x, y, z, state -> put(x, y, z, state, false) }
     }
 
     companion object {

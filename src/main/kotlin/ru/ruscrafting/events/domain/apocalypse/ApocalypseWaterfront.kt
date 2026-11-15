@@ -16,11 +16,14 @@ internal class ApocalypseWaterfront(
     val vent = ApocalypsePoint(-85, groundY + 4, -5)
     val lots: Map<Pair<Int, Int>, List<ApocalypseSceneryCell>>
     val loot: Map<Pair<Int, Int>, List<ApocalypseMarker>>
+    val fittedTorches = mutableSetOf<ApocalypsePoint>()
 
     init {
         val blocks = mutableMapOf<Pair<Int, Int>, MutableMap<ApocalypsePoint, String>>()
-        fun put(x: Int, y: Int, z: Int, state: String) {
-            blocks.getOrPut(x shr 4 to (z shr 4)) { linkedMapOf() }[ApocalypsePoint(x, y, z)] = state
+        fun put(x: Int, y: Int, z: Int, state: String, fitTorch: Boolean = false) {
+            val p = ApocalypsePoint(x, y, z)
+            blocks.getOrPut(x shr 4 to (z shr 4)) { linkedMapOf() }[p] = state
+            if (fitTorch) fittedTorches.add(p) else fittedTorches.remove(p)
         }
         fun material(x: Int, y: Int, z: Int, block: String) = put(x, y, z, "minecraft:$block")
         fun pier(x: Int, z: Int, top: Int) {
@@ -47,8 +50,8 @@ internal class ApocalypseWaterfront(
 
         val markers = mutableMapOf<Pair<Int, Int>, List<ApocalypseMarker>>()
         fun frontage(cx: Int, cz: Int, name: String, floors: Int) {
-            city.renderBuilding(name, seed, cx, cz, groundY, floors, 0) { x, y, z, state ->
-                ApocalypseSourcePalette.vanillaState(state)?.let { put(x, y, z, it) }
+            city.renderBuildingCells(name, seed, cx, cz, groundY, floors, 0) { x, y, z, state, fitTorch ->
+                ApocalypseSourcePalette.vanillaState(state)?.let { put(x, y, z, it, fitTorch) }
             }
             markers[cx to cz] = city.buildingMarkers(name, seed, cx, cz, groundY, floors, site.id)
         }

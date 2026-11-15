@@ -124,6 +124,7 @@ class ApocalypseRuntime(
         config().ui.dialogsEnabled
     }
     private val atmosphere = ApocalypseAtmosphere(plugin)
+    private val sourceShapes = ApocalypseSourceShapeRepairs(plugin, work) { chunk -> !atmosphere.isPending(chunk) }
     private val workbenchDisplays = packetDisplays?.let { displays ->
         ApocalypseWorkbenchDisplays(displays, workbenches) { ready && isPlaying(it.uniqueId) }
     }
@@ -857,6 +858,7 @@ class ApocalypseRuntime(
             }
         }
         atmosphere.tickRepairs()
+        sourceShapes.tick()
         if (step % 25L == 0L) tickStructures(active.mapNotNull(plugin.server::getPlayer).filter { it.world == world && !it.isDead })
         if (step % 20L != 0L) return
         val viewers = active.mapNotNull(plugin.server::getPlayer).filter { it.world == world && !it.isDead }
@@ -999,15 +1001,6 @@ class ApocalypseRuntime(
                 return@forEach
             }
             mob.target = target
-            // Mob Control's climbing applies to nearby mobs; retain native pathing rather than teleporting actors.
-            if (mob.isOnGround && target.location.distanceSquared(mob.location) > 4) {
-                val direction = target.location.toVector().subtract(mob.location.toVector()).setY(0)
-                if (direction.lengthSquared() < 1.0e-9) return@forEach
-                direction.normalize()
-                val ahead = mob.location.clone().add(direction.multiply(.8))
-                if (ahead.block.type.isSolid || mob.getNearbyEntities(.7, .5, .7).any { it is Zombie })
-                    mob.velocity = mob.velocity.setY(.38)
-            }
         }
     }
 
@@ -1025,6 +1018,7 @@ class ApocalypseRuntime(
         if (!chunk.isLoaded || chunk.world != world) return
         if (layout is ApocalypseOriginalLayout) {
             atmosphere.prepare(chunk, layout)
+            sourceShapes.prepare(chunk, layout)
             sourceMining.prepare(chunk, layout)
         }
         val markers = layout.markersInChunk(chunk.x, chunk.z)
@@ -1458,6 +1452,7 @@ class ApocalypseRuntime(
         workbenchMenu.close()
         workbenches.close()
         atmosphere.close()
+        sourceShapes.close()
         guide.close()
         guideRequests.clear(); guideSnapshots.clear(); trackedGuides.clear()
         bars.forEach { (id, bar) -> plugin.server.getPlayer(id)?.hideBossBar(bar) }; bars.clear()

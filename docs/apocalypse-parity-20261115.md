@@ -1,4 +1,4 @@
-# Cursed Walking parity — ArcEvents 0.6.6
+# Cursed Walking parity — ArcEvents 0.6.7
 
 Reference: the inspected Cursed Walking v3.3(patch) archive. This is a native
 Paper adaptation inside ArcEvents. Archive/config imports, executable native
@@ -31,6 +31,9 @@ mechanics and rendered client acceptance are separate evidence.
   actionable navigation and administrator flight support the ordinary route.
   Version 0.6.6 also retries old bridge lots skipped because of natural snow;
   existing player edits still prevent their replacement.
+  Version 0.6.7 restores native fixture connections and torch supports during
+  generation and guarded old-chunk repair, and removes the shared crowd-jump
+  impulse that was visible when tracking a flying administrator.
   See [workbenches and explicit adaptations](apocalypse-workbenches-20261115.md).
 
 ## Material gaps
