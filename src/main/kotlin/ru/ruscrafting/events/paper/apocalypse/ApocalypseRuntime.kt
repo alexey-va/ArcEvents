@@ -484,17 +484,19 @@ class ApocalypseRuntime(
     }
 
     private fun reconcileJoin(player: Player) {
-        val record = players[player.uniqueId]
-        if (record?.phase == ApocalypsePlayerPhase.ACTIVE && ownsNativeInventory(player, record)) {
-            resumeNative(player, record); return
-        }
-        if (record != null && record.phase != ApocalypsePlayerPhase.PARKED) {
-            busy += player.uniqueId; recoverOrigin(player, record); return
-        }
         network.arrival(player.uniqueId).whenComplete { origin, failure -> work.onMain {
             if (failure != null) log("arrival player=${player.uniqueId}", failure)
-            else if (origin != null && player.isOnline) enter(player, origin)
-            else if (record?.returnPending == true && player.isOnline) attemptReturn(player, record)
+            if (!player.isOnline) return@onMain
+            // Consume the accepted transfer before native resume/origin replay can return the player.
+            // Otherwise the next ordinary entry is rejected by the still-live arrival ticket.
+            val record = players[player.uniqueId]
+            if (record?.phase == ApocalypsePlayerPhase.ACTIVE && ownsNativeInventory(player, record)) {
+                resumeNative(player, record)
+            } else if (record != null && record.phase != ApocalypsePlayerPhase.PARKED) {
+                busy += player.uniqueId
+                recoverOrigin(player, record)
+            } else if (failure == null && origin != null) enter(player, origin)
+            else if (record?.returnPending == true) attemptReturn(player, record)
         } }
     }
 

@@ -37,24 +37,36 @@ internal class ApocalypseNetwork(
             redis.loadMapEntries(key, id)
         }.thenCompose { values ->
             val old = values.firstOrNull()
-            if (old != null) require(ticket(old, id) == null) { "arrival already pending" }
+            val pending = old?.let { ticket(it, id) }
+            require(pending == null || pending.origin == ticket.origin && pending.host == ticket.host) { "arrival already pending" }
             redis.compareAndSetMapEntry(key, id, old, encoded)
         }.thenCompose { saved ->
             check(saved) { "arrival changed" }
-            work.onMain {
-                if (!player.isOnline) false else transfer.connect(player, BackendServerId.of(c.hostServer)) == BackendTransferResult.SENT
-            }
-        }.thenCompose { sent ->
-            if (sent) CompletableFuture.completedFuture(true)
-            else redis.compareAndSetMapEntry(key, id, encoded, null).thenApply { false }
+            val sent = runCatching {
+                work.onMain {
+                    player.isOnline && transfer.connect(player, BackendServerId.of(c.hostServer)) == BackendTransferResult.SENT
+                }
+            }.getOrElse { CompletableFuture.failedFuture(it) }
+            sent.handle { accepted, failure ->
+                if (failure == null && accepted == true) CompletableFuture.completedFuture(true)
+                else redis.compareAndSetMapEntry(key, id, encoded, null).handle { _, cleanupFailure ->
+                    if (failure != null) {
+                        if (cleanupFailure != null && cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
+                        throw failure
+                    }
+                    if (cleanupFailure != null) throw cleanupFailure
+                    false
+                }
+            }.thenCompose { it }
         }
     }
 
     fun arrival(playerId: UUID): CompletableFuture<String?> = redis.loadMapEntries(key, playerId.toString()).thenCompose { values ->
         val raw = values.firstOrNull() ?: return@thenCompose CompletableFuture.completedFuture(null)
         val valid = ticket(raw, playerId.toString())
+        if (valid != null && valid.host != settings().serverId) return@thenCompose CompletableFuture.completedFuture(null)
         redis.compareAndSetMapEntry(key, playerId.toString(), raw, null).thenApply { consumed ->
-            valid?.origin?.takeIf { consumed && valid.host == settings().serverId }
+            valid?.origin?.takeIf { consumed }
         }
     }
 
@@ -62,7 +74,8 @@ internal class ApocalypseNetwork(
         require(raw.length <= 1024)
         gson.fromJson(raw, Ticket::class.java).also {
             require(it.playerId == playerId && UUID.fromString(it.nonce).toString() == it.nonce)
-            require(it.origin in settings().network.allowedOrigins && it.host == settings().hostServer)
+            require(it.origin in settings().network.allowedOrigins)
+            BackendServerId.of(it.host)
             require(System.currentTimeMillis() - it.at in 0..30000)
         }
     }.getOrNull()
