@@ -214,9 +214,12 @@ class ApocalypseSourceMiningTest : StringSpec({
             f.commit()
             val drops = f.drops().map { it.itemStack }
             drops.size shouldBe 2
-            drops[0] shouldBe ItemStack.of(Material.RAW_IRON, 8)
-            drops[1].amount shouldBe 2
-            drops[1].itemMeta.persistentDataContainer.get(NamespacedKey(f.plugin, "apocalypse_source_item"), PersistentDataType.STRING) shouldBe "the_deeper_void:rhenium"
+            drops.single { it.type == Material.RAW_IRON } shouldBe ItemStack.of(Material.RAW_IRON, 8)
+            val rhenium = drops.single {
+                it.itemMeta.persistentDataContainer.get(NamespacedKey(f.plugin, "apocalypse_source_item"), PersistentDataType.STRING) == "the_deeper_void:rhenium"
+            }
+            rhenium.type shouldBe Material.IRON_INGOT
+            rhenium.amount shouldBe 2
         }
         SourceMiningFixture(SequenceMiningRandom(0, 1)).use { f ->
             f.prepare(); f.work.runNext()
