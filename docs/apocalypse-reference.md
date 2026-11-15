@@ -290,9 +290,10 @@ behavior of those replacement blocks remain native adaptations. Original sign
 text and supported skull/banner decoration are restored through a block-entity
 whitelist in
 [ApocalypseSourceTiles.kt](../src/main/kotlin/ru/ruscrafting/events/paper/apocalypse/ApocalypseSourceTiles.kt).
-Decoded source `Items` and `LootTable` data stay inert: hydration does not issue
-their contents, evaluate loot tables or execute commands. Existing finite
-expedition loot remains the container-content authority.
+Block-entity hydration does not execute source commands or issue inventories.
+Since0.6.2 the separate finite-stock owner interprets authored chest/barrel
+`Items` and93 original loot tables. See
+[source loot and native substitutions](apocalypse-source-loot-20261115.md).
 
 V2 defaults to `arcevents_apocalypse_v2` and retains the V1 prototype world.
 When recovering a saved expedition from an older world, its location is
@@ -343,10 +344,13 @@ the bundled tables use one. No successful Forge runtime resolution is claimed.
 commented out. Lootr is enabled, but `refresh_all=false` and refresh lists are
 empty; its presence is not evidence of periodic automatic loot renewal.
 
-The current native port uses **its own finite, provisional expedition loot**.
-It has not imported these 62 tables, TACZ/BF1 gun/attachment catalog, modded food
-catalog or Lootr's complete per-player container semantics. ArcEvents firearms
-are the existing WorldFirearms implementation, not TACZ weapon simulation.
+Since0.6.2 the native port imports93 original tables, including these62, with
+source weights, empty outcomes and quantities. Guns, attachments, food and
+other modded items have explicit native replacements. Containers are finite
+and shared; Lootr's per-player inventory semantics are not implemented.
+ArcEvents firearms use the existing WorldFirearms profiles, not TACZ weapon
+simulation. Loading Depths loot tables does not implement its dimension or
+crafting progression.
 
 ## Native acceptance limits
 
