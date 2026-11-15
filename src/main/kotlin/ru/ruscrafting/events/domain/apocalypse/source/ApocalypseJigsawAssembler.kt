@@ -23,6 +23,7 @@ data class ApocalypseSourceStructure(
 )
 data class ApocalypseSourceBlockEntity(val x: Int, val y: Int, val z: Int, val state: String, val data: Map<String, Any?>)
 
+private val mineableSourceOres = setOf("the_deeper_void:tungsten_ore", "the_deeper_void:columbite")
 private const val JCWS = "jeffs_cursed_walking_structures:"
 private val fronts = mapOf("north" to ApocalypsePoint(0, 0, -1), "east" to ApocalypsePoint(1, 0, 0),
     "south" to ApocalypsePoint(0, 0, 1), "west" to ApocalypsePoint(-1, 0, 0),
@@ -162,6 +163,22 @@ class ApocalypseSourceAssembly(val pieces: List<ApocalypseSourcePiece>, private 
 
     fun markers(siteId: String): List<ApocalypseMarker> = originalMarkers.map { it.copy(siteId = siteId) }
 
+    /** Positions where the former translator placed an upward vine over an authored floor. */
+    internal fun floorIvy(): List<ApocalypsePoint> = buildList {
+        for (piece in pieces) {
+            val floor = piece.template.palette.filterTo(hashSetOf()) {
+                it.startsWith("immersive_weathering:ivy[") && ApocalypseSourcePalette.vanillaState(it) == "minecraft:moss_carpet"
+            }
+            if (floor.isEmpty()) continue
+            piece.template.forEachBlock { x, y, z, state, _ ->
+                if (state in floor) {
+                    val p = piece.world(x, y, z)
+                    if (ApocalypseSourcePalette.process(state, piece.processor, p.x, p.y, p.z, seed) == state) add(p)
+                }
+            }
+        }
+    }
+
     val highestLadder: ApocalypsePoint? by lazy {
         var highest: ApocalypsePoint? = null
         for (piece in pieces) {
@@ -193,6 +210,42 @@ class ApocalypseSourceAssembly(val pieces: List<ApocalypseSourcePiece>, private 
                     val data = piece.template.blockEntity(local.x, ly, local.z) ?: continue
                     val native = ApocalypseSourcePalette.vanillaState(state, piece.rotation) ?: continue
                     add(ApocalypseSourceBlockEntity(x, piece.y + ly, z, native, data))
+                }
+            }
+        }
+    }
+
+    internal fun sourceOres(cx: Int, cz: Int, result: MutableMap<ApocalypsePoint, String>) {
+        val x0 = cx * 16
+        val z0 = cz * 16
+        for (piece in pieces) {
+            val box = piece.bounds
+            if (box.maxX < x0 || box.minX > x0 + 15 || box.maxZ < z0 || box.minZ > z0 + 15) continue
+            // A later nested jigsaw piece may carve or cover an earlier piece at the same coordinate.
+            result.keys.removeIf { p ->
+                if (p.x shr 4 != cx || p.z shr 4 != cz || !box.contains(p.x, p.y, p.z)) false else {
+                    val local = piece.local(p.x, p.y, p.z)
+                    piece.template.blockState(local.x, local.y, local.z)?.substringBefore('[')?.let {
+                        it != "minecraft:structure_void" && it != "minecraft:structure_block"
+                    } == true
+                }
+            }
+            val ores = piece.template.palette.filterTo(hashSetOf()) { it.substringBefore('[') in mineableSourceOres }
+            if (ores.isNotEmpty()) for (z in maxOf(z0, box.minZ)..minOf(z0 + 15, box.maxZ)) for (x in maxOf(x0, box.minX)..minOf(x0 + 15, box.maxX)) {
+                val local = piece.local(x, piece.y, z)
+                for (ly in 0 until piece.template.sizeY) {
+                    val state = piece.template.blockState(local.x, ly, local.z) ?: continue
+                    if (state in ores) {
+                        val y = piece.y + ly
+                        val id = ApocalypseSourcePalette.process(state, piece.processor, x, y, z, seed).substringBefore('[')
+                        if (id in mineableSourceOres) result[ApocalypsePoint(x, y, z)] = id
+                    }
+                }
+            }
+            if (result.isNotEmpty()) for (entity in piece.template.entities) {
+                if (ApocalypseSourcePalette.entityMarker(entity.type)?.name?.endsWith("_SPAWNER") == true) {
+                    val p = piece.world(floor(entity.x).toInt(), floor(entity.y).toInt(), floor(entity.z).toInt())
+                    if (p.x shr 4 == cx && p.z shr 4 == cz) result.remove(p)
                 }
             }
         }

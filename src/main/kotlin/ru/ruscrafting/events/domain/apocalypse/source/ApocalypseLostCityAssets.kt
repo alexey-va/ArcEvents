@@ -74,8 +74,11 @@ class ApocalypseLostCityAssets private constructor(private val assets: Map<Strin
         visit(lot, seed, cx, cz) { x, y, z, state, _, _ -> put(cx * 16 + x, y, cz * 16 + z, state) }
     }
 
-    fun markers(seed: Long, cx: Int, cz: Int, groundY: Int, cityFactor: Double, siteId: String): List<ApocalypseMarker> = buildList {
-        visit(lot(seed, cx, cz, groundY, cityFactor), seed, cx, cz) { x, y, z, state, entry, context ->
+    fun markers(seed: Long, cx: Int, cz: Int, groundY: Int, cityFactor: Double, siteId: String): List<ApocalypseMarker> =
+        markers(lot(seed, cx, cz, groundY, cityFactor), seed, cx, cz, siteId)
+
+    private fun markers(lot: Lot, seed: Long, cx: Int, cz: Int, siteId: String): List<ApocalypseMarker> = buildList {
+        visit(lot, seed, cx, cz) { x, y, z, state, entry, context ->
             if (entry.loot != null || state.substringBefore('[') in setOf("minecraft:chest", "minecraft:trapped_chest", "minecraft:barrel")) {
                 // The loot stream is separate: selecting a table must never consume palette/geometry RNG.
                 val random = Random(seed xor ((cx * 16L + x) * -7046029254386353131L) xor
@@ -96,6 +99,9 @@ class ApocalypseLostCityAssets private constructor(private val assets: Map<Strin
         }
         visit(lot, seed, cx, cz) { x, y, z, state, _, _ -> put(cx * 16 + x, y, cz * 16 + z, state) }
     }
+
+    internal fun buildingMarkers(name: String, seed: Long, cx: Int, cz: Int, groundY: Int, floors: Int, siteId: String) =
+        markers(buildingLot(id(name), seed, cx, cz, groundY, floors, 0), seed, cx, cz, siteId)
 
     /** Original part coordinates and local palette, useful for source fixtures and infrastructure. */
     fun part(id: String, seed: Long = 0): ApocalypseSourceTemplate {

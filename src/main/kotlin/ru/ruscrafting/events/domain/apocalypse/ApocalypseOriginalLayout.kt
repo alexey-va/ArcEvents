@@ -49,6 +49,18 @@ class ApocalypseOriginalLayout(override val seed: Long, private val catalog: Apo
         }
     }
 
+    private val waterfront = ApocalypseWaterfront(seed, catalog.city, ground::land, ::drawOriginal)
+    val waterfrontApproach: ApocalypsePoint get() = waterfront.site.anchor
+    internal val waterfrontVent get() = waterfront.vent
+    internal fun waterfrontLot(cx: Int, cz: Int) = waterfront.lots[cx to cz]
+    internal val starterFloorIvy = starterAssembly.floorIvy().groupBy { it.x shr 4 to (it.z shr 4) }
+    private val spawnRoom = starterAssembly.pieces.single { piece -> piece.template.entities.any { it.type == NS + "spawnpoint_entity" } }
+    val starterCraftingTable: ApocalypsePoint = spawnRoom.local(spawn.x, spawn.y, spawn.z).let { spawnRoom.world(it.x - 2, it.y - 1, it.z + 4) }
+    internal val starterTableFloor = spawnRoom.local(starterCraftingTable.x, starterCraftingTable.y - 1, starterCraftingTable.z).let { p ->
+        requireNotNull(ApocalypseSourcePalette.vanillaState(requireNotNull(spawnRoom.template.blockState(p.x, p.y, p.z)), spawnRoom.rotation))
+    }
+    internal fun isWaterfront(siteId: String) = siteId == waterfront.site.id
+
     private fun centers(x1: Int, z1: Int, x2: Int, z2: Int) = buildList {
         for (cz in (z1 shr 4)..(z2 shr 4)) for (cx in (x1 shr 4)..(x2 shr 4)) {
             if (Random(cz * 797003437L + cx * 295075153L).nextDouble() < .0005)
@@ -173,12 +185,14 @@ class ApocalypseOriginalLayout(override val seed: Long, private val catalog: Apo
     }
 
     override fun sitesNear(x: Int, z: Int): List<ApocalypseSite> =
-        (centers(x - 1250, z - 1250, x + 1250, z + 1250) + sites(x - 2050, z - 2050, x + 2050, z + 2050)).sortedBy {
+        (centers(x - 1250, z - 1250, x + 1250, z + 1250) + sites(x - 2050, z - 2050, x + 2050, z + 2050) +
+            listOf(waterfront.site).filter { abs(x - it.anchor.x) <= 1250 && abs(z - it.anchor.z) <= 1250 }).sortedBy {
             val dx = it.anchor.x.toLong() - x
             val dz = it.anchor.z.toLong() - z
             dx * dx + dz * dz
         }
-    override fun markers(site: ApocalypseSite): List<ApocalypseMarker> = structure(site)?.markers(site.id).orEmpty()
+    override fun markers(site: ApocalypseSite): List<ApocalypseMarker> =
+        if (isWaterfront(site.id)) waterfront.loot.values.flatten() else structure(site)?.markers(site.id).orEmpty()
 
     private fun inventorySites(x: Int, z: Int): List<ApocalypseSite> = sites(x - 151, z - 151, x + 166, z + 166)
     private fun markerKey(cx: Int, cz: Int) = (cx.toLong() shl 32) xor (cz.toLong() and 0xffffffffL)
@@ -195,6 +209,11 @@ class ApocalypseOriginalLayout(override val seed: Long, private val catalog: Apo
         val city = centers(x - 243, z - 243, x + 258, z + 258)
         return remember(chunkX, chunkZ, chunkMarkers(chunkX, chunkZ, city, inventorySites(x, z)))
     }
+    /** Read on the content worker. A registry lookalike outside its authored coordinate is never a source ore. */
+    fun sourceOresInChunk(cx: Int, cz: Int): Map<ApocalypsePoint, String> = buildMap {
+        for (site in inventorySites(cx * 16, cz * 16)) structure(site)?.sourceOres(cx, cz, this)
+    }
+
     fun blockEntitiesInChunk(cx: Int, cz: Int): List<ApocalypseSourceBlockEntity> {
         synchronized(blockEntityChunks) { blockEntityChunks[markerKey(cx, cz)]?.let { return it } }
         return rememberBlockEntities(cx, cz, inventorySites(cx * 16, cz * 16))
@@ -213,12 +232,27 @@ class ApocalypseOriginalLayout(override val seed: Long, private val catalog: Apo
         val owner = city.maxByOrNull { landscape.cityFactor(listOf(it), x, z) }
         val cityMarkers = if (owner != null && landscape.developed(city, x, z))
             catalog.city.markers(seed, cx, cz, 71, landscape.cityFactor(city, x, z), owner.id) else emptyList()
-        return (cityMarkers + structures.flatMap { markers(it) }).filter { it.x in x..x+15 && it.z in z..z+15 }.distinctBy { Triple(it.x, it.y, it.z) }
+        return (cityMarkers + waterfront.loot[cx to cz].orEmpty() + structures.flatMap { markers(it) }).filter { it.x in x..x+15 && it.z in z..z+15 }.distinctBy { Triple(it.x, it.y, it.z) }
     }
 
     override fun generate(out: ApocalypseChunkCanvas) {
         val city = centers(out.minX - 250, out.minZ - 250, out.maxX + 250, out.maxZ + 250)
         val structures = inventorySites(out.minX, out.minZ)
+        drawOriginal(out, city, structures)
+        val table = starterCraftingTable
+        out.blockState(table.x, table.y, table.z, "minecraft:crafting_table")
+        waterfrontLot(out.chunkX, out.chunkZ)?.forEach { cell ->
+            val p = cell.position
+            if (cell.previous != cell.state) out.blockState(p.x, p.y, p.z, cell.state)
+        }
+        remember(out.chunkX, out.chunkZ, chunkMarkers(out.chunkX, out.chunkZ, city, structures))
+        rememberBlockEntities(out.chunkX, out.chunkZ, structures)
+    }
+
+    private fun drawOriginal(out: ApocalypseChunkCanvas) =
+        drawOriginal(out, centers(out.minX - 250, out.minZ - 250, out.maxX + 250, out.maxZ + 250), inventorySites(out.minX, out.minZ))
+
+    private fun drawOriginal(out: ApocalypseChunkCanvas, city: List<ApocalypseSite>, structures: List<ApocalypseSite>) {
         landscape.generateLandscape(out, city + structures)
         if (landscape.developed(city, out.minX, out.minZ)) {
             catalog.city.render(seed, out.chunkX, out.chunkZ, 71, landscape.cityFactor(city, out.minX, out.minZ)) { x, y, z, state ->
@@ -226,8 +260,6 @@ class ApocalypseOriginalLayout(override val seed: Long, private val catalog: Apo
             }
         }
         for (site in structures) structure(site)?.render(out.chunkX, out.chunkZ, out::blockState)
-        remember(out.chunkX, out.chunkZ, chunkMarkers(out.chunkX, out.chunkZ, city, structures))
-        rememberBlockEntities(out.chunkX, out.chunkZ, structures)
     }
 
     companion object {

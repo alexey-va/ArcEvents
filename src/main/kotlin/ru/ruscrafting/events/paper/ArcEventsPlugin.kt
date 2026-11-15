@@ -293,7 +293,8 @@ open class ArcEventsPlugin : JavaPlugin() {
                 firearms, activeWork, manager, backendTransfer,
                 occupied = { id -> activeService.isParticipant(id) || escrow.isLocked(id) || id in escrow.pendingPlayers() },
                 queued = { id -> coordinator.queueState(id).thenApply { it != null } },
-                returnToOrigin = coordinator::returnPlayer, sourceLayout = sourceLayout).also { apocalypse = it; lifecycle.own(it) }
+                returnToOrigin = coordinator::returnPlayer, sourceLayout = sourceLayout,
+                packetDisplays = packetDisplays, chunkTickets = chunkTickets).also { apocalypse = it; lifecycle.own(it) }
             activeService.independentInventoryOwner = { id -> apocalypseRuntime.isPlaying(id) || apocalypseRuntime.isBusy(id) }
             menu = ArcEventsMenu(this, activeService, items, locale, { settings }, ::reloadPlugin, menuLayouts,
                 apocEntry = { player -> apocalypseRuntime.enter(player) },

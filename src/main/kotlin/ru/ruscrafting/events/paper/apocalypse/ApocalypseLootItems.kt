@@ -17,22 +17,42 @@ import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.domain.FirearmId
 import ru.ruscrafting.events.domain.apocalypse.source.ApocalypseSourceLoot
 import ru.ruscrafting.events.domain.apocalypse.source.ApocalypseSourceLootItem
+import ru.ruscrafting.events.domain.apocalypse.source.ApocalypseSourceItemIdentity
+import ru.ruscrafting.events.domain.apocalypse.source.ApocalypseWorkbenchRecipes
+import ru.ruscrafting.events.domain.apocalypse.source.ApocalypseWorkbenchStation
 import ru.ruscrafting.events.paper.TttFirearms
 import java.util.Random
 
 /** Explicit item equivalents for the existing native weapon/material catalog; source rolls stay untouched. */
 internal class ApocalypseLootItems(
-    plugin: Plugin,
+    private val plugin: Plugin,
     private val locale: ArcEventsLocale,
     private val firearms: TttFirearms,
+    catalog: ApocalypseWorkbenchRecipes = ApocalypseWorkbenchRecipes.load(),
 ) {
     private val medicine = NamespacedKey(plugin, "apocalypse_medicine")
     private val tool = NamespacedKey(plugin, "apocalypse_tool")
+    private val sourceItem = NamespacedKey(plugin, "apocalypse_source_item")
+    private val sourceGun = NamespacedKey(plugin, "apocalypse_source_gun")
+    private val sourceAmmo = NamespacedKey(plugin, "apocalypse_source_ammo")
+    private val sourceAttachment = NamespacedKey(plugin, "apocalypse_source_attachment")
+    private val sourceBlock = NamespacedKey(plugin, "apocalypse_source_block")
+    private val refineryFuel = NamespacedKey(plugin, "apocalypse_refinery_fuel_units")
+    private val sourceGunNames = catalog.all.filter { it.result.gunId != null && it.nameEn != null }
+        .associate { requireNotNull(it.result.gunId) to requireNotNull(it.nameEn) }
+    private val namedSourceItems = catalog.all.flatMap { recipe ->
+        recipe.ingredients.flatMap { it.alternatives.map(ApocalypseSourceItemIdentity::itemId) } +
+            (listOf(recipe.result) + recipe.byproducts).map(ApocalypseSourceLootItem::itemId)
+    }.toSet() + "the_deeper_void:raw_tungsten"
+    private val namedSourceAmmo = catalog.all.mapNotNull { it.result.ammoId }.toSet()
 
-    fun create(source: ApocalypseSourceLootItem, player: Player, random: Random, mapTarget: Location? = null): List<ItemStack> {
+    fun create(source: ApocalypseSourceLootItem, player: Player?, random: Random, mapTarget: Location? = null): List<ItemStack> {
         require(source.count in 1..4096)
         val gun = source.gunId ?: source.itemId.takeIf(weapons::containsKey)
+        val blockId = stringTag(source.nbt, "BlockId")
+        val station = ApocalypseWorkbenchStation.fromSource(blockId ?: source.itemId)?.takeUnless { it == ApocalypseWorkbenchStation.CRAFTING }
         val result = when {
+            station != null -> List(source.count) { ApocalypseWorkbenchStations.stationItem(plugin, station, station.sourceId) }
             gun != null -> List(source.count) {
                 val id = requireNotNull(weapons[gun]) { "Unmapped original firearm $gun" }
                 val loaded = integerTag(source.nbt, "GunCurrentAmmoCount")?.coerceIn(0, firearms.spec(id).magazineSize) ?: 0
@@ -83,6 +103,26 @@ internal class ApocalypseLootItems(
             }
             source.enchantLevels?.let { levels -> item = item.enchantWithLevels(levels.coerceIn(1, 100), source.enchantTreasure, random) }
             item.editMeta { meta ->
+                if (!source.itemId.startsWith("minecraft:")) {
+                    meta.persistentDataContainer.set(sourceItem, PersistentDataType.STRING, source.itemId)
+                    source.gunId?.let { meta.persistentDataContainer.set(sourceGun, PersistentDataType.STRING, it) }
+                    source.ammoId?.let { meta.persistentDataContainer.set(sourceAmmo, PersistentDataType.STRING, it) }
+                    source.attachmentId?.let { meta.persistentDataContainer.set(sourceAttachment, PersistentDataType.STRING, it) }
+                    blockId?.let { meta.persistentDataContainer.set(sourceBlock, PersistentDataType.STRING, it) }
+                }
+                when {
+                    station != null -> meta.displayName(locale.render("apocalypse.workbench.stations.${station.name.lowercase()}", player)
+                        .decoration(TextDecoration.ITALIC, false))
+                    source.ammoId in namedSourceAmmo -> meta.displayName(locale.render("apocalypse.workbench.ammo.${source.ammoId!!.substringAfter(':')}", player)
+                        .decoration(TextDecoration.ITALIC, false))
+                    gun == null && !source.itemId.startsWith("minecraft:") && source.itemId in namedSourceItems -> meta.displayName(
+                        locale.render("apocalypse.workbench.items.${source.itemId.replace(':', '_')}", player).decoration(TextDecoration.ITALIC, false))
+                }
+                gun?.let { sourceGunNames[it] }?.let { meta.displayName(Component.text(it).decoration(TextDecoration.ITALIC, false)) }
+                if (source.itemId == REFINERY_FUEL_CELL) {
+                    meta.persistentDataContainer.set(refineryFuel, PersistentDataType.INTEGER, REFINERY_FUEL_CAPACITY)
+                    meta.lore(listOf(fuelCharge(REFINERY_FUEL_CAPACITY, player)))
+                }
                 if (source.itemId == "marbledsmelees:crowbar") {
                     meta.persistentDataContainer.set(tool, PersistentDataType.STRING, "CROWBAR")
                     meta.displayName(locale.render("apocalypse.guide.crowbar-name", player).decoration(TextDecoration.ITALIC, false))
@@ -94,33 +134,92 @@ internal class ApocalypseLootItems(
         }
     }
 
+    /** Ordinary native materials and typed source items are deliberately disjoint. Names never establish identity. */
+    fun identity(item: ItemStack?): ApocalypseSourceItemIdentity? {
+        if (item == null || item.isEmpty) return null
+        val pdc = item.itemMeta.persistentDataContainer
+        val id = pdc.get(sourceItem, PersistentDataType.STRING)
+            ?: return if (item.isSimilar(ItemStack.of(item.type))) ApocalypseSourceItemIdentity(item.type.key.toString()) else null
+        if (id.startsWith("minecraft:")) return null
+        val identity = runCatching { ApocalypseSourceItemIdentity(id,
+            pdc.get(sourceGun, PersistentDataType.STRING), pdc.get(sourceAmmo, PersistentDataType.STRING),
+            pdc.get(sourceAttachment, PersistentDataType.STRING), pdc.get(sourceBlock, PersistentDataType.STRING)) }.getOrNull() ?: return null
+        val gun = identity.gunId ?: id.takeIf(weapons::containsKey)
+        val station = ApocalypseWorkbenchStation.fromSource(identity.blockId ?: id)
+        val valid = when {
+            station != null -> ApocalypseWorkbenchStations.stationOf(item, plugin) == station
+            id == REFINERY_FUEL_CELL -> fuelPerCell(item) != null
+            gun != null -> weapons[gun]?.let { profile -> item.amount == 1 &&
+                pdc.get(NamespacedKey(plugin, "world_firearm"), PersistentDataType.STRING) == profile.name &&
+                pdc.get(NamespacedKey(plugin, "world_loaded_rounds"), PersistentDataType.INTEGER)?.let { it in 0..firearms.spec(profile).magazineSize } == true } == true
+            identity.ammoId != null || id in pointBlankAmmo -> firearms.isWorldAmmunition(item)
+            identity.attachmentId != null -> item.type == Material.IRON_NUGGET
+            else -> runCatching { material(id) == item.type }.getOrDefault(false)
+        }
+        return identity.takeIf { valid }
+    }
+
+    fun fuelUnits(item: ItemStack?): Int = fuelPerCell(item)?.let { it * item!!.amount } ?: 0
+
+    fun partialFuel(item: ItemStack, units: Int, player: Player?): ItemStack {
+        require(fuelPerCell(item) != null && units in 1 until REFINERY_FUEL_CAPACITY)
+        return item.clone().also { partial ->
+            partial.amount = 1
+            partial.editMeta { meta ->
+                meta.setMaxStackSize(1)
+                meta.persistentDataContainer.set(refineryFuel, PersistentDataType.INTEGER, units)
+                meta.lore(listOf(fuelCharge(units, player)))
+            }
+        }
+    }
+
+    private fun fuelPerCell(item: ItemStack?): Int? {
+        if (item == null || item.isEmpty || item.type != material(REFINERY_FUEL_CELL)) return null
+        val pdc = item.itemMeta.persistentDataContainer
+        if (pdc.get(sourceItem, PersistentDataType.STRING) != REFINERY_FUEL_CELL) return null
+        if (listOf(sourceGun, sourceAmmo, sourceAttachment, sourceBlock).any(pdc::has)) return null
+        val units = pdc.get(refineryFuel, PersistentDataType.INTEGER)?.takeIf { it in 1..REFINERY_FUEL_CAPACITY } ?: return null
+        if (item.amount !in 1..64 || units < REFINERY_FUEL_CAPACITY && (item.amount != 1 || item.maxStackSize != 1)) return null
+        return units
+    }
+
+    private fun fuelCharge(units: Int, player: Player?) = locale.render("apocalypse.workbench.fuel-charge", player,
+        mapOf("units" to locale.text(units), "capacity" to locale.text(REFINERY_FUEL_CAPACITY))).decoration(TextDecoration.ITALIC, false)
+
     companion object {
+        const val REFINERY_FUEL_CELL = "the_deeper_void:refinery_fuel_cell"
+        const val REFINERY_FUEL_CAPACITY = 1000
         private val weapons = buildMap<String, FirearmId> {
             fun add(profile: FirearmId, ids: String) { ids.split(' ').filter(String::isNotBlank).forEach { require(put(it, profile) == null) } }
             add(FirearmId.REVOLVER, "bf1:sw_model3 pointblank:rhino")
-            add(FirearmId.FIVE_SEVEN, "bf1:m1916 tacz:m1911 tacz:glock_17 tacz:p320 pointblank:glock17 pointblank:glock18 pointblank:m1911a1 pointblank:m9 pointblank:mk23 pointblank:p30l pointblank:tti_viper")
-            add(FirearmId.HAND_CANNON, "bf1:mhgl tacz:deagle pointblank:deserteagle pointblank:at4 pointblank:javelin pointblank:smaw pointblank:m32mgl")
+            add(FirearmId.FIVE_SEVEN, "bf1:m1916 tacz:m1911 tacz:glock_17 tacz:p320 tacz:b93r tacz:cz75 sfms:af_46 sfms:af_57 sfms:g18 sfms:inf sfms:inf_x pointblank:glock17 pointblank:glock18 pointblank:m1911a1 pointblank:m9 pointblank:mk23 pointblank:p30l pointblank:tti_viper")
+            add(FirearmId.HAND_CANNON, "bf1:mhgl tacz:deagle tacz:deagle_golden tacz:m320 tacz:rpg7 sfms:mgl320 sfms:mgl40 pointblank:deserteagle pointblank:at4 pointblank:javelin pointblank:smaw pointblank:m32mgl")
             add(FirearmId.DOUBLE_BARREL, "tacz:db_long tacz:db_short pointblank:citoricxs pointblank:hs12")
-            add(FirearmId.M1_GARAND, "bf1:man_m95 bf1:martini bf1:obrez bf1:rsc1917 pointblank:mk14ebr pointblank:m950")
-            add(FirearmId.G36, "bf1:smg0818 tacz:aug tacz:g36k tacz:hk_mp5a5 tacz:m16a1 tacz:m4a1 tacz:p90 tacz:scar_h tacz:scar_l tacz:uzi tacz:vector45 pointblank:aug pointblank:g36c pointblank:g36k pointblank:g41 pointblank:hk416 pointblank:m16a1 pointblank:m4a1 pointblank:m4a1mod1 pointblank:m4sopmodii pointblank:mp5 pointblank:mp7 pointblank:p90 pointblank:ro635 pointblank:scarl pointblank:star15 pointblank:tmp pointblank:uar10 pointblank:ump45 pointblank:vector pointblank:xm29 pointblank:xm7")
+            add(FirearmId.M1_GARAND, "bf1:man_m95 bf1:martini bf1:obrez bf1:rsc1917 tacz:hk_g3 tacz:mk14 tacz:sks_tactical tacz:spr15hb pointblank:mk14ebr pointblank:m950")
+            add(FirearmId.G36, "bf1:smg0818 tacz:aug tacz:g36k tacz:hk_mp5a5 tacz:m16a1 tacz:m4a1 tacz:p90 tacz:scar_h tacz:scar_l tacz:uzi tacz:vector45 tacz:hk416d tacz:m16a4 tacz:qbz_95 tacz:type_81 tacz:ump45 sfms:ats15 sfms:m4a5 sfms:sbr15 sfms:tech635 pointblank:aug pointblank:g36c pointblank:g36k pointblank:g41 pointblank:hk416 pointblank:m16a1 pointblank:m4a1 pointblank:m4a1mod1 pointblank:m4sopmodii pointblank:mp5 pointblank:mp7 pointblank:p90 pointblank:ro635 pointblank:scarl pointblank:star15 pointblank:tmp pointblank:uar10 pointblank:ump45 pointblank:vector pointblank:xm29 pointblank:xm7")
             add(FirearmId.AEK_971, "bf1:vg15 tacz:ak47 pointblank:ak12 pointblank:ak47 pointblank:ak74 pointblank:an94")
-            add(FirearmId.RPL_20, "tacz:m249 tacz:rpk pointblank:aughbar pointblank:lamg pointblank:m134minigun pointblank:m249 pointblank:mk48")
-            add(FirearmId.VEPR_12, "pointblank:aa12 pointblank:m1014 pointblank:m590 pointblank:m870 pointblank:spas12")
-            add(FirearmId.MCMILLAN, "tacz:m95 pointblank:ballista pointblank:c14 pointblank:gm6lynx pointblank:l96a1 pointblank:sl8 pointblank:wa2000 pointblank:xm3")
+            add(FirearmId.RPL_20, "tacz:m249 tacz:rpk sfms:har50 pointblank:aughbar pointblank:lamg pointblank:m134minigun pointblank:m249 pointblank:mk48")
+            add(FirearmId.VEPR_12, "bf1:model10 tacz:aa12 tacz:m870 sfms:felix_12 sfms:felix_12dg pointblank:aa12 pointblank:m1014 pointblank:m590 pointblank:m870 pointblank:spas12")
+            add(FirearmId.MCMILLAN, "tacz:m95 tacz:ai_awp tacz:m107 tacz:m700 sfms:ar50 sfms:lvsa_hs sfms:m109 pointblank:ballista pointblank:c14 pointblank:gm6lynx pointblank:l96a1 pointblank:sl8 pointblank:wa2000 pointblank:xm3")
         }
         private val pointBlankAmmo = setOf("ammo12gauge", "ammo338lapua", "ammo357", "ammo45acp", "ammo46", "ammo50ae", "ammo50bmg", "ammo545", "ammo556", "ammo57", "ammo68", "ammo762", "ammo762x51", "ammo9mm", "at4_rocket", "javelin_rocket", "smaw_rocket", "grenade20mm", "grenade40mm").map { "pointblank:$it" }.toSet()
         private val replacements = buildMap<String, Material> {
             fun add(material: Material, ids: String) { ids.split(' ').filter(String::isNotBlank).forEach { require(put(it, material) == null) } }
-            add(Material.IRON_INGOT, "create:andesite_alloy create:iron_sheet create:sturdy_sheet createdeco:industrial_iron_ingot createdeco:netherite_sheet mcore:steel_ingot mcore:steel_scrap mcore:steel_sheet mcore:titanium_ingot the_deeper_void:rhenium")
+            add(Material.IRON_INGOT, "create:andesite_alloy create:iron_sheet create:sturdy_sheet createdeco:industrial_iron_ingot createdeco:industrial_iron_sheet createdeco:netherite_sheet mcore:steel_ingot mcore:steel_scrap mcore:steel_sheet mcore:titanium_ingot the_deeper_void:rhenium the_deeper_void:tungsten_ingot the_deeper_void:netherite_rhenium_alloy the_deeper_void:titanium_rhenium_alloy the_deeper_void:tungsten_rhenium_alloy")
+            add(Material.GOLD_INGOT, "create:golden_sheet")
+            add(Material.OAK_PLANKS, "create:andesite_casing")
+            // Two source casings cost six ingots plus bars; IRON_BLOCK carriers would mint iron through vanilla uncrafting.
+            add(Material.IRON_INGOT, "the_deeper_void:void_refinery_casing")
+            add(Material.GRAVEL, "the_deeper_void:void_slag")
             add(Material.COPPER_INGOT, "create:brass_ingot create:brass_sheet create:copper_sheet create:zinc_ingot the_deeper_void:zinc_crystal")
             add(Material.COPPER_BLOCK, "create:brass_casing")
-            add(Material.BLAZE_POWDER, "create:blaze_cake")
+            add(Material.BLAZE_POWDER, "create:blaze_cake the_deeper_void:refinery_fuel_cell")
             add(Material.BLAST_FURNACE, "create:empty_blaze_burner")
-            add(Material.CHEST, "create:item_vault")
+            add(Material.CHEST, "create:item_vault tacz:ammo_box")
             add(Material.PISTON, "create:mechanical_arm")
             add(Material.IRON_HOE, "create:mechanical_harvester")
             add(Material.CAULDRON, "create:mechanical_mixer")
-            add(Material.ANVIL, "create:mechanical_press")
+            add(Material.DROPPER, "create:mechanical_press tacz:workbench_a tacz:workbench_b tacz:gun_smith_table the_deeper_void:void_refinery_control_pad")
             add(Material.IRON_AXE, "create:mechanical_saw")
             add(Material.HOPPER, "create:smart_chute")
             add(Material.SLIME_BALL, "create:super_glue")

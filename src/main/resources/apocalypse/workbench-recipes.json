@@ -1,0 +1,4647 @@
+{
+  "schema": 1,
+  "source": {
+    "file": "/private/tmp/cursed-walking-study-20261114/cursed-walking-v3.3-patch.zip",
+    "sha256": "9e27be83c25a78d13508134be65d2fe70efb389ce015d2a9f54f8dd0f9861901",
+    "quest": "overrides/config/ftbquests/quests/chapters/ballistics_division.snbt"
+  },
+  "notes": [
+    "tier is processing station (0 = vanilla crafting) rather than result tier; adjunct TaCZ ammo/attachment workbenches occur as guide branches off T1/T2 but their shaped recipes are vanilla, not gated by a quest.",
+    "SFMS table additionally whitelists existing tacz:ammo/{12g,556x45,308,57x28,40mm,9mm}; their recipes/costs are identical.",
+    "A gun result with no ammo_count defaults to zero; optional recipe result attachments are preserved. Never treat quest inventory NBT as free starting ammo.",
+    "CWRecipeChanges loose duplicate was checked against openloader copy. Direct gun_smith_table.json has missing R key and an invalid result inside key. misc/blood_strike_1.json is malformed, misc/benchupgrade.json produces type gun instead of a BlockId; use the two actual /misc/tester recipes.",
+    "Quest-only examples that lack a base recipe: sfms:lvsa_c_erode, sfms:lvsa_cs, sfms:lvsa_c_erode_lmg; colorizer preserving lvsa_c_erode is not a source for the base gun."
+  ],
+  "tags": {
+    "forge:dusts/glowstone": [
+      "minecraft:glowstone_dust"
+    ],
+    "forge:dusts/redstone": [
+      "minecraft:redstone"
+    ],
+    "forge:gems/amethyst": [
+      "minecraft:amethyst_shard"
+    ],
+    "forge:gems/diamond": [
+      "minecraft:diamond"
+    ],
+    "forge:gems/lapis": [
+      "minecraft:lapis_lazuli"
+    ],
+    "forge:gems/quartz": [
+      "minecraft:quartz"
+    ],
+    "forge:glass": [
+      "minecraft:black_stained_glass",
+      "minecraft:blue_stained_glass",
+      "minecraft:brown_stained_glass",
+      "minecraft:cyan_stained_glass",
+      "minecraft:glass",
+      "minecraft:gray_stained_glass",
+      "minecraft:green_stained_glass",
+      "minecraft:light_blue_stained_glass",
+      "minecraft:light_gray_stained_glass",
+      "minecraft:lime_stained_glass",
+      "minecraft:magenta_stained_glass",
+      "minecraft:orange_stained_glass",
+      "minecraft:pink_stained_glass",
+      "minecraft:purple_stained_glass",
+      "minecraft:red_stained_glass",
+      "minecraft:tinted_glass",
+      "minecraft:white_stained_glass",
+      "minecraft:yellow_stained_glass"
+    ],
+    "forge:gunpowder": [
+      "minecraft:gunpowder"
+    ],
+    "forge:ingots/brass": [
+      "create:brass_ingot"
+    ],
+    "forge:ingots/copper": [
+      "minecraft:copper_ingot"
+    ],
+    "forge:ingots/gold": [
+      "minecraft:gold_ingot"
+    ],
+    "forge:ingots/iron": [
+      "minecraft:iron_ingot"
+    ],
+    "forge:ingots/netherite": [
+      "minecraft:netherite_ingot"
+    ],
+    "forge:ingots/titanium": [
+      "mcore:titanium_ingot"
+    ],
+    "forge:leather": [
+      "minecraft:leather"
+    ],
+    "forge:nuggets/iron": [
+      "minecraft:iron_nugget"
+    ],
+    "forge:plates/iron": [
+      "create:iron_sheet"
+    ],
+    "forge:plates/obsidian": [
+      "create:sturdy_sheet"
+    ],
+    "forge:rods/blaze": [
+      "minecraft:blaze_rod"
+    ],
+    "minecraft:logs": [
+      "minecraft:acacia_log",
+      "minecraft:acacia_wood",
+      "minecraft:birch_log",
+      "minecraft:birch_wood",
+      "minecraft:cherry_log",
+      "minecraft:cherry_wood",
+      "minecraft:crimson_hyphae",
+      "minecraft:crimson_stem",
+      "minecraft:dark_oak_log",
+      "minecraft:dark_oak_wood",
+      "minecraft:jungle_log",
+      "minecraft:jungle_wood",
+      "minecraft:mangrove_log",
+      "minecraft:mangrove_wood",
+      "minecraft:oak_log",
+      "minecraft:oak_wood",
+      "minecraft:spruce_log",
+      "minecraft:spruce_wood",
+      "minecraft:stripped_acacia_log",
+      "minecraft:stripped_acacia_wood",
+      "minecraft:stripped_birch_log",
+      "minecraft:stripped_birch_wood",
+      "minecraft:stripped_cherry_log",
+      "minecraft:stripped_cherry_wood",
+      "minecraft:stripped_crimson_hyphae",
+      "minecraft:stripped_crimson_stem",
+      "minecraft:stripped_dark_oak_log",
+      "minecraft:stripped_dark_oak_wood",
+      "minecraft:stripped_jungle_log",
+      "minecraft:stripped_jungle_wood",
+      "minecraft:stripped_mangrove_log",
+      "minecraft:stripped_mangrove_wood",
+      "minecraft:stripped_oak_log",
+      "minecraft:stripped_oak_wood",
+      "minecraft:stripped_spruce_log",
+      "minecraft:stripped_spruce_wood",
+      "minecraft:stripped_warped_hyphae",
+      "minecraft:stripped_warped_stem",
+      "minecraft:warped_hyphae",
+      "minecraft:warped_stem"
+    ],
+    "minecraft:planks": [
+      "minecraft:acacia_planks",
+      "minecraft:bamboo_planks",
+      "minecraft:birch_planks",
+      "minecraft:cherry_planks",
+      "minecraft:crimson_planks",
+      "minecraft:dark_oak_planks",
+      "minecraft:jungle_planks",
+      "minecraft:mangrove_planks",
+      "minecraft:oak_planks",
+      "minecraft:spruce_planks",
+      "minecraft:warped_planks"
+    ],
+    "forge:storage_blocks/iron": [
+      "minecraft:iron_block"
+    ],
+    "forge:stripped_logs": [
+      "minecraft:stripped_acacia_log",
+      "minecraft:stripped_birch_log",
+      "minecraft:stripped_crimson_stem",
+      "minecraft:stripped_dark_oak_log",
+      "minecraft:stripped_jungle_log",
+      "minecraft:stripped_mangrove_log",
+      "minecraft:stripped_oak_log",
+      "minecraft:stripped_spruce_log",
+      "minecraft:stripped_warped_stem",
+      "minecraft:stripped_cherry_log",
+      "minecraft:stripped_bamboo_block"
+    ],
+    "forge:stripped_wood": [
+      "minecraft:stripped_acacia_wood",
+      "minecraft:stripped_birch_wood",
+      "minecraft:stripped_crimson_hyphae",
+      "minecraft:stripped_dark_oak_wood",
+      "minecraft:stripped_jungle_wood",
+      "minecraft:stripped_mangrove_wood",
+      "minecraft:stripped_oak_wood",
+      "minecraft:stripped_spruce_wood",
+      "minecraft:stripped_warped_hyphae",
+      "minecraft:stripped_cherry_wood"
+    ]
+  },
+  "tagSources": {
+    "forge:dusts/glowstone": [
+      "/private/tmp/cw-forge-47.4.0-tag-source.jar!/data/forge/tags/items/dusts/glowstone.json"
+    ],
+    "forge:dusts/redstone": [
+      "/private/tmp/cw-forge-47.4.0-tag-source.jar!/data/forge/tags/items/dusts/redstone.json"
+    ],
+    "forge:gems/amethyst": [
+      "/private/tmp/cw-forge-47.4.0-tag-source.jar!/data/forge/tags/items/gems/amethyst.json"
+    ],
+    "forge:gems/diamond": [
+      "/private/tmp/cw-forge-47.4.0-tag-source.jar!/data/forge/tags/items/gems/diamond.json"
+    ],
+    "forge:gems/lapis": [
+      "/private/tmp/cw-forge-47.4.0-tag-source.jar!/data/forge/tags/items/gems/lapis.json"
+    ],
+    "forge:gems/quartz": [
+      "/private/tmp/cw-forge-47.4.0-tag-source.jar!/data/forge/tags/items/gems/quartz.json"
+    ],
+    "forge:glass": [
+      "/private/tmp/cw-forge-47.4.0-tag-source.jar!/data/forge/tags/items/glass.json"
+    ],
+    "forge:glass/colorless": [
+      "/private/tmp/cw-forge-47.4.0-tag-source.jar!/data/forge/tags/items/glass/colorless.json",
+      "/private/tmp/cw-create-7178761-recipe-source.jar!/data/forge/tags/items/glass/colorless.json"
+    ],
+    "forge:stained_glass": [
+      "/private/tmp/cw-forge-47.4.0-tag-source.jar!/data/forge/tags/items/stained_glass.json"
+    ],
+    "forge:glass/tinted": [
+      "/private/tmp/cw-forge-47.4.0-tag-source.jar!/data/forge/tags/items/glass/tinted.json"
+    ],
+    "forge:gunpowder": [
+      "/private/tmp/cw-forge-47.4.0-tag-source.jar!/data/forge/tags/items/gunpowder.json"
+    ],
+    "forge:ingots/brass": [
+      "/private/tmp/cw-create-7178761-recipe-source.jar!/data/forge/tags/items/ingots/brass.json"
+    ],
+    "forge:ingots/copper": [
+      "/private/tmp/cw-forge-47.4.0-tag-source.jar!/data/forge/tags/items/ingots/copper.json"
+    ],
+    "forge:ingots/gold": [
+      "/private/tmp/cw-forge-47.4.0-tag-source.jar!/data/forge/tags/items/ingots/gold.json"
+    ],
+    "forge:ingots/iron": [
+      "/private/tmp/cw-forge-47.4.0-tag-source.jar!/data/forge/tags/items/ingots/iron.json"
+    ],
+    "forge:ingots/netherite": [
+      "/private/tmp/cw-forge-47.4.0-tag-source.jar!/data/forge/tags/items/ingots/netherite.json"
+    ],
+    "forge:ingots/titanium": [
+      "/private/tmp/cw-mcore-6058648-recipe-source.jar!/data/forge/tags/items/ingots/titanium.json"
+    ],
+    "forge:leather": [
+      "/private/tmp/cw-forge-47.4.0-tag-source.jar!/data/forge/tags/items/leather.json"
+    ],
+    "forge:nuggets/iron": [
+      "/private/tmp/cw-forge-47.4.0-tag-source.jar!/data/forge/tags/items/nuggets/iron.json"
+    ],
+    "forge:plates/iron": [
+      "/private/tmp/cw-create-7178761-recipe-source.jar!/data/forge/tags/items/plates/iron.json"
+    ],
+    "forge:plates/obsidian": [
+      "/private/tmp/cw-create-7178761-recipe-source.jar!/data/forge/tags/items/plates/obsidian.json"
+    ],
+    "forge:rods/blaze": [
+      "/private/tmp/cw-forge-47.4.0-tag-source.jar!/data/forge/tags/items/rods/blaze.json"
+    ],
+    "minecraft:logs": [
+      "/private/tmp/cw-mojang1201-server-inner.jar!/data/minecraft/tags/items/logs.json"
+    ],
+    "minecraft:logs_that_burn": [
+      "/private/tmp/cw-mojang1201-server-inner.jar!/data/minecraft/tags/items/logs_that_burn.json"
+    ],
+    "minecraft:dark_oak_logs": [
+      "/private/tmp/cw-mojang1201-server-inner.jar!/data/minecraft/tags/items/dark_oak_logs.json"
+    ],
+    "minecraft:oak_logs": [
+      "/private/tmp/cw-mojang1201-server-inner.jar!/data/minecraft/tags/items/oak_logs.json"
+    ],
+    "minecraft:acacia_logs": [
+      "/private/tmp/cw-mojang1201-server-inner.jar!/data/minecraft/tags/items/acacia_logs.json"
+    ],
+    "minecraft:birch_logs": [
+      "/private/tmp/cw-mojang1201-server-inner.jar!/data/minecraft/tags/items/birch_logs.json"
+    ],
+    "minecraft:jungle_logs": [
+      "/private/tmp/cw-mojang1201-server-inner.jar!/data/minecraft/tags/items/jungle_logs.json"
+    ],
+    "minecraft:spruce_logs": [
+      "/private/tmp/cw-mojang1201-server-inner.jar!/data/minecraft/tags/items/spruce_logs.json"
+    ],
+    "minecraft:mangrove_logs": [
+      "/private/tmp/cw-mojang1201-server-inner.jar!/data/minecraft/tags/items/mangrove_logs.json"
+    ],
+    "minecraft:cherry_logs": [
+      "/private/tmp/cw-mojang1201-server-inner.jar!/data/minecraft/tags/items/cherry_logs.json"
+    ],
+    "minecraft:crimson_stems": [
+      "/private/tmp/cw-mojang1201-server-inner.jar!/data/minecraft/tags/items/crimson_stems.json"
+    ],
+    "minecraft:warped_stems": [
+      "/private/tmp/cw-mojang1201-server-inner.jar!/data/minecraft/tags/items/warped_stems.json"
+    ],
+    "minecraft:planks": [
+      "/private/tmp/cw-mojang1201-server-inner.jar!/data/minecraft/tags/items/planks.json"
+    ]
+  },
+  "recipes": [
+    {
+      "id": "bf1:block/telegraph",
+      "station": "minecraft:crafting_table",
+      "tier": 0,
+      "kind": "station",
+      "source": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/recipes/block/telegraph.json",
+      "type": "minecraft:crafting_shapeless",
+      "inputs": [
+        {
+          "item": "minecraft:copper_block",
+          "count": 1
+        },
+        {
+          "item": "minecraft:crafting_table",
+          "count": 1
+        }
+      ],
+      "output": {
+        "kind": "item",
+        "id": "tacz:workbench_a",
+        "count": 1,
+        "nbt": {
+          "BlockId": "bf1:telegraph"
+        }
+      }
+    },
+    {
+      "id": "bf1:gun/db_long",
+      "station": "bf1:telegraph",
+      "tier": 1,
+      "kind": "gun",
+      "source": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/recipes/gun/db_long.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/iron",
+          "count": 14
+        },
+        {
+          "tag": "minecraft:logs",
+          "count": 10
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:db_long",
+        "count": 1
+      },
+      "gun": {
+        "class": "shotgun",
+        "nameEn": "DB-4 Ursus",
+        "ammoId": "tacz:12g",
+        "capacity": 2,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/db_long.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/db_long_data.json"
+      }
+    },
+    {
+      "id": "bf1:gun/db_short",
+      "station": "bf1:telegraph",
+      "tier": 1,
+      "kind": "gun",
+      "source": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/recipes/gun/db_short.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/iron",
+          "count": 8
+        },
+        {
+          "tag": "minecraft:logs",
+          "count": 6
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:db_short",
+        "count": 1
+      },
+      "gun": {
+        "class": "shotgun",
+        "nameEn": "DB-2 Durin",
+        "ammoId": "tacz:12g",
+        "capacity": 2,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/db_short.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/db_short_data.json"
+      }
+    },
+    {
+      "id": "bf1:gun/m1916",
+      "station": "bf1:telegraph",
+      "tier": 1,
+      "kind": "gun",
+      "source": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/recipes/gun/m1916.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "minecraft:logs",
+          "count": 16
+        },
+        {
+          "tag": "forge:ingots/iron",
+          "count": 40
+        },
+        {
+          "tag": "forge:ingots/copper",
+          "count": 12
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "bf1:m1916",
+        "count": 1
+      },
+      "gun": {
+        "class": "rifle",
+        "nameEn": "Selbstlader M1916",
+        "ammoId": "tacz:308",
+        "capacity": 25,
+        "indexSource": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/index/guns/m1916.json",
+        "dataSource": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/data/guns/m1916_data.json"
+      }
+    },
+    {
+      "id": "bf1:gun/man_m95",
+      "station": "bf1:telegraph",
+      "tier": 1,
+      "kind": "gun",
+      "source": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/recipes/gun/man_m95.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "minecraft:logs",
+          "count": 16
+        },
+        {
+          "tag": "forge:ingots/iron",
+          "count": 24
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "bf1:man_m95",
+        "count": 1
+      },
+      "gun": {
+        "class": "sniper",
+        "nameEn": "Mannlicher M1895",
+        "ammoId": "tacz:30_06",
+        "capacity": 4,
+        "indexSource": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/index/guns/man_m95.json",
+        "dataSource": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/data/guns/man_m95_data.json"
+      }
+    },
+    {
+      "id": "bf1:gun/martini",
+      "station": "bf1:telegraph",
+      "tier": 1,
+      "kind": "gun",
+      "source": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/recipes/gun/martini.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "minecraft:logs",
+          "count": 16
+        },
+        {
+          "tag": "forge:ingots/iron",
+          "count": 32
+        },
+        {
+          "tag": "forge:ingots/copper",
+          "count": 6
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "bf1:martini",
+        "count": 1
+      },
+      "gun": {
+        "class": "sniper",
+        "nameEn": "Martini-Henry",
+        "ammoId": "tacz:45_70",
+        "capacity": 1,
+        "indexSource": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/index/guns/martini.json",
+        "dataSource": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/data/guns/martini_data.json"
+      }
+    },
+    {
+      "id": "bf1:gun/mhgl",
+      "station": "bf1:telegraph",
+      "tier": 1,
+      "kind": "gun",
+      "source": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/recipes/gun/mhgl.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "minecraft:logs",
+          "count": 16
+        },
+        {
+          "tag": "forge:ingots/iron",
+          "count": 46
+        },
+        {
+          "tag": "forge:ingots/gold",
+          "count": 6
+        },
+        {
+          "tag": "forge:gems/lapis",
+          "count": 4
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "bf1:mhgl",
+        "count": 1
+      },
+      "gun": {
+        "class": "rpg",
+        "nameEn": "Martini-Henry Grenade Launcher",
+        "ammoId": "tacz:40mm",
+        "capacity": 1,
+        "indexSource": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/index/guns/mhgl.json",
+        "dataSource": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/data/guns/mhgl_data.json"
+      }
+    },
+    {
+      "id": "bf1:gun/model10",
+      "station": "bf1:telegraph",
+      "tier": 1,
+      "kind": "gun",
+      "source": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/recipes/gun/model10.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "minecraft:logs",
+          "count": 12
+        },
+        {
+          "tag": "forge:ingots/iron",
+          "count": 24
+        },
+        {
+          "tag": "forge:ingots/copper",
+          "count": 8
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "bf1:model10",
+        "count": 1
+      },
+      "gun": {
+        "class": "shotgun",
+        "nameEn": "Model 10-A",
+        "ammoId": "tacz:12g",
+        "capacity": 5,
+        "indexSource": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/index/guns/model10.json",
+        "dataSource": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/data/guns/model10_data.json"
+      }
+    },
+    {
+      "id": "bf1:gun/obrez",
+      "station": "bf1:telegraph",
+      "tier": 1,
+      "kind": "gun",
+      "source": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/recipes/gun/obrez.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "minecraft:logs",
+          "count": 6
+        },
+        {
+          "tag": "forge:ingots/iron",
+          "count": 22
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "bf1:obrez",
+        "count": 1
+      },
+      "gun": {
+        "class": "pistol",
+        "nameEn": "Mosin-Nagant Obrez",
+        "ammoId": "tacz:762x54",
+        "capacity": 4,
+        "indexSource": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/index/guns/obrez.json",
+        "dataSource": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/data/guns/obrez_data.json"
+      }
+    },
+    {
+      "id": "bf1:gun/rsc1917",
+      "station": "bf1:telegraph",
+      "tier": 1,
+      "kind": "gun",
+      "source": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/recipes/gun/rsc1917.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:gems/diamond",
+          "count": 2
+        },
+        {
+          "tag": "minecraft:logs",
+          "count": 16
+        },
+        {
+          "tag": "forge:ingots/iron",
+          "count": 32
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "bf1:rsc1917",
+        "count": 1
+      },
+      "gun": {
+        "class": "rifle",
+        "nameEn": "RSC 1917",
+        "ammoId": "tacz:30_06",
+        "capacity": 5,
+        "indexSource": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/index/guns/rsc1917.json",
+        "dataSource": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/data/guns/rsc1917_data.json"
+      }
+    },
+    {
+      "id": "bf1:gun/smg0818",
+      "station": "bf1:telegraph",
+      "tier": 1,
+      "kind": "gun",
+      "source": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/recipes/gun/smg0818.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "minecraft:logs",
+          "count": 16
+        },
+        {
+          "tag": "forge:ingots/iron",
+          "count": 48
+        },
+        {
+          "tag": "forge:gems/lapis",
+          "count": 16
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "bf1:smg0818",
+        "count": 1
+      },
+      "gun": {
+        "class": "smg",
+        "nameEn": "SMG08/18",
+        "ammoId": "tacz:9mm",
+        "capacity": 60,
+        "indexSource": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/index/guns/smg0818.json",
+        "dataSource": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/data/guns/smg0818_data.json"
+      }
+    },
+    {
+      "id": "bf1:gun/sw_model3",
+      "station": "bf1:telegraph",
+      "tier": 1,
+      "kind": "gun",
+      "source": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/recipes/gun/sw_model3.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "minecraft:logs",
+          "count": 4
+        },
+        {
+          "tag": "forge:ingots/iron",
+          "count": 16
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "bf1:sw_model3",
+        "count": 1
+      },
+      "gun": {
+        "class": "pistol",
+        "nameEn": "No. 3 Revolver",
+        "ammoId": "tacz:357mag",
+        "capacity": 6,
+        "indexSource": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/index/guns/sw_model3.json",
+        "dataSource": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/data/guns/sw_model3_data.json"
+      }
+    },
+    {
+      "id": "bf1:gun/vg15",
+      "station": "bf1:telegraph",
+      "tier": 1,
+      "kind": "gun",
+      "source": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/recipes/gun/vg15.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "minecraft:logs",
+          "count": 8
+        },
+        {
+          "tag": "forge:ingots/iron",
+          "count": 20
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "bf1:vg15",
+        "count": 1
+      },
+      "gun": {
+        "class": "rifle",
+        "nameEn": "Volkssturmgewehr 1-5",
+        "ammoId": "tacz:762x39",
+        "capacity": 16,
+        "indexSource": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/index/guns/vg15.json",
+        "dataSource": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/data/guns/vg15_data.json"
+      }
+    },
+    {
+      "id": "bf1:misc/tester",
+      "station": "bf1:telegraph",
+      "tier": 1,
+      "kind": "station",
+      "source": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/recipes/misc/tester.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "item": "create:iron_sheet",
+          "count": 45
+        },
+        {
+          "item": "create:golden_sheet",
+          "count": 16
+        },
+        {
+          "item": "minecraft:quartz",
+          "count": 25
+        }
+      ],
+      "output": {
+        "kind": "item",
+        "id": "tacz:gun_smith_table",
+        "count": 1
+      },
+      "tab": "tacz:pistol"
+    },
+    {
+      "id": "tacz:ammo/12g",
+      "station": "tacz:ammo_workbench",
+      "tier": 1,
+      "kind": "ammo",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/ammo/12g.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 10
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 5
+        },
+        {
+          "tag": "forge:nuggets/iron",
+          "count": 18
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:12g",
+        "count": 18
+      }
+    },
+    {
+      "id": "tacz:ammo/308",
+      "station": "tacz:ammo_workbench",
+      "tier": 1,
+      "kind": "ammo",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/ammo/308.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 20
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 9
+        },
+        {
+          "tag": "forge:gems/lapis",
+          "count": 1
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:308",
+        "count": 60
+      }
+    },
+    {
+      "id": "tacz:ammo/30_06",
+      "station": "tacz:ammo_workbench",
+      "tier": 1,
+      "kind": "ammo",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/ammo/30_06.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 14
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 5
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:30_06",
+        "count": 24
+      }
+    },
+    {
+      "id": "tacz:ammo/338",
+      "station": "tacz:ammo_workbench",
+      "tier": 1,
+      "kind": "ammo",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/ammo/338.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 16
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 7
+        },
+        {
+          "tag": "forge:gems/lapis",
+          "count": 3
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:338",
+        "count": 18
+      }
+    },
+    {
+      "id": "tacz:ammo/357mag",
+      "station": "tacz:ammo_workbench",
+      "tier": 1,
+      "kind": "ammo",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/ammo/357mag.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 16
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 5
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:357mag",
+        "count": 48
+      }
+    },
+    {
+      "id": "tacz:ammo/40mm",
+      "station": "tacz:ammo_workbench",
+      "tier": 1,
+      "kind": "ammo",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/ammo/40mm.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/iron",
+          "count": 2
+        },
+        {
+          "tag": "forge:ingots/copper",
+          "count": 6
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 8
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:40mm",
+        "count": 6
+      }
+    },
+    {
+      "id": "tacz:ammo/45acp",
+      "station": "tacz:ammo_workbench",
+      "tier": 1,
+      "kind": "ammo",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/ammo/45acp.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 7
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 2
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:45acp",
+        "count": 30
+      }
+    },
+    {
+      "id": "tacz:ammo/45_70",
+      "station": "tacz:ammo_workbench",
+      "tier": 1,
+      "kind": "ammo",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/ammo/45_70.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 10
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 3
+        },
+        {
+          "tag": "forge:gems/lapis",
+          "count": 3
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:45_70",
+        "count": 36
+      }
+    },
+    {
+      "id": "tacz:ammo/46x30",
+      "station": "tacz:ammo_workbench",
+      "tier": 1,
+      "kind": "ammo",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/ammo/46x30.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 8
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 2
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:46x30",
+        "count": 48
+      }
+    },
+    {
+      "id": "tacz:ammo/50ae",
+      "station": "tacz:ammo_workbench",
+      "tier": 1,
+      "kind": "ammo",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/ammo/50ae.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 20
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 6
+        },
+        {
+          "tag": "forge:gems/lapis",
+          "count": 3
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:50ae",
+        "count": 36
+      }
+    },
+    {
+      "id": "tacz:ammo/50bmg",
+      "station": "tacz:ammo_workbench",
+      "tier": 1,
+      "kind": "ammo",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/ammo/50bmg.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 70
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 18
+        },
+        {
+          "tag": "forge:gems/lapis",
+          "count": 8
+        },
+        {
+          "tag": "forge:rods/blaze",
+          "count": 1
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:50bmg",
+        "count": 24
+      }
+    },
+    {
+      "id": "tacz:ammo/556x45",
+      "station": "tacz:ammo_workbench",
+      "tier": 1,
+      "kind": "ammo",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/ammo/556x45.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 10
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 3
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:556x45",
+        "count": 45
+      }
+    },
+    {
+      "id": "tacz:ammo/57x28",
+      "station": "tacz:ammo_workbench",
+      "tier": 1,
+      "kind": "ammo",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/ammo/57x28.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 10
+        },
+        {
+          "tag": "forge:gems/lapis",
+          "count": 3
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 2
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:57x28",
+        "count": 48
+      }
+    },
+    {
+      "id": "tacz:ammo/58x42",
+      "station": "tacz:ammo_workbench",
+      "tier": 1,
+      "kind": "ammo",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/ammo/58x42.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 10
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 3
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:58x42",
+        "count": 40
+      }
+    },
+    {
+      "id": "tacz:ammo/762x39",
+      "station": "tacz:ammo_workbench",
+      "tier": 1,
+      "kind": "ammo",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/ammo/762x39.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 10
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 3
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:762x39",
+        "count": 35
+      }
+    },
+    {
+      "id": "tacz:ammo/762x54",
+      "station": "tacz:ammo_workbench",
+      "tier": 1,
+      "kind": "ammo",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/ammo/762x54.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 8
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 3
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:762x54",
+        "count": 60
+      }
+    },
+    {
+      "id": "tacz:ammo/9mm",
+      "station": "tacz:ammo_workbench",
+      "tier": 1,
+      "kind": "ammo",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/ammo/9mm.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 6
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 2
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:9mm",
+        "count": 50
+      }
+    },
+    {
+      "id": "tacz:ammo/rpg_rocket",
+      "station": "tacz:ammo_workbench",
+      "tier": 1,
+      "kind": "ammo",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/ammo/rpg_rocket.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/iron",
+          "count": 2
+        },
+        {
+          "tag": "forge:ingots/copper",
+          "count": 20
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 10
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:rpg_rocket",
+        "count": 3
+      }
+    },
+    {
+      "id": "tacz:gun/aa12",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/aa12.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/gold",
+          "count": 16
+        },
+        {
+          "item": "createdeco:industrial_iron_sheet",
+          "count": 80
+        },
+        {
+          "tag": "forge:gems/diamond",
+          "count": 2
+        },
+        {
+          "tag": "forge:rods/blaze",
+          "count": 4
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:aa12",
+        "count": 1
+      },
+      "gun": {
+        "class": "shotgun",
+        "nameEn": "AA12 Shotgun",
+        "ammoId": "tacz:12g",
+        "capacity": 8,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/aa12.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/aa12_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/ai_awp",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/ai_awp.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:gems/diamond",
+          "count": 10
+        },
+        {
+          "tag": "forge:ingots/gold",
+          "count": 50
+        },
+        {
+          "item": "createdeco:industrial_iron_sheet",
+          "count": 70
+        },
+        {
+          "tag": "forge:rods/blaze",
+          "count": 3
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:ai_awp",
+        "count": 1,
+        "attachments": {
+          "scope": "tacz:scope_contender"
+        }
+      },
+      "gun": {
+        "class": "sniper",
+        "nameEn": "Accuracy International AWM",
+        "ammoId": "tacz:338",
+        "capacity": 5,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/ai_awp.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/ai_awp_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/ak47",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/ak47.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:plates/iron",
+          "count": 38
+        },
+        {
+          "tag": "forge:gems/quartz",
+          "count": 15
+        },
+        {
+          "tag": "minecraft:logs",
+          "count": 10
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:ak47",
+        "count": 1
+      },
+      "gun": {
+        "class": "rifle",
+        "nameEn": "AKM",
+        "ammoId": "tacz:762x39",
+        "capacity": 30,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/ak47.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/ak47_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/aug",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/aug.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:plates/iron",
+          "count": 39
+        },
+        {
+          "tag": "forge:gems/lapis",
+          "count": 8
+        },
+        {
+          "tag": "forge:gems/quartz",
+          "count": 10
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:aug",
+        "count": 1
+      },
+      "gun": {
+        "class": "rifle",
+        "nameEn": "AUG",
+        "ammoId": "tacz:556x45",
+        "capacity": 30,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/aug.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/aug_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/b93r",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/b93r.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "item": "createdeco:industrial_iron_sheet",
+          "count": 16
+        },
+        {
+          "item": "minecraft:quartz",
+          "count": 7
+        },
+        {
+          "tag": "forge:gems/lapis",
+          "count": 2
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:b93r",
+        "count": 1
+      },
+      "gun": {
+        "class": "pistol",
+        "nameEn": "B93R",
+        "ammoId": "tacz:9mm",
+        "capacity": 20,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/b93r.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/b93r_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/cz75",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/cz75.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:plates/iron",
+          "count": 17
+        },
+        {
+          "tag": "forge:gems/quartz",
+          "count": 8
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:cz75",
+        "count": 1
+      },
+      "gun": {
+        "class": "pistol",
+        "nameEn": "CZ 75",
+        "ammoId": "tacz:9mm",
+        "capacity": 16,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/cz75.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/cz75_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/deagle",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/deagle.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:gems/diamond",
+          "count": 2
+        },
+        {
+          "tag": "forge:ingots/gold",
+          "count": 6
+        },
+        {
+          "item": "createdeco:industrial_iron_sheet",
+          "count": 16
+        },
+        {
+          "item": "minecraft:quartz",
+          "count": 4
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:deagle",
+        "count": 1
+      },
+      "gun": {
+        "class": "pistol",
+        "nameEn": "Deagle 50",
+        "ammoId": "tacz:50ae",
+        "capacity": 7,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/deagle.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/deagle_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/deagle_golden",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/deagle_golden.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:gems/diamond",
+          "count": 1
+        },
+        {
+          "tag": "forge:ingots/gold",
+          "count": 32
+        },
+        {
+          "item": "createdeco:industrial_iron_sheet",
+          "count": 16
+        },
+        {
+          "item": "minecraft:quartz",
+          "count": 10
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:deagle_golden",
+        "count": 1
+      },
+      "gun": {
+        "class": "pistol",
+        "nameEn": "Golden Deagle 357",
+        "ammoId": "tacz:357mag",
+        "capacity": 9,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/deagle_golden.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/deagle_golden_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/g36k",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/g36k.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/gold",
+          "count": 16
+        },
+        {
+          "tag": "forge:plates/iron",
+          "count": 64
+        },
+        {
+          "tag": "forge:gems/quartz",
+          "count": 20
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:g36k",
+        "count": 1
+      },
+      "gun": {
+        "class": "rifle",
+        "nameEn": "G36K",
+        "ammoId": "tacz:556x45",
+        "capacity": 30,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/g36k.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/g36k_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/glock_17",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/glock_17.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:plates/iron",
+          "count": 16
+        },
+        {
+          "tag": "forge:gems/quartz",
+          "count": 8
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:glock_17",
+        "count": 1
+      },
+      "gun": {
+        "class": "pistol",
+        "nameEn": "Glock 17",
+        "ammoId": "tacz:9mm",
+        "capacity": 17,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/glock_17.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/glock_17_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/hk416d",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/hk416d.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/gold",
+          "count": 16
+        },
+        {
+          "tag": "forge:plates/iron",
+          "count": 64
+        },
+        {
+          "tag": "forge:gems/quartz",
+          "count": 35
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:hk416d",
+        "count": 1,
+        "attachments": {
+          "stock": "tacz:stock_hk_slim_line"
+        }
+      },
+      "gun": {
+        "class": "rifle",
+        "nameEn": "HK-416D",
+        "ammoId": "tacz:556x45",
+        "capacity": 30,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/hk416d.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/hk416d_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/hk_g3",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/hk_g3.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/gold",
+          "count": 9
+        },
+        {
+          "item": "createdeco:industrial_iron_sheet",
+          "count": 72
+        },
+        {
+          "tag": "forge:gems/quartz",
+          "count": 25
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:hk_g3",
+        "count": 1
+      },
+      "gun": {
+        "class": "rifle",
+        "nameEn": "HK G3 Battle rifle",
+        "ammoId": "tacz:308",
+        "capacity": 20,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/hk_g3.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/hk_g3_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/hk_mp5a5",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/hk_mp5a5.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:plates/iron",
+          "count": 36
+        },
+        {
+          "tag": "forge:gems/lapis",
+          "count": 4
+        },
+        {
+          "tag": "forge:gems/quartz",
+          "count": 15
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:hk_mp5a5",
+        "count": 1
+      },
+      "gun": {
+        "class": "smg",
+        "nameEn": "HK-MP5A5",
+        "ammoId": "tacz:9mm",
+        "capacity": 30,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/hk_mp5a5.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/hk_mp5a5_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/m107",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/m107.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:gems/diamond",
+          "count": 18
+        },
+        {
+          "tag": "forge:ingots/gold",
+          "count": 32
+        },
+        {
+          "tag": "forge:ingots/netherite",
+          "count": 1
+        },
+        {
+          "item": "createdeco:industrial_iron_sheet",
+          "count": 120
+        },
+        {
+          "tag": "forge:rods/blaze",
+          "count": 4
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:m107",
+        "count": 1,
+        "attachments": {
+          "scope": "tacz:scope_contender"
+        }
+      },
+      "gun": {
+        "class": "sniper",
+        "nameEn": "M107 Sniper Rifle",
+        "ammoId": "tacz:50bmg",
+        "capacity": 10,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/m107.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/m107_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/m16a1",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/m16a1.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:plates/iron",
+          "count": 32
+        },
+        {
+          "tag": "forge:gems/lapis",
+          "count": 6
+        },
+        {
+          "item": "minecraft:quartz",
+          "count": 20
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:m16a1",
+        "count": 1
+      },
+      "gun": {
+        "class": "rifle",
+        "nameEn": "M16A1 Service Rifle",
+        "ammoId": "tacz:556x45",
+        "capacity": 20,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/m16a1.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/m16a1_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/m16a4",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/m16a4.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:plates/iron",
+          "count": 36
+        },
+        {
+          "tag": "forge:gems/lapis",
+          "count": 8
+        },
+        {
+          "item": "minecraft:quartz",
+          "count": 25
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:m16a4",
+        "count": 1
+      },
+      "gun": {
+        "class": "rifle",
+        "nameEn": "M16A4 Service Rifle",
+        "ammoId": "tacz:556x45",
+        "capacity": 30,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/m16a4.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/m16a4_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/m1911",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/m1911.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:plates/iron",
+          "count": 16
+        },
+        {
+          "tag": "minecraft:logs",
+          "count": 5
+        },
+        {
+          "tag": "forge:gems/quartz",
+          "count": 6
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:m1911",
+        "count": 1
+      },
+      "gun": {
+        "class": "pistol",
+        "nameEn": "M1911",
+        "ammoId": "tacz:45acp",
+        "capacity": 7,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/m1911.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/m1911_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/m249",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/m249.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:gems/diamond",
+          "count": 4
+        },
+        {
+          "tag": "forge:ingots/gold",
+          "count": 16
+        },
+        {
+          "item": "createdeco:industrial_iron_sheet",
+          "count": 110
+        },
+        {
+          "tag": "forge:rods/blaze",
+          "count": 3
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:m249",
+        "count": 1
+      },
+      "gun": {
+        "class": "mg",
+        "nameEn": "M249 Machine Gun",
+        "ammoId": "tacz:556x45",
+        "capacity": 75,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/m249.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/m249_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/m320",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/m320.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/gold",
+          "count": 15
+        },
+        {
+          "tag": "forge:plates/iron",
+          "count": 50
+        },
+        {
+          "tag": "forge:gems/lapis",
+          "count": 6
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:m320",
+        "count": 1
+      },
+      "gun": {
+        "class": "rpg",
+        "nameEn": "M320 Grenade Launcher",
+        "ammoId": "tacz:40mm",
+        "capacity": 1,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/m320.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/m320_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/m4a1",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/m4a1.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:plates/iron",
+          "count": 38
+        },
+        {
+          "tag": "forge:gems/lapis",
+          "count": 14
+        },
+        {
+          "item": "minecraft:quartz",
+          "count": 25
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:m4a1",
+        "count": 1,
+        "attachments": {
+          "stock": "tacz:stock_m4ss"
+        }
+      },
+      "gun": {
+        "class": "rifle",
+        "nameEn": "M4A1 Carbine",
+        "ammoId": "tacz:556x45",
+        "capacity": 30,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/m4a1.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/m4a1_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/m700",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/m700.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:gems/diamond",
+          "count": 1
+        },
+        {
+          "tag": "forge:ingots/gold",
+          "count": 4
+        },
+        {
+          "tag": "forge:plates/iron",
+          "count": 45
+        },
+        {
+          "tag": "forge:gems/quartz",
+          "count": 30
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:m700",
+        "count": 1,
+        "attachments": {
+          "scope": "tacz:scope_contender"
+        }
+      },
+      "gun": {
+        "class": "sniper",
+        "nameEn": "M700 Sniper Rifle",
+        "ammoId": "tacz:30_06",
+        "capacity": 5,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/m700.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/m700_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/m870",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/m870.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "item": "createdeco:industrial_iron_sheet",
+          "count": 25
+        },
+        {
+          "tag": "minecraft:logs",
+          "count": 12
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:m870",
+        "count": 1
+      },
+      "gun": {
+        "class": "shotgun",
+        "nameEn": "M870",
+        "ammoId": "tacz:12g",
+        "capacity": 5,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/m870.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/m870_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/m95",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/m95.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:gems/diamond",
+          "count": 15
+        },
+        {
+          "tag": "forge:ingots/gold",
+          "count": 60
+        },
+        {
+          "tag": "forge:ingots/netherite",
+          "count": 3
+        },
+        {
+          "item": "createdeco:industrial_iron_sheet",
+          "count": 180
+        },
+        {
+          "tag": "forge:rods/blaze",
+          "count": 7
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:m95",
+        "count": 1,
+        "attachments": {
+          "scope": "tacz:scope_contender"
+        }
+      },
+      "gun": {
+        "class": "sniper",
+        "nameEn": "M95 .50 Cal Antimaterial",
+        "ammoId": "tacz:50bmg",
+        "capacity": 5,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/m95.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/m95_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/mk14",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/mk14.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/gold",
+          "count": 20
+        },
+        {
+          "item": "createdeco:industrial_iron_sheet",
+          "count": 64
+        },
+        {
+          "tag": "forge:gems/diamond",
+          "count": 4
+        },
+        {
+          "tag": "forge:rods/blaze",
+          "count": 1
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:mk14",
+        "count": 1
+      },
+      "gun": {
+        "class": "rifle",
+        "nameEn": "MK14 EBR",
+        "ammoId": "tacz:308",
+        "capacity": 10,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/mk14.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/mk14_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/p320",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/p320.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/gold",
+          "count": 4
+        },
+        {
+          "tag": "forge:plates/iron",
+          "count": 28
+        },
+        {
+          "tag": "forge:gems/lapis",
+          "count": 2
+        },
+        {
+          "tag": "forge:gems/quartz",
+          "count": 10
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:p320",
+        "count": 1
+      },
+      "gun": {
+        "class": "pistol",
+        "nameEn": "P320",
+        "ammoId": "tacz:45acp",
+        "capacity": 12,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/p320.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/p320_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/p90",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/p90.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/gold",
+          "count": 8
+        },
+        {
+          "item": "createdeco:industrial_iron_sheet",
+          "count": 50
+        },
+        {
+          "tag": "forge:gems/quartz",
+          "count": 30
+        },
+        {
+          "tag": "forge:gems/diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:blaze_rod",
+          "count": 1
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:p90",
+        "count": 1
+      },
+      "gun": {
+        "class": "smg",
+        "nameEn": "P90 PDW",
+        "ammoId": "tacz:57x28",
+        "capacity": 50,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/p90.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/p90_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/qbz_95",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/qbz_95.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:plates/iron",
+          "count": 40
+        },
+        {
+          "tag": "forge:ingots/gold",
+          "count": 3
+        },
+        {
+          "tag": "forge:gems/lapis",
+          "count": 8
+        },
+        {
+          "item": "minecraft:quartz",
+          "count": 20
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:qbz_95",
+        "count": 1
+      },
+      "gun": {
+        "class": "rifle",
+        "nameEn": "QBZ-95 \\\"Longbow\\\"",
+        "ammoId": "tacz:58x42",
+        "capacity": 30,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/qbz_95.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/qbz_95_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/rpg7",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/rpg7.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/gold",
+          "count": 8
+        },
+        {
+          "item": "createdeco:industrial_iron_sheet",
+          "count": 70
+        },
+        {
+          "tag": "forge:gems/quartz",
+          "count": 35
+        },
+        {
+          "tag": "minecraft:logs",
+          "count": 10
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:rpg7",
+        "count": 1
+      },
+      "gun": {
+        "class": "rpg",
+        "nameEn": "RPG-7",
+        "ammoId": "tacz:rpg_rocket",
+        "capacity": 1,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/rpg7.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/rpg7_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/rpk",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/rpk.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:plates/iron",
+          "count": 56
+        },
+        {
+          "tag": "forge:ingots/gold",
+          "count": 8
+        },
+        {
+          "tag": "forge:gems/quartz",
+          "count": 25
+        },
+        {
+          "tag": "minecraft:logs",
+          "count": 12
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:rpk",
+        "count": 1,
+        "attachments": {
+          "stock": "tacz:oem_stock_heavy"
+        }
+      },
+      "gun": {
+        "class": "mg",
+        "nameEn": "RPK",
+        "ammoId": "tacz:762x39",
+        "capacity": 40,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/rpk.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/rpk_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/scar_h",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/scar_h.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/gold",
+          "count": 16
+        },
+        {
+          "item": "createdeco:industrial_iron_sheet",
+          "count": 96
+        },
+        {
+          "tag": "forge:gems/diamond",
+          "count": 2
+        },
+        {
+          "tag": "forge:rods/blaze",
+          "count": 2
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:scar_h",
+        "count": 1
+      },
+      "gun": {
+        "class": "rifle",
+        "nameEn": "SCAR-H Battle Rifle",
+        "ammoId": "tacz:308",
+        "capacity": 20,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/scar_h.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/scar_h_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/scar_l",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/scar_l.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/gold",
+          "count": 6
+        },
+        {
+          "tag": "forge:plates/iron",
+          "count": 48
+        },
+        {
+          "tag": "forge:gems/quartz",
+          "count": 15
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:scar_l",
+        "count": 1
+      },
+      "gun": {
+        "class": "rifle",
+        "nameEn": "SCAR-L Assault Rifle",
+        "ammoId": "tacz:556x45",
+        "capacity": 30,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/scar_l.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/scar_l_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/sks_tactical",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/sks_tactical.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "item": "createdeco:industrial_iron_sheet",
+          "count": 40
+        },
+        {
+          "tag": "forge:gems/lapis",
+          "count": 8
+        },
+        {
+          "tag": "forge:gems/quartz",
+          "count": 15
+        },
+        {
+          "tag": "forge:rods/blaze",
+          "count": 1
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:sks_tactical",
+        "count": 1,
+        "attachments": {
+          "stock": "tacz:stock_m4ss"
+        }
+      },
+      "gun": {
+        "class": "rifle",
+        "nameEn": "Sks Tactical Rifle",
+        "ammoId": "tacz:762x39",
+        "capacity": 10,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/sks_tactical.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/sks_tactical_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/spr15hb",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/spr15hb.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/gold",
+          "count": 8
+        },
+        {
+          "item": "createdeco:industrial_iron_sheet",
+          "count": 50
+        },
+        {
+          "tag": "forge:gems/diamond",
+          "count": 2
+        },
+        {
+          "tag": "forge:rods/blaze",
+          "count": 1
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:spr15hb",
+        "count": 1
+      },
+      "gun": {
+        "class": "rifle",
+        "nameEn": "SPR-15 HB \\\"Sagittarius\\\"",
+        "ammoId": "tacz:556x45",
+        "capacity": 15,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/spr15hb.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/spr15hb_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/type_81",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/type_81.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:plates/iron",
+          "count": 28
+        },
+        {
+          "tag": "minecraft:logs",
+          "count": 10
+        },
+        {
+          "tag": "forge:gems/quartz",
+          "count": 20
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:type_81",
+        "count": 1
+      },
+      "gun": {
+        "class": "rifle",
+        "nameEn": "Type 81-1 Service Rifle",
+        "ammoId": "tacz:762x39",
+        "capacity": 30,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/type_81.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/type_81_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/ump45",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/ump45.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/gold",
+          "count": 5
+        },
+        {
+          "item": "createdeco:industrial_iron_sheet",
+          "count": 62
+        },
+        {
+          "tag": "forge:gems/quartz",
+          "count": 15
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:ump45",
+        "count": 1
+      },
+      "gun": {
+        "class": "smg",
+        "nameEn": "UMP45 SMG",
+        "ammoId": "tacz:45acp",
+        "capacity": 25,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/ump45.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/ump45_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/uzi",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/uzi.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:plates/iron",
+          "count": 22
+        },
+        {
+          "tag": "forge:gems/quartz",
+          "count": 32
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:uzi",
+        "count": 1
+      },
+      "gun": {
+        "class": "smg",
+        "nameEn": "UZI",
+        "ammoId": "tacz:9mm",
+        "capacity": 20,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/uzi.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/uzi_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/vector45",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "gun",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/gun/vector45.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:plates/iron",
+          "count": 60
+        },
+        {
+          "tag": "forge:gems/quartz",
+          "count": 20
+        },
+        {
+          "tag": "forge:ingots/gold",
+          "count": 12
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:vector45",
+        "count": 1
+      },
+      "gun": {
+        "class": "smg",
+        "nameEn": "Vector SMG",
+        "ammoId": "tacz:45acp",
+        "capacity": 20,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/vector45.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/vector45_data.json"
+      }
+    },
+    {
+      "id": "tacz:misc/tester",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "station",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/misc/tester.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "item": "the_deeper_void:tungsten_ingot",
+          "count": 25
+        },
+        {
+          "item": "create:sturdy_sheet",
+          "count": 15
+        },
+        {
+          "item": "minecraft:quartz",
+          "count": 35
+        }
+      ],
+      "output": {
+        "kind": "item",
+        "id": "tacz:workbench_b",
+        "count": 1,
+        "nbt": {
+          "BlockId": "sfms:ms_workbench",
+          "display": {
+            "Lore": [
+              "{\"translate\":\"\"}"
+            ],
+            "Name": "{\"translate\":\"§e§lInto The Depths.\"}"
+          }
+        }
+      },
+      "tab": "tacz:pistol"
+    },
+    {
+      "id": "sfms:ammo/25gl",
+      "station": "sfms:ms_workbench",
+      "tier": 3,
+      "kind": "ammo",
+      "source": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/recipes/ammo/25gl.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/brass",
+          "count": 10
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 20
+        },
+        {
+          "tag": "forge:gems/lapis",
+          "count": 4
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "sfms:25gl",
+        "count": 24
+      }
+    },
+    {
+      "id": "sfms:ammo/300ms",
+      "station": "sfms:ms_workbench",
+      "tier": 3,
+      "kind": "ammo",
+      "source": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/recipes/ammo/300ms.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "item": "minecraft:amethyst_block",
+          "count": 2
+        },
+        {
+          "tag": "forge:ingots/brass",
+          "count": 6
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 5
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "sfms:300ms",
+        "count": 60
+      }
+    },
+    {
+      "id": "sfms:ammo/50arms",
+      "station": "sfms:ms_workbench",
+      "tier": 3,
+      "kind": "ammo",
+      "source": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/recipes/ammo/50arms.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/brass",
+          "count": 20
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 5
+        },
+        {
+          "tag": "forge:gems/lapis",
+          "count": 3
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "sfms:50arms",
+        "count": 30
+      }
+    },
+    {
+      "id": "sfms:gun/af_46",
+      "station": "sfms:ms_workbench",
+      "tier": 3,
+      "kind": "gun",
+      "source": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/recipes/gun/af_46.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "item": "mcore:titanium_ingot",
+          "count": 4
+        },
+        {
+          "item": "create:rose_quartz",
+          "count": 8
+        },
+        {
+          "item": "the_deeper_void:tungsten_ingot",
+          "count": 16
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "sfms:af_46",
+        "count": 1
+      },
+      "gun": {
+        "class": "pistol",
+        "nameEn": "AF-46 AUTO “Swift”",
+        "ammoId": "tacz:46x30",
+        "capacity": 22,
+        "indexSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/index/guns/af_46.json",
+        "dataSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/data/guns/af_46_data.json"
+      }
+    },
+    {
+      "id": "sfms:gun/af_57",
+      "station": "sfms:ms_workbench",
+      "tier": 3,
+      "kind": "gun",
+      "source": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/recipes/gun/af_57.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "item": "the_deeper_void:titanium_rhenium_alloy",
+          "count": 2
+        },
+        {
+          "item": "create:rose_quartz",
+          "count": 8
+        },
+        {
+          "item": "the_deeper_void:tungsten_ingot",
+          "count": 24
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "sfms:af_57",
+        "count": 1
+      },
+      "gun": {
+        "class": "pistol",
+        "nameEn": "AF-57 AUTO “viper”",
+        "ammoId": "tacz:57x28",
+        "capacity": 20,
+        "indexSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/index/guns/af_57.json",
+        "dataSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/data/guns/af_57_data.json"
+      }
+    },
+    {
+      "id": "sfms:gun/ar50",
+      "station": "sfms:ms_workbench",
+      "tier": 3,
+      "kind": "gun",
+      "source": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/recipes/gun/ar50.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "item": "create:polished_rose_quartz",
+          "count": 32
+        },
+        {
+          "tag": "forge:plates/obsidian",
+          "count": 24
+        },
+        {
+          "item": "the_deeper_void:titanium_rhenium_alloy",
+          "count": 8
+        },
+        {
+          "item": "the_deeper_void:tungsten_rhenium_alloy",
+          "count": 16
+        },
+        {
+          "type": "forge:partial_nbt",
+          "item": "tacz:modern_kinetic_gun",
+          "nbt": {
+            "GunId": "tacz:spr15hb"
+          },
+          "count": 1
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "sfms:ar50",
+        "count": 1
+      },
+      "gun": {
+        "class": "sniper",
+        "nameEn": "MSR-15 .50 “Achilles”",
+        "ammoId": "sfms:50arms",
+        "capacity": 7,
+        "indexSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/index/guns/ar50.json",
+        "dataSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/data/guns/ar50_data.json"
+      }
+    },
+    {
+      "id": "sfms:gun/ats15",
+      "station": "sfms:ms_workbench",
+      "tier": 3,
+      "kind": "gun",
+      "source": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/recipes/gun/ats15.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "item": "create:polished_rose_quartz",
+          "count": 16
+        },
+        {
+          "tag": "forge:plates/obsidian",
+          "count": 22
+        },
+        {
+          "item": "the_deeper_void:tungsten_ingot",
+          "count": 32
+        },
+        {
+          "tag": "forge:ingots/titanium",
+          "count": 24
+        },
+        {
+          "item": "mcore:steel_ingot",
+          "count": 24
+        },
+        {
+          "type": "forge:partial_nbt",
+          "item": "tacz:modern_kinetic_gun",
+          "nbt": {
+            "GunId": "tacz:spr15hb"
+          },
+          "count": 1
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "sfms:ats15",
+        "count": 1
+      },
+      "gun": {
+        "class": "rifle",
+        "nameEn": "ATS-15(Mod.I) “Judicator”",
+        "ammoId": "sfms:300ms",
+        "capacity": 30,
+        "indexSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/index/guns/ats15.json",
+        "dataSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/data/guns/ats15_data.json"
+      }
+    },
+    {
+      "id": "sfms:gun/felix_12",
+      "station": "sfms:ms_workbench",
+      "tier": 3,
+      "kind": "gun",
+      "source": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/recipes/gun/felix_12.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "item": "create:rose_quartz",
+          "count": 20
+        },
+        {
+          "item": "the_deeper_void:tungsten_rhenium_alloy",
+          "count": 20
+        },
+        {
+          "item": "mcore:steel_sheet",
+          "count": 12
+        },
+        {
+          "item": "mcore:titanium_ingot",
+          "count": 24
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "sfms:felix_12",
+        "count": 1
+      },
+      "gun": {
+        "class": "shotgun",
+        "nameEn": "Felix-12 “Constantine”",
+        "ammoId": "tacz:12g",
+        "capacity": 5,
+        "indexSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/index/guns/felix_12.json",
+        "dataSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/data/guns/felix_12_data.json"
+      }
+    },
+    {
+      "id": "sfms:gun/felix_12dg",
+      "station": "sfms:ms_workbench",
+      "tier": 3,
+      "kind": "gun",
+      "source": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/recipes/gun/felix_12dg.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "item": "create:polished_rose_quartz",
+          "count": 26
+        },
+        {
+          "tag": "forge:plates/obsidian",
+          "count": 22
+        },
+        {
+          "item": "minecraft:magma_cream",
+          "count": 12
+        },
+        {
+          "tag": "forge:ingots/titanium",
+          "count": 40
+        },
+        {
+          "item": "the_deeper_void:tungsten_ingot",
+          "count": 24
+        },
+        {
+          "type": "forge:partial_nbt",
+          "item": "tacz:modern_kinetic_gun",
+          "nbt": {
+            "GunId": "sfms:felix_12"
+          },
+          "count": 1
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "sfms:felix_12dg",
+        "count": 1
+      },
+      "gun": {
+        "class": "shotgun",
+        "nameEn": "AWAKEN Felix-12 “John Wick”",
+        "ammoId": "tacz:12g",
+        "capacity": 5,
+        "indexSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/index/guns/felix_12dg.json",
+        "dataSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/data/guns/felix_12dg_data.json"
+      }
+    },
+    {
+      "id": "sfms:gun/g18",
+      "station": "sfms:ms_workbench",
+      "tier": 3,
+      "kind": "gun",
+      "source": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/recipes/gun/g18.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "item": "create:rose_quartz",
+          "count": 2
+        },
+        {
+          "item": "the_deeper_void:tungsten_ingot",
+          "count": 18
+        },
+        {
+          "item": "mcore:titanium_ingot",
+          "count": 12
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "sfms:g18",
+        "count": 1
+      },
+      "gun": {
+        "class": "pistol",
+        "nameEn": "G18 MTX “Cobra”",
+        "ammoId": "tacz:9mm",
+        "capacity": 18,
+        "indexSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/index/guns/g18.json",
+        "dataSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/data/guns/g18_data.json"
+      }
+    },
+    {
+      "id": "sfms:gun/har50",
+      "station": "sfms:ms_workbench",
+      "tier": 3,
+      "kind": "gun",
+      "source": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/recipes/gun/har50.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "type": "forge:partial_nbt",
+          "item": "tacz:modern_kinetic_gun",
+          "nbt": {
+            "GunId": "tacz:m249"
+          },
+          "count": 1
+        },
+        {
+          "item": "the_deeper_void:netherite_rhenium_alloy",
+          "count": 2
+        },
+        {
+          "tag": "forge:plates/obsidian",
+          "count": 64
+        },
+        {
+          "item": "the_deeper_void:tungsten_ingot",
+          "count": 24
+        },
+        {
+          "item": "create:polished_rose_quartz",
+          "count": 20
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "sfms:har50",
+        "count": 1,
+        "attachments": {
+          "scope": "sfms:scope_har50"
+        }
+      },
+      "gun": {
+        "class": "mg",
+        "nameEn": "HAR-50 Mk.II “Doom Hammer”",
+        "ammoId": "sfms:50arms",
+        "capacity": 60,
+        "indexSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/index/guns/har50.json",
+        "dataSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/data/guns/har50_data.json"
+      },
+      "originalInputs": [
+        {
+          "type": "forge:partial_nbt",
+          "item": "tacz:modern_kinetic_gun",
+          "nbt": {
+            "GunId": "tacz:m249"
+          },
+          "count": 1
+        },
+        {
+          "item": "the_deeper_void:netherite_rhenium_ingot",
+          "count": 2
+        },
+        {
+          "tag": "forge:plates/obsidian",
+          "count": 64
+        },
+        {
+          "item": "the_deeper_void:tungsten_ingot",
+          "count": 24
+        },
+        {
+          "item": "create:polished_rose_quartz",
+          "count": 20
+        }
+      ]
+    },
+    {
+      "id": "sfms:gun/inf",
+      "station": "sfms:ms_workbench",
+      "tier": 3,
+      "kind": "gun",
+      "source": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/recipes/gun/inf.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "item": "create:rose_quartz",
+          "count": 8
+        },
+        {
+          "item": "the_deeper_void:tungsten_rhenium_alloy",
+          "count": 8
+        },
+        {
+          "item": "mcore:steel_sheet",
+          "count": 8
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "sfms:inf",
+        "count": 1
+      },
+      "gun": {
+        "class": "pistol",
+        "nameEn": "MS Infinity “inf”",
+        "ammoId": "tacz:45acp",
+        "capacity": 12,
+        "indexSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/index/guns/inf.json",
+        "dataSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/data/guns/inf_data.json"
+      }
+    },
+    {
+      "id": "sfms:gun/inf_x",
+      "station": "sfms:ms_workbench",
+      "tier": 3,
+      "kind": "gun",
+      "source": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/recipes/gun/inf_x.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "type": "forge:partial_nbt",
+          "item": "tacz:modern_kinetic_gun",
+          "nbt": {
+            "GunId": "sfms:inf"
+          },
+          "count": 2
+        },
+        {
+          "tag": "forge:plates/obsidian",
+          "count": 8
+        },
+        {
+          "item": "the_deeper_void:tungsten_ingot",
+          "count": 16
+        },
+        {
+          "item": "the_deeper_void:titanium_rhenium_alloy",
+          "count": 2
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "sfms:inf_x",
+        "count": 1
+      },
+      "gun": {
+        "class": "pistol",
+        "nameEn": "“Golden Red Dual Scorpions”",
+        "ammoId": "tacz:45acp",
+        "capacity": 24,
+        "indexSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/index/guns/inf_x.json",
+        "dataSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/data/guns/inf_x_data.json"
+      }
+    },
+    {
+      "id": "sfms:gun/lvsa_hs",
+      "station": "sfms:ms_workbench",
+      "tier": 3,
+      "kind": "gun",
+      "source": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/recipes/gun/lvsa_hs.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "item": "create:rose_quartz",
+          "count": 16
+        },
+        {
+          "item": "the_deeper_void:titanium_rhenium_alloy",
+          "count": 12
+        },
+        {
+          "item": "mcore:steel_sheet",
+          "count": 12
+        },
+        {
+          "item": "the_deeper_void:tungsten_ingot",
+          "count": 48
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "sfms:lvsa_hs",
+        "count": 1
+      },
+      "gun": {
+        "class": "sniper",
+        "nameEn": "AWAKEN LVSA-HS “Circuit Sword”",
+        "ammoId": "tacz:308",
+        "capacity": 10,
+        "indexSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/index/guns/lvsa_hs.json",
+        "dataSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/data/guns/lvsa_hs_data.json"
+      }
+    },
+    {
+      "id": "sfms:gun/m109",
+      "station": "sfms:ms_workbench",
+      "tier": 3,
+      "kind": "gun",
+      "source": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/recipes/gun/m109.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "item": "create:polished_rose_quartz",
+          "count": 25
+        },
+        {
+          "item": "the_deeper_void:titanium_rhenium_alloy",
+          "count": 12
+        },
+        {
+          "tag": "forge:plates/obsidian",
+          "count": 65
+        },
+        {
+          "item": "the_deeper_void:tungsten_ingot",
+          "count": 32
+        },
+        {
+          "type": "forge:partial_nbt",
+          "item": "tacz:modern_kinetic_gun",
+          "nbt": {
+            "GunId": "tacz:m107"
+          },
+          "count": 1
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "sfms:m109",
+        "count": 1,
+        "attachments": {
+          "scope": "sfms:scope_mk5hd"
+        }
+      },
+      "gun": {
+        "class": "sniper",
+        "nameEn": "Mark109 “Impact load”",
+        "ammoId": "sfms:25gl",
+        "capacity": 5,
+        "indexSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/index/guns/m109.json",
+        "dataSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/data/guns/m109_data.json"
+      }
+    },
+    {
+      "id": "sfms:gun/m4a5",
+      "station": "sfms:ms_workbench",
+      "tier": 3,
+      "kind": "gun",
+      "source": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/recipes/gun/m4a5.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "item": "the_deeper_void:netherite_rhenium_alloy",
+          "count": 2
+        },
+        {
+          "item": "create:rose_quartz",
+          "count": 12
+        },
+        {
+          "item": "the_deeper_void:tungsten_ingot",
+          "count": 32
+        },
+        {
+          "item": "mcore:steel_sheet",
+          "count": 15
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "sfms:m4a5",
+        "count": 1
+      },
+      "gun": {
+        "class": "rifle",
+        "nameEn": "MSA5 “Officer”",
+        "ammoId": "tacz:556x45",
+        "capacity": 30,
+        "indexSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/index/guns/m4a5.json",
+        "dataSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/data/guns/m4a5_data.json"
+      }
+    },
+    {
+      "id": "sfms:gun/mgl320",
+      "station": "sfms:ms_workbench",
+      "tier": 3,
+      "kind": "gun",
+      "source": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/recipes/gun/mgl320.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "item": "create:rose_quartz",
+          "count": 14
+        },
+        {
+          "item": "the_deeper_void:titanium_rhenium_alloy",
+          "count": 12
+        },
+        {
+          "item": "mcore:steel_sheet",
+          "count": 4
+        },
+        {
+          "type": "forge:partial_nbt",
+          "item": "tacz:modern_kinetic_gun",
+          "nbt": {
+            "GunId": "tacz:m320"
+          },
+          "count": 1
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "sfms:mgl320",
+        "count": 1
+      },
+      "gun": {
+        "class": "rpg",
+        "nameEn": "HGL-320 “Ash”",
+        "ammoId": "tacz:40mm",
+        "capacity": 1,
+        "indexSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/index/guns/mgl320.json",
+        "dataSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/data/guns/mgl320_data.json"
+      }
+    },
+    {
+      "id": "sfms:gun/mgl40",
+      "station": "sfms:ms_workbench",
+      "tier": 3,
+      "kind": "gun",
+      "source": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/recipes/gun/mgl40.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "item": "create:polished_rose_quartz",
+          "count": 20
+        },
+        {
+          "tag": "forge:plates/obsidian",
+          "count": 24
+        },
+        {
+          "item": "the_deeper_void:tungsten_rhenium_alloy",
+          "count": 4
+        },
+        {
+          "item": "the_deeper_void:netherite_rhenium_alloy",
+          "count": 1
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "sfms:mgl40",
+        "count": 1,
+        "attachments": {
+          "scope": "sfms:scope_oeg"
+        }
+      },
+      "gun": {
+        "class": "rpg",
+        "nameEn": "HGL-T40 “destroyer”",
+        "ammoId": "tacz:40mm",
+        "capacity": 5,
+        "indexSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/index/guns/mgl40.json",
+        "dataSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/data/guns/mgl40_data.json"
+      }
+    },
+    {
+      "id": "sfms:gun/sbr15",
+      "station": "sfms:ms_workbench",
+      "tier": 3,
+      "kind": "gun",
+      "source": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/recipes/gun/sbr15.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "item": "create:polished_rose_quartz",
+          "count": 20
+        },
+        {
+          "tag": "forge:plates/obsidian",
+          "count": 19
+        },
+        {
+          "item": "the_deeper_void:tungsten_ingot",
+          "count": 48
+        },
+        {
+          "tag": "forge:ingots/titanium",
+          "count": 12
+        },
+        {
+          "type": "forge:partial_nbt",
+          "item": "tacz:modern_kinetic_gun",
+          "nbt": {
+            "GunId": "tacz:hk416d"
+          },
+          "count": 1
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "sfms:sbr15",
+        "count": 1
+      },
+      "gun": {
+        "class": "rifle",
+        "nameEn": "SPR-15 “Wolverine”",
+        "ammoId": "sfms:300ms",
+        "capacity": 30,
+        "indexSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/index/guns/sbr15.json",
+        "dataSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/data/guns/sbr15_data.json"
+      }
+    },
+    {
+      "id": "sfms:gun/tech635",
+      "station": "sfms:ms_workbench",
+      "tier": 3,
+      "kind": "gun",
+      "source": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/recipes/gun/tech635.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "item": "create:rose_quartz",
+          "count": 8
+        },
+        {
+          "item": "the_deeper_void:tungsten_rhenium_alloy",
+          "count": 6
+        },
+        {
+          "item": "mcore:steel_sheet",
+          "count": 4
+        },
+        {
+          "item": "the_deeper_void:tungsten_ingot",
+          "count": 12
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "sfms:tech635",
+        "count": 1
+      },
+      "gun": {
+        "class": "smg",
+        "nameEn": "TECH-635 “Raven”",
+        "ammoId": "tacz:9mm",
+        "capacity": 32,
+        "indexSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/index/guns/tech635.json",
+        "dataSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/data/guns/tech635_data.json"
+      }
+    },
+    {
+      "id": "tacz:ammo_workbench",
+      "station": "minecraft:crafting_table",
+      "tier": 0,
+      "kind": "station",
+      "source": "overrides/config/openloader/data/CWRecipeChanges.zip!/data/tacz/recipes/ammo_workbench.json",
+      "type": "minecraft:crafting_shaped",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 2
+        },
+        {
+          "tag": "forge:ingots/iron",
+          "count": 1
+        },
+        {
+          "item": "tacz:ammo_box",
+          "count": 1
+        }
+      ],
+      "pattern": [
+        "CC",
+        "IB"
+      ],
+      "key": {
+        "C": {
+          "tag": "forge:ingots/copper"
+        },
+        "I": {
+          "tag": "forge:ingots/iron"
+        },
+        "B": {
+          "item": "tacz:ammo_box"
+        }
+      },
+      "output": {
+        "kind": "item",
+        "id": "tacz:workbench_a",
+        "count": 1,
+        "nbt": {
+          "BlockId": "tacz:ammo_workbench"
+        }
+      }
+    },
+    {
+      "id": "tacz:iron_ammo_box",
+      "station": "minecraft:crafting_table",
+      "tier": 0,
+      "kind": "material",
+      "source": "overrides/config/openloader/data/CWRecipeChanges.zip!/data/tacz/recipes/iron_ammo_box.json",
+      "type": "minecraft:crafting_shaped",
+      "inputs": [
+        {
+          "tag": "forge:ingots/iron",
+          "count": 1
+        },
+        {
+          "tag": "minecraft:planks",
+          "count": 7
+        }
+      ],
+      "pattern": [
+        "PIP",
+        "P P",
+        "PPP"
+      ],
+      "key": {
+        "I": {
+          "tag": "forge:ingots/iron"
+        },
+        "P": {
+          "tag": "minecraft:planks"
+        }
+      },
+      "output": {
+        "kind": "item",
+        "id": "tacz:ammo_box",
+        "count": 1,
+        "nbt": {
+          "Level": 0
+        }
+      }
+    },
+    {
+      "id": "tacz:gold_ammo_box",
+      "station": "minecraft:crafting_table",
+      "tier": 0,
+      "kind": "material",
+      "source": "overrides/config/openloader/data/CWRecipeChanges.zip!/data/tacz/recipes/gold_ammo_box.json",
+      "type": "minecraft:crafting_shaped",
+      "inputs": [
+        {
+          "tag": "forge:ingots/gold",
+          "count": 1
+        },
+        {
+          "tag": "minecraft:planks",
+          "count": 7
+        }
+      ],
+      "pattern": [
+        "PIP",
+        "P P",
+        "PPP"
+      ],
+      "key": {
+        "I": {
+          "tag": "forge:ingots/gold"
+        },
+        "P": {
+          "tag": "minecraft:planks"
+        }
+      },
+      "output": {
+        "kind": "item",
+        "id": "tacz:ammo_box",
+        "count": 1,
+        "nbt": {
+          "Level": 1
+        }
+      }
+    },
+    {
+      "id": "tacz:diamond_ammo_box",
+      "station": "minecraft:crafting_table",
+      "tier": 0,
+      "kind": "material",
+      "source": "overrides/config/openloader/data/CWRecipeChanges.zip!/data/tacz/recipes/diamond_ammo_box.json",
+      "type": "minecraft:crafting_shaped",
+      "inputs": [
+        {
+          "tag": "forge:gems/diamond",
+          "count": 1
+        },
+        {
+          "tag": "minecraft:planks",
+          "count": 7
+        }
+      ],
+      "pattern": [
+        "PIP",
+        "P P",
+        "PPP"
+      ],
+      "key": {
+        "I": {
+          "tag": "forge:gems/diamond"
+        },
+        "P": {
+          "tag": "minecraft:planks"
+        }
+      },
+      "output": {
+        "kind": "item",
+        "id": "tacz:ammo_box",
+        "count": 1,
+        "nbt": {
+          "Level": 2
+        }
+      }
+    },
+    {
+      "id": "create:crafting/kinetics/mechanical_press",
+      "station": "minecraft:crafting_table",
+      "tier": 0,
+      "kind": "station",
+      "archive": "create",
+      "source": "data/create/recipes/crafting/kinetics/mechanical_press.json",
+      "type": "minecraft:crafting_shaped",
+      "inputs": [
+        {
+          "item": "create:andesite_casing",
+          "count": 1
+        },
+        {
+          "tag": "forge:storage_blocks/iron",
+          "count": 1
+        },
+        {
+          "item": "create:shaft",
+          "count": 1
+        }
+      ],
+      "output": {
+        "kind": "item",
+        "id": "create:mechanical_press",
+        "count": 1
+      },
+      "original": {
+        "type": "minecraft:crafting_shaped",
+        "category": "misc",
+        "key": {
+          "C": {
+            "item": "create:andesite_casing"
+          },
+          "I": {
+            "tag": "forge:storage_blocks/iron"
+          },
+          "S": {
+            "item": "create:shaft"
+          }
+        },
+        "pattern": [
+          "S",
+          "C",
+          "I"
+        ],
+        "result": {
+          "item": "create:mechanical_press"
+        },
+        "show_notification": true
+      },
+      "key": {
+        "C": {
+          "item": "create:andesite_casing"
+        },
+        "I": {
+          "tag": "forge:storage_blocks/iron"
+        },
+        "S": {
+          "item": "create:shaft"
+        }
+      },
+      "pattern": [
+        "S",
+        "C",
+        "I"
+      ]
+    },
+    {
+      "id": "create:pressing/iron_ingot",
+      "station": "create:mechanical_press",
+      "tier": 0,
+      "kind": "material",
+      "archive": "create",
+      "source": "data/create/recipes/pressing/iron_ingot.json",
+      "type": "create:pressing",
+      "inputs": [
+        {
+          "tag": "forge:ingots/iron",
+          "count": 1
+        }
+      ],
+      "output": {
+        "kind": "item",
+        "id": "create:iron_sheet",
+        "count": 1
+      },
+      "original": {
+        "type": "create:pressing",
+        "ingredients": [
+          {
+            "tag": "forge:ingots/iron"
+          }
+        ],
+        "results": [
+          {
+            "item": "create:iron_sheet"
+          }
+        ]
+      }
+    },
+    {
+      "id": "create:pressing/gold_ingot",
+      "station": "create:mechanical_press",
+      "tier": 0,
+      "kind": "material",
+      "archive": "create",
+      "source": "data/create/recipes/pressing/gold_ingot.json",
+      "type": "create:pressing",
+      "inputs": [
+        {
+          "tag": "forge:ingots/gold",
+          "count": 1
+        }
+      ],
+      "output": {
+        "kind": "item",
+        "id": "create:golden_sheet",
+        "count": 1
+      },
+      "original": {
+        "type": "create:pressing",
+        "ingredients": [
+          {
+            "tag": "forge:ingots/gold"
+          }
+        ],
+        "results": [
+          {
+            "item": "create:golden_sheet"
+          }
+        ]
+      }
+    },
+    {
+      "id": "createdeco:pressing/industrial_iron_sheet",
+      "station": "create:mechanical_press",
+      "tier": 0,
+      "kind": "material",
+      "archive": "createdeco",
+      "source": "data/createdeco/recipes/pressing/industrial_iron_sheet.json",
+      "type": "create:pressing",
+      "inputs": [
+        {
+          "item": "createdeco:industrial_iron_ingot",
+          "count": 1
+        }
+      ],
+      "output": {
+        "kind": "item",
+        "id": "createdeco:industrial_iron_sheet",
+        "count": 1
+      },
+      "original": {
+        "type": "create:pressing",
+        "ingredients": [
+          {
+            "item": "createdeco:industrial_iron_ingot"
+          }
+        ],
+        "results": [
+          {
+            "item": "createdeco:industrial_iron_sheet"
+          }
+        ]
+      }
+    },
+    {
+      "id": "create:crafting/kinetics/shaft",
+      "station": "minecraft:crafting_table",
+      "tier": 0,
+      "kind": "material",
+      "archive": "create",
+      "source": "data/create/recipes/crafting/kinetics/shaft.json",
+      "type": "minecraft:crafting_shaped",
+      "inputs": [
+        {
+          "item": "create:andesite_alloy",
+          "count": 2
+        }
+      ],
+      "output": {
+        "kind": "item",
+        "id": "create:shaft",
+        "count": 8
+      },
+      "original": {
+        "type": "minecraft:crafting_shaped",
+        "category": "misc",
+        "key": {
+          "A": {
+            "item": "create:andesite_alloy"
+          }
+        },
+        "pattern": [
+          "A",
+          "A"
+        ],
+        "result": {
+          "count": 8,
+          "item": "create:shaft"
+        },
+        "show_notification": true
+      },
+      "key": {
+        "A": {
+          "item": "create:andesite_alloy"
+        }
+      },
+      "pattern": [
+        "A",
+        "A"
+      ]
+    },
+    {
+      "id": "create:item_application/andesite_casing_from_log",
+      "station": "minecraft:crafting_table",
+      "tier": 0,
+      "kind": "material",
+      "archive": "create",
+      "source": "data/create/recipes/item_application/andesite_casing_from_log.json",
+      "type": "create:item_application",
+      "inputs": [
+        {
+          "tag": "forge:stripped_logs",
+          "count": 1
+        },
+        {
+          "item": "create:andesite_alloy",
+          "count": 1
+        }
+      ],
+      "output": {
+        "kind": "item",
+        "id": "create:andesite_casing",
+        "count": 1
+      },
+      "original": {
+        "type": "create:item_application",
+        "ingredients": [
+          {
+            "tag": "forge:stripped_logs"
+          },
+          {
+            "item": "create:andesite_alloy"
+          }
+        ],
+        "results": [
+          {
+            "item": "create:andesite_casing"
+          }
+        ]
+      },
+      "sourceStation": "create:item_application",
+      "nativeAdaptation": "Source item application inputs are combined at the ordinary crafting table; input and output quantities are unchanged."
+    },
+    {
+      "id": "create:item_application/andesite_casing_from_wood",
+      "station": "minecraft:crafting_table",
+      "tier": 0,
+      "kind": "material",
+      "archive": "create",
+      "source": "data/create/recipes/item_application/andesite_casing_from_wood.json",
+      "type": "create:item_application",
+      "inputs": [
+        {
+          "tag": "forge:stripped_wood",
+          "count": 1
+        },
+        {
+          "item": "create:andesite_alloy",
+          "count": 1
+        }
+      ],
+      "output": {
+        "kind": "item",
+        "id": "create:andesite_casing",
+        "count": 1
+      },
+      "original": {
+        "type": "create:item_application",
+        "ingredients": [
+          {
+            "tag": "forge:stripped_wood"
+          },
+          {
+            "item": "create:andesite_alloy"
+          }
+        ],
+        "results": [
+          {
+            "item": "create:andesite_casing"
+          }
+        ]
+      },
+      "sourceStation": "create:item_application",
+      "nativeAdaptation": "Source item application inputs are combined at the ordinary crafting table; input and output quantities are unchanged."
+    },
+    {
+      "id": "the_deeper_void:void_refinery_casing_recipe",
+      "station": "minecraft:crafting_table",
+      "source": "data/the_deeper_void/recipes/void_refinery_casing_recipe.json",
+      "inputs": [
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 6
+        },
+        {
+          "item": "minecraft:iron_bars",
+          "count": 3
+        }
+      ],
+      "type": "minecraft:crafting_shaped",
+      "kind": "material",
+      "output": {
+        "kind": "item",
+        "id": "the_deeper_void:void_refinery_casing",
+        "count": 2
+      }
+    },
+    {
+      "id": "the_deeper_void:void_refinery_control_recipe",
+      "station": "minecraft:crafting_table",
+      "source": "data/the_deeper_void/recipes/void_refinery_control_recipe.json",
+      "inputs": [
+        {
+          "item": "mcore:steel_ingot",
+          "count": 2
+        },
+        {
+          "item": "minecraft:redstone_block",
+          "count": 1
+        },
+        {
+          "item": "the_deeper_void:tungsten_ingot",
+          "count": 2
+        },
+        {
+          "item": "the_deeper_void:void_refinery_casing",
+          "count": 1
+        },
+        {
+          "item": "minecraft:repeater",
+          "count": 2
+        },
+        {
+          "item": "minecraft:gold_ingot",
+          "count": 1
+        }
+      ],
+      "type": "minecraft:crafting_shaped",
+      "kind": "station",
+      "output": {
+        "kind": "item",
+        "id": "the_deeper_void:void_refinery_control_pad",
+        "count": 1
+      },
+      "nativeAdaptation": "Owner-approved control-pad item represents the complete source multiblock."
+    },
+    {
+      "id": "the_deeper_void:titanium_rhenium_alloy_recipe",
+      "station": "the_deeper_void:void_refinery_control_pad",
+      "source": "data/the_deeper_void/recipes/titanium_rhenium_alloy_recipe.json",
+      "inputs": [
+        {
+          "item": "mcore:titanium_ingot",
+          "count": 1
+        },
+        {
+          "item": "the_deeper_void:rhenium",
+          "count": 1
+        }
+      ],
+      "type": "the_deeper_void:refining",
+      "kind": "material",
+      "output": {
+        "kind": "item",
+        "id": "the_deeper_void:titanium_rhenium_alloy",
+        "count": 1
+      },
+      "byproducts": [
+        {
+          "kind": "item",
+          "id": "the_deeper_void:void_slag",
+          "count": 2
+        }
+      ],
+      "fuelUnits": 320,
+      "nativeAdaptation": "Owner-approved instant native refining consumes the exact original base fuel units and returns every source byproduct; original processing ticks are recorded in refinerySource."
+    },
+    {
+      "id": "the_deeper_void:tungsten_rhenium_alloy_recipe",
+      "station": "the_deeper_void:void_refinery_control_pad",
+      "source": "data/the_deeper_void/recipes/tungsten_rhenium_alloy_recipe.json",
+      "inputs": [
+        {
+          "item": "the_deeper_void:tungsten_ingot",
+          "count": 2
+        },
+        {
+          "item": "the_deeper_void:rhenium",
+          "count": 1
+        }
+      ],
+      "type": "the_deeper_void:refining",
+      "kind": "material",
+      "output": {
+        "kind": "item",
+        "id": "the_deeper_void:tungsten_rhenium_alloy",
+        "count": 1
+      },
+      "byproducts": [
+        {
+          "kind": "item",
+          "id": "the_deeper_void:void_slag",
+          "count": 2
+        }
+      ],
+      "fuelUnits": 400,
+      "nativeAdaptation": "Owner-approved instant native refining consumes the exact original base fuel units and returns every source byproduct; original processing ticks are recorded in refinerySource."
+    },
+    {
+      "id": "the_deeper_void:netherite_rhenium_alloy_recipe",
+      "station": "the_deeper_void:void_refinery_control_pad",
+      "source": "data/the_deeper_void/recipes/netherite_rhenium_alloy_recipe.json",
+      "inputs": [
+        {
+          "item": "minecraft:netherite_ingot",
+          "count": 1
+        },
+        {
+          "item": "the_deeper_void:rhenium",
+          "count": 1
+        }
+      ],
+      "type": "the_deeper_void:refining",
+      "kind": "material",
+      "output": {
+        "kind": "item",
+        "id": "the_deeper_void:netherite_rhenium_alloy",
+        "count": 1
+      },
+      "byproducts": [
+        {
+          "kind": "item",
+          "id": "the_deeper_void:void_slag",
+          "count": 4
+        }
+      ],
+      "fuelUnits": 600,
+      "nativeAdaptation": "Owner-approved instant native refining consumes the exact original base fuel units and returns every source byproduct; original processing ticks are recorded in refinerySource."
+    },
+    {
+      "id": "the_deeper_void:make_fuel",
+      "station": "minecraft:crafting_table",
+      "source": "data/the_deeper_void/recipes/make_fuel.json",
+      "inputs": [
+        {
+          "item": "minecraft:blaze_rod",
+          "count": 10
+        },
+        {
+          "item": "minecraft:coal_block",
+          "count": 10
+        },
+        {
+          "item": "powderedup:sulfur_dust",
+          "count": 10
+        },
+        {
+          "item": "minecraft:lava_bucket",
+          "count": 1
+        }
+      ],
+      "type": "create:mixing",
+      "kind": "material",
+      "output": {
+        "kind": "item",
+        "id": "the_deeper_void:refinery_fuel_cell",
+        "count": 10
+      },
+      "sourceStation": "create:mechanical_mixer",
+      "byproducts": [
+        {
+          "kind": "item",
+          "id": "minecraft:bucket",
+          "count": 1
+        }
+      ],
+      "nativeAdaptation": "Owner-approved bulk crafting: one lava bucket supplies ten 100 mB source batches; the empty bucket is returned. Source ingredient ratios and 1000 fuel units per cell are retained."
+    }
+  ],
+  "excluded": [
+    {
+      "id": "bf1:ammo/132x92",
+      "station": "bf1:telegraph",
+      "tier": 1,
+      "kind": "ammo",
+      "source": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/recipes/ammo/132x92",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/iron",
+          "count": 16
+        },
+        {
+          "tag": "forge:ingots/copper",
+          "count": 72
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 24
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "bf1:132x92",
+        "count": 20
+      },
+      "reason": "Extensionless resource; no matching BF1 ammo ID in active indices (active BF1 guns use TaCZ ammo ids)."
+    },
+    {
+      "id": "bf1:ammo/450",
+      "station": "bf1:telegraph",
+      "tier": 1,
+      "kind": "ammo",
+      "source": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/recipes/ammo/450",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 2
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 1
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "bf1:450",
+        "count": 5
+      },
+      "reason": "Extensionless resource; no matching BF1 ammo ID in active indices (active BF1 guns use TaCZ ammo ids)."
+    },
+    {
+      "id": "bf1:ammo/792x57",
+      "station": "bf1:telegraph",
+      "tier": 1,
+      "kind": "ammo",
+      "source": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/recipes/ammo/792x57",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 28
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 8
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "bf1:792x57",
+        "count": 30
+      },
+      "reason": "Extensionless resource; no matching BF1 ammo ID in active indices (active BF1 guns use TaCZ ammo ids)."
+    },
+    {
+      "id": "bf1:ammo/792x57semi",
+      "station": "bf1:telegraph",
+      "tier": 1,
+      "kind": "ammo",
+      "source": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/recipes/ammo/792x57semi",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 5
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 2
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "bf1:792x57simi",
+        "count": 50
+      },
+      "reason": "Extensionless resource; no matching BF1 ammo ID in active indices (active BF1 guns use TaCZ ammo ids)."
+    },
+    {
+      "id": "bf1:melee/sledge_hammer",
+      "station": "bf1:telegraph",
+      "tier": 1,
+      "kind": "melee",
+      "source": "overrides/tacz/Apocalypse_v1.1.7_G/data/bf1/recipes/melee/sledge_hammer.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "tag": "forge:ingots/iron",
+          "count": 12
+        },
+        {
+          "tag": "forge:obsidian",
+          "count": 8
+        },
+        {
+          "tag": "forge:leather",
+          "count": 2
+        }
+      ],
+      "output": {
+        "kind": "item",
+        "id": "lrtactical:melee",
+        "count": 1,
+        "nbt": {
+          "MeleeWeaponId": "bf1:sledge_hammer"
+        }
+      },
+      "tab": "stock",
+      "reason": "Requires lrtactical:melee, not in this pinned mod manifest."
+    },
+    {
+      "id": "tacz:misc/upgrade",
+      "station": "tacz:gun_smith_table",
+      "tier": 2,
+      "kind": "misc",
+      "source": "overrides/tacz/tacz_default_gun/data/tacz/recipes/misc/upgrade.json",
+      "type": "tacz:gun_smith_table_crafting",
+      "inputs": [
+        {
+          "type": "forge:partial_nbt",
+          "item": "tacz:workbench_b",
+          "nbt": {
+            "BlockId": "hamster:workbench"
+          },
+          "count": 1
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": null,
+        "count": 1,
+        "item": "tacz:glock17"
+      },
+      "reason": "No output GunId; item tacz:glock17 and input BlockId hamster:workbench are not recipe authority for a real gun."
+    }
+  ],
+  "processingArchives": {
+    "create": {
+      "file": "/private/tmp/cw-create-7178761-recipe-source.jar",
+      "url": "https://mediafilez.forgecdn.net/files/7178/761/create-1.20.1-6.0.8.jar",
+      "sha256": "6fbb910c367dbce8e4fc7e5bf64b6edd4de980906ed00af8e47e4af843c0d9b0"
+    },
+    "createdeco": {
+      "file": "/private/tmp/cw-createdeco-6373226-recipe-source.jar",
+      "url": "https://mediafilez.forgecdn.net/files/6373/226/createdeco-2.0.3-1.20.1-forge.jar",
+      "sha256": "7d6dd0094d18d6bab64fcd7de680ea736015d1a1ffc472d3fe03122bc7aa0864"
+    },
+    "mcore": {
+      "file": "/private/tmp/cw-mcore-6058648-recipe-source.jar",
+      "url": "https://mediafilez.forgecdn.net/files/6058/648/mcore-1.20.1-1.0.3.0.jar",
+      "sha256": "b9a5e6fa48b9d02806f6ee34899d84d27e09c7cded035f2834de2bed83fc4267"
+    },
+    "the_deeper_void": {
+      "file": "/private/tmp/the_deeper_void-2.0.5-forge-1.20.1.jar",
+      "url": "https://mediafilez.forgecdn.net/files/8145/376/the_deeper_void-2.0.5-forge-1.20.1.jar",
+      "sha256": "d20a72131f49c91d03ab709ac7f08451d95ccf84d637389ed0a6629b0ef68f08"
+    }
+  },
+  "nativeCorrections": [
+    {
+      "recipe": "sfms:gun/har50",
+      "source": "the_deeper_void:netherite_rhenium_ingot",
+      "native": "the_deeper_void:netherite_rhenium_alloy",
+      "reason": "Owner-approved narrow correction: the source ingredient is not registered; the pinned Depths mod registers netherite_rhenium_alloy. Quantity remains 2."
+    }
+  ],
+  "refinerySource": {
+    "schema": "cw-depths-refinery-2.0.5",
+    "sourceArchive": "/private/tmp/the_deeper_void-2.0.5-forge-1.20.1.jar",
+    "sourceArchiveSha256": "d20a72131f49c91d03ab709ac7f08451d95ccf84d637389ed0a6629b0ef68f08",
+    "sourceProjectFileId": 8145376,
+    "sourceProcedure": "net/mcreator/the_deeper_void/procedures/VoidRefineryControlPadOnTickUpdateProcedure.class",
+    "sourceBlock": "net/mcreator/the_deeper_void/block/VoidRefineryControlPadBlock.class",
+    "recipes": [
+      {
+        "id": "the_deeper_void:void_refinery_casing_recipe",
+        "station": "minecraft:crafting_table",
+        "source": "data/the_deeper_void/recipes/void_refinery_casing_recipe.json",
+        "originalType": "minecraft:crafting_shaped",
+        "pattern": [
+          "aba",
+          "aba",
+          "aba"
+        ],
+        "key": {
+          "a": {
+            "item": "minecraft:iron_ingot"
+          },
+          "b": {
+            "item": "minecraft:iron_bars"
+          }
+        },
+        "inputs": [
+          {
+            "item": "minecraft:iron_ingot",
+            "count": 6
+          },
+          {
+            "item": "minecraft:iron_bars",
+            "count": 3
+          }
+        ],
+        "outputs": [
+          {
+            "item": "the_deeper_void:void_refinery_casing",
+            "count": 2
+          }
+        ]
+      },
+      {
+        "id": "the_deeper_void:void_refinery_control_recipe",
+        "station": "minecraft:crafting_table",
+        "source": "data/the_deeper_void/recipes/void_refinery_control_recipe.json",
+        "originalType": "minecraft:crafting_shaped",
+        "pattern": [
+          "aba",
+          "cdc",
+          "efe"
+        ],
+        "key": {
+          "a": {
+            "item": "mcore:steel_ingot"
+          },
+          "b": {
+            "item": "minecraft:redstone_block"
+          },
+          "c": {
+            "item": "the_deeper_void:tungsten_ingot"
+          },
+          "d": {
+            "item": "the_deeper_void:void_refinery_casing"
+          },
+          "e": {
+            "item": "minecraft:repeater"
+          },
+          "f": {
+            "item": "minecraft:gold_ingot"
+          }
+        },
+        "inputs": [
+          {
+            "item": "mcore:steel_ingot",
+            "count": 2
+          },
+          {
+            "item": "minecraft:redstone_block",
+            "count": 1
+          },
+          {
+            "item": "the_deeper_void:tungsten_ingot",
+            "count": 2
+          },
+          {
+            "item": "the_deeper_void:void_refinery_casing",
+            "count": 1
+          },
+          {
+            "item": "minecraft:repeater",
+            "count": 2
+          },
+          {
+            "item": "minecraft:gold_ingot",
+            "count": 1
+          }
+        ],
+        "outputs": [
+          {
+            "item": "the_deeper_void:void_refinery_control_pad",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "id": "the_deeper_void:void_refinery_bottom_casing_recipe",
+        "station": "minecraft:crafting_table",
+        "source": "data/the_deeper_void/recipes/void_refinery_bottom_casing_recipe.json",
+        "originalType": "minecraft:crafting_shaped",
+        "pattern": [
+          "aba",
+          "bcb",
+          "aba"
+        ],
+        "key": {
+          "a": {
+            "item": "create:zinc_ingot"
+          },
+          "b": {
+            "item": "minecraft:copper_ingot"
+          },
+          "c": {
+            "item": "the_deeper_void:void_refinery_casing"
+          }
+        },
+        "inputs": [
+          {
+            "item": "create:zinc_ingot",
+            "count": 4
+          },
+          {
+            "item": "minecraft:copper_ingot",
+            "count": 4
+          },
+          {
+            "item": "the_deeper_void:void_refinery_casing",
+            "count": 1
+          }
+        ],
+        "outputs": [
+          {
+            "item": "the_deeper_void:void_refinery_bottom_casing",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "id": "the_deeper_void:void_refinery_pressure_tank_recipe",
+        "station": "minecraft:crafting_table",
+        "source": "data/the_deeper_void/recipes/void_refinery_pressure_tank_recipe.json",
+        "originalType": "minecraft:crafting_shaped",
+        "pattern": [
+          "aba",
+          "aca",
+          "ada"
+        ],
+        "key": {
+          "a": {
+            "item": "minecraft:iron_bars"
+          },
+          "b": {
+            "item": "the_deeper_void:tungsten_ingot"
+          },
+          "c": {
+            "item": "the_deeper_void:void_refinery_casing"
+          },
+          "d": {
+            "item": "minecraft:redstone"
+          }
+        },
+        "inputs": [
+          {
+            "item": "minecraft:iron_bars",
+            "count": 6
+          },
+          {
+            "item": "the_deeper_void:tungsten_ingot",
+            "count": 1
+          },
+          {
+            "item": "the_deeper_void:void_refinery_casing",
+            "count": 1
+          },
+          {
+            "item": "minecraft:redstone",
+            "count": 1
+          }
+        ],
+        "outputs": [
+          {
+            "item": "the_deeper_void:void_refinery_pressure_tank",
+            "count": 2
+          }
+        ]
+      },
+      {
+        "id": "the_deeper_void:titanium_rhenium_alloy_recipe",
+        "station": "the_deeper_void:void_refinery_control_pad",
+        "source": "data/the_deeper_void/recipes/titanium_rhenium_alloy_recipe.json",
+        "originalType": "the_deeper_void:refining",
+        "inputs": [
+          {
+            "item": "mcore:titanium_ingot",
+            "count": 1
+          },
+          {
+            "item": "the_deeper_void:rhenium",
+            "count": 1
+          }
+        ],
+        "outputs": [
+          {
+            "item": "the_deeper_void:titanium_rhenium_alloy",
+            "count": 1
+          },
+          {
+            "item": "the_deeper_void:void_slag",
+            "count": 2
+          }
+        ],
+        "progressQuota": 160,
+        "baseUpdates": 80,
+        "baseGameTicks": 1600,
+        "baseFuelUnits": 320
+      },
+      {
+        "id": "the_deeper_void:tungsten_rhenium_alloy_recipe",
+        "station": "the_deeper_void:void_refinery_control_pad",
+        "source": "data/the_deeper_void/recipes/tungsten_rhenium_alloy_recipe.json",
+        "originalType": "the_deeper_void:refining",
+        "inputs": [
+          {
+            "item": "the_deeper_void:tungsten_ingot",
+            "count": 2
+          },
+          {
+            "item": "the_deeper_void:rhenium",
+            "count": 1
+          }
+        ],
+        "outputs": [
+          {
+            "item": "the_deeper_void:tungsten_rhenium_alloy",
+            "count": 1
+          },
+          {
+            "item": "the_deeper_void:void_slag",
+            "count": 2
+          }
+        ],
+        "progressQuota": 200,
+        "baseUpdates": 100,
+        "baseGameTicks": 2000,
+        "baseFuelUnits": 400
+      },
+      {
+        "id": "the_deeper_void:netherite_rhenium_alloy_recipe",
+        "station": "the_deeper_void:void_refinery_control_pad",
+        "source": "data/the_deeper_void/recipes/netherite_rhenium_alloy_recipe.json",
+        "originalType": "the_deeper_void:refining",
+        "inputs": [
+          {
+            "item": "minecraft:netherite_ingot",
+            "count": 1
+          },
+          {
+            "item": "the_deeper_void:rhenium",
+            "count": 1
+          }
+        ],
+        "outputs": [
+          {
+            "item": "the_deeper_void:netherite_rhenium_alloy",
+            "count": 1
+          },
+          {
+            "item": "the_deeper_void:void_slag",
+            "count": 4
+          }
+        ],
+        "progressQuota": 300,
+        "baseUpdates": 150,
+        "baseGameTicks": 3000,
+        "baseFuelUnits": 600
+      },
+      {
+        "id": "the_deeper_void:make_fuel",
+        "station": "create:mechanical_mixer",
+        "source": "data/the_deeper_void/recipes/make_fuel.json",
+        "originalType": "create:mixing",
+        "heat": "superheated",
+        "inputs": [
+          {
+            "item": "minecraft:blaze_rod",
+            "count": 1
+          },
+          {
+            "item": "minecraft:coal_block",
+            "count": 1
+          },
+          {
+            "item": "powderedup:sulfur_dust",
+            "count": 1
+          },
+          {
+            "fluid": "minecraft:lava",
+            "mB": 100
+          }
+        ],
+        "outputs": [
+          {
+            "item": "the_deeper_void:refinery_fuel_cell",
+            "count": 1
+          }
+        ]
+      }
+    ],
+    "formation": {
+      "the_deeper_void:void_refinery_control_pad": 1,
+      "the_deeper_void:void_refinery_bottom_casing": 9,
+      "the_deeper_void:void_refinery_pressure_tank": 8,
+      "the_deeper_void:void_refinery_casing": 5
+    },
+    "fuel": {
+      "item": "the_deeper_void:refinery_fuel_cell",
+      "fuelUnitsPerCell": 1000,
+      "sourceAcceptsWhenStoredAtMost": 3000,
+      "fuelSlot": 6,
+      "upgradeSlot": 5,
+      "sourceUpdateIntervalGameTicks": 20,
+      "baseProgressGainedPerUpdate": 2,
+      "baseFuelDrawPerUpdate": 4,
+      "detail": "Valid supplied inputs trigger one increment of 1/-2 fuel, then a second increment (+1 with empty upgrade slot, +1.25/+1.5 for L1/L2) /-2. Source refuels after checking active recipes. Titanium GUI base craftingTime=120 is distinct from materialization quota of 160. Per-recipe timings assume enough fuel, no upgrades and outputs with room."
+    },
+    "columbite": {
+      "item": "the_deeper_void:columbite",
+      "source": "data/the_deeper_void/loot_tables/blocks/columbite.json",
+      "oreCountInAuditedSeed": 51,
+      "miningXp": 0,
+      "minimumToolTag": "minecraft:needs_diamond_tool",
+      "toolTag": "minecraft:mineable/pickaxe",
+      "silkTouch": "Source contains no silk-touch branch.",
+      "pools": [
+        {
+          "base": {
+            "minecraft:raw_iron": [
+              1,
+              2
+            ]
+          },
+          "chance": 1.0,
+          "fortune": "ore_drops"
+        },
+        {
+          "base": {
+            "the_deeper_void:rhenium": 1
+          },
+          "chance": 0.5,
+          "fortune": "ore_drops"
+        }
+      ],
+      "fortune": "amount * (level <= 0 ? 1 : 1 + max(0, random.nextInt(level+2)-1))"
+    }
+  }
+}

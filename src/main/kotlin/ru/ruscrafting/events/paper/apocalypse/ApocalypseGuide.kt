@@ -7,6 +7,7 @@ import net.kyori.adventure.text.event.ClickEvent
 import net.kyori.adventure.text.format.TextDecoration
 import org.bukkit.entity.Player
 import org.bukkit.plugin.Plugin
+import ru.arc.paper.menu.DialogTables
 import ru.arc.paper.menu.PaperDialogActionId
 import ru.arc.paper.menu.PaperDialogBody
 import ru.arc.paper.menu.PaperDialogButton
@@ -23,7 +24,7 @@ import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 
-internal enum class GuideTarget { SUPPLIES, EXIT, CITY, WEAPONS }
+internal enum class GuideTarget { SUPPLIES, WORKBENCH, EXIT, CITY, STRUCTURE, WEAPONS }
 internal data class GuideRoute(val point: ApocalypsePoint, val claimed: Boolean = false)
 
 internal data class ApocalypseGuideSnapshot(
@@ -38,6 +39,8 @@ internal data class ApocalypseGuideSnapshot(
     val city: GuideRoute?,
     val weapons: GuideRoute?,
     val tracked: GuideTarget? = null,
+    val workbench: GuideRoute? = null,
+    val structure: GuideRoute? = null,
 ) {
     fun route(target: GuideTarget, from: ApocalypsePoint): GuideRoute? = when (target) {
         GuideTarget.SUPPLIES -> supplies.minWithOrNull(compareBy<GuideRoute> { it.claimed }
@@ -45,16 +48,41 @@ internal data class ApocalypseGuideSnapshot(
         GuideTarget.EXIT -> exit
         GuideTarget.CITY -> city
         GuideTarget.WEAPONS -> weapons
+        GuideTarget.WORKBENCH -> workbench
+        GuideTarget.STRUCTURE -> structure
+    }
+
+    fun surfaceTarget(): GuideTarget? = when {
+        city != null -> GuideTarget.CITY
+        structure != null -> GuideTarget.STRUCTURE
+        weapons != null -> GuideTarget.WEAPONS
+        else -> null
     }
 
     fun nextStep() = when {
         infection != ApocalypseInfectionStage.HEALTHY -> "cure"
         inStarter && supplies.any { !it.claimed } -> "supplies"
         inStarter && exit != null -> "exit"
-        !hasGun && weapons != null -> "weapons"
         !hasGun && city != null -> "city"
+        !hasGun && structure != null -> "structure"
+        !hasGun && weapons != null -> "weapons"
         hasGun && looseAmmo == 0 -> "ammo"
         else -> "shelter"
+    }
+}
+
+/** A relative turn for the HUD. Minecraft yaw 0 faces south; positive yaw turns right. */
+internal fun guideArrow(from: ApocalypsePoint, to: ApocalypsePoint, yaw: Float): String {
+    val dx = to.x.toDouble() - from.x
+    val dz = to.z.toDouble() - from.z
+    if (hypot(dx, dz) <= 2.0) return ""
+    val heading = Math.toDegrees(atan2(-dx, dz))
+    val turn = Math.IEEEremainder(heading - yaw, 360.0)
+    return when {
+        kotlin.math.abs(turn) > 155.0 -> "↓ "
+        turn < -18.0 -> "← "
+        turn > 18.0 -> "→ "
+        else -> "↑ "
     }
 }
 
@@ -66,14 +94,16 @@ internal class ApocalypseGuide(
     private val onTrack: (Player, GuideTarget) -> Unit,
     private val onLeave: (Player) -> Unit,
     private val dialogsEnabled: () -> Boolean = { true },
+    private val canFly: (Player) -> Boolean = { false },
+    private val toggleFly: (Player) -> Unit = {},
+    private val dialogs: PaperDialogRuntime = PaperDialogRuntime(plugin),
 ) : AutoCloseable {
-    private val dialogs = PaperDialogRuntime(plugin)
     private val protocols = ClientProtocolResolver()
 
     fun entryNotice(player: Player, inStarter: Boolean) {
         val link = text(player, "open").clickEvent(ClickEvent.runCommand(GUIDE_COMMAND))
         val controls = Component.empty().append(link).append(text(player, "exit-command"))
-        player.sendMessage(lines(text(player, if (inStarter) "arrival" else "continuing"), controls))
+        player.sendMessage(lines(text(player, if (inStarter) "starter-arrival" else "continuing"), controls))
     }
 
     fun trackingHud(player: Player, snapshot: ApocalypseGuideSnapshot): Component? {
@@ -82,10 +112,22 @@ internal class ApocalypseGuide(
         val from = ApocalypsePoint(location.blockX, location.blockY, location.blockZ)
         val route = snapshot.route(target, from) ?: return null
         val healthy = snapshot.infection == ApocalypseInfectionStage.HEALTHY
-        return text(player, if (healthy) "hud" else "hud-infected",
+        return text(player, if (healthy) "steering-hud" else "steering-hud-infected",
             "day" to locale.text(snapshot.day), "target" to text(player, "short.${target.name.lowercase()}"),
+            "arrow" to locale.text(guideArrow(from, route.point, location.yaw)),
             "bearing" to bearing(player, from, route.point, compact = true),
             "infection" to locale.render("apocalypse.infection.${snapshot.infection.name.lowercase()}", player))
+    }
+
+    fun announceRoute(player: Player, snapshot: ApocalypseGuideSnapshot) {
+        val target = snapshot.tracked ?: return
+        val location = player.location
+        val from = ApocalypsePoint(location.blockX, location.blockY, location.blockZ)
+        val point = snapshot.route(target, from)?.point ?: return
+        val notice = text(player, "route-notice", "target" to text(player, "target.${target.name.lowercase()}"),
+            "bearing" to bearing(player, from, point), "x" to locale.text(point.x),
+            "y" to locale.text(point.y), "z" to locale.text(point.z))
+        player.sendMessage(lines(notice, text(player, "route-cue")))
     }
 
     fun show(player: Player, snapshot: ApocalypseGuideSnapshot) {
@@ -95,17 +137,24 @@ internal class ApocalypseGuide(
         fun page(key: String, vararg values: Pair<String, Component>) = text(player, key, *values)
         val status = page("status", "day" to locale.text(snapshot.day), "next" to locale.text(snapshot.nextHordeDay),
             "infection" to locale.render("apocalypse.infection.${snapshot.infection.name.lowercase()}", player))
-        val next = page("step.${snapshot.nextStep()}")
-        val routes = GuideTarget.entries.mapNotNull { target -> snapshot.route(target, from)?.let { target to it } }
+        val nextStep = snapshot.nextStep()
+        val supplyCounts = arrayOf("opened" to locale.text(snapshot.supplies.count { it.claimed }),
+            "total" to locale.text(snapshot.supplies.size))
+        val next = if (nextStep == "supplies") page("step.check-barrels", *supplyCounts) else page("step.$nextStep")
+        val order = if (snapshot.inStarter) GuideTarget.entries else listOf(GuideTarget.CITY, GuideTarget.STRUCTURE,
+            GuideTarget.WEAPONS, GuideTarget.WORKBENCH, GuideTarget.EXIT, GuideTarget.SUPPLIES)
+        val routes = order.mapNotNull { target -> snapshot.route(target, from)?.let { target to it } }
         val tracked = snapshot.tracked?.let { target -> routes.firstOrNull { it.first == target } }?.let { (target, route) ->
-            page("tracking", "target" to page("target.${target.name.lowercase()}"), "bearing" to bearing(player, from, route.point))
+            val p = route.point
+            page("tracked-location", "target" to page("target.${target.name.lowercase()}"), "bearing" to bearing(player, from, p),
+                "x" to locale.text(p.x), "y" to locale.text(p.y), "z" to locale.text(p.z))
         }
 
         if (!dialogsEnabled() || protocols.resolve(player) < MIN_DIALOG_PROTOCOL) {
             // Books use dark ink on parchment and short pages to preserve vanilla's 114 px text width.
             val pages = buildList {
                 add(lines(page("book.title"), page("book.status", "day" to locale.text(snapshot.day), "next" to locale.text(snapshot.nextHordeDay)),
-                    Component.empty(), page("book-step.${snapshot.nextStep()}")))
+                    Component.empty(), if (nextStep == "supplies") page("book-step.check-barrels", *supplyCounts) else page("book-step.$nextStep")))
                 for ((target, route) in routes) {
                     val id = target.name.lowercase()
                     val p = route.point
@@ -115,9 +164,13 @@ internal class ApocalypseGuide(
                         page("book.track").clickEvent(ClickEvent.runCommand("$TRACK_COMMAND $id"))))
                 }
                 add(lines(page("book.weapons"), Component.empty(), page("book.controls")))
+                if (snapshot.workbench != null) add(lines(page("book.workbench"), Component.empty(), page("book.parts")))
                 add(lines(page("book.health"), Component.empty(), page("book.horde")))
-                add(lines(page("book.title"), Component.empty(), page("book.refresh").clickEvent(ClickEvent.runCommand(GUIDE_COMMAND)),
-                    Component.empty(), page("book.leave").clickEvent(ClickEvent.runCommand("/arcevents leave"))))
+                add(lines(listOfNotNull(page("book.title"), Component.empty(),
+                    page("book.refresh").clickEvent(ClickEvent.runCommand(GUIDE_COMMAND)),
+                    if (canFly(player)) page(if (player.allowFlight) "book.fly-off" else "book.fly-on")
+                        .clickEvent(ClickEvent.runCommand("/arcevents apocalypse fly")) else null,
+                    Component.empty(), page("book.leave").clickEvent(ClickEvent.runCommand("/arcevents leave")))))
             }
             player.openBook(Book.book(page("book.title"), page("author"), pages))
             return
@@ -127,15 +180,19 @@ internal class ApocalypseGuide(
         val rootButtons = buildList {
             routes.forEach { (target, route) ->
                 val id = target.name.lowercase()
-                val label = page("target.$id")
-                val current = if (snapshot.tracked == target) page("selected", "target" to label) else label
+                val label = page("short.$id")
+                val current = page(if (snapshot.tracked == target) "tracked-choice" else "choice", "target" to label,
+                    "bearing" to bearing(player, from, route.point, compact = true))
                 add(button("track_$id", current, routeDetail(player, target, route, from, snapshot), close = true) { onTrack(it, target) })
             }
             add(button("survival", page("survival"), page("survival-tip")) { openSurvival(it, snapshot) })
             add(button("refresh", page("refresh"), page("refresh-tip"), close = true, action = onRefresh))
+            if (canFly(player)) add(button("admin_fly", page(if (player.allowFlight) "fly-off" else "fly-on"),
+                page("fly-tip"), close = true, action = toggleFly))
         }
-        val body = listOfNotNull(PaperDialogBody(status, WIDTH), PaperDialogBody(next, WIDTH),
-            tracked?.let { PaperDialogBody(it, WIDTH) }, PaperDialogBody(page("routes-help"), WIDTH))
+        val description = lines(listOfNotNull(status, Component.empty(), next, tracked?.let { lines(Component.empty(), it) },
+            Component.empty(), page("choose-route")))
+        val body = listOf(DialogTables.filledBody(listOf(listOf(description)), null, WIDTH, listOf(1), DialogTables.PanelSkin.NAVY))
         dialogs.open(player, PaperDialogScreen(title = page("title"), body = body, buttons = rootButtons,
             exitButton = closeButton(player), columns = 2, id = "events.apocalypse.guide"), reopen = { onRefresh(player) },
             onDismiss = {}, closeOnEscape = true)
@@ -143,7 +200,8 @@ internal class ApocalypseGuide(
 
     private fun openSurvival(player: Player, snapshot: ApocalypseGuideSnapshot) {
         val kit = text(player, if (snapshot.hasGun) "kit-gun" else "kit-axe", "ammo" to locale.text(snapshot.looseAmmo))
-        val sections = listOf(lines(text(player, "weapons-title"), kit, text(player, "weapons-help"), text(player, "controls")),
+        val sections = listOfNotNull(lines(text(player, "weapons-title"), kit, text(player, "weapons-help"), text(player, "controls")),
+            snapshot.workbench?.let { lines(text(player, "workbench-title"), text(player, "workbench-help")) },
             lines(text(player, "health-title"), text(player, "health-help")),
             lines(text(player, "horde-title", "day" to locale.text(snapshot.nextHordeDay)), text(player, "horde-help")))
         dialogs.open(player, PaperDialogScreen(title = text(player, "survival-title"), body = sections.map { PaperDialogBody(it, WIDTH) },
@@ -161,7 +219,7 @@ internal class ApocalypseGuide(
         val barrels = snapshot.supplies.sortedWith(compareBy<GuideRoute> { it.point.x }.thenBy { it.point.y }.thenBy { it.point.z })
         val positions = barrels.map { barrel ->
             val p = barrel.point
-            text(player, if (barrel.claimed) "barrel-opened" else "barrel",
+            text(player, if (barrel.claimed) "barrel-visited" else "barrel",
                 "x" to locale.text(p.x), "y" to locale.text(p.y), "z" to locale.text(p.z))
         }
         return lines(listOf(description, address) + positions)
@@ -171,7 +229,7 @@ internal class ApocalypseGuide(
         val dx = to.x.toDouble() - from.x
         val dz = to.z.toDouble() - from.z
         val distance = hypot(dx, dz).roundToInt()
-        if (distance == 0) {
+        if (distance <= 2) {
             val vertical = to.y - from.y
             val key = when {
                 vertical > 1 -> "above"

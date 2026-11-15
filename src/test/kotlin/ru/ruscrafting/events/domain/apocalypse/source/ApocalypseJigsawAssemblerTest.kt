@@ -49,6 +49,36 @@ class ApocalypseJigsawAssemblerTest : StringSpec({
             """{"Material":{"Name":"minecraft:deepslate_bricks"}}""") shouldBe
             "minecraft:deepslate_brick_stairs[facing=north,half=top,shape=straight]"
     }
+    "a final source ore coordinate survives only its chunk, later pieces and entity replacements" {
+        val columbite = "the_deeper_void:columbite"
+        val tungsten = "the_deeper_void:tungsten_ore"
+        fun piece(x: Int, states: List<String>, entities: List<ApocalypseSourceEntity> = emptyList()) =
+            ApocalypseSourcePiece(ApocalypseSourceTemplate("test:rock", states.size, 1, 1, states,
+                IntArray(states.size) { it }, emptyMap(), emptyList(), entities), x, 60, 0, 0, null)
+        val base = piece(-17, listOf(columbite, tungsten, columbite, tungsten, "minecraft:deepslate_emerald_ore", tungsten))
+        val carve = piece(-16, listOf("minecraft:air", "minecraft:structure_void", "minecraft:structure_void"), listOf(
+            ApocalypseSourceEntity(2.0, 0.0, 0.0, "jeffs_cursed_walking_structures:hazmat_spawner_placer", "{}"),
+        ))
+        val assembly = ApocalypseSourceAssembly(listOf(base, carve), 7)
+        val result = mutableMapOf<ApocalypsePoint, String>()
+        assembly.sourceOres(-2, 0, result)
+        result shouldBe mapOf(ApocalypsePoint(-17, 60, 0) to columbite)
+        assembly.sourceOres(-1, 0, result)
+        result shouldBe mapOf(ApocalypsePoint(-17, 60, 0) to columbite, ApocalypsePoint(-15, 60, 0) to columbite,
+            ApocalypsePoint(-12, 60, 0) to tungsten)
+    }
+    "columbite mineral has veins distinct from natural polished deepslate and authored tungsten" {
+        ApocalypseSourcePalette.vanillaState("the_deeper_void:columbite") shouldBe "minecraft:deepslate_emerald_ore"
+        ApocalypseSourcePalette.vanillaState("the_deeper_void:tungsten_ore") shouldBe "minecraft:deepslate_iron_ore"
+        ApocalypseSourcePalette.vanillaState("minecraft:polished_deepslate") shouldBe "minecraft:polished_deepslate"
+    }
+    "floor-only source ivy lies on its floor and wall ivy keeps its authored support under rotation" {
+        val floor = "immersive_weathering:ivy[age=8,down=true,east=false,north=false,south=false,up=false,west=false]"
+        for (rotation in 0..3) ApocalypseSourcePalette.vanillaState(floor, rotation) shouldBe "minecraft:moss_carpet"
+        ApocalypseSourcePalette.vanillaState("immersive_weathering:ivy[down=true,north=true]", 1) shouldBe "minecraft:vine[east=true]"
+        ApocalypseSourcePalette.vanillaState("immersive_weathering:ivy[up=true]", 2) shouldBe "minecraft:vine[up=true]"
+        ApocalypseSourcePalette.vanillaState("immersive_weathering:ivy[down=false,up=false]", 2) shouldBe "minecraft:air"
+    }
     "preserve the shapes of charred wood in the original city palettes" {
         val source = "immersive_weathering:charred_"
         ApocalypseSourcePalette.vanillaState("${source}planks[overhang=1,smoldering=false]") shouldBe "minecraft:dark_oak_planks"

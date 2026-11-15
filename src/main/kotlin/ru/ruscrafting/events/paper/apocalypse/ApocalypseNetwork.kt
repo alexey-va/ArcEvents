@@ -26,7 +26,7 @@ internal class ApocalypseNetwork(
     fun advertise(ready: Boolean) = redis.saveMapEntries(presence, settings().serverId,
         if (ready) System.currentTimeMillis().toString() else "0")
 
-    fun enter(player: Player): CompletableFuture<Boolean> {
+    fun enter(player: Player, currentConnection: () -> Boolean): CompletableFuture<Boolean> {
         val id = player.uniqueId.toString()
         val c = settings()
         val ticket = Ticket(id, c.serverId, c.hostServer, UUID.randomUUID().toString(), System.currentTimeMillis())
@@ -44,7 +44,7 @@ internal class ApocalypseNetwork(
             check(saved) { "arrival changed" }
             val sent = runCatching {
                 work.onMain {
-                    player.isOnline && transfer.connect(player, BackendServerId.of(c.hostServer)) == BackendTransferResult.SENT
+                    currentConnection() && transfer.connect(player, BackendServerId.of(c.hostServer)) == BackendTransferResult.SENT
                 }
             }.getOrElse { CompletableFuture.failedFuture(it) }
             sent.handle { accepted, failure ->

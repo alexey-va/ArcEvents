@@ -25,10 +25,10 @@ class ApocalypseNetworkTest : FunSpec({
     test("same-origin retry refreshes its pending ticket and sends the transfer again") {
         val fixture = ApocalypseNetworkFixture()
         val relay = fixture.network()
-        relay.enter(fixture.player).join() shouldBe true
+        relay.enter(fixture.player) { fixture.player.isOnline }.join() shouldBe true
         val before = JsonParser.parseString(requireNotNull(fixture.pending())).asJsonObject
 
-        relay.enter(fixture.player).join() shouldBe true
+        relay.enter(fixture.player) { fixture.player.isOnline }.join() shouldBe true
         val after = JsonParser.parseString(requireNotNull(fixture.pending())).asJsonObject
         (after["nonce"].asString != before["nonce"].asString) shouldBe true
         (after["at"].asLong >= before["at"].asLong) shouldBe true
@@ -44,7 +44,7 @@ class ApocalypseNetworkTest : FunSpec({
         )) {
             val fixture = ApocalypseNetworkFixture()
             fixture.seed(raw)
-            shouldThrow<CompletionException> { fixture.network().enter(fixture.player).join() }
+            shouldThrow<CompletionException> { fixture.network().enter(fixture.player) { fixture.player.isOnline }.join() }
                 .cause?.message shouldBe "arrival already pending"
             fixture.pending() shouldBe raw
             verify(exactly = 0) { fixture.transfer.connect(any(), any()) }
@@ -57,10 +57,17 @@ class ApocalypseNetworkTest : FunSpec({
             every { fixture.player.isOnline } returns !offline
             every { fixture.transfer.connect(any(), any()) } returns BackendTransferResult.SEND_FAILED
 
-            fixture.network().enter(fixture.player).join() shouldBe false
+            fixture.network().enter(fixture.player) { fixture.player.isOnline }.join() shouldBe false
             fixture.pending() shouldBe null
             verify(exactly = if (offline) 0 else 1) { fixture.transfer.connect(any(), any()) }
         }
+    }
+
+    test("an online retired connection cannot send or retain its transfer ticket") {
+        val fixture = ApocalypseNetworkFixture()
+        fixture.network().enter(fixture.player) { false }.join() shouldBe false
+        fixture.pending() shouldBe null
+        verify(exactly = 0) { fixture.transfer.connect(any(), any()) }
     }
 
     test("a throwing transfer cleans its own nonce and retains the transfer failure") {
@@ -68,7 +75,7 @@ class ApocalypseNetworkTest : FunSpec({
         val failure = IllegalStateException("transfer failed")
         every { fixture.transfer.connect(any(), any()) } throws failure
 
-        shouldThrow<CompletionException> { fixture.network().enter(fixture.player).join() }.cause shouldBe failure
+        shouldThrow<CompletionException> { fixture.network().enter(fixture.player) { fixture.player.isOnline }.join() }.cause shouldBe failure
         fixture.pending() shouldBe null
     }
 
@@ -84,7 +91,7 @@ class ApocalypseNetworkTest : FunSpec({
             }
         }
 
-        shouldThrow<CompletionException> { fixture.network(redis = raced).enter(fixture.player).join() }
+        shouldThrow<CompletionException> { fixture.network(redis = raced).enter(fixture.player) { fixture.player.isOnline }.join() }
             .cause?.message shouldBe "arrival changed"
         fixture.pending() shouldBe foreign
         verify(exactly = 0) { fixture.transfer.connect(any(), any()) }
@@ -99,7 +106,7 @@ class ApocalypseNetworkTest : FunSpec({
                 if (throws) throw IllegalStateException("transfer failed")
                 BackendTransferResult.SEND_FAILED
             }
-            val result = fixture.network().enter(fixture.player)
+            val result = fixture.network().enter(fixture.player) { fixture.player.isOnline }
             if (throws) shouldThrow<CompletionException> { result.join() } else result.join() shouldBe false
             fixture.pending() shouldBe foreign
         }
@@ -107,7 +114,7 @@ class ApocalypseNetworkTest : FunSpec({
 
     test("only the addressed receiver consumes the ticket exactly once") {
         val fixture = ApocalypseNetworkFixture()
-        fixture.network().enter(fixture.player).join() shouldBe true
+        fixture.network().enter(fixture.player) { fixture.player.isOnline }.join() shouldBe true
         val raw = fixture.pending()
 
         fixture.network(serverId = "survival").arrival(APOCALYPSE_PLAYER).join() shouldBe null

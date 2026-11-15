@@ -55,6 +55,10 @@ object ApocalypseSourcePalette {
         if (old == "jigsaw") return "minecraft:air"
         val props = state.substringAfter('[', "").substringBeforeLast(']').split(',')
             .filter { '=' in it }.associate { it.substringBefore('=') to it.substringAfter('=') }
+        // Forge ivy has a DOWN face. Java vines cannot lie on a floor.
+        if (ns == "immersive_weathering" && old == "ivy" && props["up"] != "true" && horizontal.none { props[it] == "true" }) {
+            return if (props["down"] == "true") "minecraft:moss_carpet" else "minecraft:air"
+        }
         val base = if (ns == "minecraft") when (old) {
             "grass" -> "short_grass"
             "chain" -> "iron_chain"
@@ -204,6 +208,7 @@ object ApocalypseSourcePalette {
             old.endsWith("fern") -> "fern"
             old.endsWith("sapling") -> "dark_oak_sapling"
             old.endsWith("tnt") -> "tnt"
+            ns == "the_deeper_void" && old == "columbite" -> "deepslate_emerald_ore"
             old.endsWith("_ore") -> "deepslate_iron_ore"
             old.contains("crystal") -> "amethyst_cluster"
             old.endsWith("slab") -> "dark_oak_slab"
@@ -258,7 +263,6 @@ object ApocalypseSourcePalette {
             else -> true
         } }.toMutableMap()
         if (base == "glow_lichen" && native.none { it.key != "waterlogged" && it.value == "true" }) native["down"] = "true"
-        if (base == "vine" && native.none { it.value == "true" }) native["up"] = "true"
         if (base == "pointed_dripstone") native["vertical_direction"] = if (old == "icicle") "down" else "up"
         if (base == "lightning_rod" && "facing" !in native) {
             native["facing"] = listOf("north","south","east","west","up","down").firstOrNull { props[it] == "true" } ?: "up"

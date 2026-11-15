@@ -1,4 +1,4 @@
-# Cursed Walking parity — ArcEvents0.6.4
+# Cursed Walking parity — ArcEvents 0.6.5
 
 Reference: the inspected Cursed Walking v3.3(patch) archive. This is a native
 Paper adaptation inside ArcEvents. Archive/config imports, executable native
@@ -25,15 +25,20 @@ mechanics and rendered client acceptance are separate evidence.
 - ArcEvents0.6.4 repairs stale arrival tickets and same-route retry; ordinary
   live menu entry, exit, inventory restoration and immediate reentry passed.
   See [recovery evidence](apocalypse-entry-recovery-20261115.md).
+- ArcEvents 0.6.5 adds 107 source workbench recipes, the three gun tiers,
+  ammunition, press, source-bound ore mining and a working compact refinery.
+  Six packet-rendered workstations, a close waterfront, personal supply cues,
+  actionable navigation and administrator flight support the ordinary route.
+  See [workbenches and explicit adaptations](apocalypse-workbenches-20261115.md).
 
 ## Material gaps
 
 | Surface | Current native behavior | Missing parity |
 | --- | --- | --- |
-| Guns and progression | 88 source gun IDs map to ten used existing firearm profiles; for example M4A1/P90/MP5 map to G36. Ammunition is simplified and attachment items become salvage. | TACZ/BF1/PointBlank weapon catalog, distinct calibers, attachments, magazine/ballistic behavior and T1→T2→T3 weapon/ammunition workbenches. |
-| Base production | Imported Create items have ordinary native replacements. | Working waterwheel/press, pumps/steam engine, deployer/precision mechanism and the related manufacturing chains. |
+| Guns and progression | Source gun identities retain their names and exact recipes while sharing existing native firing profiles. The BF1→TaCZ→SFMS workbench chain is functional; ammunition is simplified. | Full TACZ/BF1/PointBlank weapon simulation, distinct calibers, attachments and magazine/ballistic behavior. |
+| Base production | Native press and compact refinery process real source-identified materials, fuel and byproducts. | Full Create rotational machinery, waterwheel, pumps/steam engine, deployer/precision mechanism and original timed multiblock refinery behavior. |
 | Base security | Native doors/blocks retain their ordinary behavior. | SecurityCraft reinforced blocks, code doors, cameras and turrets. |
-| Depths and DeepVoid | Their source loot can be interpreted by the loot owner. | Dimensions, travel, pressure, terrain/ores and map→mine/drilling rig→rare material→refinery progression. Imported loot tables do not implement those mechanics. |
+| Depths and DeepVoid | Source-bound overworld teleporter ores and compact refining make rare-material gun progression functional. | Separate dimensions, travel, pressure and their complete terrain, ore distribution and exploration chain. |
 | World generation | Original source buildings/parts are materialized using native blocks. | Exact Terralith terrain/biomes and Forge LostCities placement/RNG/infrastructure behavior; full modded blocks and decoration. |
 | Enemies | Native zombie carriers provide pursuit, melee, leap, ranged and bounded rage attacks; crawler size and late-wave stats are approximated. | Full mutant/feral/drone AI, models, animations and all source scaling rules. |
 | Medicine and equipment | Infection, cures and vaccines work; several consumables use native potion equivalents. | Wearable immunity modifiers, Foxweed→vaccine crafting and full source medicine recipes/effects. |
@@ -47,10 +52,9 @@ campaign. Those should not be invented as requirements for parity.
 
 ## Next useful implementation
 
-First implement a functional weapon bench with tiered guns, useful parts,
-ammunition and upgrades. Then connect base production/defense and a rare-material
-expedition to that progression. Adding more building templates alone will not
-provide the missing reason to keep exploring after the first usable weapon.
+Next work can separate ammunition/calibers and functional attachments, then
+extend base defense and dimension exploration. The native weapon-bench chain is
+present; a complete industrial/dimension simulation remains separate work.
 
 This is a proposed order, not a claim that these mechanics have been delivered.
 No meaningful whole-pack parity percentage is asserted: the manifest includes

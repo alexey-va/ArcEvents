@@ -1,0 +1,2727 @@
+{
+  "version": 1,
+  "title": "ArcEvents Apocalypse source workbenches: item-cost progression, finite shared inputs and isolated XP (2026-11-15)",
+  "assumptions": [
+    "Source-level before/after assessment for the weapon-workbench addition after source loot 0.6.2; not proof of publication, delivery, activation, native client appearance or ordinary-player completion.",
+    "Before these source workbench recipes are unavailable, not free. After:107catalog rows:66gun(12T1,37T2,17T3),21ammo,6station(T1/T2/T3/AMMO/PRESS/REFINERY),14material(3ammo_box+3press+shaft+2casing+refinerycasing+fuelbatch+3alloys), plus separate native tungsten blasting. Attachments,colorizers and unsupported source rows are not craftable in this scope.",
+    "Low/base/high are conditional stocked-inventory sensitivities, not telemetry or sustainable production: 1/5/20 participating accounts;1/2/4 active hours per participant-day. All modeled participants have the required existing station and inputs; overall server participation share is unknown.",
+    "Within those same assumed hours, each participant crafts1/4/16 batches of source9mm ammo,0/1/2DB-2guns, presses4/16/64iron,1/4/16gold and0/4/16industrial iron ingots, blasts0/5/20raw tungsten, and performs0/1/4of EACH of the3refinery alloy recipes. Existing stations,all ingredients and stored cell energy are assumed available. These simultaneous operations share the stated hours; no jobs/contracts income is stacked.",
+    "Crafting occurs only after complete current station/item/count/output-capacity validation. Output quantities in this model assume an admitted successful operation. Failed, cancelled, stale, insufficient-input and overflowing operations must produce no output and consume no ingredients; reload/replay and rapid repeated clicks require focused runtime checks.",
+    "Items use separately named produced or consumed item units, with kind=item and positive quantities in by_kind.item; they are never added into money supply. Native furnace XP has its own player_xp_expedition unit. Currency totals apply only to separately reported Vault and premium tokens.",
+    "All recipe guns omit GunCurrentAmmoCount and start loaded=0. Source ammo identities are retained, but the current Paper firearm adapter accepts common native ammunition across calibers; native gun behavior remains the existing10 profiles. Source cost fidelity is not equal combat utility or full mod mechanics.",
+    "Mod materials require source PDC identities; ordinary carrier iron/gold/etc cannot satisfy a mod component ingredient. Old untagged loot is not retroactively converted because its original identity is unrecoverable. Plain vanilla items still satisfy genuine vanilla ingredient rows.",
+    "The93 source loot tables, rolls, weights, quantities, empty outcomes and finite shared claim policy stay unchanged. Near-city additional container accessibility and permitted administrator flight may change time to reach eligible containers, but neither exploration speed nor opening/table mix is measured or reweighted here.",
+    "Shared physical containers are finite once per coordinate, not per viewer/day. Source ore blocks are finite world stock, not replenishing rewards. Seven-day scenario multiplication requires sufficient distinct unclaimed inputs or new exploration; it does not assert a global weekly cap, renewal or guaranteed multi-account supply.",
+    "Pinned source processing: iron/gold/industrial-iron pressing is1 input->1 matching sheet. The press is found or crafted from1shaft+1andesite_casing+1iron_block;2andesite_alloy->8shaft, and1stripped log/wood+1andesite_alloy->1casing. Casing item_application is adapted to CRAFTING with unchanged quantities. Raw tungsten blasting is1->1,240ticks,2native furnace XP per extracted processed item and normal native fuel. Source ore mining gives0XP. No extra workbench/press XP is assigned; fuel is not zero or monetized.",
+    "A complete example route builds T1,T2,T3,AMMO and one DB-2,AKM,AF-46, plus one iron ammo box. It is a representative material bill, not a mandatory all66-gun purchase or measured time to accumulate. A newly crafted press setup is itemized separately from an already owned/found press, with7shaft remainder; native blast-furnace setup,fuel and tool remain separate non-free prerequisites.",
+    "Seed68200133 source study places13teleporters with17natural main rooms:51source tungsten-ore blocks plus40raw in studied chest plans=91base raw beforeFortune if untouched and obtainable. Correct iron/diamond/netheritepick, sourceFortune formula1+max(0,nextInt(f+2)-1),noSilkbranch,0miningXP; each sourceXYZ is finite/shared journal claim. Fortune3 hasore multiplier expectation11/5,max4:152.2expected or244maximum raw for this study cohort including40chest raw, not a live/global/per-player balance. Other gates/travel remain unmeasured.",
+    "Inventory,armor,offhand and XP remain in the isolated expedition profile; origin state is restored on exit. External shop/contract commands and export are blocked by the existing boundary. Other plugins reward hooks require HOST integration/ledger observation; source checks cannot prove their absence.",
+    "No new money price,payout,boost or token purchase: direct Vault mint/burn=0 and premium-token mint/burn=0 independently before/after. No fictional item exchange rate, SELL valuation, savings income or accumulation time is assigned. Existing SELL/BUY policy and the planned SELL-to-contract transition are unchanged.",
+    "Current tool metadata exposes no economy or arc_ops_server tool. A fresh168-hour ledger could not be obtained in this session; no shell/API bypass was used. Prior dated ledger observations, if consulted elsewhere, are not evidence for this version or ordinary workbench throughput.",
+    "Native refinery is explicitly adapted: one crafted source control-pad item represents the full original1pad+9bottomcasing+8pressuretank+5casing multiblock. The pad retains its own source material cost; the omitted formation lowers reusable capital requirements. Source80/100/150second refining waits and superheated mixer requirement are not enforced. Manufacturing uses the existing atomic instant menu, not full Create simulation.",
+    "Exact refinery ratios:1titanium+1rhenium+320energy->1TiRalloy+2void_slag;2tungsten+1rhenium+400energy->1WRalloy+2slag;1netherite+1rhenium+600energy->1NRalloy+4slag. Refining grants0XP. Original recipes/bytecode are pinned to Depths file8145376 and archive SHA256d20a72131f49c91d03ab709ac7f08451d95ccf84d637389ed0a6629b0ef68f08.",
+    "One source fuel cell stores1000units. Native fuel batch uses10blazerods+10coalblocks+10typed powderedup:sulfur_dust+1lava bucket->10cells+1empty bucket:exact100mB lava per cell. The empty bucket returns the existing container shell, not a free new bucket. No ordinary gunpowder substitution or free fuel is assumed.",
+    "Full cells stack with1000units each; partial cells are portable maxStack1 items storing1..999units. Spending uses partials first; cells at0are removed. Any alloy,slag or partial-cell output capacity failure refuses the full operation without input/energy debit. Per-recipe energy is consumed exactly, not rounded to a whole cell; reload/duplicate checks remain runtime obligations.",
+    "The3alloy acquisition routes replace the earlier13-T3 missing-refinery limitation at source/schema level. All17T3recipes retain positive ingredient costs; source graph support does not prove remaining live input stocks, fuel availability or ordinary-player completion. HAR50alone uses the owner-approved registered netherite_rhenium_alloy alias at unchanged count2.",
+    "Additional source columbite is finite51blocks in the audited seed, diamond/netheritepick only,0miningXP,noSilkbranch:uniform1..2plain rawiron plus an independent50%one typed rhenium. Each awarded count applies its own Fortune ore_drops multiplier. BeforeFortune cohort EV=76.5rawiron+25.5rhenium; FortuneIII EV=168.3rawiron+56.1rhenium, maxima408/204. The separate14rhenium from studied chests is unchanged and not a new grant.",
+    "Mining adapters replace old native carrier drops at exact source coordinates: tungsten_ore previously mapped to deepslate_iron_ore, columbite to polished_deepslate. New typed-output availability is not a claim old world-material yield was0. Native rawiron processing and consequent XP remain unchanged recipes, but their realized extra throughput/XP is unmeasured and is not asserted0 by the modeled tungsten-XP row.",
+    "Station display cosmetics grant0inventory items,0fuel,0XP and0boost. Representation is not evidence of manufacturing or visual acceptance.",
+    "Native anti-arbitrage substitution: refinery casing uses IRON_INGOT carrier, not IRON_BLOCK. Source6iron+3bars->2casings must not become18plain iron by uncrafting2native iron blocks. Ingot carriers yield at most2ordinary iron-equivalent frommore than6inputs; original2casing count/sourcePDC stay intact. No general vanilla crafting gate is added or claimed; sacrificing source identity through native carrier use is not free component reconstruction."
+  ],
+  "participants": [
+    1,
+    5,
+    20
+  ],
+  "scenario_activity": {
+    "order": [
+      "low",
+      "base",
+      "high"
+    ],
+    "active_hours_per_participant_day": [
+      "1",
+      "2",
+      "4"
+    ],
+    "ammo_9mm_batches_per_participant_day": [
+      1,
+      4,
+      16
+    ],
+    "ammo_9mm_batches_per_active_hour": [
+      "1",
+      "2",
+      "4"
+    ],
+    "db_short_crafts_per_participant_day": [
+      0,
+      1,
+      2
+    ],
+    "iron_press_operations_per_participant_day": [
+      4,
+      16,
+      64
+    ],
+    "gold_press_operations_per_participant_day": [
+      1,
+      4,
+      16
+    ],
+    "industrial_press_operations_per_participant_day": [
+      0,
+      4,
+      16
+    ],
+    "raw_tungsten_blasts_per_participant_day": [
+      0,
+      5,
+      20
+    ],
+    "fraction_of_all_server_accounts": null,
+    "measured": false,
+    "renewable_shared_supply_assumed": false,
+    "refinery_titanium_alloy_operations_per_participant_day": [
+      0,
+      1,
+      4
+    ],
+    "refinery_tungsten_alloy_operations_per_participant_day": [
+      0,
+      1,
+      4
+    ],
+    "refinery_netherite_alloy_operations_per_participant_day": [
+      0,
+      1,
+      4
+    ],
+    "refinery_energy_consumed_per_participant_day": [
+      0,
+      1320,
+      5280
+    ],
+    "fuel_batch_crafts_per_day": "Not modeled as a recurring entitlement; separate upfront10-cell bill. Existing cell stock assumed for the conditional daily refining flow."
+  },
+  "currencies": {
+    "vault": {
+      "minor_per_unit": 100,
+      "disposable_per_player_day": {
+        "before": [
+          "0",
+          "0",
+          "0"
+        ],
+        "after": [
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      "flows": []
+    },
+    "tokens": {
+      "minor_per_unit": 1,
+      "disposable_per_player_day": {
+        "before": [
+          "0",
+          "0",
+          "0"
+        ],
+        "after": [
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      "flows": []
+    },
+    "player_xp_outside_expedition": {
+      "minor_per_unit": 1,
+      "flows": []
+    },
+    "expedition_loaded_round": {
+      "minor_per_unit": 1,
+      "flows": []
+    },
+    "expedition_produced_common_ammo_round": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "craft_9mm_output",
+          "kind": "item",
+          "source": "src/main/resources/apocalypse/workbench-recipes.json:tacz:ammo/9mm",
+          "basis": "Conditional successful source9mm batches; current Paper common-ammo use, not caliber-locked combat simulation.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "50",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              1,
+              4,
+              16
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "50",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              1,
+              4,
+              16
+            ]
+          }
+        }
+      ]
+    },
+    "expedition_consumed_copper_ingot": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "craft_9mm_copper",
+          "kind": "item",
+          "source": "src/main/resources/apocalypse/workbench-recipes.json:tacz:ammo/9mm",
+          "basis": "Actual copper ingredient sink for source9mm, not a Vault payment.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "6",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              1,
+              4,
+              16
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "6",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              1,
+              4,
+              16
+            ]
+          }
+        }
+      ]
+    },
+    "expedition_consumed_gunpowder": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "craft_9mm_gunpowder",
+          "kind": "item",
+          "source": "src/main/resources/apocalypse/workbench-recipes.json:tacz:ammo/9mm",
+          "basis": "Actual gunpowder ingredient sink; no jobs/contract payout assumed.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "2",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              1,
+              4,
+              16
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "2",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              1,
+              4,
+              16
+            ]
+          }
+        }
+      ]
+    },
+    "expedition_produced_db_short_gun": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "craft_db_short_output",
+          "kind": "item",
+          "source": "src/main/resources/apocalypse/workbench-recipes.json:bf1:gun/db_short",
+          "basis": "Conditional source DB-2 output, one source-identified native gun, loaded=0.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              2
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              2
+            ]
+          }
+        }
+      ]
+    },
+    "expedition_consumed_iron_ingot": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "craft_db_short_iron",
+          "kind": "item",
+          "source": "src/main/resources/apocalypse/workbench-recipes.json:bf1:gun/db_short",
+          "basis": "Actual ordinary iron input for DB-2.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "8",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              2
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "8",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "press_iron_input",
+          "kind": "item",
+          "source": "data/create/recipes/pressing/iron_ingot.json",
+          "basis": "Conditional1:1 source pressing input sink; existing mechanical press required.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              4,
+              16,
+              64
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              4,
+              16,
+              64
+            ]
+          }
+        }
+      ]
+    },
+    "expedition_consumed_log_tag_unit": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "craft_db_short_logs",
+          "kind": "item",
+          "source": "src/main/resources/apocalypse/workbench-recipes.json:bf1:gun/db_short",
+          "basis": "One eligible native log/wood/stem tag member per unit; not converted into planks or money.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "6",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              2
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "6",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              2
+            ]
+          }
+        }
+      ]
+    },
+    "expedition_produced_iron_sheet": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "press_iron_output",
+          "kind": "item",
+          "source": "data/create/recipes/pressing/iron_ingot.json",
+          "basis": "Conditional1:1 source-tagged sheet output; ordinary carrier does not establish this identity.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              4,
+              16,
+              64
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              4,
+              16,
+              64
+            ]
+          }
+        }
+      ]
+    },
+    "expedition_consumed_gold_ingot": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "press_gold_input",
+          "kind": "item",
+          "source": "data/create/recipes/pressing/gold_ingot.json",
+          "basis": "Conditional1:1 source pressing input sink; existing mechanical press required.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              1,
+              4,
+              16
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              1,
+              4,
+              16
+            ]
+          }
+        }
+      ]
+    },
+    "expedition_produced_golden_sheet": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "press_gold_output",
+          "kind": "item",
+          "source": "data/create/recipes/pressing/gold_ingot.json",
+          "basis": "Conditional1:1 source-tagged sheet output; ordinary carrier does not establish this identity.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              1,
+              4,
+              16
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              1,
+              4,
+              16
+            ]
+          }
+        }
+      ]
+    },
+    "expedition_consumed_industrial_iron_ingot": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "press_industrial_input",
+          "kind": "item",
+          "source": "data/createdeco/recipes/pressing/industrial_iron_sheet.json",
+          "basis": "Conditional1:1 source pressing input sink; existing mechanical press required.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              4,
+              16
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              4,
+              16
+            ]
+          }
+        }
+      ]
+    },
+    "expedition_produced_industrial_iron_sheet": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "press_industrial_output",
+          "kind": "item",
+          "source": "data/createdeco/recipes/pressing/industrial_iron_sheet.json",
+          "basis": "Conditional1:1 source-tagged sheet output; ordinary carrier does not establish this identity.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              4,
+              16
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              4,
+              16
+            ]
+          }
+        }
+      ]
+    },
+    "expedition_consumed_raw_tungsten": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "blast_tungsten_input",
+          "kind": "item",
+          "source": "data/the_deeper_void/recipes/tungsten_smelting.json",
+          "basis": "Conditional typed raw-tungsten input sink; finite source stock and native fuel required.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              5,
+              20
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              5,
+              20
+            ]
+          }
+        }
+      ]
+    },
+    "expedition_produced_tungsten_ingot": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "blast_tungsten_output",
+          "kind": "item",
+          "source": "data/the_deeper_void/recipes/tungsten_smelting.json",
+          "basis": "Conditional1:1 source ingot output,240ticks per item; not an iron-ingot replacement.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              5,
+              20
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              5,
+              20
+            ]
+          }
+        }
+      ]
+    },
+    "player_xp_expedition": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "blast_tungsten_xp",
+          "kind": "mint",
+          "source": "src/main/kotlin/ru/ruscrafting/events/paper/apocalypse/ApocalypseWorkbenchStations.kt:registerTungstenBlasting",
+          "basis": "Native furnace XP when legitimately awarded for extracted processed items; isolated profile, no outside-XP export.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "2",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              5,
+              20
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "2",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              5,
+              20
+            ]
+          }
+        }
+      ]
+    },
+    "expedition_consumed_titanium_ingot": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "refine_titanium_metal_input",
+          "kind": "item",
+          "source": "src/main/resources/apocalypse/workbench-recipes.json:the_deeper_void:titanium_rhenium_alloy_recipe",
+          "basis": "Exact source metal input sink; native manufacturing is instant, no currency conversion.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          }
+        }
+      ]
+    },
+    "expedition_consumed_rhenium": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "refine_titanium_rhenium_input",
+          "kind": "item",
+          "source": "src/main/resources/apocalypse/workbench-recipes.json:the_deeper_void:titanium_rhenium_alloy_recipe",
+          "basis": "Typed rhenium input sink; finite source ore/chests, not ordinary iron.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          }
+        },
+        {
+          "id": "refine_tungsten_rhenium_input",
+          "kind": "item",
+          "source": "src/main/resources/apocalypse/workbench-recipes.json:the_deeper_void:tungsten_rhenium_alloy_recipe",
+          "basis": "Typed rhenium input sink; finite source ore/chests, not ordinary iron.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          }
+        },
+        {
+          "id": "refine_netherite_rhenium_input",
+          "kind": "item",
+          "source": "src/main/resources/apocalypse/workbench-recipes.json:the_deeper_void:netherite_rhenium_alloy_recipe",
+          "basis": "Typed rhenium input sink; finite source ore/chests, not ordinary iron.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          }
+        }
+      ]
+    },
+    "expedition_consumed_refinery_energy_unit": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "refine_titanium_energy_input",
+          "kind": "item",
+          "source": "src/main/resources/apocalypse/workbench-recipes.json:the_deeper_void:titanium_rhenium_alloy_recipe",
+          "basis": "Exact portable cell-energy debit; partial energy retained, not rounded to whole cells or premium tokens.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "320",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "320",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          }
+        },
+        {
+          "id": "refine_tungsten_energy_input",
+          "kind": "item",
+          "source": "src/main/resources/apocalypse/workbench-recipes.json:the_deeper_void:tungsten_rhenium_alloy_recipe",
+          "basis": "Exact portable cell-energy debit; partial energy retained, not rounded to whole cells or premium tokens.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "400",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "400",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          }
+        },
+        {
+          "id": "refine_netherite_energy_input",
+          "kind": "item",
+          "source": "src/main/resources/apocalypse/workbench-recipes.json:the_deeper_void:netherite_rhenium_alloy_recipe",
+          "basis": "Exact portable cell-energy debit; partial energy retained, not rounded to whole cells or premium tokens.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "600",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "600",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          }
+        }
+      ]
+    },
+    "expedition_produced_titanium_rhenium_alloy": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "refine_titanium_alloy_output",
+          "kind": "item",
+          "source": "src/main/resources/apocalypse/workbench-recipes.json:the_deeper_void:titanium_rhenium_alloy_recipe",
+          "basis": "One source alloy manufactured; no free issue or refinery XP.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          }
+        }
+      ]
+    },
+    "expedition_produced_void_slag": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "refine_titanium_slag_output",
+          "kind": "item",
+          "source": "src/main/resources/apocalypse/workbench-recipes.json:the_deeper_void:titanium_rhenium_alloy_recipe",
+          "basis": "Real source byproduct; no included recycling, SELL value or redemption.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "2",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "2",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          }
+        },
+        {
+          "id": "refine_tungsten_slag_output",
+          "kind": "item",
+          "source": "src/main/resources/apocalypse/workbench-recipes.json:the_deeper_void:tungsten_rhenium_alloy_recipe",
+          "basis": "Real source byproduct; no included recycling, SELL value or redemption.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "2",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "2",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          }
+        },
+        {
+          "id": "refine_netherite_slag_output",
+          "kind": "item",
+          "source": "src/main/resources/apocalypse/workbench-recipes.json:the_deeper_void:netherite_rhenium_alloy_recipe",
+          "basis": "Real source byproduct; no included recycling, SELL value or redemption.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "4",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "4",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          }
+        }
+      ]
+    },
+    "expedition_consumed_tungsten_ingot": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "refine_tungsten_metal_input",
+          "kind": "item",
+          "source": "src/main/resources/apocalypse/workbench-recipes.json:the_deeper_void:tungsten_rhenium_alloy_recipe",
+          "basis": "Exact source metal input sink; native manufacturing is instant, no currency conversion.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "2",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "2",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          }
+        }
+      ]
+    },
+    "expedition_produced_tungsten_rhenium_alloy": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "refine_tungsten_alloy_output",
+          "kind": "item",
+          "source": "src/main/resources/apocalypse/workbench-recipes.json:the_deeper_void:tungsten_rhenium_alloy_recipe",
+          "basis": "One source alloy manufactured; no free issue or refinery XP.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          }
+        }
+      ]
+    },
+    "expedition_consumed_netherite_ingot": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "refine_netherite_metal_input",
+          "kind": "item",
+          "source": "src/main/resources/apocalypse/workbench-recipes.json:the_deeper_void:netherite_rhenium_alloy_recipe",
+          "basis": "Exact source metal input sink; native manufacturing is instant, no currency conversion.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          }
+        }
+      ]
+    },
+    "expedition_produced_netherite_rhenium_alloy": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "refine_netherite_alloy_output",
+          "kind": "item",
+          "source": "src/main/resources/apocalypse/workbench-recipes.json:the_deeper_void:netherite_rhenium_alloy_recipe",
+          "basis": "One source alloy manufactured; no free issue or refinery XP.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              1,
+              4
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "prices": [],
+  "source_evidence": {
+    "archive": {
+      "file": "/private/tmp/cursed-walking-study-20261114/cursed-walking-v3.3-patch.zip",
+      "sha256": "9e27be83c25a78d13508134be65d2fe70efb389ce015d2a9f54f8dd0f9861901",
+      "quest": "overrides/config/ftbquests/quests/chapters/ballistics_division.snbt"
+    },
+    "normalized_source_sha256": "c704392b8454ad93406e4fab556af8a76e105bbade529e8d3bf0da9a466382bb",
+    "normalized_source_rows": 225,
+    "runtime_catalog": "src/main/resources/apocalypse/workbench-recipes.json",
+    "runtime_catalog_sha256_at_assessment": "137b72b27f23a88ae34e95e9284302c4f42bd7a5e2919fd0448c86db0a863512",
+    "runtime_catalog_rows_at_assessment": 107,
+    "source_counts": {
+      "ammo": 21,
+      "attachment": 110,
+      "colorizer_attachment": 1,
+      "colorizer_gun": 18,
+      "gun": 66,
+      "material": 3,
+      "station": 6
+    },
+    "processing_sources": [
+      {
+        "pinned_artifact": "Create6.0.8 CurseForge7178761",
+        "source": "data/create/recipes/pressing/iron_ingot.json",
+        "input": "minecraft:iron_ingot",
+        "output": "create:iron_sheet",
+        "ratio": "1:1"
+      },
+      {
+        "pinned_artifact": "Create6.0.8 CurseForge7178761",
+        "source": "data/create/recipes/pressing/gold_ingot.json",
+        "input": "minecraft:gold_ingot",
+        "output": "create:golden_sheet",
+        "ratio": "1:1"
+      },
+      {
+        "pinned_artifact": "CreateDeco CurseForge6373226",
+        "source": "data/createdeco/recipes/pressing/industrial_iron_sheet.json",
+        "input": "createdeco:industrial_iron_ingot",
+        "output": "createdeco:industrial_iron_sheet",
+        "ratio": "1:1"
+      },
+      {
+        "pinned_artifact": "TheDeeperVoid CurseForge8145376",
+        "source": "data/the_deeper_void/recipes/tungsten_smelting.json",
+        "input": "the_deeper_void:raw_tungsten",
+        "output": "the_deeper_void:tungsten_ingot",
+        "ratio": "1:1",
+        "recipe_type": "minecraft:blasting",
+        "cooking_ticks": 240,
+        "native_experience": "2",
+        "fuel": "ordinary native fuel consumption"
+      }
+    ],
+    "finite_source_study": {
+      "seed": 68200133,
+      "placed_teleporters": 13,
+      "natural_main_rooms": 17,
+      "source_tungsten_ore_blocks": 51,
+      "source_chest_raw_tungsten": 40,
+      "base_raw_before_fortune_if_untouched": 91,
+      "source_log_sha256": "13b845d3d71d1b74a6b09e5b3df31f99782192ca01f47325b48fe498d908dd6d",
+      "scope": "Source-plan study, not remaining live stock; does not include an unported renewable crystal-crushing route.",
+      "live_remaining": null,
+      "ore_mining_xp": "0",
+      "ore_minimum_pick": "iron or diamond or netherite, correct tool",
+      "ore_drop_formula": "1*(1+max(0,nextInt(FortuneLevel+2)-1))",
+      "silk_touch_separate_branch": false,
+      "shared_finite_claim": "source XYZ, journaled once",
+      "fortune_3_expected_ore_multiplier_exact": "11/5",
+      "fortune_3_maximum_ore_multiplier": 4,
+      "fortune_3_expected_cohort_raw_exact": "761/5",
+      "fortune_3_expected_cohort_raw": "152.2",
+      "fortune_3_maximum_cohort_raw": 244,
+      "source_columbite_blocks": 51,
+      "columbite_minimum_pick": "diamond or netherite, correct tool",
+      "columbite_mining_xp": "0",
+      "columbite_base_raw_iron_per_block": "uniform integer1..2",
+      "columbite_rhenium_chance_exact": "1/2",
+      "columbite_base_raw_iron_cohort_range": [
+        51,
+        102
+      ],
+      "columbite_base_raw_iron_cohort_EV_exact": "153/2",
+      "columbite_base_rhenium_cohort_range": [
+        0,
+        51
+      ],
+      "columbite_base_rhenium_cohort_EV_exact": "51/2",
+      "columbite_fortune3_raw_iron_cohort_EV_exact": "1683/10",
+      "columbite_fortune3_rhenium_cohort_EV_exact": "561/10",
+      "columbite_fortune3_raw_iron_cohort_maximum": 408,
+      "columbite_fortune3_rhenium_cohort_maximum": 204,
+      "source_chest_rhenium": 14,
+      "base_rhenium_including_chests_EV_exact": "79/2",
+      "fortune3_rhenium_including_chests_EV_exact": "701/10",
+      "columbite_fortune_rolls": "Independent ore_drops multiplier for each awarded iron/rhenium branch; rhenium has independent50%entry chance.",
+      "old_carriers": {
+        "the_deeper_void:tungsten_ore": "minecraft:deepslate_iron_ore",
+        "the_deeper_void:columbite": "minecraft:polished_deepslate"
+      },
+      "columbite_native_carrier": "minecraft:deepslate_emerald_ore at guarded original source coordinates; no general emerald ore conversion"
+    },
+    "loot_weights_changed": false,
+    "loot_EV_recomputed": false,
+    "ledger_observation": {
+      "available": false,
+      "reason": "No economy or arc_ops_server tool exposed in current tool metadata; no bypass attempted."
+    },
+    "runtime_catalog_counts": {
+      "gun": 66,
+      "ammo": 21,
+      "station": 6,
+      "material": 14
+    },
+    "native_corrections": [
+      {
+        "recipe": "sfms:gun/har50",
+        "source": "the_deeper_void:netherite_rhenium_ingot",
+        "native": "the_deeper_void:netherite_rhenium_alloy",
+        "reason": "Owner-approved narrow correction: the source ingredient is not registered; the pinned Depths mod registers netherite_rhenium_alloy. Quantity remains 2."
+      }
+    ],
+    "processing_archives": {
+      "create": {
+        "file": "/private/tmp/cw-create-7178761-recipe-source.jar",
+        "url": "https://mediafilez.forgecdn.net/files/7178/761/create-1.20.1-6.0.8.jar",
+        "sha256": "6fbb910c367dbce8e4fc7e5bf64b6edd4de980906ed00af8e47e4af843c0d9b0"
+      },
+      "createdeco": {
+        "file": "/private/tmp/cw-createdeco-6373226-recipe-source.jar",
+        "url": "https://mediafilez.forgecdn.net/files/6373/226/createdeco-2.0.3-1.20.1-forge.jar",
+        "sha256": "7d6dd0094d18d6bab64fcd7de680ea736015d1a1ffc472d3fe03122bc7aa0864"
+      },
+      "mcore": {
+        "file": "/private/tmp/cw-mcore-6058648-recipe-source.jar",
+        "url": "https://mediafilez.forgecdn.net/files/6058/648/mcore-1.20.1-1.0.3.0.jar",
+        "sha256": "b9a5e6fa48b9d02806f6ee34899d84d27e09c7cded035f2834de2bed83fc4267"
+      },
+      "the_deeper_void": {
+        "file": "/private/tmp/the_deeper_void-2.0.5-forge-1.20.1.jar",
+        "url": "https://mediafilez.forgecdn.net/files/8145/376/the_deeper_void-2.0.5-forge-1.20.1.jar",
+        "sha256": "d20a72131f49c91d03ab709ac7f08451d95ccf84d637389ed0a6629b0ef68f08"
+      }
+    },
+    "native_adaptations": [
+      {
+        "recipe_id": "create:item_application/andesite_casing_from_log",
+        "source_station": "create:item_application",
+        "adaptation": "Source item application inputs are combined at the ordinary crafting table; input and output quantities are unchanged."
+      },
+      {
+        "recipe_id": "create:item_application/andesite_casing_from_wood",
+        "source_station": "create:item_application",
+        "adaptation": "Source item application inputs are combined at the ordinary crafting table; input and output quantities are unchanged."
+      },
+      {
+        "recipe_id": "the_deeper_void:void_refinery_control_recipe",
+        "source_station": null,
+        "adaptation": "Owner-approved control-pad item represents the complete source multiblock."
+      },
+      {
+        "recipe_id": "the_deeper_void:titanium_rhenium_alloy_recipe",
+        "source_station": null,
+        "adaptation": "Owner-approved instant native refining consumes the exact original base fuel units and returns every source byproduct; original processing ticks are recorded in refinerySource."
+      },
+      {
+        "recipe_id": "the_deeper_void:tungsten_rhenium_alloy_recipe",
+        "source_station": null,
+        "adaptation": "Owner-approved instant native refining consumes the exact original base fuel units and returns every source byproduct; original processing ticks are recorded in refinerySource."
+      },
+      {
+        "recipe_id": "the_deeper_void:netherite_rhenium_alloy_recipe",
+        "source_station": null,
+        "adaptation": "Owner-approved instant native refining consumes the exact original base fuel units and returns every source byproduct; original processing ticks are recorded in refinerySource."
+      },
+      {
+        "recipe_id": "the_deeper_void:make_fuel",
+        "source_station": "create:mechanical_mixer",
+        "adaptation": "Owner-approved bulk crafting: one lava bucket supplies ten 100 mB source batches; the empty bucket is returned. Source ingredient ratios and 1000 fuel units per cell are retained."
+      }
+    ],
+    "t3_reachability": {
+      "alloy_route_recipe_ids": [
+        "the_deeper_void:titanium_rhenium_alloy_recipe",
+        "the_deeper_void:tungsten_rhenium_alloy_recipe",
+        "the_deeper_void:netherite_rhenium_alloy_recipe"
+      ],
+      "t3_gun_recipes": 17,
+      "disabled_for_missing_refinery": 0,
+      "remaining_limit": "Source recipe graph support only; live remaining rare components,fuel and ordinary-player acceptance unobserved."
+    },
+    "refinery_source": {
+      "normalized_sha256": "119f01de1c8a9b816adaa07c7e420421c265f2c56cb51c88451eb6dcae68bb1e",
+      "source_archive_sha256": "d20a72131f49c91d03ab709ac7f08451d95ccf84d637389ed0a6629b0ef68f08",
+      "source_project_file_id": 8145376,
+      "source_procedure": "net/mcreator/the_deeper_void/procedures/VoidRefineryControlPadOnTickUpdateProcedure.class",
+      "recipe_paths": [
+        "data/the_deeper_void/recipes/void_refinery_casing_recipe.json",
+        "data/the_deeper_void/recipes/void_refinery_control_recipe.json",
+        "data/the_deeper_void/recipes/void_refinery_bottom_casing_recipe.json",
+        "data/the_deeper_void/recipes/void_refinery_pressure_tank_recipe.json",
+        "data/the_deeper_void/recipes/titanium_rhenium_alloy_recipe.json",
+        "data/the_deeper_void/recipes/tungsten_rhenium_alloy_recipe.json",
+        "data/the_deeper_void/recipes/netherite_rhenium_alloy_recipe.json",
+        "data/the_deeper_void/recipes/make_fuel.json"
+      ]
+    },
+    "native_carrier_guard": {
+      "item": "the_deeper_void:void_refinery_casing",
+      "carrier": "minecraft:iron_ingot",
+      "rejected_carrier": "minecraft:iron_block",
+      "source_recipe_inputs": {
+        "minecraft:iron_ingot": 6,
+        "minecraft:iron_bars": 3
+      },
+      "source_recipe_casing_output": 2,
+      "rejected_carrier_plain_iron_uncrafting_output": 18,
+      "chosen_carrier_max_plain_iron_equivalent": 2,
+      "general_vanilla_crafting_gate_added": false
+    }
+  },
+  "progression_costs": [
+    {
+      "recipe_id": "bf1:block/telegraph",
+      "at_station": "minecraft:crafting_table",
+      "before": "unavailable",
+      "after_inputs": [
+        {
+          "item": "minecraft:copper_block",
+          "count": 1
+        },
+        {
+          "item": "minecraft:crafting_table",
+          "count": 1
+        }
+      ],
+      "after_output": {
+        "kind": "item",
+        "id": "tacz:workbench_a",
+        "count": 1,
+        "nbt": {
+          "BlockId": "bf1:telegraph"
+        }
+      },
+      "after_byproducts": [],
+      "fuel_units": 0,
+      "consumes_existing_station": false
+    },
+    {
+      "recipe_id": "bf1:misc/tester",
+      "at_station": "bf1:telegraph",
+      "before": "unavailable",
+      "after_inputs": [
+        {
+          "item": "create:iron_sheet",
+          "count": 45
+        },
+        {
+          "item": "create:golden_sheet",
+          "count": 16
+        },
+        {
+          "item": "minecraft:quartz",
+          "count": 25
+        }
+      ],
+      "after_output": {
+        "kind": "item",
+        "id": "tacz:gun_smith_table",
+        "count": 1
+      },
+      "after_byproducts": [],
+      "fuel_units": 0,
+      "consumes_existing_station": false
+    },
+    {
+      "recipe_id": "tacz:misc/tester",
+      "at_station": "tacz:gun_smith_table",
+      "before": "unavailable",
+      "after_inputs": [
+        {
+          "item": "the_deeper_void:tungsten_ingot",
+          "count": 25
+        },
+        {
+          "item": "create:sturdy_sheet",
+          "count": 15
+        },
+        {
+          "item": "minecraft:quartz",
+          "count": 35
+        }
+      ],
+      "after_output": {
+        "kind": "item",
+        "id": "tacz:workbench_b",
+        "count": 1,
+        "nbt": {
+          "BlockId": "sfms:ms_workbench",
+          "display": {
+            "Lore": [
+              "{\"translate\":\"\"}"
+            ],
+            "Name": "{\"translate\":\"§e§lInto The Depths.\"}"
+          }
+        }
+      },
+      "after_byproducts": [],
+      "fuel_units": 0,
+      "consumes_existing_station": false
+    },
+    {
+      "recipe_id": "tacz:ammo_workbench",
+      "at_station": "minecraft:crafting_table",
+      "before": "unavailable",
+      "after_inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 2
+        },
+        {
+          "tag": "forge:ingots/iron",
+          "count": 1
+        },
+        {
+          "item": "tacz:ammo_box",
+          "count": 1
+        }
+      ],
+      "after_output": {
+        "kind": "item",
+        "id": "tacz:workbench_a",
+        "count": 1,
+        "nbt": {
+          "BlockId": "tacz:ammo_workbench"
+        }
+      },
+      "after_byproducts": [],
+      "fuel_units": 0,
+      "consumes_existing_station": false
+    },
+    {
+      "recipe_id": "tacz:iron_ammo_box",
+      "at_station": "minecraft:crafting_table",
+      "before": "unavailable",
+      "after_inputs": [
+        {
+          "tag": "forge:ingots/iron",
+          "count": 1
+        },
+        {
+          "tag": "minecraft:planks",
+          "count": 7
+        }
+      ],
+      "after_output": {
+        "kind": "item",
+        "id": "tacz:ammo_box",
+        "count": 1,
+        "nbt": {
+          "Level": 0
+        }
+      },
+      "after_byproducts": [],
+      "fuel_units": 0,
+      "consumes_existing_station": false
+    },
+    {
+      "recipe_id": "tacz:gold_ammo_box",
+      "at_station": "minecraft:crafting_table",
+      "before": "unavailable",
+      "after_inputs": [
+        {
+          "tag": "forge:ingots/gold",
+          "count": 1
+        },
+        {
+          "tag": "minecraft:planks",
+          "count": 7
+        }
+      ],
+      "after_output": {
+        "kind": "item",
+        "id": "tacz:ammo_box",
+        "count": 1,
+        "nbt": {
+          "Level": 1
+        }
+      },
+      "after_byproducts": [],
+      "fuel_units": 0,
+      "consumes_existing_station": false
+    },
+    {
+      "recipe_id": "tacz:diamond_ammo_box",
+      "at_station": "minecraft:crafting_table",
+      "before": "unavailable",
+      "after_inputs": [
+        {
+          "tag": "forge:gems/diamond",
+          "count": 1
+        },
+        {
+          "tag": "minecraft:planks",
+          "count": 7
+        }
+      ],
+      "after_output": {
+        "kind": "item",
+        "id": "tacz:ammo_box",
+        "count": 1,
+        "nbt": {
+          "Level": 2
+        }
+      },
+      "after_byproducts": [],
+      "fuel_units": 0,
+      "consumes_existing_station": false
+    },
+    {
+      "recipe_id": "create:crafting/kinetics/mechanical_press",
+      "at_station": "minecraft:crafting_table",
+      "before": "unavailable",
+      "after_inputs": [
+        {
+          "item": "create:andesite_casing",
+          "count": 1
+        },
+        {
+          "tag": "forge:storage_blocks/iron",
+          "count": 1
+        },
+        {
+          "item": "create:shaft",
+          "count": 1
+        }
+      ],
+      "after_output": {
+        "kind": "item",
+        "id": "create:mechanical_press",
+        "count": 1
+      },
+      "after_byproducts": [],
+      "fuel_units": 0,
+      "consumes_existing_station": false
+    },
+    {
+      "recipe_id": "create:pressing/iron_ingot",
+      "at_station": "create:mechanical_press",
+      "before": "unavailable",
+      "after_inputs": [
+        {
+          "tag": "forge:ingots/iron",
+          "count": 1
+        }
+      ],
+      "after_output": {
+        "kind": "item",
+        "id": "create:iron_sheet",
+        "count": 1
+      },
+      "after_byproducts": [],
+      "fuel_units": 0,
+      "consumes_existing_station": false
+    },
+    {
+      "recipe_id": "create:pressing/gold_ingot",
+      "at_station": "create:mechanical_press",
+      "before": "unavailable",
+      "after_inputs": [
+        {
+          "tag": "forge:ingots/gold",
+          "count": 1
+        }
+      ],
+      "after_output": {
+        "kind": "item",
+        "id": "create:golden_sheet",
+        "count": 1
+      },
+      "after_byproducts": [],
+      "fuel_units": 0,
+      "consumes_existing_station": false
+    },
+    {
+      "recipe_id": "createdeco:pressing/industrial_iron_sheet",
+      "at_station": "create:mechanical_press",
+      "before": "unavailable",
+      "after_inputs": [
+        {
+          "item": "createdeco:industrial_iron_ingot",
+          "count": 1
+        }
+      ],
+      "after_output": {
+        "kind": "item",
+        "id": "createdeco:industrial_iron_sheet",
+        "count": 1
+      },
+      "after_byproducts": [],
+      "fuel_units": 0,
+      "consumes_existing_station": false
+    },
+    {
+      "recipe_id": "create:crafting/kinetics/shaft",
+      "at_station": "minecraft:crafting_table",
+      "before": "unavailable",
+      "after_inputs": [
+        {
+          "item": "create:andesite_alloy",
+          "count": 2
+        }
+      ],
+      "after_output": {
+        "kind": "item",
+        "id": "create:shaft",
+        "count": 8
+      },
+      "after_byproducts": [],
+      "fuel_units": 0,
+      "consumes_existing_station": false
+    },
+    {
+      "recipe_id": "create:item_application/andesite_casing_from_log",
+      "at_station": "minecraft:crafting_table",
+      "before": "unavailable",
+      "after_inputs": [
+        {
+          "tag": "forge:stripped_logs",
+          "count": 1
+        },
+        {
+          "item": "create:andesite_alloy",
+          "count": 1
+        }
+      ],
+      "after_output": {
+        "kind": "item",
+        "id": "create:andesite_casing",
+        "count": 1
+      },
+      "after_byproducts": [],
+      "fuel_units": 0,
+      "consumes_existing_station": false
+    },
+    {
+      "recipe_id": "create:item_application/andesite_casing_from_wood",
+      "at_station": "minecraft:crafting_table",
+      "before": "unavailable",
+      "after_inputs": [
+        {
+          "tag": "forge:stripped_wood",
+          "count": 1
+        },
+        {
+          "item": "create:andesite_alloy",
+          "count": 1
+        }
+      ],
+      "after_output": {
+        "kind": "item",
+        "id": "create:andesite_casing",
+        "count": 1
+      },
+      "after_byproducts": [],
+      "fuel_units": 0,
+      "consumes_existing_station": false
+    },
+    {
+      "recipe_id": "the_deeper_void:void_refinery_casing_recipe",
+      "at_station": "minecraft:crafting_table",
+      "before": "unavailable",
+      "after_inputs": [
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 6
+        },
+        {
+          "item": "minecraft:iron_bars",
+          "count": 3
+        }
+      ],
+      "after_output": {
+        "kind": "item",
+        "id": "the_deeper_void:void_refinery_casing",
+        "count": 2
+      },
+      "after_byproducts": [],
+      "fuel_units": 0,
+      "consumes_existing_station": false
+    },
+    {
+      "recipe_id": "the_deeper_void:void_refinery_control_recipe",
+      "at_station": "minecraft:crafting_table",
+      "before": "unavailable",
+      "after_inputs": [
+        {
+          "item": "mcore:steel_ingot",
+          "count": 2
+        },
+        {
+          "item": "minecraft:redstone_block",
+          "count": 1
+        },
+        {
+          "item": "the_deeper_void:tungsten_ingot",
+          "count": 2
+        },
+        {
+          "item": "the_deeper_void:void_refinery_casing",
+          "count": 1
+        },
+        {
+          "item": "minecraft:repeater",
+          "count": 2
+        },
+        {
+          "item": "minecraft:gold_ingot",
+          "count": 1
+        }
+      ],
+      "after_output": {
+        "kind": "item",
+        "id": "the_deeper_void:void_refinery_control_pad",
+        "count": 1
+      },
+      "after_byproducts": [],
+      "fuel_units": 0,
+      "consumes_existing_station": false
+    },
+    {
+      "recipe_id": "the_deeper_void:titanium_rhenium_alloy_recipe",
+      "at_station": "the_deeper_void:void_refinery_control_pad",
+      "before": "unavailable",
+      "after_inputs": [
+        {
+          "item": "mcore:titanium_ingot",
+          "count": 1
+        },
+        {
+          "item": "the_deeper_void:rhenium",
+          "count": 1
+        }
+      ],
+      "after_output": {
+        "kind": "item",
+        "id": "the_deeper_void:titanium_rhenium_alloy",
+        "count": 1
+      },
+      "after_byproducts": [
+        {
+          "kind": "item",
+          "id": "the_deeper_void:void_slag",
+          "count": 2
+        }
+      ],
+      "fuel_units": 320,
+      "consumes_existing_station": false
+    },
+    {
+      "recipe_id": "the_deeper_void:tungsten_rhenium_alloy_recipe",
+      "at_station": "the_deeper_void:void_refinery_control_pad",
+      "before": "unavailable",
+      "after_inputs": [
+        {
+          "item": "the_deeper_void:tungsten_ingot",
+          "count": 2
+        },
+        {
+          "item": "the_deeper_void:rhenium",
+          "count": 1
+        }
+      ],
+      "after_output": {
+        "kind": "item",
+        "id": "the_deeper_void:tungsten_rhenium_alloy",
+        "count": 1
+      },
+      "after_byproducts": [
+        {
+          "kind": "item",
+          "id": "the_deeper_void:void_slag",
+          "count": 2
+        }
+      ],
+      "fuel_units": 400,
+      "consumes_existing_station": false
+    },
+    {
+      "recipe_id": "the_deeper_void:netherite_rhenium_alloy_recipe",
+      "at_station": "the_deeper_void:void_refinery_control_pad",
+      "before": "unavailable",
+      "after_inputs": [
+        {
+          "item": "minecraft:netherite_ingot",
+          "count": 1
+        },
+        {
+          "item": "the_deeper_void:rhenium",
+          "count": 1
+        }
+      ],
+      "after_output": {
+        "kind": "item",
+        "id": "the_deeper_void:netherite_rhenium_alloy",
+        "count": 1
+      },
+      "after_byproducts": [
+        {
+          "kind": "item",
+          "id": "the_deeper_void:void_slag",
+          "count": 4
+        }
+      ],
+      "fuel_units": 600,
+      "consumes_existing_station": false
+    },
+    {
+      "recipe_id": "the_deeper_void:make_fuel",
+      "at_station": "minecraft:crafting_table",
+      "before": "unavailable",
+      "after_inputs": [
+        {
+          "item": "minecraft:blaze_rod",
+          "count": 10
+        },
+        {
+          "item": "minecraft:coal_block",
+          "count": 10
+        },
+        {
+          "item": "powderedup:sulfur_dust",
+          "count": 10
+        },
+        {
+          "item": "minecraft:lava_bucket",
+          "count": 1
+        }
+      ],
+      "after_output": {
+        "kind": "item",
+        "id": "the_deeper_void:refinery_fuel_cell",
+        "count": 10
+      },
+      "after_byproducts": [
+        {
+          "kind": "item",
+          "id": "minecraft:bucket",
+          "count": 1
+        }
+      ],
+      "fuel_units": 0,
+      "consumes_existing_station": false
+    }
+  ],
+  "representative_route": {
+    "station_recipe_ids": [
+      "bf1:block/telegraph",
+      "bf1:misc/tester",
+      "tacz:misc/tester",
+      "tacz:ammo_workbench"
+    ],
+    "gun_recipe_ids": [
+      "bf1:gun/db_short",
+      "tacz:gun/ak47",
+      "sfms:gun/af_46"
+    ],
+    "ammo_box_recipe_id": "tacz:iron_ammo_box",
+    "immediate_consumed_item_bill": {
+      "minecraft:copper_block": 1,
+      "minecraft:crafting_table": 1,
+      "minecraft:copper_ingot": 2,
+      "minecraft:iron_ingot": 10,
+      "create:iron_sheet": 83,
+      "create:golden_sheet": 16,
+      "minecraft:quartz": 75,
+      "minecraft:logs_tag_units": 16,
+      "minecraft:planks_tag_units": 7,
+      "the_deeper_void:tungsten_ingot": 41,
+      "create:sturdy_sheet": 15,
+      "mcore:titanium_ingot": 4,
+      "create:rose_quartz": 8
+    },
+    "expanded_bill_if_all_iron_gold_sheets_are_pressed_and_tungsten_is_blasted": {
+      "minecraft:copper_block": 1,
+      "minecraft:crafting_table": 1,
+      "minecraft:copper_ingot": 2,
+      "minecraft:iron_ingot": 93,
+      "minecraft:gold_ingot": 16,
+      "minecraft:quartz": 75,
+      "minecraft:logs_tag_units": 16,
+      "minecraft:planks_tag_units": 7,
+      "the_deeper_void:raw_tungsten": 41,
+      "create:sturdy_sheet": 15,
+      "mcore:titanium_ingot": 4,
+      "create:rose_quartz": 8
+    },
+    "outputs": {
+      "T1_station": 1,
+      "T2_station": 1,
+      "T3_station": 1,
+      "AMMO_station": 1,
+      "tacz:db_short": 1,
+      "tacz:ak47": 1,
+      "sfms:af_46": 1,
+      "loaded_rounds": 0
+    },
+    "older_stations_consumed": false,
+    "iron_press_operations": 83,
+    "gold_press_operations": 16,
+    "raw_tungsten_processing_if_all_from_raw": {
+      "items": 41,
+      "ticks": 9840,
+      "seconds_at_20tps": "492",
+      "native_furnace_xp_when_awarded": "82"
+    },
+    "not_in_bill": "Primary bill assumes an existing usable press; the separately itemized new-press setup can replace that prerequisite. No free native blast furnace,fuel,mining tool or travel is claimed. No mandatory buy-all66arsenal or monetary equivalent.",
+    "actual_days_to_acquire": null,
+    "new_press_setup_if_not_already_owned": {
+      "consumed": {
+        "create:andesite_alloy": 3,
+        "minecraft:stripped_log_or_wood_tag_unit": 1,
+        "minecraft:iron_block": 1
+      },
+      "outputs": {
+        "create:mechanical_press": 1,
+        "create:shaft_remainder": 7
+      },
+      "recipes": [
+        "create:crafting/kinetics/shaft",
+        "create:item_application/andesite_casing_from_log OR create:item_application/andesite_casing_from_wood",
+        "create:crafting/kinetics/mechanical_press"
+      ],
+      "meaning": "Optional extra one-time setup bill, not added if an existing press is used; intermediate1shaft and1casing are not counted twice."
+    }
+  },
+  "ammo_costs": [
+    {
+      "id": "tacz:ammo/12g",
+      "station": "tacz:ammo_workbench",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 10
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 5
+        },
+        {
+          "tag": "forge:nuggets/iron",
+          "count": 18
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:12g",
+        "count": 18
+      }
+    },
+    {
+      "id": "tacz:ammo/308",
+      "station": "tacz:ammo_workbench",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 20
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 9
+        },
+        {
+          "tag": "forge:gems/lapis",
+          "count": 1
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:308",
+        "count": 60
+      }
+    },
+    {
+      "id": "tacz:ammo/30_06",
+      "station": "tacz:ammo_workbench",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 14
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 5
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:30_06",
+        "count": 24
+      }
+    },
+    {
+      "id": "tacz:ammo/338",
+      "station": "tacz:ammo_workbench",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 16
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 7
+        },
+        {
+          "tag": "forge:gems/lapis",
+          "count": 3
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:338",
+        "count": 18
+      }
+    },
+    {
+      "id": "tacz:ammo/357mag",
+      "station": "tacz:ammo_workbench",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 16
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 5
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:357mag",
+        "count": 48
+      }
+    },
+    {
+      "id": "tacz:ammo/40mm",
+      "station": "tacz:ammo_workbench",
+      "inputs": [
+        {
+          "tag": "forge:ingots/iron",
+          "count": 2
+        },
+        {
+          "tag": "forge:ingots/copper",
+          "count": 6
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 8
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:40mm",
+        "count": 6
+      }
+    },
+    {
+      "id": "tacz:ammo/45acp",
+      "station": "tacz:ammo_workbench",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 7
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 2
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:45acp",
+        "count": 30
+      }
+    },
+    {
+      "id": "tacz:ammo/45_70",
+      "station": "tacz:ammo_workbench",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 10
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 3
+        },
+        {
+          "tag": "forge:gems/lapis",
+          "count": 3
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:45_70",
+        "count": 36
+      }
+    },
+    {
+      "id": "tacz:ammo/46x30",
+      "station": "tacz:ammo_workbench",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 8
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 2
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:46x30",
+        "count": 48
+      }
+    },
+    {
+      "id": "tacz:ammo/50ae",
+      "station": "tacz:ammo_workbench",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 20
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 6
+        },
+        {
+          "tag": "forge:gems/lapis",
+          "count": 3
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:50ae",
+        "count": 36
+      }
+    },
+    {
+      "id": "tacz:ammo/50bmg",
+      "station": "tacz:ammo_workbench",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 70
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 18
+        },
+        {
+          "tag": "forge:gems/lapis",
+          "count": 8
+        },
+        {
+          "tag": "forge:rods/blaze",
+          "count": 1
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:50bmg",
+        "count": 24
+      }
+    },
+    {
+      "id": "tacz:ammo/556x45",
+      "station": "tacz:ammo_workbench",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 10
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 3
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:556x45",
+        "count": 45
+      }
+    },
+    {
+      "id": "tacz:ammo/57x28",
+      "station": "tacz:ammo_workbench",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 10
+        },
+        {
+          "tag": "forge:gems/lapis",
+          "count": 3
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 2
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:57x28",
+        "count": 48
+      }
+    },
+    {
+      "id": "tacz:ammo/58x42",
+      "station": "tacz:ammo_workbench",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 10
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 3
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:58x42",
+        "count": 40
+      }
+    },
+    {
+      "id": "tacz:ammo/762x39",
+      "station": "tacz:ammo_workbench",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 10
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 3
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:762x39",
+        "count": 35
+      }
+    },
+    {
+      "id": "tacz:ammo/762x54",
+      "station": "tacz:ammo_workbench",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 8
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 3
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:762x54",
+        "count": 60
+      }
+    },
+    {
+      "id": "tacz:ammo/9mm",
+      "station": "tacz:ammo_workbench",
+      "inputs": [
+        {
+          "tag": "forge:ingots/copper",
+          "count": 6
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 2
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:9mm",
+        "count": 50
+      }
+    },
+    {
+      "id": "tacz:ammo/rpg_rocket",
+      "station": "tacz:ammo_workbench",
+      "inputs": [
+        {
+          "tag": "forge:ingots/iron",
+          "count": 2
+        },
+        {
+          "tag": "forge:ingots/copper",
+          "count": 20
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 10
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "tacz:rpg_rocket",
+        "count": 3
+      }
+    },
+    {
+      "id": "sfms:ammo/25gl",
+      "station": "sfms:ms_workbench",
+      "inputs": [
+        {
+          "tag": "forge:ingots/brass",
+          "count": 10
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 20
+        },
+        {
+          "tag": "forge:gems/lapis",
+          "count": 4
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "sfms:25gl",
+        "count": 24
+      }
+    },
+    {
+      "id": "sfms:ammo/300ms",
+      "station": "sfms:ms_workbench",
+      "inputs": [
+        {
+          "item": "minecraft:amethyst_block",
+          "count": 2
+        },
+        {
+          "tag": "forge:ingots/brass",
+          "count": 6
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 5
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "sfms:300ms",
+        "count": 60
+      }
+    },
+    {
+      "id": "sfms:ammo/50arms",
+      "station": "sfms:ms_workbench",
+      "inputs": [
+        {
+          "tag": "forge:ingots/brass",
+          "count": 20
+        },
+        {
+          "tag": "forge:gunpowder",
+          "count": 5
+        },
+        {
+          "tag": "forge:gems/lapis",
+          "count": 3
+        }
+      ],
+      "output": {
+        "kind": "ammo",
+        "id": "sfms:50arms",
+        "count": 30
+      }
+    }
+  ],
+  "gun_examples": [
+    {
+      "id": "bf1:gun/db_short",
+      "station": "bf1:telegraph",
+      "inputs": [
+        {
+          "tag": "forge:ingots/iron",
+          "count": 8
+        },
+        {
+          "tag": "minecraft:logs",
+          "count": 6
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:db_short",
+        "count": 1
+      },
+      "gun": {
+        "class": "shotgun",
+        "nameEn": "DB-2 Durin",
+        "ammoId": "tacz:12g",
+        "capacity": 2,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/db_short.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/db_short_data.json"
+      }
+    },
+    {
+      "id": "tacz:gun/ak47",
+      "station": "tacz:gun_smith_table",
+      "inputs": [
+        {
+          "tag": "forge:plates/iron",
+          "count": 38
+        },
+        {
+          "tag": "forge:gems/quartz",
+          "count": 15
+        },
+        {
+          "tag": "minecraft:logs",
+          "count": 10
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "tacz:ak47",
+        "count": 1
+      },
+      "gun": {
+        "class": "rifle",
+        "nameEn": "AKM",
+        "ammoId": "tacz:762x39",
+        "capacity": 30,
+        "indexSource": "overrides/tacz/tacz_default_gun/data/tacz/index/guns/ak47.json",
+        "dataSource": "overrides/tacz/tacz_default_gun/data/tacz/data/guns/ak47_data.json"
+      }
+    },
+    {
+      "id": "sfms:gun/af_46",
+      "station": "sfms:ms_workbench",
+      "inputs": [
+        {
+          "item": "mcore:titanium_ingot",
+          "count": 4
+        },
+        {
+          "item": "create:rose_quartz",
+          "count": 8
+        },
+        {
+          "item": "the_deeper_void:tungsten_ingot",
+          "count": 16
+        }
+      ],
+      "output": {
+        "kind": "gun",
+        "id": "sfms:af_46",
+        "count": 1
+      },
+      "gun": {
+        "class": "pistol",
+        "nameEn": "AF-46 AUTO “Swift”",
+        "ammoId": "tacz:46x30",
+        "capacity": 22,
+        "indexSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/index/guns/af_46.json",
+        "dataSource": "overrides/tacz/[Tacz1.1.5+]MS-Mobius Gunspack v1.1.5/data/sfms/data/guns/af_46_data.json"
+      }
+    }
+  ],
+  "required_follow_up_observations": [
+    "Read active HOST JAR/config and recipe counts separately from source publication.",
+    "Use ordinary inputs for real vanilla tags; reject plain or renamed carriers for source sheets/alloys, wrong GunId predecessors and old untagged components without retroactive grants.",
+    "Observe successful debit/output at each station, insufficient items, full inventory, cancellation, distance/world change, double-click/reload replay and station drop/place persistence without duplication.",
+    "Observe native tungsten ore collection, fuel debit, blast timing and furnace XP extraction only inside expedition; confirm ordinary raw iron is not accepted as raw tungsten.",
+    "Observe source-container one-time sharing and any newly accessible city containers without rerolls, plus origin inventory/XP restoration and blocked export.",
+    "If a supported economy tool becomes available, compare fresh per-currency ledger windows for indirect other-plugin hooks; do not infer this from local Paper tests.",
+    "Observe native refinery input+fuel debit and alloy+slag+partial-cell outputs atomically;0energy deletion,partial-first spending,reload/replay,insufficient fuel and full-slot refusal must not refill cells or lose/change inputs.",
+    "Observe ten-cell fuel batch returns only the original empty bucket and consumes the exact10typed sulfur,10coal blocks,10blaze rods and lava; native source sulfur acquisition remains a material availability prerequisite.",
+    "Observe guarded columbite migration at actual source coordinates,correct diamond-tier tool,independent ore drops,0native miningXP and finite world claim; ordinary lookalike emerald ore remains ordinary."
+  ],
+  "refinery_contract": {
+    "station_recipe_id": "the_deeper_void:void_refinery_control_recipe",
+    "station_immediate_input_bill": [
+      {
+        "item": "mcore:steel_ingot",
+        "count": 2
+      },
+      {
+        "item": "minecraft:redstone_block",
+        "count": 1
+      },
+      {
+        "item": "the_deeper_void:tungsten_ingot",
+        "count": 2
+      },
+      {
+        "item": "the_deeper_void:void_refinery_casing",
+        "count": 1
+      },
+      {
+        "item": "minecraft:repeater",
+        "count": 2
+      },
+      {
+        "item": "minecraft:gold_ingot",
+        "count": 1
+      }
+    ],
+    "station_bill_with_new_casing_batch": {
+      "minecraft:iron_ingot": 6,
+      "minecraft:iron_bars": 3,
+      "mcore:steel_ingot": 2,
+      "minecraft:redstone_block": 1,
+      "the_deeper_void:tungsten_ingot": 2,
+      "minecraft:repeater": 2,
+      "minecraft:gold_ingot": 1
+    },
+    "new_casing_batch_remainder": {
+      "the_deeper_void:void_refinery_casing": 1
+    },
+    "original_full_formation": {
+      "the_deeper_void:void_refinery_control_pad": 1,
+      "the_deeper_void:void_refinery_bottom_casing": 9,
+      "the_deeper_void:void_refinery_pressure_tank": 8,
+      "the_deeper_void:void_refinery_casing": 5
+    },
+    "original_full_formation_if_all_parts_are_new_source_crafts": {
+      "minecraft:iron_ingot": 60,
+      "minecraft:iron_bars": 54,
+      "create:zinc_ingot": 36,
+      "minecraft:copper_ingot": 36,
+      "mcore:steel_ingot": 2,
+      "minecraft:redstone_block": 1,
+      "the_deeper_void:tungsten_ingot": 6,
+      "minecraft:repeater": 2,
+      "minecraft:gold_ingot": 1,
+      "minecraft:redstone": 4
+    },
+    "original_full_formation_casing_remainder": 1,
+    "native_omitted_additional_capital_bill_vs_original_source_batches": {
+      "minecraft:iron_ingot": 54,
+      "minecraft:iron_bars": 51,
+      "create:zinc_ingot": 36,
+      "minecraft:copper_ingot": 36,
+      "the_deeper_void:tungsten_ingot": 4,
+      "minecraft:redstone": 4
+    },
+    "timing": {
+      "source_seconds_without_upgrade": {
+        "titanium": 80,
+        "tungsten": 100,
+        "netherite": 150
+      },
+      "native": "instant atomic menu craft; source waits not enforced",
+      "source_sequential_one_of_each_seconds": 330,
+      "native_maximum_crafts_per_hour": null
+    },
+    "fuel_batch": {
+      "recipe_id": "the_deeper_void:make_fuel",
+      "inputs": [
+        {
+          "item": "minecraft:blaze_rod",
+          "count": 10
+        },
+        {
+          "item": "minecraft:coal_block",
+          "count": 10
+        },
+        {
+          "item": "powderedup:sulfur_dust",
+          "count": 10
+        },
+        {
+          "item": "minecraft:lava_bucket",
+          "count": 1
+        }
+      ],
+      "output_cells": 10,
+      "energy_per_cell": 1000,
+      "total_energy": 10000,
+      "byproducts": [
+        {
+          "kind": "item",
+          "id": "minecraft:bucket",
+          "count": 1
+        }
+      ],
+      "lava_mB_per_cell": 100,
+      "bucket_is_container_return": true,
+      "source_superheated_mixer_enforced": false,
+      "native": "ordinary crafting table, original per-cell item and lava ratios retained"
+    },
+    "energy_retention_examples": {
+      "three_titanium_from_one_cell": {
+        "consumed": 960,
+        "remaining": 40
+      },
+      "two_tungsten_from_one_cell": {
+        "consumed": 800,
+        "remaining": 200
+      },
+      "one_netherite_from_one_cell": {
+        "consumed": 600,
+        "remaining": 400
+      },
+      "one_each_alloy": {
+        "consumed": 1320,
+        "full_cells_if_starting_fresh": 2,
+        "one_partial_remainder": 680
+      }
+    },
+    "daily_scenario_energy_consumed": [
+      0,
+      1320,
+      5280
+    ],
+    "daily_scenario_slag_produced": [
+      0,
+      8,
+      32
+    ],
+    "daily_scenario_rhenium_consumed": [
+      0,
+      3,
+      12
+    ],
+    "daily_scenario_energy_remainder_if_starting_one_new_10000_unit_batch": [
+      10000,
+      8680,
+      4720
+    ],
+    "slag_recycling_or_redemption_included": false,
+    "AF57_example_additional_beyond_T3_and_refinery_station": {
+      "source_recipe": "sfms:gun/af_57",
+      "consumed": {
+        "mcore:titanium_ingot": 2,
+        "the_deeper_void:rhenium": 2,
+        "the_deeper_void:tungsten_ingot": 24,
+        "create:rose_quartz": 8,
+        "refinery_energy_units": 640
+      },
+      "outputs": {
+        "sfms:af_57": 1,
+        "the_deeper_void:void_slag": 4,
+        "loaded_rounds": 0
+      },
+      "additional_raw_tungsten_if_table25_and_new_pad2_also_needed": 51,
+      "native_refining_XP": "0"
+    }
+  }
+}

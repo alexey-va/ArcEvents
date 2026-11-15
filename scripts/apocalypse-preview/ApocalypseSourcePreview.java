@@ -13,7 +13,7 @@ class ApocalypseSourcePreview {
 
     public static void main(String[] args) throws Exception {
         var output = Path.of(args[0]); Files.createDirectories(output);
-        var assets = ApocalypseStructureAssets.Companion.load(Path.of(args[1]), Path.of(args[2]), Path.of(args[3]));
+        var assets = ApocalypseStructureAssets.Companion.load(Path.of(args[1]), Path.of(args[2]), Path.of(args[3]), null, List.of());
         var generator = new ApocalypseOriginalLayout(68200133L, assets);
         var preview = new ApocalypseSourcePreview(output);
         var starter = generator.structure(generator.getStarter());
@@ -71,7 +71,7 @@ class ApocalypseSourcePreview {
     }
 
     private void city(ApocalypseOriginalLayout generator) throws Exception {
-        var center = generator.sitesNear(0,0).stream().filter(s -> s.getKind() == ApocalypseSiteKind.CITY).findFirst().orElseThrow();
+        var center = generator.sitesNear(0,0).stream().filter(s -> s.getKind() == ApocalypseSiteKind.CITY && !s.getId().equals("city.waterfront")).findFirst().orElseThrow();
         int cx0=Math.floorDiv(center.getAnchor().getX(),16)-2, cz0=Math.floorDiv(center.getAnchor().getZ(),16)-2;
         int sx=80, sz=80, sy=82, minY=69;
         short[] blocks=new short[sx*sy*sz];

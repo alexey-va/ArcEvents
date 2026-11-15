@@ -21,10 +21,15 @@ import org.bukkit.inventory.ItemStack
 import org.bukkit.inventory.Inventory
 import org.bukkit.loot.LootContext
 import ru.ruscrafting.events.domain.apocalypse.source.ApocalypseSourceLootDrop
+import ru.ruscrafting.events.domain.apocalypse.source.ApocalypseSourceItemIdentity
+import ru.ruscrafting.events.domain.apocalypse.source.ApocalypseWorkbenchRecipes
+import ru.ruscrafting.events.domain.apocalypse.source.ApocalypseWorkbenchStation
 import org.bukkit.persistence.PersistentDataType
 import org.bukkit.plugin.java.JavaPlugin
 import ru.arc.core.LifecycleTaskScope
 import ru.arc.paper.network.BackendTransfer
+import ru.arc.paper.display.PaperPacketDisplays
+import ru.arc.paper.chunk.PaperChunkTicketRegistry
 import ru.arc.paper.playerstate.PaperPlayerStateService
 import ru.arc.paper.playerstate.PaperPlayerStateCodec
 import ru.arc.paper.playerstate.PaperLocationSnapshot
@@ -54,6 +59,11 @@ private data class ApocalypseCheckpoint(
     val looted: Set<String> = emptySet(),
 )
 
+private data class ApocalypseGuideRoutes(
+    val supplies: List<GuideRoute>, val exit: GuideRoute?, val city: GuideRoute?, val weapons: GuideRoute?,
+    val structure: GuideRoute?, val workbench: GuideRoute?,
+)
+
 /** Permanent survival is independent of the finite arcade match roster, and owns its entire inventory boundary. */
 class ApocalypseRuntime(
     private val plugin: JavaPlugin,
@@ -67,6 +77,8 @@ class ApocalypseRuntime(
     private val queued: (UUID) -> CompletableFuture<Boolean>,
     private val returnToOrigin: (Player, String) -> Boolean,
     private val sourceLayout: ApocalypseLayout? = null,
+    packetDisplays: PaperPacketDisplays? = null,
+    chunkTickets: PaperChunkTicketRegistry,
 ) : Listener, AutoCloseable {
     private val options = ApocalypseSettings.load(plugin.dataFolder.resolve("apocalypse.yml"))
     private val host = config().nodeMode == NodeMode.HOST
@@ -81,10 +93,14 @@ class ApocalypseRuntime(
     private val playerSaves = mutableMapOf<UUID, CompletableFuture<Unit>>()
     private val bars = mutableMapOf<UUID, BossBar>()
     private val guideRequests = mutableSetOf<UUID>()
+    private val joining = mutableSetOf<UUID>()
     private val guideSnapshots = mutableMapOf<UUID, ApocalypseGuideSnapshot>()
     private val trackedGuides = mutableMapOf<UUID, GuideTarget>()
+    private val automaticGuides = mutableSetOf<UUID>()
+    private val supplySeen = NamespacedKey(plugin, "apocalypse_supply_seen_v1")
     private val guide: ApocalypseGuide = ApocalypseGuide(plugin, locale, ::openGuide, ::trackGuide, ::leave,
-        dialogsEnabled = { config().ui.dialogsEnabled })
+        dialogsEnabled = { config().ui.dialogsEnabled },
+        canFly = { it.hasPermission("arcevents.admin") }, toggleFly = ::toggleAdminFlight)
     private val actors = linkedMapOf<String, UUID>()
     private val pendingChunks = ArrayDeque<Chunk>()
     private data class SourceTileJob(val chunk: Chunk, val entries: Iterator<ru.ruscrafting.events.domain.apocalypse.source.ApocalypseSourceBlockEntity>)
@@ -99,7 +115,25 @@ class ApocalypseRuntime(
     private var committedSpawns = emptySet<String>()
     private val stocked = NamespacedKey(plugin, "apocalypse_stocked")
     private val originalStocked = NamespacedKey(plugin, "apocalypse_original_loot_v1")
-    private val lootItems = ApocalypseLootItems(plugin, locale, firearms)
+    private val workbenchRecipes = ApocalypseWorkbenchRecipes.load()
+    private val workbenchCrafting = ApocalypseWorkbenchCrafting(plugin, locale, firearms, workbenchRecipes)
+    private val workbenches = ApocalypseWorkbenchStations(plugin, { world }) {
+        ready && isPlaying(it.uniqueId) && !isBusy(it.uniqueId)
+    }
+    private val workbenchMenu = ApocalypseWorkbenchMenu(plugin, locale, workbenchRecipes, workbenchCrafting) {
+        config().ui.dialogsEnabled
+    }
+    private val atmosphere = ApocalypseAtmosphere(plugin)
+    private val workbenchDisplays = packetDisplays?.let { displays ->
+        ApocalypseWorkbenchDisplays(displays, workbenches) { ready && isPlaying(it.uniqueId) }
+    }
+    private val sourceMining = ApocalypseSourceMining(plugin, work, chunkTickets, { world },
+        active = { ready && isPlaying(it.uniqueId) && !isBusy(it.uniqueId) && !checkpointPending },
+        dropFactory = { player, itemId, count -> workbenchCrafting.sourceItem(ApocalypseSourceItemIdentity(itemId), count, player) },
+        claimed = { it in state.looted }, claim = ::claimOre, requiredTool = { player, source ->
+            message(player, if (source == "the_deeper_void:columbite") "mining.diamond-tool" else "mining.required-tool")
+        })
+    private val lootItems = ApocalypseLootItems(plugin, locale, firearms, workbenchRecipes)
     private val actorId = NamespacedKey(plugin, "apocalypse_actor")
     private val actorVariant = NamespacedKey(plugin, "apocalypse_variant")
     private val actorSource = NamespacedKey(plugin, "apocalypse_source")
@@ -130,7 +164,7 @@ class ApocalypseRuntime(
     fun isPlaying(id: UUID): Boolean = id in active
     fun isBusy(id: UUID): Boolean = id in busy
     fun allowsRecoveryCommand(player: Player, command: String): Boolean {
-        if (!isBusy(player.uniqueId) || player.uniqueId in playerOperations || player.uniqueId in recoveryOperations) return false
+        if (!isBusy(player.uniqueId) || player.uniqueId in joining || player.uniqueId in playerOperations || player.uniqueId in recoveryOperations) return false
         val parts = command.removePrefix("/").trim().lowercase().split(Regex("\\s+"))
         if (parts.firstOrNull() !in setOf("arcevents", "arcevents:arcevents")) return false
         return parts.drop(1) == listOf("leave") || parts.drop(1) in listOf(listOf("apocalypse", "leave"), listOf("apocalypse", "recover"))
@@ -185,10 +219,19 @@ class ApocalypseRuntime(
         }
         opened = true
         plugin.server.pluginManager.registerEvents(this, plugin)
+        if (host) {
+            workbenches.register()
+            workbenchDisplays?.register(plugin)
+            sourceMining.register()
+            workbenches.registerTungstenBlasting(
+                workbenchCrafting.sourceItem(ApocalypseSourceItemIdentity("the_deeper_void:raw_tungsten")),
+                workbenchCrafting.sourceItem(ApocalypseSourceItemIdentity("the_deeper_void:tungsten_ingot")))
+        }
         tasks.runTimer(1, 1) { tick() }
         tasks.runTimer(1, 100) { if (host) network.advertise(ready).exceptionally { failure -> log("heartbeat", failure); null } }
         if (host) plugin.server.onlinePlayers.forEach { player ->
-            if (players[player.uniqueId]?.phase?.let { it != ApocalypsePlayerPhase.PARKED } == true) busy += player.uniqueId
+            joining += player.uniqueId
+            if (pendingApocalypseInventory(player)) busy += player.uniqueId
             reconcileJoin(player)
         }
     }
@@ -197,6 +240,7 @@ class ApocalypseRuntime(
     fun command(player: Player, arguments: List<String>): Boolean {
         val action = arguments.firstOrNull()?.lowercase()
         if (action != "apocalypse" && !isPlaying(player.uniqueId) && !isBusy(player.uniqueId)) return false
+        if (player.uniqueId in joining) { message(player, "pending"); return true }
         if (isBusy(player.uniqueId)) {
             val recovery = action == "leave" || action == "apocalypse" && arguments.getOrNull(1)?.lowercase() in setOf("leave", "recover")
             if (recovery && player.uniqueId !in playerOperations && player.uniqueId !in recoveryOperations) retryRecovery(player)
@@ -208,6 +252,8 @@ class ApocalypseRuntime(
         if (isPlaying(player.uniqueId) && action in setOf(null, "menu", "help")) { openGuide(player); return true }
         if (action == "apocalypse") {
             when (arguments.getOrNull(1)?.lowercase()) {
+                "fly" -> toggleAdminFlight(player)
+                "bench" -> workbenchMenu.command(player, arguments.drop(2))
                 "guide", "help" -> openGuide(player)
                 "track" -> {
                     val target = arguments.getOrNull(2)?.uppercase()?.let { runCatching { GuideTarget.valueOf(it) }.getOrNull() }
@@ -264,6 +310,94 @@ class ApocalypseRuntime(
         return true
     }
 
+    private fun toggleAdminFlight(player: Player) {
+        if (!host || !isPlaying(player.uniqueId) || isBusy(player.uniqueId) || player.world != world ||
+            !player.hasPermission("arcevents.admin")) {
+            message(player, "fly.denied")
+            return
+        }
+        val enabled = !player.allowFlight
+        player.allowFlight = enabled
+        player.isFlying = enabled
+        player.fallDistance = 0f
+        message(player, if (enabled) "fly.enabled" else "fly.disabled")
+    }
+
+    private fun openWorkbench(player: Player, block: org.bukkit.block.Block, station: ApocalypseWorkbenchStation) {
+        val point = ApocalypsePoint(block.x, block.y, block.z)
+        val origin = players[player.uniqueId]?.origin ?: return
+        workbenchMenu.open(player, station,
+            canUse = { players[player.uniqueId]?.origin == origin && workbenches.isUsable(player, point, station) },
+            onCraft = { actor, recipe -> craft(actor, point, station, recipe, origin) },
+            onVanillaCraft = if (station != ApocalypseWorkbenchStation.CRAFTING) null else { actor ->
+                if (players[actor.uniqueId]?.origin == origin && workbenches.isUsable(actor, point, station))
+                    actor.openWorkbench(block.location, false)
+            })
+    }
+
+    /** A new native session fences the accepted post-craft snapshot without another durable format. */
+    private fun craft(player: Player, point: ApocalypsePoint, station: ApocalypseWorkbenchStation, recipeId: String,
+        origin: ru.arc.paper.playerstate.PaperPlayerStateEnvelope) {
+        val id = player.uniqueId
+        val record = players[id]
+        val recipe = workbenchRecipes.find(recipeId)
+        if (record?.phase != ApocalypsePlayerPhase.ACTIVE || record.origin != origin ||
+            !ownsNativeInventory(player, record) || !workbenches.isUsable(player, point, station) ||
+            recipe == null || !workbenchRecipes.availableAt(recipeId, station) || !player.itemOnCursor.isEmpty) {
+            workbenchMenu.complete(player, recipeId, WorkbenchFeedback.UNAVAILABLE)
+            return
+        }
+        val plan = try { workbenchCrafting.plan(recipe, player.inventory.storageContents, player) }
+        catch (failure: Throwable) {
+            log("workbench-plan player=$id recipe=$recipeId", failure)
+            workbenchMenu.complete(player, recipeId, WorkbenchFeedback.UNAVAILABLE)
+            return
+        }
+        if (plan !is ApocalypseWorkbenchCraftResult.Ready) {
+            workbenchMenu.complete(player, recipeId,
+                if (plan is ApocalypseWorkbenchCraftResult.Full) WorkbenchFeedback.FULL else WorkbenchFeedback.MISSING)
+            return
+        }
+        val session = record.nativeSession
+        val after: ru.arc.paper.playerstate.PaperPlayerStateSnapshot
+        val accepted: ApocalypsePlayerRecord
+        try {
+            after = playerStates.capture(player, System.currentTimeMillis()).copy(storage = plan.afterStorage)
+            accepted = record.copy(expedition = PaperPlayerStateCodec().encode(after), nativeSession = UUID.randomUUID().toString())
+        } catch (failure: Throwable) {
+            log("workbench-capture player=$id recipe=$recipeId", failure)
+            workbenchMenu.complete(player, recipeId, WorkbenchFeedback.UNAVAILABLE)
+            return
+        }
+        if (!busy.add(id)) return
+        playerOperations += id
+        savePlayer(accepted).thenCompose { work.onMain {
+            // A quick reconnect has a different native Player. Its join reconciles the committed journal.
+            if (!opened || !player.isOnline || plugin.server.getPlayer(id) !== player) return@onMain
+            check(players[id] == accepted && player.world == world &&
+                player.persistentDataContainer.get(nativeSession, PersistentDataType.STRING) == session)
+            playerStates.restoreInventoryAndVerify(player, after)
+            player.persistentDataContainer.set(nativeSession, PersistentDataType.STRING, requireNotNull(accepted.nativeSession))
+            player.saveData()
+            busy -= id
+            workbenchMenu.complete(player, recipeId, WorkbenchFeedback.CRAFTED)
+        } }.whenComplete { _, failure -> work.onMain {
+            if (!currentPlayer(player)) return@onMain
+            playerOperations -= id
+            if (failure != null) {
+                log("workbench-craft player=$id recipe=$recipeId", failure)
+                if (plugin.server.getPlayer(id) === player && player.isOnline) message(player, "restore-pending")
+            }
+        } }
+    }
+
+    private fun claimOre(id: String): CompletableFuture<Boolean> {
+        if (!ready || checkpointPending || id in state.looted) return CompletableFuture.completedFuture(false)
+        state = state.copy(looted = state.looted + id)
+        checkpoint()
+        return saving.thenApply { true }
+    }
+
     fun qaStatus(): String = "ARCEVENTS_APOCALYPSE ready=$ready world=${world?.key ?: "-"} day=${rules.dayAt(state.survival.worldTick)} tick=${state.survival.worldTick} players=${active.size} busy=${busy.size} enemies=${actors.size} hordes=${state.hordes.values.count { it.horde != null }} switches=${state.switches.size} spawners=${state.spawners.size} bunker_enemies=${actors.keys.count { ":bunker:" in it }} generation=$template spawn_x=${layout.spawn.x} spawn_y=${layout.spawn.y} spawn_z=${layout.spawn.z} tile_failures=$sourceTileFailures"
 
     fun status(player: Player) {
@@ -280,10 +414,37 @@ class ApocalypseRuntime(
         val from = ApocalypsePoint(player.location.blockX, player.location.blockY, player.location.blockZ)
         if (snapshot.route(target, from) == null) message(player, "guide.route-unavailable")
         else {
+            automaticGuides -= player.uniqueId
             trackedGuides[player.uniqueId] = target
             val tracking = snapshot.copy(tracked = target)
             guideSnapshots[player.uniqueId] = tracking
-            guide.trackingHud(player, tracking)?.let { player.sendMessage(it) }
+            guide.announceRoute(player, tracking)
+        }
+    }
+
+    private fun unopenedSupplies(player: Player): List<ApocalypseMarker> {
+        val original = layout as? ApocalypseOriginalLayout ?: return emptyList()
+        val seen = player.persistentDataContainer.get(supplySeen, PersistentDataType.STRING)
+            ?.takeIf { it.startsWith("${world?.uid}|") }?.substringAfter('|')?.split(',')?.toSet().orEmpty()
+        return original.starterSupplyMarkers.filter { "${it.x}:${it.y}:${it.z}" !in seen }
+    }
+
+    private fun updateNavigation(player: Player) {
+        val id = player.uniqueId
+        if (id in trackedGuides && id !in automaticGuides) return
+        val inside = isInStarter(player)
+        val next = if (inside) {
+            if (unopenedSupplies(player).isNotEmpty()) GuideTarget.SUPPLIES else GuideTarget.EXIT
+        } else guideSnapshots[id]?.surfaceTarget() ?: GuideTarget.CITY
+        if (trackedGuides[id] == next && id in guideSnapshots) return
+        prepareGuide(player) { snapshot ->
+            val target = if (inside) next else snapshot.surfaceTarget() ?: return@prepareGuide
+            if (id in trackedGuides && id !in automaticGuides) return@prepareGuide
+            automaticGuides += id
+            trackedGuides[id] = target
+            val tracking = snapshot.copy(tracked = target)
+            guideSnapshots[id] = tracking
+            guide.announceRoute(player, tracking)
         }
     }
 
@@ -295,12 +456,12 @@ class ApocalypseRuntime(
         if (!guideRequests.add(player.uniqueId)) return
         val id = player.uniqueId
         val x = player.location.blockX; val z = player.location.blockZ
-        val claimed = state.looted.toSet()
+        val unvisited = unopenedSupplies(player).map(::markerId).toSet()
         work.compute {
             val original = layout as? ApocalypseOriginalLayout
             val supplies = (original?.starterSupplyMarkers ?: layout.markers(layout.starter)
                 .filter { it.kind.name in setOf("LOOT", "MEDICAL") }).map {
-                    GuideRoute(ApocalypsePoint(it.x, it.y, it.z), lootClaimId(it) in claimed)
+                    GuideRoute(ApocalypsePoint(it.x, it.y, it.z), markerId(it) !in unvisited)
                 }
             val sites = layout.sitesNear(x, z)
             val city = sites.firstOrNull { it.kind == ApocalypseSiteKind.CITY }?.anchor?.let(::GuideRoute)
@@ -309,8 +470,14 @@ class ApocalypseRuntime(
                     if (original == null) it.kind.name in setOf("ARMORY", "CORE")
                     else it.lootTable?.let(original.lootCatalog::hasFirearm) == true
                 }?.let { GuideRoute(ApocalypsePoint(it.x, it.y, it.z)) } }
-            Triple(supplies, original?.starterExit?.let(::GuideRoute) ?: GuideRoute(layout.starter.anchor), city to weapons)
+            val structure = sites.asSequence().filter { it.kind != ApocalypseSiteKind.STARTER_BUNKER }.take(12)
+                .firstNotNullOfOrNull { site -> layout.markers(site).firstOrNull {
+                    it.kind.name in setOf("LOOT", "MEDICAL", "ARMORY", "CORE")
+                }?.let { GuideRoute(ApocalypsePoint(it.x, it.y, it.z)) } }
+            ApocalypseGuideRoutes(supplies, original?.starterExit?.let(::GuideRoute) ?: GuideRoute(layout.starter.anchor),
+                city, weapons, structure, original?.starterCraftingTable?.let(::GuideRoute))
         }.whenComplete { routes, failure -> work.onMain {
+            if (!currentPlayer(player)) return@onMain
             guideRequests -= id
             if (failure != null) { log("guide-plan", failure); if (player.isOnline) message(player, "unavailable"); return@onMain }
             if (!opened || !player.isOnline || !isPlaying(id) || isBusy(id) || player.world != world) return@onMain
@@ -326,20 +493,24 @@ class ApocalypseRuntime(
                 player.inventory.storageContents.sumOf { item -> if (item != null &&
                     (firearms.isWorldAmmunition(item) || item.isSimilar(ItemStack.of(Material.IRON_NUGGET)))) item.amount else 0 },
                 isInStarter(player),
-                routes.first, routes.second, routes.third.first, routes.third.second, trackedGuides[id])
+                routes.supplies.map { route -> route.copy(claimed = unopenedSupplies(player).none {
+                    it.x == route.point.x && it.y == route.point.y && it.z == route.point.z
+                }) }, routes.exit, routes.city, routes.weapons, trackedGuides[id],
+                workbench = routes.workbench, structure = routes.structure)
             guideSnapshots[id] = snapshot
             show(snapshot)
         } }
     }
 
     fun enter(player: Player, originServer: String = config().serverId, queueChecked: Boolean = false) {
+        if (player.uniqueId in joining) { message(player, "pending"); return }
         if (!queueChecked) {
             if (!busy.add(player.uniqueId)) { message(player, "pending"); return }
             playerOperations += player.uniqueId
             queued(player.uniqueId).whenComplete { inQueue, failure -> work.onMain {
+                if (!currentPlayer(player)) return@onMain
                 playerOperations -= player.uniqueId
                 busy -= player.uniqueId
-                if (!player.isOnline) return@onMain
                 if (failure != null) { log("queue-check", failure); message(player, "unavailable") }
                 else if (inQueue) { message(player, "occupied"); rejectArrival(player, originServer) }
                 else enter(player, originServer, queueChecked = true)
@@ -352,31 +523,43 @@ class ApocalypseRuntime(
         }
         if (!host) {
             busy += player.uniqueId
-            network.enter(player).whenComplete { sent, failure -> work.onMain {
+            network.enter(player) { currentPlayer(player) }.whenComplete { sent, failure -> work.onMain {
+                if (!currentPlayer(player)) return@onMain
                 busy -= player.uniqueId
                 if (failure != null) log("transfer", failure)
                 if (failure != null || sent != true) message(player, "unavailable")
             } }
             return
         }
-        if (isPlaying(player.uniqueId) || !busy.add(player.uniqueId)) return
+        if (isPlaying(player.uniqueId) || isBusy(player.uniqueId)) return
+        val previous: ApocalypsePlayerRecord?
+        val destination: PaperLocationSnapshot?
+        try {
+            previous = players[player.uniqueId]?.let { record ->
+                if (record.phase == ApocalypsePlayerPhase.PARKED) record.copy(expedition = normalizeExpedition(record.expedition)) else record
+            }
+            destination = previous?.takeIf { it.phase == ApocalypsePlayerPhase.PARKED }?.expedition?.let { PaperPlayerStateCodec().decode(it).location }
+        } catch (failure: Throwable) {
+            log("entry-plan player=${player.uniqueId}", failure)
+            message(player, "unavailable")
+            return
+        }
+        if (!busy.add(player.uniqueId)) return
         playerOperations += player.uniqueId
-        val previous = players[player.uniqueId]?.let { record -> record.copy(expedition = normalizeExpedition(record.expedition)) }
         if (previous != null && previous.phase != ApocalypsePlayerPhase.PARKED) {
             playerOperations -= player.uniqueId; recoverOrigin(player, previous); return
         }
         val target = requireNotNull(world)
-        val destination = previous?.expedition?.let { PaperPlayerStateCodec().decode(it).location }
         val targetX = destination?.x?.let { floor(it).toInt() } ?: layout.spawn.x
         val targetZ = destination?.z?.let { floor(it).toInt() } ?: layout.spawn.z
         target.getChunkAtAsync(targetX shr 4, targetZ shr 4, true).thenCompose {
             work.onMain {
-                check(opened && player.isOnline && !player.isDead && !occupied(player.uniqueId))
+                check(opened && currentPlayer(player) && !player.isDead && !occupied(player.uniqueId))
                 val record = ApocalypsePlayerRecord(player.uniqueId.toString(), originServer, ApocalypsePlayerPhase.ACTIVE,
                     playerStates.captureEnvelope(player, System.currentTimeMillis()), previous?.expedition,
                     nativeSession = UUID.randomUUID().toString())
                 savePlayer(record).thenCompose { work.onMain {
-                    check(opened && player.isOnline && !player.isDead && !occupied(player.uniqueId))
+                    check(opened && currentPlayer(player) && !player.isDead && !occupied(player.uniqueId))
                     moving += player.uniqueId
                     try {
                         if (record.expedition != null) playerStates.restoreAndVerify(player, record.expedition, target) { p, at -> p.teleport(at) }
@@ -397,6 +580,7 @@ class ApocalypseRuntime(
                         }
                         // Only a completely applied loadout receives a native admission marker.
                         player.persistentDataContainer.set(nativeSession, PersistentDataType.STRING, requireNotNull(record.nativeSession))
+                        constrainExpeditionFlight(player)
                         player.saveData()
                         players[player.uniqueId] = record
                         active += player.uniqueId
@@ -406,6 +590,7 @@ class ApocalypseRuntime(
                 } }
             }.thenCompose { it }
         }.whenComplete { _, failure -> work.onMain {
+            if (!currentPlayer(player)) return@onMain
             playerOperations -= player.uniqueId
             if (failure != null) {
                 // A committed origin or partially applied native restore must stay frozen until replay.
@@ -422,11 +607,14 @@ class ApocalypseRuntime(
             return
         }
         if (!isPlaying(player.uniqueId) || record.phase != ApocalypsePlayerPhase.ACTIVE || record.origin == null) return
-        if (player.isDead || !busy.add(player.uniqueId)) { message(player, "pending"); return }
+        if (player.isDead || isBusy(player.uniqueId)) { message(player, "pending"); return }
+        val exiting = try { record.copy(phase = ApocalypsePlayerPhase.RETURNING, expedition = captureExpedition(player)) }
+        catch (failure: Throwable) { log("leave-capture player=${player.uniqueId}", failure); message(player, "unavailable"); return }
+        if (!busy.add(player.uniqueId)) return
+        workbenchMenu.forget(player)
         playerOperations += player.uniqueId
-        val exiting = record.copy(phase = ApocalypsePlayerPhase.RETURNING,
-            expedition = captureExpedition(player))
         savePlayer(exiting).thenCompose { work.onMain { recoverOrigin(player, exiting) } }.whenComplete { _, failure -> work.onMain {
+            if (!currentPlayer(player)) return@onMain
             playerOperations -= player.uniqueId
             if (failure != null) { log("leave player=${player.uniqueId}", failure); message(player, "restore-pending") }
         } }
@@ -434,23 +622,39 @@ class ApocalypseRuntime(
 
     private fun retryRecovery(player: Player) {
         if (!recoveryOperations.add(player.uniqueId)) return
+        val pending = playerSaves[player.uniqueId]
         work.compute { storage!!.load(player.uniqueId) }.whenComplete { record, failure -> work.onMain {
+            if (!currentPlayer(player)) return@onMain
             recoveryOperations -= player.uniqueId
             if (failure != null) { log("recovery-read player=${player.uniqueId}", failure); message(player, "restore-pending") }
-            else if (record == null || record.phase == ApocalypsePlayerPhase.PARKED) busy -= player.uniqueId
-            else if (record.phase == ApocalypsePlayerPhase.ACTIVE && ownsNativeInventory(player, record)) {
-                // The native expedition still exists after an unacknowledged leave write: capture it again.
-                val exiting = record.copy(phase = ApocalypsePlayerPhase.RETURNING, expedition = captureExpedition(player))
-                playerOperations += player.uniqueId
-                savePlayer(exiting).thenCompose { work.onMain { recoverOrigin(player, exiting) } }.whenComplete { _, problem -> work.onMain {
-                    playerOperations -= player.uniqueId
-                    if (problem != null) { log("recovery-save", problem); message(player, "restore-pending") }
-                } }
-            } else { players[player.uniqueId] = record; recoverOrigin(player, record) }
+            else {
+                if (record == null) players.remove(player.uniqueId) else players[player.uniqueId] = record
+                if (pending?.isDone == true) playerSaves.remove(player.uniqueId, pending)
+                when (joinRecovery(player, record)) {
+                    ApocalypseJoinRecovery.NONE -> {
+                        busy -= player.uniqueId
+                        if (record?.returnPending == true) attemptReturn(player, record)
+                    }
+                    ApocalypseJoinRecovery.QUARANTINE -> message(player, "restore-pending")
+                    ApocalypseJoinRecovery.ORIGIN -> recoverOrigin(player, requireNotNull(record))
+                    ApocalypseJoinRecovery.RESUME -> {
+                        // The native expedition still exists after an unacknowledged leave write: capture it again.
+                        val exiting = try { requireNotNull(record).copy(phase = ApocalypsePlayerPhase.RETURNING, expedition = captureExpedition(player)) }
+                        catch (problem: Throwable) { log("recovery-capture player=${player.uniqueId}", problem); message(player, "restore-pending"); return@onMain }
+                        playerOperations += player.uniqueId
+                        savePlayer(exiting).thenCompose { work.onMain { recoverOrigin(player, exiting) } }.whenComplete { _, problem -> work.onMain {
+                            if (!currentPlayer(player)) return@onMain
+                            playerOperations -= player.uniqueId
+                            if (problem != null) { log("recovery-save", problem); message(player, "restore-pending") }
+                        } }
+                    }
+                }
+            }
         } }
     }
 
     private fun recoverOrigin(player: Player, record: ApocalypsePlayerRecord) {
+        if (!currentPlayer(player)) return
         if (!recoveryOperations.add(player.uniqueId)) return
         if (!player.isOnline || player.isDead) {
             recoveryOperations -= player.uniqueId
@@ -465,15 +669,20 @@ class ApocalypseRuntime(
             active -= player.uniqueId
             guideSnapshots.remove(player.uniqueId)
             trackedGuides.remove(player.uniqueId)
+            automaticGuides.remove(player.uniqueId)
             bars.remove(player.uniqueId)?.let(player::hideBossBar)
-            val parked = record.copy(phase = ApocalypsePlayerPhase.PARKED, origin = null,
+            // Retain the root envelope after return: native saveData has no disk acknowledgement.
+            // A stale native expedition marker on a later login can replay this exact origin.
+            val parked = record.copy(phase = ApocalypsePlayerPhase.PARKED,
                 returnPending = record.originServer != config().serverId)
             savePlayer(parked).thenCompose { work.onMain {
+                if (!currentPlayer(player)) return@onMain
                 busy -= player.uniqueId
                 recoveryOperations -= player.uniqueId
                 message(player, "returned")
                 attemptReturn(player, parked)
             } }.whenComplete { _, failure -> if (failure != null) work.onMain {
+                if (!currentPlayer(player)) return@onMain
                 recoveryOperations -= player.uniqueId
                 log("return-ack player=${player.uniqueId}", failure); message(player, "restore-pending")
             } }
@@ -484,24 +693,55 @@ class ApocalypseRuntime(
     }
 
     private fun reconcileJoin(player: Player) {
+        if (!currentPlayer(player)) return
         network.arrival(player.uniqueId).whenComplete { origin, failure -> work.onMain {
+            if (!currentPlayer(player)) return@onMain
             if (failure != null) log("arrival player=${player.uniqueId}", failure)
             if (!player.isOnline) return@onMain
-            // Consume the accepted transfer before native resume/origin replay can return the player.
-            // Otherwise the next ordinary entry is rejected by the still-live arrival ticket.
-            val record = players[player.uniqueId]
-            if (record?.phase == ApocalypsePlayerPhase.ACTIVE && ownsNativeInventory(player, record)) {
-                resumeNative(player, record)
-            } else if (record != null && record.phase != ApocalypsePlayerPhase.PARKED) {
-                busy += player.uniqueId
-                recoverOrigin(player, record)
-            } else if (failure == null && origin != null) enter(player, origin)
-            else if (record?.returnPending == true) attemptReturn(player, record)
+            // A disconnect can race an accepted craft's worker write. Wait for that generation,
+            // then read the journal: a failed/unknown write must not resume stale in-memory items.
+            val pending = playerSaves[player.uniqueId] ?: CompletableFuture.completedFuture(Unit)
+            pending.handle { _, _ -> Unit }.thenCompose { work.compute { requireNotNull(storage).load(player.uniqueId) } }
+                .whenComplete { record, readFailure -> work.onMain join@ {
+                    if (!opened || !player.isOnline || plugin.server.getPlayer(player.uniqueId) !== player) return@join
+                    if (readFailure != null) {
+                        joining -= player.uniqueId
+                        busy += player.uniqueId
+                        log("arrival-journal player=${player.uniqueId}", readFailure)
+                        message(player, "restore-pending")
+                        return@join
+                    }
+                    if (record == null) players.remove(player.uniqueId) else players[player.uniqueId] = record
+                    if (pending.isDone) playerSaves.remove(player.uniqueId, pending)
+                    joining -= player.uniqueId
+                    // Arrival was consumed before native resume or origin replay can return early.
+                    when (joinRecovery(player, record)) {
+                        ApocalypseJoinRecovery.RESUME -> resumeNative(player, requireNotNull(record))
+                        ApocalypseJoinRecovery.ORIGIN -> { busy += player.uniqueId; recoverOrigin(player, requireNotNull(record)) }
+                        ApocalypseJoinRecovery.QUARANTINE -> { busy += player.uniqueId; message(player, "restore-pending") }
+                        ApocalypseJoinRecovery.NONE -> {
+                            busy -= player.uniqueId
+                            if (failure == null && origin != null) enter(player, origin)
+                            else if (record?.returnPending == true) attemptReturn(player, record)
+                        }
+                    }
+                } }
         } }
     }
 
     private fun ownsNativeInventory(player: Player, record: ApocalypsePlayerRecord): Boolean =
         record.nativeSession != null && player.persistentDataContainer.get(nativeSession, PersistentDataType.STRING) == record.nativeSession
+
+    private fun pendingApocalypseInventory(player: Player): Boolean =
+        players[player.uniqueId]?.phase?.let { it != ApocalypsePlayerPhase.PARKED } == true ||
+            playerSaves[player.uniqueId]?.let { !it.isDone || it.isCompletedExceptionally } == true ||
+            player.persistentDataContainer.has(nativeSession)
+
+    private fun currentPlayer(player: Player): Boolean = plugin.server.getPlayer(player.uniqueId) === player && player.isOnline
+
+    private fun joinRecovery(player: Player, record: ApocalypsePlayerRecord?) = apocalypseJoinRecovery(
+        record?.phase, record?.origin != null, record?.nativeSession,
+        player.persistentDataContainer.get(nativeSession, PersistentDataType.STRING))
 
     private fun captureExpedition(player: Player): ru.arc.paper.playerstate.PaperPlayerStateEnvelope {
         var snapshot = playerStates.capture(player, System.currentTimeMillis())
@@ -522,9 +762,13 @@ class ApocalypseRuntime(
             point.y < pieces.first().bounds.minY && pieces.any { it.bounds.contains(point.x, point.y, point.z) }
     }
 
-    private fun announceArrival(player: Player) = guide.entryNotice(player, isInStarter(player))
+    private fun announceArrival(player: Player) {
+        guide.entryNotice(player, isInStarter(player) && unopenedSupplies(player).isNotEmpty())
+        updateNavigation(player)
+    }
 
     private fun resumeNative(player: Player, record: ApocalypsePlayerRecord) {
+        constrainExpeditionFlight(player)
         if (player.world == world) {
             busy -= player.uniqueId; active += player.uniqueId; announceArrival(player); return
         }
@@ -541,9 +785,17 @@ class ApocalypseRuntime(
                 active += player.uniqueId; busy -= player.uniqueId; announceArrival(player)
             } finally { moving -= player.uniqueId }
         } }.whenComplete { _, failure -> work.onMain {
+            if (!currentPlayer(player)) return@onMain
             playerOperations -= player.uniqueId
             if (failure != null) { log("native-resume", failure); message(player, "restore-pending") }
         } }
+    }
+
+    private fun constrainExpeditionFlight(player: Player) {
+        if (!player.hasPermission("arcevents.admin") && player.gameMode == GameMode.SURVIVAL) {
+            player.isFlying = false
+            player.allowFlight = false
+        }
     }
 
     private fun rejectArrival(player: Player, origin: String) {
@@ -556,6 +808,7 @@ class ApocalypseRuntime(
     }
 
     private fun attemptReturn(player: Player, record: ApocalypsePlayerRecord) {
+        if (!currentPlayer(player)) return
         if (returnToOrigin(player, record.originServer) && record.returnPending && players[player.uniqueId] == record)
             savePlayer(record.copy(returnPending = false)).exceptionally { log("return-route-ack", it); null }
     }
@@ -603,9 +856,12 @@ class ApocalypseRuntime(
                 pendingSourceTiles.removeFirst()
             }
         }
+        atmosphere.tickRepairs()
         if (step % 25L == 0L) tickStructures(active.mapNotNull(plugin.server::getPlayer).filter { it.world == world && !it.isDead })
         if (step % 20L != 0L) return
-        val survivors = active.mapNotNull(plugin.server::getPlayer).filter { it.world == world && !it.isDead && it.uniqueId !in busy }
+        val viewers = active.mapNotNull(plugin.server::getPlayer).filter { it.world == world && !it.isDead }
+        val survivors = viewers.filter { it.uniqueId !in busy }
+        workbenchDisplays?.refresh(viewers)
         actors.entries.removeIf { (_, id) -> plugin.server.getEntity(id)?.isValid != true }
         if (plugin.server.onlinePlayers.isEmpty()) return
         state = state.copy(survival = state.survival.copy(worldTick = state.survival.worldTick + 20))
@@ -613,6 +869,8 @@ class ApocalypseRuntime(
         if (survivors.isEmpty()) return
         var hordeChanged = false
         survivors.forEach { player ->
+            updateNavigation(player)
+            atmosphere.show(player, layout, step, unopenedSupplies(player))
             val key = player.uniqueId.toString()
             val nearby = survivors.count { other -> other != player && state.hordes[other.uniqueId.toString()]?.horde != null &&
                 other.location.distanceSquared(player.location) <= 625 }
@@ -765,6 +1023,10 @@ class ApocalypseRuntime(
 
     private fun prepareChunk(chunk: Chunk) {
         if (!chunk.isLoaded || chunk.world != world) return
+        if (layout is ApocalypseOriginalLayout) {
+            atmosphere.prepare(chunk, layout)
+            sourceMining.prepare(chunk, layout)
+        }
         val markers = layout.markersInChunk(chunk.x, chunk.z)
         chunkMarkers[chunk.chunkKey] = markers
         if (layout is ApocalypseOriginalLayout && !chunk.persistentDataContainer.has(sourceTilesDone)) {
@@ -808,7 +1070,8 @@ class ApocalypseRuntime(
         // Generation already caches these pure markers; interactions must not bypass finite loot meanwhile.
         val chunk = block.chunk
         val markers = chunkMarkers.getOrPut(chunk.chunkKey) { layout.markersInChunk(chunk.x, chunk.z) }
-        return markers.firstOrNull { it.x == block.x && it.y == block.y && it.z == block.z }
+        return markers.firstOrNull { it.x == block.x && it.y == block.y && it.z == block.z &&
+            (layout !is ApocalypseOriginalLayout || atmosphere.allowsMarker(chunk, layout, it)) }
     }
     private fun markerId(marker: ApocalypseMarker) = "${marker.siteId}:${marker.x}:${marker.y}:${marker.z}"
     private fun siteMarkers(marker: ApocalypseMarker): List<ApocalypseMarker> = layout.sitesNear(marker.x, marker.z)
@@ -841,6 +1104,7 @@ class ApocalypseRuntime(
 
     private fun stock(marker: ApocalypseMarker, player: Player): Boolean {
         val block = world!!.getBlockAt(marker.x, marker.y, marker.z)
+        if (layout is ApocalypseOriginalLayout && !atmosphere.allowsMarker(block.chunk, layout, marker)) return false
         val container = block.state as? Container ?: return true
         val sourceLayout = layout as? ApocalypseOriginalLayout
         val stockKey = if (sourceLayout == null) stocked else originalStocked
@@ -970,20 +1234,32 @@ class ApocalypseRuntime(
     @EventHandler(priority = EventPriority.LOWEST)
     fun onJoin(event: PlayerJoinEvent) {
         if (!host) return
-        if (players[event.player.uniqueId]?.phase?.let { it != ApocalypsePlayerPhase.PARKED } == true) busy += event.player.uniqueId
-        tasks.runLater(2) { if (event.player.isOnline) reconcileJoin(event.player) }
+        joining += event.player.uniqueId
+        if (pendingApocalypseInventory(event.player)) busy += event.player.uniqueId
+        tasks.runLater(2) { if (currentPlayer(event.player)) reconcileJoin(event.player) }
     }
     @EventHandler(priority = EventPriority.LOWEST)
     fun onQuit(event: PlayerQuitEvent) {
+        playerOperations -= event.player.uniqueId
+        recoveryOperations -= event.player.uniqueId
+        joining -= event.player.uniqueId
+        workbenchMenu.forget(event.player)
         busy -= event.player.uniqueId
         active -= event.player.uniqueId
         guideSnapshots.remove(event.player.uniqueId)
+        guideRequests.remove(event.player.uniqueId)
         trackedGuides.remove(event.player.uniqueId)
+        automaticGuides.remove(event.player.uniqueId)
         bars.remove(event.player.uniqueId)?.let(event.player::hideBossBar)
         // ACTIVE native player data stays in the expedition on disconnect; the origin journal remains intact.
     }
     @EventHandler(priority = EventPriority.MONITOR)
-    fun onChunk(event: ChunkLoadEvent) { if (event.world == world) pendingChunks.addLast(event.chunk) }
+    fun onChunk(event: ChunkLoadEvent) {
+        if (event.world != world) return
+        if (event.isNewChunk && layout is ApocalypseOriginalLayout) atmosphere.generated(event.chunk, layout)
+        if (layout is ApocalypseOriginalLayout) sourceMining.prepare(event.chunk, layout)
+        pendingChunks.addLast(event.chunk)
+    }
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     fun onUnload(event: ChunkUnloadEvent) { if (event.world == world) chunkMarkers.remove(event.chunk.chunkKey) }
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -996,6 +1272,8 @@ class ApocalypseRuntime(
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onCommand(event: PlayerCommandPreprocessEvent) {
         if (!isPlaying(event.player.uniqueId) && !isBusy(event.player.uniqueId)) return
+        if (!isBusy(event.player.uniqueId) && isApocalypseSelfFlightCommand(
+                event.player.hasPermission("arcevents.admin"), event.message)) return
         val root = event.message.removePrefix("/").substringBefore(' ').substringAfter(':').lowercase()
         if (root !in setOf("arcevents", "ae", "msg", "tell", "r", "reply", "help", "rules", "report")) {
             event.isCancelled = true; message(event.player, "leave-first")
@@ -1007,6 +1285,14 @@ class ApocalypseRuntime(
         if (isBusy(event.player.uniqueId)) { event.isCancelled = true; return }
         if (!event.action.isRightClick) return
         val block = event.clickedBlock ?: return
+        workbenches.stationAt(block)?.let { station ->
+            if (station == ApocalypseWorkbenchStation.CRAFTING && event.player.isSneaking &&
+                event.player.inventory.itemInMainHand.isEmpty) return
+            event.isCancelled = true
+            if (workbenches.isUsable(event.player, ApocalypsePoint(block.x, block.y, block.z), station))
+                openWorkbench(event.player, block, station)
+            return
+        }
         val marker = containerMarker(block) ?: return
         when (marker.kind.name) {
             "LOOT", "MEDICAL", "ARMORY", "CORE" -> if (!stock(marker, event.player)) event.isCancelled = true
@@ -1030,6 +1316,7 @@ class ApocalypseRuntime(
     fun onBreak(event: BlockBreakEvent) {
         if (event.block.world != world) return
         if (!isPlaying(event.player.uniqueId) || isBusy(event.player.uniqueId)) { event.isCancelled = true; return }
+        if (layout is ApocalypseOriginalLayout) sourceMining.prepare(event.block.chunk, layout, priority = true)
         val marker = containerMarker(event.block) ?: return
         if (marker.kind.name in setOf("POWER", "SECURITY", "FORCEFIELD")) event.isCancelled = true
         else if (marker.kind.name in setOf("LOOT", "MEDICAL", "ARMORY", "CORE") && !stock(marker, event.player)) event.isCancelled = true
@@ -1062,6 +1349,22 @@ class ApocalypseRuntime(
         if (isBusy(event.player.uniqueId) || isPlaying(event.player.uniqueId) && event.inventory.type == InventoryType.ENDER_CHEST)
             event.isCancelled = true
         if (lockedSupply(event.inventory)) event.isCancelled = true
+    }
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    fun onSupplyOpened(event: InventoryOpenEvent) {
+        val player = event.player as? Player ?: return
+        val original = layout as? ApocalypseOriginalLayout ?: return
+        if (!isPlaying(player.uniqueId) || isBusy(player.uniqueId) || player.world != world) return
+        val opened = inventoryLocations(event.inventory)
+        val visited = original.starterSupplyMarkers.filter { marker -> opened.any {
+            it.world == world && it.blockX == marker.x && it.blockY == marker.y && it.blockZ == marker.z
+        } }
+        if (visited.isEmpty()) return
+        val old = original.starterSupplyMarkers.toSet() - unopenedSupplies(player).toSet()
+        val seen = (old + visited).map { "${it.x}:${it.y}:${it.z}" }.sorted().joinToString(",")
+        player.persistentDataContainer.set(supplySeen, PersistentDataType.STRING, "${world!!.uid}|$seen")
+        guideSnapshots.remove(player.uniqueId)
+        player.saveData()
     }
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     fun onMove(event: PlayerMoveEvent) {
@@ -1150,6 +1453,11 @@ class ApocalypseRuntime(
         opened = false
         if (host) network.advertise(false)
         tasks.close()
+        workbenchDisplays?.close()
+        sourceMining.close()
+        workbenchMenu.close()
+        workbenches.close()
+        atmosphere.close()
         guide.close()
         guideRequests.clear(); guideSnapshots.clear(); trackedGuides.clear()
         bars.forEach { (id, bar) -> plugin.server.getPlayer(id)?.hideBossBar(bar) }; bars.clear()

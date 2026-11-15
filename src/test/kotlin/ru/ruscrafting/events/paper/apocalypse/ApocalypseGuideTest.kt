@@ -29,4 +29,23 @@ class ApocalypseGuideTest : StringSpec({
         outside.copy(hasGun = true, looseAmmo = 0).nextStep() shouldBe "ammo"
         outside.copy(hasGun = true).nextStep() shouldBe "shelter"
     }
+
+    "choose a real surface landmark and retain the optional workshop route" {
+        snapshot.copy(city = first, structure = second).surfaceTarget() shouldBe GuideTarget.CITY
+        snapshot.copy(structure = second).surfaceTarget() shouldBe GuideTarget.STRUCTURE
+        snapshot.surfaceTarget() shouldBe GuideTarget.WEAPONS
+        snapshot.copy(weapons = null).surfaceTarget() shouldBe null
+        snapshot.copy(workbench = second).route(GuideTarget.WORKBENCH, first.point) shouldBe second
+    }
+
+    "steering points relative to the view and yields to height guidance on arrival" {
+        val from = ApocalypsePoint(0, 71, 0)
+        val north = ApocalypsePoint(0, 71, -20)
+        guideArrow(from, north, 180f) shouldBe "↑ "
+        guideArrow(from, north, -178f) shouldBe "↑ "
+        guideArrow(from, north, 0f) shouldBe "↓ "
+        guideArrow(from, north, 90f) shouldBe "→ "
+        guideArrow(from, north, -90f) shouldBe "← "
+        guideArrow(from, ApocalypsePoint(1, 32, 0), 0f) shouldBe ""
+    }
 })

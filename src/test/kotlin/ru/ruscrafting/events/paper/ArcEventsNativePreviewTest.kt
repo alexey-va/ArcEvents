@@ -11,6 +11,10 @@ import net.kyori.adventure.text.serializer.gson.GsonComponentSerializer
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
 import org.bukkit.entity.Player
+import org.bukkit.inventory.ItemStack
+import org.bukkit.Location
+import org.bukkit.plugin.Plugin
+import ru.arc.paper.menu.PaperDialogClickContext
 import ru.arc.paper.menu.PaperDialogRuntime
 import ru.arc.paper.menu.PaperDialogScreen
 import ru.ruscrafting.events.config.ArcEventsConfig
@@ -24,6 +28,18 @@ import ru.ruscrafting.events.domain.TttTeam
 import ru.ruscrafting.events.domain.TttRole
 import ru.ruscrafting.events.domain.MatchEndReason
 import ru.ruscrafting.events.network.QueueState
+import ru.ruscrafting.events.domain.apocalypse.source.ApocalypseWorkbenchRecipes
+import ru.ruscrafting.events.domain.apocalypse.source.ApocalypseWorkbenchRecipe
+import ru.ruscrafting.events.domain.apocalypse.source.ApocalypseWorkbenchStation
+import ru.ruscrafting.events.paper.apocalypse.ApocalypseWorkbenchCrafting
+import ru.ruscrafting.events.paper.apocalypse.ApocalypseWorkbenchCraftResult
+import ru.ruscrafting.events.paper.apocalypse.ApocalypseWorkbenchMenu
+import ru.ruscrafting.events.paper.apocalypse.ApocalypseGuide
+import ru.ruscrafting.events.paper.apocalypse.ApocalypseGuideSnapshot
+import ru.ruscrafting.events.paper.apocalypse.GuideRoute
+import ru.ruscrafting.events.paper.apocalypse.GuideTarget
+import ru.ruscrafting.events.domain.apocalypse.ApocalypseInfectionStage
+import ru.ruscrafting.events.domain.apocalypse.ApocalypsePoint
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Locale
@@ -49,6 +65,30 @@ class ArcEventsNativePreviewTest : StringSpec({
                 ClientProtocolResolver { MIN_DIALOG_PROTOCOL }, { false }) { _, screen, _, _, _ -> last = screen }
             val trader = FishingTraderDialog(mockk<PaperDialogRuntime>(), service, locale, { config }, { false })
             val supply = ZombiesSupplyDialog(mockk<PaperDialogRuntime>(), service, locale)
+            val workbenchRuntime = mockk<PaperDialogRuntime>(relaxed = true)
+            every { workbenchRuntime.open(player, any(), any(), any(), any()) } answers { last = secondArg() }
+            every { workbenchRuntime.open(player, any(), any(), any()) } answers { last = secondArg() }
+            val schematics = ApocalypseWorkbenchRecipes.load()
+            val plugin = mockk<Plugin>(relaxed = true)
+            every { plugin.name } returns "ArcEvents"
+            val requirements = ApocalypseWorkbenchCrafting(plugin, locale, mockk(), schematics)
+            val crafting = mockk<ApocalypseWorkbenchCrafting>()
+            every { crafting.plan(any(), any(), player) } answers {
+                val recipe = firstArg<ApocalypseWorkbenchRecipe>()
+                ApocalypseWorkbenchCraftResult.Missing(requirements.ingredients(recipe, arrayOfNulls(36)).mapIndexed { index, it ->
+                    it.copy(available = if (index == 0) it.required else it.required / 2)
+                })
+            }
+            every { player.isOnline } returns true
+            every { player.protocolVersion } returns MIN_DIALOG_PROTOCOL
+            every { player.location } returns Location(null, 3.5, 72.0, 3.5)
+            every { player.inventory.storageContents } returns arrayOfNulls<ItemStack>(36)
+            val workbench = ApocalypseWorkbenchMenu(mockk(), locale, schematics, crafting, workbenchRuntime) { true }
+            val guide = ApocalypseGuide(plugin, locale, {}, { _, _ -> }, {}, dialogs = workbenchRuntime)
+            val routes = ApocalypseGuideSnapshot(7, 10, ApocalypseInfectionStage.HEALTHY, false, 0, false,
+                listOf(GuideRoute(ApocalypsePoint(12, 37, -11), true)), GuideRoute(ApocalypsePoint(3, 72, 3)),
+                GuideRoute(ApocalypsePoint(-193, 78, 213)), GuideRoute(ApocalypsePoint(478, 48, -376)), GuideTarget.CITY,
+                GuideRoute(ApocalypsePoint(8, 35, 12)), GuideRoute(ApocalypsePoint(120, 71, 84)))
             val exports = linkedMapOf<String, Any>()
             val legacy = LegacyComponentSerializer.builder().character('&').hexColors().build()
             val gson = GsonComponentSerializer.gson()
@@ -68,6 +108,18 @@ class ArcEventsNativePreviewTest : StringSpec({
             }
             for (language in listOf("ru", "en")) {
                 every { player.locale() } returns Locale.forLanguageTag(language)
+                workbench.open(player, ApocalypseWorkbenchStation.CRAFTING, { true }, { _, _ -> }, {})
+                save("$language-workbench-starter")
+                workbench.open(player, ApocalypseWorkbenchStation.T2, { true }, { _, _ -> })
+                save("$language-workbench-catalog")
+                last!!.buttons.first { it.id.value == "recipe_0" }.onClick.handle(mockk<PaperDialogClickContext>())
+                last!!.buttons.isEmpty() shouldBe true
+                save("$language-workbench-cost")
+                workbench.open(player, ApocalypseWorkbenchStation.REFINERY, { true }, { _, _ -> })
+                last!!.buttons.first { it.id.value == "recipe_0" }.onClick.handle(mockk<PaperDialogClickContext>())
+                save("$language-refinery-cost")
+                guide.show(player, routes)
+                save("$language-apocalypse-route")
                 menu.open(player, EventsView.Main); save("$language-root")
                 menu.open(player, EventsView.Help); save("$language-rules-index")
                 last!!.buttons.map { it.id.value }.toSet() shouldBe EventMode.entries.map { "rules_${it.id}" }.toSet()

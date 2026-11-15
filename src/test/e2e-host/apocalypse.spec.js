@@ -22,9 +22,13 @@ async function ready() {
   }, 'ArcEvents startup did not finish',60000);
 }
 async function qa(admin) {
-  const since=admin.getMessageBufferIndex(); admin.chat('/arcevents apocalypse qa');
-  await expect(admin).toHaveReceivedMessage(/^ARCEVENTS_APOCALYPSE /,{since,timeout:10000});
-  const line=admin.messageBuffer.slice(since).find(x=>x.startsWith('ARCEVENTS_APOCALYPSE '));
+  const since=admin.getMessageBufferIndex();let requestedAt=0;
+  const line=await until(()=>{
+    const response=admin.messageBuffer.slice(since).find(x=>x.startsWith('ARCEVENTS_APOCALYPSE '));
+    if(response)return response;
+    if(Date.now()-requestedAt>=250){admin.chat('/arcevents apocalypse qa');requestedAt=Date.now();}
+    return null;
+  },'Admin QA did not return typed Apocalypse state after joining',10000);
   return Object.fromEntries([...line.matchAll(/ ([a-z_]+)=(\S+)/g)].map(([,k,v])=>[k,v]));
 }
 async function players(admin,n) { await until(async()=> (await qa(admin)).players===String(n),`Expected ${n} apocalypse players`,30000); }

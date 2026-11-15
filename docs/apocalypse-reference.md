@@ -354,6 +354,11 @@ crafting progression.
 
 ## Native acceptance limits
 
+ArcEvents 0.6.5 connects source materials to weapon workbenches, a press and a
+compact refinery. See [the progression and native adaptations](apocalypse-workbenches-20261115.md)
+and [the current parity inventory](apocalypse-parity-20261115.md). It also adds a
+nearby source waterfront and guarded repairs to existing generated scenery.
+
 - The backend target is Paper/Purpur 1.21.11 with an unmodified Minecraft client,
   not Forge 1.20.1. No BetterStructures or new mod runtime is required.
 - Original external NBT/city layouts replace the prototype geometry. They do not
