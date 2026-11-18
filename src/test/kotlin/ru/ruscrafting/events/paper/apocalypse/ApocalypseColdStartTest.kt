@@ -4,6 +4,7 @@ import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkObject
 import net.kyori.adventure.text.Component
 import org.bukkit.Material
 import org.bukkit.NamespacedKey
@@ -77,11 +78,16 @@ class ApocalypseColdStartTest : FunSpec({
                     parked.origin shouldBe origin
                     PaperPlayerStateCodec().decode(requireNotNull(parked.expedition)).storage[0]?.type shouldBe Material.IRON_AXE
                     runtime.isBusy(survivor.uniqueId) shouldBe false
-                    source.complete(ApocalypseWorldLayout(68200133L))
-                    paper.performTicks(2)
+                    // MockBukkit leaves Server.getWorldContainer unimplemented.
+                    mockkObject(paper.server) {
+                        every { paper.server.worldContainer } returns root.toFile()
+                        source.complete(ApocalypseWorldLayout(68200133L))
+                        paper.performTicks(2)
+                    }
                     runtime.ready shouldBe false
                     runtime.isBusy(orphan.uniqueId) shouldBe true
                     paper.server.getWorld("arcevents_apocalypse_v2") shouldBe null
+                    Files.exists(root.resolve("arcevents_apocalypse_v2")) shouldBe false
                 }
                 Files.exists(root.resolve("data/apocalypse/world-arcevents_apocalypse_v2/world.json")) shouldBe false
             } finally { work.close(); Tasks.reset() }
