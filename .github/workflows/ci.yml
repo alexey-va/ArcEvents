@@ -109,7 +109,7 @@ jobs:
           test -n "$arc_jar"
           ./gradlew --no-daemon plugwrightTest -Pe2eArcJar="$arc_jar" -Pe2eArcCoreJar=build/e2e-runtime/ArcCore-0.1.28.jar 2>&1 | tee build/plugwright-e2e.log
           git diff --exit-code -- src/test/e2e/package-lock.json
-      - name: Test hosted GunGame, TTT and Zombies on real Paper
+      - name: Test hosted arcade modes and Apocalypse on real Paper
         env:
           # Includes asynchronous arena readiness and the complete twelve-weapon progression.
           TEST_TIMEOUT: "120000"

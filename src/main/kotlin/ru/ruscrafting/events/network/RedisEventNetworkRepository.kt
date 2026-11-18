@@ -101,7 +101,7 @@ class RedisEventNetworkRepository(
     ): CompletableFuture<QueueJoinResult> {
         val field = playerId.toString()
         return queue.update(field) { current ->
-            if (current != null && current.expiresAtMs >= nowMs) {
+            if (current != null && !current.isExpiredQueuePlace(nowMs)) {
                 val refreshed = if (
                     current.state == QueueState.QUEUED &&
                     (current.playerName != playerName || current.originServer != originServer)
@@ -123,7 +123,8 @@ class RedisEventNetworkRepository(
             when (result) {
                 is RedisHashUpdateResult.Changed -> {
                     val after = requireNotNull(result.after)
-                    if (result.before == null || requireNotNull(result.before).expiresAtMs < nowMs) QueueJoinResult.Joined(after)
+                    val before = result.before
+                    if (before == null || before.isExpiredQueuePlace(nowMs)) QueueJoinResult.Joined(after)
                     else QueueJoinResult.Existing(after)
                 }
                 is RedisHashUpdateResult.Unchanged -> QueueJoinResult.Existing(result.current)
@@ -137,7 +138,6 @@ class RedisEventNetworkRepository(
         queue.update(playerId.toString()) { current ->
             when {
                 current == null -> RedisHashDecision.Reject
-                current.expiresAtMs < nowMs -> RedisHashDecision.Delete
                 current.state != QueueState.QUEUED -> RedisHashDecision.Write(current)
                 else -> RedisHashDecision.Delete
             }
@@ -155,7 +155,7 @@ class RedisEventNetworkRepository(
 
     fun loadQueue(nowMs: Long): CompletableFuture<List<QueueEntry>> = redis.loadMap(QUEUE_KEY).thenApply { values ->
         values.values.map(queueCodec::decode)
-            .filter { it.expiresAtMs >= nowMs }
+            .filterNot { it.isExpiredQueuePlace(nowMs) }
             .sortedWith(compareBy<QueueEntry> { it.joinedAtMs }.thenBy { it.playerId })
     }
 

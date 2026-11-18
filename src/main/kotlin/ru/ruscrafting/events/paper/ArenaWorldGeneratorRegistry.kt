@@ -36,10 +36,10 @@ internal object ArenaWorldGeneratorRegistry {
                 ru.ruscrafting.events.paper.apocalypse.ApocalypseChunkGenerator(
                     template.substringAfter(':').toLong())
             template == FishingArenaGenerator.TEMPLATE -> FishingArenaGenerator()
-            // Retired generated worlds keep their chunks; new geometry uses its own marker.
-            template == "fishing-v1" || template == "fishing-v2" -> EmptyArenaChunkGenerator()
-            template == DisasterArenaGenerator.TEMPLATE -> DisasterArenaGenerator()
             template == ZombiesArenaGenerator.TEMPLATE -> ZombiesArenaGenerator()
+            // Retired generated worlds keep their chunks; new geometry uses its own marker.
+            template in setOf("fishing-v1", "fishing-v2", "fishing-v3", "zombies-zero-v1", "zombies-zero-v2") -> EmptyArenaChunkGenerator()
+            template == DisasterArenaGenerator.TEMPLATE -> DisasterArenaGenerator()
             template == TttCitadelBlueprint.TEMPLATE -> TttCitadelChunkGenerator()
             PackagedArenaTemplates.find(template) != null -> EmptyArenaChunkGenerator()
             ReviewedImportedArenaTemplates.find(template) != null -> EmptyArenaChunkGenerator()

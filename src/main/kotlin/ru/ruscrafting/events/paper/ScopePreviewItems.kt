@@ -28,9 +28,10 @@ internal fun scopePreviewItemIdentity(
     return { item ->
         val native = item.itemMeta?.persistentDataContainer?.get(nativeGunKey, PersistentDataType.STRING)
             ?.let { "arcevents:world_${it.lowercase()}" }?.takeIf { it in packedFirearms }
-        if (native != null) native
-        else if (apiIdentity != null && plugin.server.pluginManager.isPluginEnabled("ItemsAdder")) apiIdentity(item)
-        else runCatching { nativeScopePreviewItemIdentity(customData(item)) }.getOrNull()
+        // A loaded vendor item carries world_firearm too; its own identity still selects its model and magazine.
+        val vendor = if (apiIdentity != null && plugin.server.pluginManager.isPluginEnabled("ItemsAdder")) apiIdentity(item)
+            else runCatching { nativeScopePreviewItemIdentity(customData(item)) }.getOrNull()
+        vendor ?: native
     }
 }
 

@@ -3,18 +3,26 @@ package ru.ruscrafting.events.paper.apocalypse
 import ru.arc.core.BoundedAsyncExecutor
 import ru.ruscrafting.events.domain.apocalypse.ApocalypseLayout
 import ru.ruscrafting.events.domain.apocalypse.ApocalypseOriginalLayout
+import ru.ruscrafting.events.domain.apocalypse.source.ApocalypseSourceArchive
 import ru.ruscrafting.events.domain.apocalypse.source.ApocalypseStructureAssets
 import java.net.URI
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
+import java.util.concurrent.CancellationException
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.Executors
 import javax.net.ssl.HttpsURLConnection
 
 /** Original archives are data sources only. No classes, scripts or Forge runtime are loaded. */
-internal class ApocalypseContent(private val pluginRoot: Path) : AutoCloseable {
+internal class ApocalypseContent(
+    private val pluginRoot: Path,
+    private val sources: List<ApocalypseSourceArchive> = SOURCES,
+) : AutoCloseable {
     private val worker = BoundedAsyncExecutor("arc-events-original-content", 1, 16, true)
+    // Only the shared catalog fetch uses this executor. Interrupting its virtual thread closes a blocked TLS socket.
+    private val downloads = Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("arc-events-original-download").factory())
     private var catalog: CompletableFuture<ApocalypseStructureAssets>? = null
     private val layouts = mutableMapOf<Long, CompletableFuture<ApocalypseLayout>>()
 
@@ -22,7 +30,12 @@ internal class ApocalypseContent(private val pluginRoot: Path) : AutoCloseable {
     fun layout(seed: Long): CompletableFuture<ApocalypseLayout> = layouts.getOrPut(seed) {
         require(layouts.size < 16) { "Too many original apocalypse generation seeds" }
         val assets = catalog ?: worker.submit {
-            val files = SOURCES.map { ensureArchive(pluginRoot.resolve("content/apocalypse-original"), it) }
+            val files = downloads.submit<List<Path>> {
+                sources.map { source ->
+                    if (downloads.isShutdown) throw CancellationException("Original archive download stopped")
+                    ensureArchive(pluginRoot.resolve("content/apocalypse-original"), source)
+                }
+            }.get()
             ApocalypseStructureAssets.load(files[0], files[1], files[2], files.getOrNull(3), files.drop(4)).also { assets ->
                 // BlockData parsing reads the native immutable block registry, as it does on Paper generation workers.
                 val states = assets.templates.values.flatMap { it.palette }.toSet() + assets.city.sourceStates
@@ -36,13 +49,17 @@ internal class ApocalypseContent(private val pluginRoot: Path) : AutoCloseable {
         assets.thenCompose { source -> worker.submit<ApocalypseLayout> { ApocalypseOriginalLayout(seed, source) } }
     }
 
-    val closeCompletion: CompletableFuture<Unit> get() = worker.closeAsync()
-    override fun close() = worker.close()
+    fun closeAsync(): CompletableFuture<Unit> {
+        downloads.shutdownNow()
+        return worker.closeAsync()
+    }
+
+    override fun close() { closeAsync() }
 
     companion object {
         val SOURCES = ApocalypseStructureAssets.pinnedSources
 
-        internal fun ensureArchive(directory: Path, source: ru.ruscrafting.events.domain.apocalypse.source.ApocalypseSourceArchive): Path {
+        internal fun ensureArchive(directory: Path, source: ApocalypseSourceArchive): Path {
             require(source.maximumBytes in 1..350L * 1024 * 1024)
             require(!Files.isSymbolicLink(directory) && !Files.isSymbolicLink(directory.parent))
             Files.createDirectories(directory)
@@ -76,7 +93,7 @@ internal class ApocalypseContent(private val pluginRoot: Path) : AutoCloseable {
             } finally { Files.deleteIfExists(temporary) }
         }
 
-        private fun verify(path: Path, source: ru.ruscrafting.events.domain.apocalypse.source.ApocalypseSourceArchive) {
+        private fun verify(path: Path, source: ApocalypseSourceArchive) {
             require(Files.isRegularFile(path) && Files.size(path) in 1..source.maximumBytes)
             val digest = MessageDigest.getInstance("SHA-256")
             Files.newInputStream(path).use { input ->

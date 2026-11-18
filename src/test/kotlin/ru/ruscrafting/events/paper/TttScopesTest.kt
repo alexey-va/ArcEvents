@@ -373,13 +373,17 @@ class TttScopesTest : StringSpec({
         }
     }
 
-    "match aiming still refuses missing baseline creative mode and old clients" {
+    "match sights work for Creative and online players present before plugin activation" {
         ScopeFixture().use { f ->
-            f.scopes.toggle(f.player, f.target) shouldBe false
-            f.baseline()
             f.gameMode = GameMode.CREATIVE
-            f.scopes.toggle(f.player, f.target) shouldBe false
-            f.packets.isEmpty() shouldBe true
+            f.scopes.toggle(f.player, f.target) shouldBe true
+            f.models().single() shouldBe "arc:event_sights/vss_vintorez_equip_aim"
+            val native = ScopeAbilities(true, true, true, true, .05f, .1f)
+            f.native = native
+            val packet = native.packet()
+            f.scopes.rewriteAbilities(f.playerId, f.entityId, packet)
+            ScopeAbilities.read(packet) shouldBe native.copy(walkingSpeed = -.3f)
+            f.scopes.projectedZoom(f.playerId) shouldBe 3f
         }
         ScopeFixture(protocol = ClientVersion.V_1_21_2.protocolVersion).use { f ->
             f.baseline()
@@ -447,13 +451,29 @@ class TttScopesTest : StringSpec({
             f.scopes.toggle(f.player, target) shouldBe true
             f.tick(6)
             val aimed = f.filter(WrapperPlayServerSetPlayerInventory(target.heldSlot, native)) as WrapperPlayServerSetPlayerInventory
-            aimed.stack.getComponent(ComponentTypes.ITEM_MODEL) shouldBe model
-            f.scopes.hasViewmodel(f.playerId) shouldBe false
+            aimed.stack.getComponent(ComponentTypes.ITEM_MODEL).get().modelLocation.toString() shouldBe
+                "arc:event_sights/packed/gold_guns/gold_beretta_arx200_aim"
+            f.scopes.hasViewmodel(f.playerId) shouldBe true
             f.scopes.animateReload(f.player, target, 10, false) { true }.use {
                 f.tick(2)
                 val reloading = f.filter(WrapperPlayServerSetPlayerInventory(target.heldSlot, native)) as WrapperPlayServerSetPlayerInventory
                 reloading.stack.getComponent(ComponentTypes.ITEM_MODEL) shouldBe model
             }
+        }
+    }
+
+    "native Apocalypse items keep their own packet identity before the first scope toggle" {
+        ScopeFixture().use {
+            val native = gunPacketItem().also { item ->
+                val data = NBTCompound()
+                data.setTag("PublicBukkitValues", NBTCompound().also {
+                    it.setTag("arcevents:world_firearm", NBTString("RPL_20"))
+                    it.setTag("arcevents:apocalypse_source_gun", NBTString("tacz:m249"))
+                })
+                item.setComponent(ComponentTypes.CUSTOM_DATA, data)
+            }
+            firearmClientItem(native, ClientVersion.V_1_21_11.protocolVersion)
+                .getComponent(ComponentTypes.ITEM_MODEL).get().modelLocation.toString() shouldBe "arc:event_sights/rpl_20_raw"
         }
     }
 

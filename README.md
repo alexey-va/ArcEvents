@@ -49,8 +49,8 @@ Changing the generation identity requires a new world. Loaded custom generators
 use the existing coordinated-restart replacement barrier. Administrator commands:
 `/arcevents apocalypse locate [kind]`, `day <n>`; scoped QA reads use `qa` and
 `markers [kind]`. Debug-only `time <absolute ticks>` moves the world clock forward.
-After a failed transition, `/arcevents apocalypse recover` retries the stored
-origin recovery; it never issues another starter kit. Read the
+The western waterfront leads from the bunker bridge to a freight pier. Existing expeditions and player-edited lots survive this map update.
+After a failed transition, `/arcevents apocalypse recover` retries the recorded return. The host parks the expedition before transferring the player. The original backend acknowledges arrival against the return ticket in Redis (`arc:events:apocalypse:returns:v1`). Update the host and relays together for end-to-end acknowledgement. Read the
 [reference and fidelity limits](docs/apocalypse-reference.md),
 [economy assessment](docs/economy/apocalypse-20261114.md) and
 [native acceptance evidence](docs/apocalypse-original-structures-20261114.md).
@@ -77,7 +77,7 @@ players by default (configurable under `arcade`), while TTT keeps its own rules.
 Arcade wins contribute to shared match/win statistics without changing TTT karma
 or role-specific wins. Old-round projectiles cannot affect a later match.
 
-Fishing owns a generated `fishing-v3` world, configured through
+Fishing uses five harbours 384 blocks apart in the generated `fishing-v4` world. The host prepares the starting quay at startup and the next island before ferry travel. Configure the world through
 `arcade.fishing.arena.world`. It is excluded from public combat-map rotation.
 Its temporary rod, weapons, creatures and hooks leave no permanent item or XP
 reward; original player state is restored on success, defeat, evacuation and
@@ -397,22 +397,11 @@ Returning to Survival or Adventure restores the unchanged magazine rules.
 In Creative, F may play a cosmetic reload; LMB interrupts it immediately and
 fires without spending ammunition. It does not impose a reload requirement.
 
-Both complete vendor packs are recognized:21 `voxelspawns_megaflintlocks` items
-and15 `gold_guns` items. `PackedFirearms` binds exact IDs to existing class profiles
-and explicit magazine/rate overrides, without adding them to TTT's twelve-stage
-progression. The original12 retain their authored aim/reload models; added24 keep
-their own vendor models during aiming and reload instead of changing gun skins.
-Ordinary ammunition is `PAPER/24801`; match-only reserve uses `PAPER/24802`.
-Publish both additive ItemsAdder assets before activating this version.
+ArcEvents recognizes 21 `voxelspawns_megaflintlocks` items and 15 `gold_guns` items. Their identities and class profiles come from `PackedFirearms`. TTT and GunGame keep their existing twelve-stage catalog. Publish the sight models and the two ammunition textures with the plugin. Ordinary cartridges use `PAPER/24801`. Match reserve uses `PAPER/24802`.
 
-Fire mode is fixed per weapon. The current catalog fires three-round groups
-for G36 and AEK-971, four-round groups for RPL-20, and one round per trigger
-for the other weapons (shotgun pellets share that one round). If fewer rounds
-remain, the last trigger fires that shorter group and consumes only those
-rounds. Magazine capacity need not be divisible by the group size. These are
-finite groups per LMB press. Continuous automatic fire while holding LMB is not
-implemented: the vanilla 1.21.11 client sends no air-attack release/held state,
-so a server timer cannot safely infer that the trigger remains pressed.
+**Weapon controls.** Hold a gun in the main hand. LMB fires, RMB toggles aim and F reloads. Shift+F opens the settings for this item. Pick a number from one to the magazine capacity or select the whole magazine. Press LMB once to begin a selected burst and again to stop. Changing slots, reloading or leaving also stops the burst. Each round consumes ammunition when it fires. The HUD shows the selected length as ×N. Choosing the default restores the weapon's catalog behaviour, including a single discharge for shotguns.
+
+The same settings are accessible with `/arcevents burst <number|full|default>`. Administrators with `arcevents.admin` can open **Damage and spread** in the dialog or use `/arcevents admin gun <damage> <spread>`. Damage per projectile ranges from 0.1 to 40, and spread from 0 to 30 degrees. Settings persist on that item when it changes hands. `/arcevents admin gun default` clears its damage and spread overrides.
 
 Minecraft 1.21.11 inventory presentation disables the native first-person
 attack swing for recognized guns with `minecraft:swing_animation` type `none`.
@@ -546,9 +535,7 @@ living participant inside it, including the thrower.
 `/arcevents zombies` opens a compact native menu. **Play solo** reserves and starts
 only the requester with one action. **Form a squad** joins the shared queue and
 keeps the dialog open with its current roster state and creator start action.
-The host generates `arcevents_zombies_zero_v2` through `zombies-zero-v2`: a reactor,
-four cargo blocks, wide circulation routes, three upgrade/supply bays, a physical
-weapon chest and six repairable ingress windows. The previous v1 world is retained.
+The host generates the Sector Zero switchyard in `arcevents_zombies_zero_v3` with the `zombies-zero-v3` template. Paths around the reactor connect four distinct industrial buildings, three supply bays, a weapon chest and six repairable windows. Earlier worlds retain their existing chunks. Upgrades redirect the previous bundled arena names to the new worlds. For a custom world carrying an older generator marker, configure a fresh dedicated name before upgrading.
 The mode requires a Java client with native dialog support (1.21.6 or newer).
 
 Survive ten escalating waves. Runners join from wave three; waves five and ten

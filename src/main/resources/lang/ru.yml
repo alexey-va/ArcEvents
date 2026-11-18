@@ -9,6 +9,7 @@ command:
     <#8c8c8c>   Матч: <#92bed8>/arcevents status  <#8c8c8c>состав: <#92bed8>/arcevents roster
     <#8c8c8c>   Магазин: <#92bed8>/arcevents shop  <#8c8c8c>итоги: <#92bed8>/arcevents report
     <#e8dfd2>   Зомби — одному или командой: <#92bed8>/arcevents zombies
+    <#e8dfd2>   Оружие в руке <#92bed8>Shift+F <#e8dfd2>или <#92bed8>/arcevents burst
     <#e8dfd2>   Войти в мир апокалипсиса <#92bed8>/arcevents apocalypse
   unknown: '<prefix> <#c42323>Неизвестно<#8c8c8c>: <#e6fff3><input>'
   failed: '<prefix> <#ff6b61>Не удалось: <#e8dfd2><reason>'
@@ -53,6 +54,18 @@ menu:
     join-name: <#9bd48d>Встать в очередь
     join-lore:
     - <#e8dfd2>Занять место в следующем матче.
+    check-route-name: '<#ffffff>Проверить переход'
+    check-route-lore:
+    - ''
+    - '<#e8dfd2>Повторить вход в ваш матч или возврат после него.'
+    - ''
+    - '<#9bd48d>[▶] Нажмите для проверки.'
+    refresh-name: '<#ffffff>Обновить статус'
+    refresh-lore:
+    - ''
+    - '<#e8dfd2>Узнать, готова ли арена и сохранилось ли ваше место.'
+    - ''
+    - '<#9bd48d>[▶] Нажмите для обновления.'
     join-unavailable-name: '<#8c8c8c><bold>Очередь недоступна'
     join-unavailable-lore:
     - <#e8dfd2>Очередь временно недоступна. Попробуйте позже.
@@ -81,9 +94,9 @@ menu:
     evacuate-lore:
     - <#e8dfd2>Выйти из раунда и восстановить прежнее состояние игрока.
     state:
-      queued: '<#7bd88f>в очереди'
-      reserved: '<#e3b341>состав найден'
-      arrived: '<#5fb3ff>подготовка к матчу'
+      queued: '<#9bd48d>Вы в общей очереди'
+      reserved: '<#f4d87a>Место в матче есть. Ожидайте перехода.'
+      arrived: '<#92bed8>Вход подтверждён. Идёт подготовка матча.'
       matched: '<#7bd88f>в матче'
       return_pending: '<#ff9f0f>возвращение после матча'
   stats:
@@ -124,7 +137,8 @@ menu:
       - '<#f2f0e6>Количество точек зависит от выбранной арены.'
       - '<#8c8c8c>Рисунок эффекта подсказывает редкость находки.'
       - ''
-      - '<#8c8c8c>ЛКМ — огонь <#8c8c8c>F — перезарядка'
+      - '<#8c8c8c>ЛКМ — огонь · ПКМ — прицел'
+      - '<#8c8c8c>F — перезарядка · Shift+F — настройки'
     controls-name: '<#92bed8><bold>Команды'
     controls-lore:
     - <#86dcf1>/arcevents<#e8dfd2> — меню матча
@@ -143,6 +157,9 @@ menu:
       - '<#8c8c8c>   <#f2f0e6>Узел<#8c8c8c>: <#f2f0e6><server> <#8c8c8c>(<node_mode><#8c8c8c>)'
       - '<#8c8c8c>   <#f2f0e6>Хост<#8c8c8c>: <#f2f0e6><host>'
       - '<#8c8c8c>   <#f2f0e6>Состояние<#8c8c8c>: <network_state>'
+      - ''
+      - '<#e8dfd2>Урон и разброс оружия в руке'
+      - '<#92bed8>/arcevents admin gun'
     arenas-name: '<#92bed8><bold>Карты раунда'
     arenas-lore:
     - '<#8c8c8c>Готово карт: <#f2f0e6><arenas>'
@@ -351,7 +368,7 @@ queue:
   start-insufficient: <prefix> <#f4d87a>Пока не хватает игроков для старта.
   start-arena-unavailable: <prefix> <#f4d87a>Карта недоступна. Попробуйте позже.
   start-busy: <prefix> <#f4d87a>Другой матч ещё идёт.
-  start-recovery-pending: <prefix> <#f4d87a>Прошлый матч завершается. Попробуйте чуть позже.
+  start-recovery-pending: '<prefix> <#f4d87a>Дождитесь перехода или восстановления снаряжения.'
   start-network-failed: <prefix> <#ff6b61>Не удалось начать матч. Повторите попытку.
   start-not-owner: <prefix> <#f4d87a>Матч запускает создатель очереди.
   arena-selected: '<prefix> <#7bd88f>Карта следующего раунда: <arena><#f2f0e6>.'
@@ -464,6 +481,28 @@ body:
   hit-body: '<#f2f0e6>в корпус'
 
 weapon:
+  settings:
+    burst-title: '<#ffb277>Режим стрельбы'
+    tuning-title: '<white>Настройка оружия'
+    held: '<weapon>'
+    burst-help: '<#e8dfd2>Выберите число патронов за нажатие. Повторный ЛКМ остановит выбранную очередь.'
+    single-help: '<#e8dfd2>Магазин вмещает один патрон. Нажмите ЛКМ для выстрела.'
+    tuning-help: '<#e8dfd2>Настройки сохраняются на предмете в руке. Урон указан для одного снаряда.'
+    count: '<white>Патронов за нажатие'
+    damage: '<white>Урон за снаряд · 0,1–40'
+    spread: '<white>Разброс · 0–30°'
+    save: '<#9bd48d>Сохранить'
+    full: '<white>До конца магазина'
+    default-burst: '<white>Штатная очередь'
+    default-tuning: '<white>Вернуть штатные значения'
+    tune: '<#86dcf1>Урон и разброс ›'
+    hold: '<prefix> <#e8dfd2>Возьмите доступное оружие в основную руку.'
+    changed: '<prefix> <#ffb277>Предмет изменился. Откройте настройки заново.'
+    burst-command: '<prefix> <#e8dfd2>Длина очереди от 1 до <capacity>.<newline>  <#92bed8>/arcevents burst число<newline>  <#e8dfd2>Весь магазин — <#92bed8>full<#e8dfd2>, штатная очередь — <#92bed8>default'
+    admin-command: '<prefix> <#e8dfd2>Урон за снаряд 0,1–40, разброс 0–30°.<newline>  <#92bed8>/arcevents admin gun урон разброс<newline>  <#e8dfd2>Штатные значения — <#92bed8>/arcevents admin gun default'
+    burst-saved: '<prefix> <#9bd48d>Патронов за нажатие — <rounds>.'
+    tuning-saved: '<prefix> <#9bd48d>Урон — <damage> · разброс — <spread>°.'
+    hud-count: '  <#f4d7a1>×<rounds>'
   sound-preset-original: 'Исходные'
   sound-preset-sharp: 'Хлёсткий'
   sound-preset-heavy: 'Тяжёлый'
@@ -487,7 +526,8 @@ weapon:
     - '<#8c8c8c>Магазин: <#f2f0e6><loaded>/<#f2f0e6><magazine>'
     - '<#8c8c8c>Урон: <#f2f0e6><damage> <#8c8c8c>дальность: <#f2f0e6><range>'
     - ''
-    - '<#e3b341>ЛКМ<#f2f0e6> — огонь  <#e3b341>ПКМ<#f2f0e6> — прицел вкл/выкл  <#e3b341>F<#f2f0e6> — перезарядка'
+    - '<#e3b341>ЛКМ<#f2f0e6> — огонь  <#e3b341>ПКМ<#f2f0e6> — прицел'
+    - '<#e3b341>F<#f2f0e6> — перезарядка  <#e3b341>Shift+F<#f2f0e6> — настройки'
   rarity:
     common: '<#8c8c8c>Обычное оружие'
     uncommon: '<#7bd88f>Необычное оружие'
@@ -508,7 +548,7 @@ weapon:
   ammo-hud-reserve: '<#9eabb8>  запас <reserve></#9eabb8>'
   ammo-hud-creative: '<#9de1e8>∞  Без расхода</#9de1e8>'
   ammo-hud-controls: '<#d9e0e6><white>ЛКМ</white> Огонь  <white>ПКМ</white> Прицел</#d9e0e6>'
-  ammo-hud-reload: '<#d9e0e6><white>F</white> Перезарядка</#d9e0e6>'
+  ammo-hud-reload: '<#d9e0e6><white>F</white> Перезарядка  <white>Shift+F</white> Режим</#d9e0e6>'
   ammo-hud-reloading: '<#ffd080><white>F</white> Перезарядка…</#ffd080>'
   ammo-hud-empty: '<#ff8b82>Пусто  <white>F</white> Перезарядка</#ff8b82>'
   creative-ammo-actionbar: '<weapon>  <#ffffff>∞  <#aaaaaa>Боеприпасы не расходуются'
@@ -602,7 +642,7 @@ admin:
   arena-selection-failed: '<prefix> <#c42323>Карту <arena> нельзя выбрать: она не готова или матч уже идёт.'
   started: '<prefix> <#2bba43>Резервирование состава запущено.'
   start-failed: '<prefix> <#c42323>В очереди недостаточно игроков.'
-  start-recovery-pending: '<prefix> <#ff9f0f>Сначала завершите восстановление состояния.'
+  start-recovery-pending: '<prefix> <#f4d87a>Дождитесь перехода или восстановления снаряжения.'
   busy: '<prefix> <#ff9f0f>HOST занят другим матчем.'
   network-failed: '<prefix> <#c42323>Redis не подтвердил резерв.'
   stopped: '<prefix> <#2bba43>Матч остановлен. Идёт восстановление.'
@@ -767,7 +807,7 @@ arcade:
   zombies-briefing: <#ffb277>Выдержите <waves> волн.<newline>  <#e8dfd2>ЛКМ — огонь · ПКМ — прицел · F — перезарядка
   gungame-briefing: <#ffb277>Новое оружие за устранение. Последний — нож.<newline>  <#e8dfd2>ЛКМ — огонь · ПКМ — прицел · F — перезарядка
   disasters-briefing: <#ffb277>Выживайте и уходите от меток ударов.
-  fishing-briefing: <#86dcf1>Возьмите удочку и забросьте у причала.
+  fishing-briefing: <#86dcf1>Идите по настилу к буям. Возьмите удочку.
   zombies-solo-name: <#9bd48d>Играть одному
   zombies-solo-lore:
   - <#e8dfd2>Начать отдельный матч только для вас.
@@ -775,7 +815,7 @@ arcade:
   zombies-team-lore:
   - <#e8dfd2>Встать в общую очередь и запустить отряд здесь.
 fishing:
-  start: <#86dcf1>Забросьте удочку в отмеченную воду у причала.
+  start: <#86dcf1>С конца причала забросьте крючок между буями.
   catch: '<#86dcf1>Улов: <catches>. <#e8dfd2>ПКМ по земле — выпустить.'
   complete: "<newline>  <#7bd88f>Экспедиция завершена. Все пять трофеев сданы.<newline>"
   creature-defeated: '<#9bd48d>Улов побеждён. <#e8dfd2>Рыба в слоте 5: ПКМ по торговцу.'
@@ -814,14 +854,16 @@ fishing:
   food-full: "<#e3b341>Здоровье и сытость уже полные."
   inventory-full: "<#e3b341>Освободите место для покупки."
   purchase-failed: "<#e3b341>Покупка недоступна. Проверьте жетоны экспедиции и открытый остров."
-  hud: <#86dcf1>Остров <stage>/<total> <#ffffff>· Улов <catches>/<needed> · <coins> жет.
+  hud: <#86dcf1><island> <#ffffff>· <stage>/<total> · улов <catches>/<needed> · <coins> жет.
   quest-ready: "<#7bd88f>Задание выполнено. Получите особую наживку у торговца."
   quest-bait: "<#67d7ff>Особая наживка на крючке: выловите босса."
-  travel-unlocked: "<newline>  <#7bd88f>Трофей принят. Путь к следующему острову открыт.<newline>"
-  travel-started: "<#67d7ff>Остров <stage> открыт. У торговца появился новый ассортимент."
-  travel-marker: "<#67d7ff>Следующий остров"
+  travel-unlocked: "<newline>  <#7bd88f>Трофей принят. Идите под бирюзовый флаг.<newline>"
+  travel-started: "<#67d7ff>Остров <stage> · <island>"
+  travel-marker: "<#67d7ff>Переправа<newline><#e8dfd2>Встаньте под флаг"
   trader-marker: <#f4d87a>Торговец<newline><#e8dfd2>ПКМ — обмен и припасы
-  invalid-catch: "<#e3b341>Забрасывайте крючок в отмеченную воду у причала."
+  invalid-catch: "<#e3b341>С конца причала цельтесь между буями."
+  reel-now: "<#f4d87a>Клюёт! Нажмите ПКМ, чтобы подсечь."
+  travel-retry: "<#e3b341>Переправа задержалась. Подойдите к флагу ещё раз."
   encounter-restored: "<#7bd88f>Схватка восстановлена."
   telegraph: "<#d84a4a>Сейчас удар! Отойдите от метки дальше чем на <radius> блока."
   phase:
@@ -837,7 +879,7 @@ fishing:
   rod-name: "<#67d7ff>Удочка экспедиции"
   rod-lore:
     - ""
-    - "<#e8dfd2>Уровень <rod-level>. Забрасывайте в отмеченную воду у причала."
+    - "<#e8dfd2>Уровень <rod-level>. Забрасывайте между буями."
     - ""
     - "<#e8dfd2>Улов придётся одолеть, прежде чем скормить или съесть."
     - ""
@@ -884,7 +926,7 @@ fishing:
     shotgun-name: "<#e3b341>Двустволка"
     shotgun-description: "Дробь сильна вблизи; два выстрела до перезарядки."
     burst_rifle-name: <#ffb277>G36
-    burst_rifle-description: "Короткие очереди: за нажатие расходуются три патрона."
+    burst_rifle-description: "Штатная очередь — три патрона. Shift+F меняет её длину."
     assault_rifle-name: <#ffb277>АЕК-971
     assault_rifle-description: "Более быстрые и точные очереди для поздних островов."
     sniper-name: <#ffb277>McMillan
@@ -1029,6 +1071,10 @@ dialog:
   ready: <#e8dfd2>Матча пока нет
   busy: <#ffb277>Идёт матч
   unavailable: <#ff6b61>События недоступны
+  arena-pending: '<#f4d87a>Арена пока не готова.'
+  read-failed: '<#ff6b61>Не удалось проверить ваше участие.'
+  other-match: '<#f4d87a>Вы участвуете в другом событии.'
+  linked-match: '<#92bed8>За вами закреплено место в матче.'
   queue-facts: <#e8dfd2>В очереди <#ffffff><queue><#e8dfd2> · Для старта <#ffffff><minimum>–<maximum>
   queue-status: <#e8dfd2><queue_state>
   ttt-overview: <#ffb277>Найдите предателей среди игроков.
@@ -1119,7 +1165,7 @@ dialog:
   start-insufficient: <#f4d87a>Пока не хватает игроков для старта.
   start-arena-unavailable: <#f4d87a>Карта недоступна. Попробуйте позже.
   start-busy: <#f4d87a>Другой матч ещё идёт.
-  start-recovery-pending: <#f4d87a>Прошлый матч завершается. Попробуйте чуть позже.
+  start-recovery-pending: '<#f4d87a>Дождитесь перехода или восстановления снаряжения.'
   start-network-failed: <#ff6b61>Не удалось начать матч. Повторите попытку.
   start-not-owner: <#f4d87a>Матч запускает создатель очереди.
   start-client-unsupported: <#e3b341>Для экспедиции нужны включённые диалоги и клиент Java 1.21.6 или новее.
@@ -1146,7 +1192,12 @@ apocalypse:
   mining:
     required-tool: '<#ffb277>Вольфрамовую руду добывают железной, алмазной или незеритовой киркой.'
     diamond-tool: '<#ffb277>Для колумбита нужна алмазная или незеритовая кирка.'
-  occupied: '<#ffb277>Сейчас войти нельзя. Завершите текущую игру или попробуйте позже, если мир заполнен.'
+  occupied: '<#ffb277>Завершите матч или дождитесь возврата вещей.'
+  queued: '<#ffb277>Вы в очереди на матч.<newline>  <#e8dfd2>Чтобы выйти, введите <#92bed8>/arcevents leave<#e8dfd2>.'
+  route-pending: '<#ffb277>Сначала завершите переход.<newline>  <#e8dfd2>В меню события нажмите «Проверить переход».'
+  queue-read-failed: '<#ffb277>Не удалось проверить участие в событиях.<newline>  <#e8dfd2>Попробуйте войти ещё раз.'
+  respawn-first: '<#ffb277>Возродитесь, чтобы войти в Апокалипсис.'
+  full: '<#ffb277>Мир Апокалипсиса заполнен. Попробуйте позже.'
   pending: '<#e8dfd2>Идёт переход между мирами.'
   unavailable: '<#ffb277>Мир апокалипсиса сейчас недоступен.'
   denied: '<#ffb277>Эта команда доступна администратору мира. Для смены дня укажите число от 1 до 10000.'
@@ -1185,7 +1236,7 @@ apocalypse:
       address: '<bearing><newline><#382b21>X <x> Y <y> Z <z>'
       track: '<#235a76><underlined>Отметить ориентир'
       weapons: '<#382b21>Топор — для ближнего боя. Для стрельбы носите патроны. Ящики с деталями открывайте ломом.'
-      controls: '<#324855>ЛКМ — огонь<newline>ПКМ — прицел<newline>F — перезарядка'
+      controls: '<#324855>ЛКМ — огонь<newline>ПКМ — прицел<newline>F — перезарядка<newline>Shift+F — настройки'
       workbench: '<#382b21>На оружейных столах I, II и III собирают разное оружие. Подойдите к столу и нажмите ПКМ.'
       parts: '<#382b21>В рецепте видно, каких деталей не хватает в рюкзаке. Ящики с деталями в бункерах открываются ломом.'
       health: '<#382b21>Четыре стадии заражения. Вакцина лечит и защищает на время. Золотое яблоко тоже лечит.'
@@ -1260,7 +1311,7 @@ apocalypse:
     kit-gun: '<#e8dfd2>У вас есть оружие. Запасных патронов <white><ammo></white>.'
     kit-axe: '<#e8dfd2>Топор пригодится в ближнем бою. Запасных патронов <white><ammo></white>.'
     weapons-help: '<#e8dfd2>Ищите оружие в городах и бункерах. Оружейное хранилище открывается рукой. Для ящиков с деталями нужен лом.'
-    controls: '<#92bed8>ЛКМ <white>огонь · <#92bed8>ПКМ <white>прицел · <#92bed8>F <white>перезарядка'
+    controls: '<#92bed8>ЛКМ <white>огонь · <#92bed8>ПКМ <white>прицел · <#92bed8>F <white>перезарядка<newline><#92bed8>Shift+F <white>настройки оружия'
     health-title: '<#ffb277><bold>Заражение'
     health-help: '<#e8dfd2>Удар зомби может заразить. У инфекции четыре стадии. Вакцина лечит и ненадолго защищает от новых укусов. Золотое яблоко тоже лечит.'
     horde-title: '<#ffb277><bold>Орда · день <day>'

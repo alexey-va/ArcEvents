@@ -29,7 +29,8 @@ async function ready() {
   await until(async () => {
     const log = await readFile(new URL('../../../build/plugwright-host/logs/latest.log', import.meta.url), 'utf8');
     assert.doesNotMatch(log, /ArcEvents startup preparation failed closed|ArcEvents failed closed during startup/);
-    return /ArcEvents enabled .*arenaReady=true redisConnected=true/.test(log);
+    assert.doesNotMatch(log, /ArcEvents apocalypse world-start .* failed/);
+    return /ArcEvents Apocalypse ready world=\S+ generator=apocalypse-original-v1/.test(log);
   }, 'ArcEvents host startup did not finish', 60000);
 }
 

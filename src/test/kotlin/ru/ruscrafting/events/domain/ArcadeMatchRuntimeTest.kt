@@ -111,19 +111,19 @@ class ArcadeMatchRuntimeTest : StringSpec({
         val c = Clock(); val runtime = ArcadeMatchRuntime(c::read)
         runtime.start(UUID.randomUUID(), EventMode.GUN_GAME, players(3), ArcadeRules(2, 16, 0, 0, 30, spawnProtectionSeconds = 0))
         runtime.tick(); val ids = runtime.current!!.participants.keys.toList(); val killer = ids[0]; val victim = ids[1]
-        runtime.eliminate(victim, killer)
+        runtime.eliminate(victim, killer, firearmId = FirearmId.FLINTLOCK)
         runtime.current!!.participants.getValue(killer).stage shouldBe 1
         c.now = 10_000
-        repeat(FirearmId.entries.size - 1) {
+        FirearmId.entries.drop(1).forEach { firearm ->
             c.now += 3_000
             runtime.respawn(victim)
             c.now += 3_000
-            runtime.eliminate(victim, killer)
+            runtime.eliminate(victim, killer, firearmId = firearm)
         }
         c.now += 3_000
         runtime.respawn(victim)
         c.now += 3_000
-        runtime.eliminate(victim, killer, knifeKill = false)
+        runtime.eliminate(victim, killer, firearmId = FirearmId.MCMILLAN)
         runtime.phase shouldBe MatchPhase.ACTIVE
         c.now += 3_000
         runtime.respawn(victim)
@@ -178,8 +178,8 @@ class ArcadeMatchRuntimeTest : StringSpec({
         runtime.start(UUID.randomUUID(), EventMode.GUN_GAME, players(3), ArcadeRules(2, 16, 0, 0, 30, spawnProtectionSeconds = 0))
         runtime.tick()
         val ids = runtime.current!!.participants.keys.toList()
-        runtime.eliminate(ids[1], ids[0])
-        runtime.eliminate(ids[2], ids[0])
+        runtime.eliminate(ids[1], ids[0], firearmId = FirearmId.FLINTLOCK)
+        runtime.eliminate(ids[2], ids[0], firearmId = FirearmId.REVOLVER)
         c.now = 30_000
         runtime.tick().phase shouldBe MatchPhase.RESOLVING
         runtime.current!!.winners shouldContainExactlyInAnyOrder listOf(ids[0])

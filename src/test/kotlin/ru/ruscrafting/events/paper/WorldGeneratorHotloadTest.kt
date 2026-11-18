@@ -12,7 +12,7 @@ import java.util.concurrent.CompletionException
 
 class WorldGeneratorHotloadTest : FunSpec({
     test("every retained plugin generator blocks code replacement") {
-        for (owned in listOf(FishingArenaGenerator(), DisasterArenaGenerator(), TttCitadelChunkGenerator(), EmptyArenaChunkGenerator())) {
+        for (owned in listOf(ZombiesArenaGenerator(), FishingArenaGenerator(), DisasterArenaGenerator(), TttCitadelChunkGenerator(), EmptyArenaChunkGenerator())) {
             val world = mockk<World> {
                 every { generator } returns owned
                 every { name } returns "retained-world"

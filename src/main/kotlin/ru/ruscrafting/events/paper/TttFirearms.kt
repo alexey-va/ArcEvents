@@ -29,8 +29,52 @@ class TttFirearms(
     private val firearmKey = NamespacedKey(plugin, "firearm")
     private val loadedKey = NamespacedKey(plugin, "loaded_rounds")
     private val worldAmmoKey = NamespacedKey(plugin, "world_ammunition")
+    private val worldLoadedKey = NamespacedKey(plugin, "world_loaded_rounds")
+    private val burstKey = NamespacedKey(plugin, "burst_size")
+    private val damageKey = NamespacedKey(plugin, "item_damage")
+    private val spreadKey = NamespacedKey(plugin, "item_spread")
 
     fun spec(id: FirearmId): FirearmSpec = settings().weapons.spec(id)
+
+    internal fun selectedBurst(item: ItemStack, base: FirearmSpec): Int? =
+        item.persistentDataContainer.get(burstKey, PersistentDataType.INTEGER)?.takeIf { it in 1..base.magazineSize }
+
+    internal fun tunedSpec(item: ItemStack, base: FirearmSpec): FirearmSpec {
+        val pdc = item.persistentDataContainer
+        if (!pdc.has(damageKey) && !pdc.has(spreadKey)) return base
+        return base.copy(
+            damagePerPellet = pdc.get(damageKey, PersistentDataType.DOUBLE)?.takeIf { it in 0.1..40.0 } ?: base.damagePerPellet,
+            spreadDegrees = pdc.get(spreadKey, PersistentDataType.DOUBLE)?.takeIf { it in 0.0..30.0 } ?: base.spreadDegrees,
+        )
+    }
+
+    internal fun setBurst(item: ItemStack, base: FirearmSpec, size: Int?): ItemStack = item.clone().also { copy ->
+        require(size == null || size in 1..base.magazineSize)
+        copy.editMeta { meta ->
+            if (size == null) meta.persistentDataContainer.remove(burstKey)
+            else meta.persistentDataContainer.set(burstKey, PersistentDataType.INTEGER, size)
+        }
+    }
+
+    internal fun setTuning(item: ItemStack, base: FirearmSpec, damage: Double, spread: Double): ItemStack = item.clone().also { copy ->
+        require(damage in 0.1..40.0 && spread in 0.0..30.0)
+        copy.editMeta { meta ->
+            val pdc = meta.persistentDataContainer
+            if (damage == base.damagePerPellet) pdc.remove(damageKey) else pdc.set(damageKey, PersistentDataType.DOUBLE, damage)
+            if (spread == base.spreadDegrees) pdc.remove(spreadKey) else pdc.set(spreadKey, PersistentDataType.DOUBLE, spread)
+        }
+    }
+
+    /** A vendor or source-loot item can own its name and lore. Replace only rows matching ArcEvents' old values. */
+    internal fun refreshWorldLore(original: ItemStack, replacement: ItemStack, player: Player, base: FirearmSpec) {
+        val lore = original.lore()?.takeIf { it.isNotEmpty() } ?: return
+        val before = original.persistentDataContainer.get(worldLoadedKey, PersistentDataType.INTEGER) ?: return
+        val after = replacement.persistentDataContainer.get(worldLoadedKey, PersistentDataType.INTEGER) ?: return
+        fun rows(item: ItemStack, rounds: Int) = locale.lore("weapon.firearm-lore", player,
+            values(tunedSpec(item, base), rounds, player)).map(TttItems::nonItalic)
+        val changes = rows(original, before).zip(rows(replacement, after)).filter { (old, new) -> old != new }.toMap()
+        if (lore.any(changes::containsKey)) replacement.lore(lore.map { changes[it] ?: it })
+    }
 
     fun catalog(): Map<FirearmId, FirearmSpec> = settings().weapons.specs
 
@@ -112,16 +156,23 @@ class TttFirearms(
 
     fun updateLoaded(item: ItemStack, player: Player?, loaded: Int): ItemStack {
         val current = requireNotNull(state(item))
-        val replacement = firearmItem(current.id, player, current.matchId, loaded)
-        replacement.amount = item.amount
-        return replacement
+        val spec = tunedSpec(item, spec(current.id))
+        return item.clone().also { copy ->
+            copy.editMeta { meta ->
+                meta.persistentDataContainer.set(loadedKey, PersistentDataType.INTEGER, loaded.coerceIn(0, spec.magazineSize))
+                meta.lore(locale.lore("weapon.firearm-lore", player, values(spec, loaded, player)).map(TttItems::nonItalic))
+            }
+        }
     }
 
     /** Re-renders operator-configured material/model/lore without changing authoritative weapon state. */
     fun refreshItem(item: ItemStack, player: Player?): ItemStack {
         if (item.isEmpty) return item
         state(item)?.let { current ->
-            return firearmItem(current.id, player, current.matchId, current.loaded).also { it.amount = item.amount }
+            val replacement = firearmItem(current.id, player, current.matchId, current.loaded)
+            replacement.amount = item.amount
+            replacement.editMeta { meta -> item.itemMeta.persistentDataContainer.copyTo(meta.persistentDataContainer, false) }
+            return updateLoaded(replacement, player, current.loaded)
         }
         val pdc = item.itemMeta.persistentDataContainer
         if (pdc.get(itemKindKey, PersistentDataType.STRING) == EventItemKind.AMMUNITION.name) {

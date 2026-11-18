@@ -50,7 +50,7 @@ internal class ZombiesMysteryBox(
     private val anchor get() = Location(world, -4.0, 67.0, -21.2)
 
     fun start() {
-        require(chestIntact()) { "Zombies mystery chest does not match the v2 arena" }
+        require(chestIntact()) { "Zombies mystery chest does not match the arena" }
         sign = displays.spawnText(Location(world, -4.0, 68.0, -21.1), idle()).apply {
             billboard = Display.Billboard.CENTER
             brightness = Display.Brightness(15, 15)

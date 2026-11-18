@@ -3,9 +3,28 @@ package ru.ruscrafting.events.paper
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import ru.arc.paper.testing.MockBukkitTestRuntime
+import java.util.concurrent.CancellationException
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CompletionException
 
 class ArcEventsPluginGenerationTest : FunSpec({
+    test("only a full server stop retires packet displays through disconnect after host queue cancellation") {
+        val displays = CompletableFuture<Void>()
+        val shutdown = packetDisplayRetirement(displays, serverStopping = true)
+        val hotload = packetDisplayRetirement(displays, serverStopping = false)
+        shutdown.isDone shouldBe false
+        displays.completeExceptionally(CompletionException(CancellationException("host queue closed")))
+        shutdown.join() shouldBe null
+        hotload.isCompletedExceptionally shouldBe true
+
+        val transportError = IllegalStateException("transport failed to close")
+        val mixed = CancellationException().apply { addSuppressed(transportError) }
+        for (failure in listOf(transportError, mixed)) {
+            packetDisplayRetirement(CompletableFuture.failedFuture(failure), serverStopping = true)
+                .isCompletedExceptionally shouldBe true
+        }
+    }
+
     test("console preparation keeps status available across two drained generations") {
         MockBukkitTestRuntime.open().use { paper ->
             val plugin = paper.loadSimplePlugin(ControlledArcEventsPlugin::class.java)

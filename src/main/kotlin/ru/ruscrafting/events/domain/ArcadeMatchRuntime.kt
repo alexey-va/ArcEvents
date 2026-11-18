@@ -127,7 +127,7 @@ class ArcadeMatchRuntime(
         return match
     }
 
-    fun eliminate(victimId: UUID, killerId: UUID?, knifeKill: Boolean = false): ArcadeMatch {
+    fun eliminate(victimId: UUID, killerId: UUID?, knifeKill: Boolean = false, firearmId: FirearmId? = null): ArcadeMatch {
         val match = requireCurrent()
         require(match.phase == MatchPhase.ACTIVE)
         require(match.mode in setOf(EventMode.GUN_GAME, EventMode.DISASTERS, EventMode.FISHING, EventMode.ZOMBIES))
@@ -143,12 +143,12 @@ class ArcadeMatchRuntime(
         if (killerId != null && killerId != victimId) {
             val killer = players[killerId]
             if (killer?.status == ParticipantStatus.ALIVE) {
-                val validAttack = (!knifeKill && killer.stage < FirearmId.entries.size) ||
-                    (knifeKill && killer.stage == FirearmId.entries.size)
-                if (validAttack) {
-                    val nextStage = if (!knifeKill) killer.stage + 1 else killer.stage
+                val knifeWins = knifeKill && killer.stage == FirearmId.entries.size
+                if (firearmId != null || knifeWins) {
+                    val advances = firearmId != null && FirearmId.entries.getOrNull(killer.stage) == firearmId
+                    val nextStage = if (advances) killer.stage + 1 else killer.stage
                     players[killerId] = killer.copy(kills = killer.kills + 1, stage = nextStage)
-                    if (knifeKill) return finish(match, players, setOf(killerId), MatchEndReason.ELIMINATION)
+                    if (knifeWins) return finish(match, players, setOf(killerId), MatchEndReason.ELIMINATION)
                 }
             }
         }

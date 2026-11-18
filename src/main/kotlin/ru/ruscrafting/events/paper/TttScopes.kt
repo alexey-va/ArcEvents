@@ -59,8 +59,13 @@ private val OBSERVER_MODEL_KEYS = OBSERVER_HOLD_PREFIXES.map { "${it}observer_ho
     FirearmReloadAnimation.modelKeys.filter { key -> OBSERVER_HOLD_PREFIXES.any { key.startsWith(it) } }.map { "${it}_observer" }
 private val SCOPE_MODEL_KEYS = FirearmId.entries.flatMap { id ->
     SCOPE_MODEL_FRAMES.map { frame -> "arc:event_sights/${id.name.lowercase()}_$frame" }
-}.toSet() + FirearmReloadAnimation.modelKeys + OBSERVER_MODEL_KEYS
+}.toSet() + packedFirearms.filterValues { !it.animated }.keys.flatMap { identity ->
+    listOf("hip", "aim", "equip_hip", "equip_aim").map { frame -> packedSightModel(identity, frame) }
+} + FirearmReloadAnimation.modelKeys + OBSERVER_MODEL_KEYS
 private val FIREARMS_BY_ID = FirearmId.entries.associateBy { it.name }
+
+internal fun packedSightModel(identity: String, frame: String): String =
+    "arc:event_sights/packed/${identity.replace(':', '/')}_$frame"
 
 private fun packetFirearm(item: PacketItemStack): FirearmId? {
     val data = item.getComponent(ComponentTypes.CUSTOM_DATA).orElse(null)
@@ -68,7 +73,8 @@ private fun packetFirearm(item: PacketItemStack): FirearmId? {
     val identity = nativeScopePreviewItemIdentity(data)
     return scopePreviewFirearm(identity) ?: if (
         event?.getStringTagValueOrNull("arcevents:event_item") == EventItemKind.FIREARM.name
-    ) FIREARMS_BY_ID[event.getStringTagValueOrNull("arcevents:firearm")] else null
+    ) FIREARMS_BY_ID[event.getStringTagValueOrNull("arcevents:firearm")]
+    else FIREARMS_BY_ID[event?.getStringTagValueOrNull("arcevents:world_firearm")]
 }
 
 /** Raw aliases keep the vendor geometry but disable the separate native equip-height dip. */
@@ -146,6 +152,7 @@ class TttScopes internal constructor(
     private val createLaser: ((Player) -> TttScopeLaser)? = null,
     private val laserEnabled: () -> Boolean = { false },
     private val refreshInventories: () -> Unit = {},
+    private val refreshAbilities: (Player) -> Unit = {},
 ) : PacketListenerAbstract(PacketListenerPriority.HIGHEST) {
     private data class Client(val playerId: UUID, val entityId: Int)
     private data class Frame(val model: String?, val zoom: Float?, val reloading: Boolean = false)
@@ -194,11 +201,11 @@ class TttScopes internal constructor(
     fun isAiming(playerId: UUID): Boolean = active[playerId]?.let { it.aiming && it.frame.zoom != null } == true
     fun isReloading(playerId: UUID): Boolean = active[playerId]?.reload != null
     fun isPreview(playerId: UUID): Boolean = active[playerId]?.preview == true
-    fun hasViewmodel(playerId: UUID): Boolean = active[playerId]?.let { it.target.nativeItemId == null } ?: false
+    fun hasViewmodel(playerId: UUID): Boolean = active[playerId]?.frame?.model != null
     fun projectedZoom(playerId: UUID): Float? {
         val scope = active[playerId] ?: return null
         val baseline = abilities[Client(playerId, scope.connection.entityId)] ?: return null
-        return scope.frame.zoom?.takeIf { (scope.preview || !baseline.creative) && baseline.walkingSpeed > 0f }
+        return scope.frame.zoom?.takeIf { baseline.walkingSpeed > 0f }
     }
 
     /** Cosmetic only: no inventory mutation, ammo authority or gameplay reload timer lives here. */
@@ -333,15 +340,15 @@ class TttScopes internal constructor(
         active[playerId] = scope
         entities[client.entityId] = scope
         present(scope)
+        if (!abilities.containsKey(Client(playerId, client.entityId))) refreshAbilities(player)
         return true
     }
 
     private fun valid(scope: Scope): Boolean {
-        if (!scope.player.isOnline || scope.player.world.uid != scope.worldId || scope.player.gameMode !in allowedModes(scope.preview) ||
+        if (!scope.player.isOnline || scope.player.isDead || scope.player.world.uid != scope.worldId || scope.player.gameMode !in PREVIEW_MODES ||
             connection(scope.player)?.entityId != scope.connection.entityId
         ) return false
-        val baseline = abilities[Client(scope.playerId, scope.connection.entityId)] ?: return scope.preview
-        return baseline.walkingSpeed > 0f && (scope.preview || !baseline.creative)
+        return abilities[Client(scope.playerId, scope.connection.entityId)]?.let { it.walkingSpeed > 0f } ?: true
     }
 
     private fun present(scope: Scope) {
@@ -638,7 +645,7 @@ class TttScopes internal constructor(
         abilities[Client(playerId, entityId)] = baseline
         val scope = active[playerId]?.takeIf { it.connection.entityId == entityId } ?: return
         val frame = scope.frame
-        if (frame.zoom == null || (!scope.preview && baseline.creative) || baseline.walkingSpeed <= 0f) return
+        if (frame.zoom == null || baseline.walkingSpeed <= 0f) return
         packet.fovModifier = baseline.packet(frame.zoom).fovModifier
     }
 
@@ -661,12 +668,10 @@ class TttScopes internal constructor(
 
     companion object {
         private const val HOTBAR_CONTAINER_START = 36
-        private fun allowedModes(preview: Boolean) = if (preview) PREVIEW_MODES else MATCH_MODES
-        private val MATCH_MODES = setOf(GameMode.SURVIVAL, GameMode.ADVENTURE)
-        private val PREVIEW_MODES = MATCH_MODES + GameMode.CREATIVE
+        private val PREVIEW_MODES = setOf(GameMode.SURVIVAL, GameMode.ADVENTURE, GameMode.CREATIVE)
 
-        private fun model(target: FirearmScopeTarget, frame: String): String? =
-            if (target.nativeItemId == null) "arc:event_sights/${target.firearm.name.lowercase()}_$frame" else null
+        private fun model(target: FirearmScopeTarget, frame: String): String =
+            target.nativeItemId?.let { packedSightModel(it, frame) } ?: "arc:event_sights/${target.firearm.name.lowercase()}_$frame"
 
         internal fun open(displays: PaperPacketDisplays, laserEnabled: () -> Boolean, authorized: (Player, FirearmScopeTarget) -> Boolean): TttScopes = TttScopes(connection = { player ->
             PacketEvents.getAPI().playerManager.getUser(player)?.let { user ->
@@ -681,6 +686,8 @@ class TttScopes internal constructor(
             }
         }, authorized = authorized, createLaser = { TttScopeLaser(it, displays) }, laserEnabled = laserEnabled,
             refreshInventories = { Bukkit.getOnlinePlayers().forEach(Player::updateInventory) },
+            // CraftPlayer 1.21.11 sends an authoritative abilities packet even when the fly speed is unchanged.
+            refreshAbilities = { it.flySpeed = it.flySpeed },
         ).also { scopes ->
             PacketEvents.getAPI().eventManager.registerListener(scopes)
             scopes.unregister = { PacketEvents.getAPI().eventManager.unregisterListener(scopes) }

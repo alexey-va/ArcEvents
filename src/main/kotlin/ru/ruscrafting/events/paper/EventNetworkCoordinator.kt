@@ -53,6 +53,7 @@ data class QueueControlSnapshot(
     val state: QueueState?,
     val ownerId: UUID?,
     val queueSize: Int = 0,
+    val matchId: String? = null,
 ) {
     fun ownedBy(playerId: UUID): Boolean = ownerId == playerId
 }
@@ -91,7 +92,9 @@ class EventNetworkCoordinator(
     private val statistics = ConcurrentHashMap<UUID, PlayerEventStats>()
     private val recoveredReturnRetries = ConcurrentHashMap<UUID, PlayerRecovery>()
     private data class RecoveredReturnAttempt(val player: Player, val recovery: PlayerRecovery)
-    private data class ReservationTransferRetry(val matchId: UUID, val destinationServer: String)
+    private data class ReservationTransferRetry(
+        val player: Player, val matchId: UUID, val destinationServer: String, val recovery: Boolean,
+    )
     private val reservationTransferRetries = ConcurrentHashMap<UUID, ReservationTransferRetry>()
     private val reservationTransferAttempts = ConcurrentHashMap.newKeySet<UUID>()
     private val recoveredReturnAttempts = ConcurrentHashMap<UUID, RecoveredReturnAttempt>()
@@ -177,10 +180,10 @@ class EventNetworkCoordinator(
         }
     }
 
-    fun join(player: Player): CompletableFuture<Boolean> {
+    fun join(player: Player, mode: EventMode = EventMode.TTT): CompletableFuture<Boolean> {
         val current = settings()
         val generation = eventChannel
-        if (!started || generation == null || !hostAvailable()) {
+        if (!started || generation == null || !hostAvailable(mode)) {
             player.sendEventMessage(locale.render("queue.unavailable", player))
             return CompletableFuture.completedFuture(false)
         }
@@ -204,9 +207,9 @@ class EventNetworkCoordinator(
                     return@runSync
                 }
                 when (result) {
-                    is QueueJoinResult.Joined -> completeQueueJoin(player, current, generation, true, completion)
+                    is QueueJoinResult.Joined -> completeQueueJoin(player, current, mode, generation, true, completion)
                     is QueueJoinResult.Existing -> if (result.entry.state == QueueState.QUEUED) {
-                        completeQueueJoin(player, current, generation, false, completion)
+                        completeQueueJoin(player, current, mode, generation, false, completion)
                     } else {
                         player.sendEventMessage(locale.render("queue.already", player))
                         completion.complete(false)
@@ -225,6 +228,7 @@ class EventNetworkCoordinator(
     private fun completeQueueJoin(
         player: Player,
         current: ArcEventsConfig,
+        mode: EventMode,
         generation: RedisRequestReplyChannel<EventNetworkMessage>,
         joined: Boolean,
         completion: CompletableFuture<Boolean>,
@@ -248,9 +252,10 @@ class EventNetworkCoordinator(
                     it.playerId == player.uniqueId.toString() && it.originServer == current.serverId && it.state == QueueState.QUEUED
                 }
                 if (joined && queued) {
+                    val rules = if (mode == EventMode.TTT) null else current.arcade.rules(mode)
                     player.sendEventMessage(locale.render("queue.joined", player, mapOf(
-                        "queue" to locale.text(queueSize.coerceIn(1, current.ttt.maximumPlayers)),
-                        "minimum" to locale.text(current.ttt.minimumPlayers),
+                        "queue" to locale.text(queueSize),
+                        "minimum" to locale.text(rules?.minimumPlayers ?: current.ttt.minimumPlayers),
                     )))
                 } else player.sendEventMessage(locale.render("queue.already", player))
                 completion.complete(queued)
@@ -306,19 +311,28 @@ class EventNetworkCoordinator(
         val current = settings()
         val generation = eventChannel
         if (!started || generation == null) return CompletableFuture.completedFuture(ReservationStartResult.NETWORK_FAILURE)
-        if (!hostAvailable(mode)) return CompletableFuture.completedFuture(ReservationStartResult.ARENA_UNAVAILABLE)
+        val unavailable = startUnavailable(mode)
         val result = CompletableFuture<ReservationStartResult>()
-        repository.joinQueue(
+        // A busy or preparing arena may still own this player's previous inventory and return route.
+        // Read that route without creating a new queue place on an unavailable host.
+        val request = if (unavailable != null) repository.loadQueueEntry(requester.uniqueId).thenApply { entry ->
+            entry?.takeUnless { it.state == QueueState.QUEUED }?.let(QueueJoinResult::Existing)
+        } else repository.joinQueue(
             requester.uniqueId,
             requester.name,
             current.serverId,
             clock(),
             current.network.queueEntrySeconds * 1_000L,
-        ).whenComplete { joinResult, failure ->
+        )
+        request.whenComplete { joinResult, failure ->
             Tasks.scheduler.runSync {
-                if (!started || eventChannel !== generation || failure != null || joinResult == QueueJoinResult.Contended || joinResult == null) {
+                if (!started || eventChannel !== generation || failure != null || joinResult == QueueJoinResult.Contended) {
                     if (failure != null) plugin.logger.log(Level.WARNING, "ArcEvents start requester queue failed", failure)
                     result.complete(ReservationStartResult.NETWORK_FAILURE)
+                    return@runSync
+                }
+                if (joinResult == null) {
+                    result.complete(unavailable ?: ReservationStartResult.NETWORK_FAILURE)
                     return@runSync
                 }
                 if ((mode == EventMode.FISHING || requesterOnly) && !requester.isOnline) {
@@ -375,7 +389,7 @@ class EventNetworkCoordinator(
     }
 
     /** A durable previous route must finish before this player can reserve another match. */
-    private fun resumeExistingRoute(player: Player, entry: QueueEntry): ReservationStartResult {
+    internal fun resumeExistingRoute(player: Player, entry: QueueEntry, retryOnHost: Boolean = false): ReservationStartResult {
         if (!player.isOnline || entry.playerId != player.uniqueId.toString()) return ReservationStartResult.NETWORK_FAILURE
         val current = settings()
         when (entry.state) {
@@ -385,6 +399,15 @@ class EventNetworkCoordinator(
                     return ReservationStartResult.RECOVERY_PENDING
                 }
                 val destination = entry.destinationServer ?: return ReservationStartResult.NETWORK_FAILURE
+                if (retryOnHost && destination == current.serverId && current.nodeMode == NodeMode.HOST) {
+                    if (!activeMatchParticipant(entry)) recoverOrphanedArrival(player, entry)
+                    else if (entry.state == QueueState.ARRIVED) {
+                        val arrival = onArrivalAsync?.invoke(entry) ?: CompletableFuture.completedFuture(onArrival(entry))
+                        arrival.whenComplete { _, failure ->
+                            if (failure != null) plugin.logger.log(Level.WARNING, "ArcEvents arrival retry failed for ${entry.playerId}", failure)
+                        }
+                    }
+                }
                 if (destination != current.serverId) {
                     if (!current.network.transferOnReservation || destination != current.hostServer ||
                         destination !in current.network.allowedOrigins) {
@@ -393,6 +416,7 @@ class EventNetworkCoordinator(
                     // Keep the row and the host's escrow intact. The service restores escrow on join
                     // before the network coordinator may acknowledge the return route.
                     if (player.uniqueId !in pendingTransfers) {
+                        rememberReservationTransferRetry(player, UUID.fromString(entry.matchId), destination, recovery = true)
                         val sent = runCatching { transferSent(player, destination) }
                             .onFailure { plugin.logger.log(Level.WARNING, "ArcEvents recovery transfer failed for ${player.uniqueId}", it) }
                             .getOrDefault(false)
@@ -410,6 +434,8 @@ class EventNetworkCoordinator(
             QueueState.RETURN_PENDING -> when {
                 entry.originServer == current.serverId -> finishPendingReturn(player, entry)
                 disposableHost(current) -> Unit
+                retryOnHost && current.nodeMode == NodeMode.HOST && current.serverId == entry.destinationServer ->
+                    finishPendingReturn(player, entry)
                 current.serverId != entry.destinationServer -> handleJoin(player)
             }
             QueueState.QUEUED -> error("Queued entries require a new reservation")
@@ -428,7 +454,7 @@ class EventNetworkCoordinator(
         if (mode == EventMode.FISHING && requesterId == null) {
             return CompletableFuture.completedFuture(ReservationStartResult.NOT_OWNER)
         }
-        if (!hostAvailable(mode)) return CompletableFuture.completedFuture(ReservationStartResult.ARENA_UNAVAILABLE)
+        startUnavailable(mode)?.let { return CompletableFuture.completedFuture(it) }
         val request = EventNetworkMessage.create(
             signal = EventNetworkSignal.START_REQUEST,
             destinationServer = current.hostServer,
@@ -480,8 +506,7 @@ class EventNetworkCoordinator(
         if (requesterBound && (requesterId == null || requesterOrigin == null)) {
             return CompletableFuture.completedFuture(ReservationStartResult.NOT_OWNER)
         }
-        if (!hostAvailable(mode)) return CompletableFuture.completedFuture(ReservationStartResult.ARENA_UNAVAILABLE)
-        if (matchState().first != null) return CompletableFuture.completedFuture(ReservationStartResult.BUSY)
+        startUnavailable(mode)?.let { return CompletableFuture.completedFuture(it) }
         val effectivePreferredArena = when (mode) {
             EventMode.DISASTERS -> "disasters"
             EventMode.FISHING -> "fishing"
@@ -610,6 +635,7 @@ class EventNetworkCoordinator(
         val joinAttempt = Any()
         joinAttempts[player.uniqueId] = joinAttempt
         pendingTransfers.remove(player.uniqueId)
+        reservationTransferRetries.remove(player.uniqueId)
         val current = settings()
         // A disposable-host recovery belongs to the join that initiated it. Do not let a
         // retry, or its still-pending async callback, redirect a later unrelated join.
@@ -665,17 +691,21 @@ class EventNetworkCoordinator(
 
     fun stats(playerId: UUID): PlayerEventStats = statistics[playerId] ?: PlayerEventStats()
 
-    fun queueState(playerId: UUID): CompletableFuture<QueueState?> =
+    fun queueEntry(playerId: UUID): CompletableFuture<QueueEntry?> =
         repository.loadQueueEntry(playerId).thenApply { entry ->
-            entry?.takeIf { it.expiresAtMs >= clock() }?.state
+            entry?.takeUnless { it.isExpiredQueuePlace(clock()) }
         }
+
+    fun queueState(playerId: UUID): CompletableFuture<QueueState?> = queueEntry(playerId).thenApply { it?.state }
 
     fun queueControl(playerId: UUID): CompletableFuture<QueueControlSnapshot> = repository.loadQueue(clock()).thenApply { entries ->
         val queued = entries.filter { it.state == QueueState.QUEUED }
+        val own = entries.firstOrNull { it.playerId == playerId.toString() }
         QueueControlSnapshot(
-            state = entries.firstOrNull { it.playerId == playerId.toString() }?.state,
+            state = own?.state,
             ownerId = queued.firstOrNull()?.playerId?.let(UUID::fromString),
             queueSize = queued.size,
+            matchId = own?.matchId,
         )
     }
 
@@ -761,15 +791,19 @@ class EventNetworkCoordinator(
         attemptRecoveredReturn(player, recovery)
     }
 
-    fun hostAvailable(mode: EventMode = EventMode.TTT): Boolean {
+    fun hostAvailable(mode: EventMode = EventMode.TTT): Boolean = startUnavailable(mode) == null
+
+    fun startUnavailable(mode: EventMode): ReservationStartResult? {
         val current = settings()
-        if (current.nodeMode == NodeMode.HOST && matchState().first == null) {
-            return arenaReady() && mode in EventMode.entries && selectableArenaIds(mode).isNotEmpty()
+        if (current.nodeMode == NodeMode.HOST) {
+            if (matchState().first != null) return ReservationStartResult.BUSY
+            return if (arenaReady() && selectableArenaIds(mode).isNotEmpty()) null else ReservationStartResult.ARENA_UNAVAILABLE
         }
-        return nodes.any {
-            it.serverId == current.hostServer && it.available && it.supports(mode) &&
-                modeArenaIds(it.arenaIds, mode).isNotEmpty()
-        }
+        val node = nodes.firstOrNull { it.serverId == current.hostServer && it.mode == NodeMode.HOST.name &&
+            clock() - it.heartbeatAtMs in -FUTURE_SKEW_MS..current.network.heartbeatStaleSeconds * 1_000L &&
+            it.supports(mode) } ?: return ReservationStartResult.ARENA_UNAVAILABLE
+        if (node.matchId != null) return ReservationStartResult.BUSY
+        return if (node.available && modeArenaIds(node.arenaIds, mode).isNotEmpty()) null else ReservationStartResult.ARENA_UNAVAILABLE
     }
 
     private fun modeArenaIds(ids: List<String>, mode: EventMode): List<String> = when (mode) {
@@ -960,11 +994,10 @@ class EventNetworkCoordinator(
                     handleJoin(player)
                 } else if (settings().network.transferOnReservation) {
                     if (playerId in pendingTransfers || reservationTransferRetries.containsKey(playerId)) return@runSync
+                    rememberReservationTransferRetry(player, matchId, destination)
                     if (transferSent(player, destination)) {
-                        reservationTransferRetries.remove(playerId)
                         pendingTransfers += playerId
                     } else {
-                        rememberReservationTransferRetry(playerId, matchId, destination)
                         player.sendEventMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.transfer", player))))
                     }
                 }
@@ -1096,9 +1129,10 @@ class EventNetworkCoordinator(
         heartbeat()
     }
 
-    private fun rememberReservationTransferRetry(playerId: UUID, matchId: UUID, destinationServer: String) {
+    private fun rememberReservationTransferRetry(player: Player, matchId: UUID, destinationServer: String, recovery: Boolean = false) {
+        val playerId = player.uniqueId
         if (reservationTransferRetries.containsKey(playerId) || reservationTransferRetries.size < MAX_PENDING_RESERVATION_TRANSFERS) {
-            reservationTransferRetries[playerId] = ReservationTransferRetry(matchId, destinationServer)
+            reservationTransferRetries[playerId] = ReservationTransferRetry(player, matchId, destinationServer, recovery)
         } else {
             plugin.logger.log(Level.SEVERE, "ArcEvents reservation transfer retry limit reached; route remains durable for $playerId")
         }
@@ -1106,22 +1140,31 @@ class EventNetworkCoordinator(
 
     private fun retryReservationTransfers() {
         reservationTransferRetries.entries.toList().forEach { (playerId, retry) ->
+            if (plugin.server.getPlayer(playerId) !== retry.player || !retry.player.isOnline) {
+                reservationTransferRetries.remove(playerId, retry)
+                return@forEach
+            }
             if (!reservationTransferAttempts.add(playerId)) return@forEach
             repository.loadQueueEntry(playerId).whenComplete { entry, failure ->
                 Tasks.scheduler.runSync {
                     try {
                         if (!started) return@runSync
-                        if (reservationTransferRetries[playerId] != retry || playerId in pendingTransfers) return@runSync
+                        if (reservationTransferRetries[playerId] !== retry) return@runSync
                         if (failure != null) return@runSync
-                        if (!EventRoutePolicy.toMatch(entry, playerId, retry.matchId, retry.destinationServer, clock())) {
+                        val ownsRoute = if (retry.recovery) entry?.matchId == retry.matchId.toString() &&
+                            entry.playerId == playerId.toString() && entry.destinationServer == retry.destinationServer &&
+                            entry.state in setOf(QueueState.ARRIVED, QueueState.MATCHED)
+                        else EventRoutePolicy.toMatch(entry, playerId, retry.matchId, retry.destinationServer, clock())
+                        val player = plugin.server.getPlayer(playerId)
+                        if (!ownsRoute || player !== retry.player || !player.isOnline) {
                             reservationTransferRetries.remove(playerId, retry)
                             return@runSync
                         }
-                        val player = plugin.server.getPlayer(playerId)?.takeIf(Player::isOnline) ?: return@runSync
+                        // SENT only submitted a proxy packet. This same connection still owns the exact route.
                         val sent = runCatching { transferSent(player, retry.destinationServer) }
                             .onFailure { plugin.logger.log(Level.WARNING, "ArcEvents reservation transfer retry failed for $playerId", it) }
                             .getOrDefault(false)
-                        if (sent && reservationTransferRetries.remove(playerId, retry)) pendingTransfers += playerId
+                        if (sent) pendingTransfers += playerId
                     } finally {
                         reservationTransferAttempts.remove(playerId)
                     }

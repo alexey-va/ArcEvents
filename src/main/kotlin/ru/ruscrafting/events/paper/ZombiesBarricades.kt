@@ -44,7 +44,7 @@ internal class ZombiesBarricades(
             val originals = window.gateCells().map { (x, y, z) ->
                 require(world.isChunkLoaded(x shr 4, z shr 4)) { "Zombies ingress chunk is not loaded" }
                 val block = world.getBlockAt(x, y, z)
-                require(block.type == Material.SPRUCE_FENCE) { "Zombies ingress does not match the v2 arena at $x,$y,$z" }
+                require(block.type == Material.SPRUCE_FENCE) { "Zombies ingress does not match the arena at $x,$y,$z" }
                 block.blockData.clone()
             }
             Gate(window, originals)

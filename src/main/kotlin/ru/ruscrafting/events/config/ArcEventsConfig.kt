@@ -343,7 +343,7 @@ class ArcEventsConfig(private val config: Config) {
     val network: NetworkSettings
         get() = NetworkSettings(
             enabled = config.bool("network.enabled", true),
-            allowedOrigins = config.stringList("network.allowed-origins", listOf("spawn", "survival", "parkour"))
+            allowedOrigins = config.stringList("network.allowed-origins", listOf("spawn", "survival", "parkour", "slimefun"))
                 .map(String::lowercase).toSet(),
             queueEntrySeconds = config.int("network.queue-entry-seconds", 300),
             reservationSeconds = config.int("network.reservation-seconds", 45),
@@ -519,18 +519,25 @@ class ArcEventsConfig(private val config: Config) {
             }
 
     private fun zombiesArena(): ArenaSettings {
-        val world = config.string("arcade.zombies.arena.world", "arcevents_zombies_zero_v2")
+        val world = when (val configured = config.string("arcade.zombies.arena.world", "arcevents_zombies_zero_v3")) {
+            "arcevents_zombies_zero", "arcevents_zombies_zero_v2" -> "arcevents_zombies_zero_v3"
+            else -> configured
+        }
         val spawn = EventLocation(world, .5, 65.0, -18.5)
-        return ArenaSettings("zombies", true, world, "zombies-zero-v2", spawn, spawn,
+        return ArenaSettings("zombies", true, world, "zombies-zero-v3", spawn, spawn,
             EventBounds(EventLocation(world, -28.0, 59.0, -28.0), EventLocation(world, 29.0, 91.0, 29.0)),
             listOf(spawn), emptyList())
     }
 
     private fun fishingArena(): ArenaSettings {
-        val world = config.string("arcade.fishing.arena.world", "arcevents_fishing_v3")
+        val world = when (val configured = config.string("arcade.fishing.arena.world", "arcevents_fishing_v4")) {
+            "arcevents_fishing", "arcevents_fishing_v2", "arcevents_fishing_v3" -> "arcevents_fishing_v4"
+            "arcevents_lab_fishing_v3" -> "arcevents_lab_fishing_v4"
+            else -> configured
+        }
         val spawn = EventLocation(world, 0.5, 65.0, 0.5)
-        return ArenaSettings("fishing", true, world, "fishing-v3", spawn, spawn,
-            EventBounds(EventLocation(world, -32.0, 54.0, -32.0), EventLocation(world, 289.0, 100.0, 33.0)),
+        return ArenaSettings("fishing", true, world, "fishing-v4", spawn, spawn,
+            EventBounds(EventLocation(world, -320.0, 54.0, -40.0), EventLocation(world, 1857.0, 100.0, 48.0)),
             listOf(spawn), emptyList())
     }
 
@@ -728,7 +735,7 @@ class ArcEventsConfig(private val config: Config) {
             }
             require(arena.spawns.size <= 1) { "Arena ${arena.id} must use one common player spawn" }
             require(arena.lootSpawns.size <= 128) { "Arena ${arena.id} has too many loot spawns" }
-            if (arena.enabled && weapons.enabled && arena.template !in setOf("", "citadel-v1", "disasters-v1", "fishing-v3", "zombies-zero-v2")) {
+            if (arena.enabled && weapons.enabled && arena.template !in setOf("", "citadel-v1", "disasters-v1", "fishing-v4", "zombies-zero-v3")) {
                 require(arena.lootSpawns.size >= ttt.maximumPlayers) {
                     "Imported arena ${arena.id} requires at least ${ttt.maximumPlayers} loot spawns"
                 }
@@ -750,8 +757,8 @@ class ArcEventsConfig(private val config: Config) {
             "",
             "citadel-v1",
             "disasters-v1",
-            "fishing-v3",
-            "zombies-zero-v2",
+            "fishing-v4",
+            "zombies-zero-v3",
             "ttt-minecraft-b5-v1",
             "cs2-inferno-v1",
             "cs2-mirage-v1",

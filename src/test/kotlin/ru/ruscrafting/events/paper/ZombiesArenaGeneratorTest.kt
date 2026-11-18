@@ -63,15 +63,20 @@ class ZombiesArenaGeneratorTest : StringSpec({
         ZombiesArenaGenerator.materialAt(29, 64, 0) shouldBe null
     }
 
-    "wall pillars follow the along-wall coordinate and leave the warning stripe and gate visible" {
-        ZombiesArenaGenerator.materialAt(28, 68, 1) shouldBe Material.RED_CONCRETE
-        ZombiesArenaGenerator.materialAt(-28, 68, -1) shouldBe Material.RED_CONCRETE
-        ZombiesArenaGenerator.materialAt(1, 68, -28) shouldBe Material.RED_CONCRETE
-        ZombiesArenaGenerator.materialAt(28, 68, 7) shouldBe Material.POLISHED_DEEPSLATE
-        ZombiesArenaGenerator.materialAt(28, 69, 1) shouldBe Material.DEEPSLATE_TILES
-        ZombiesArenaGenerator.materialAt(28, 70, 1) shouldBe Material.SEA_LANTERN
-        ZombiesArenaGenerator.materialAt(2, 68, 28) shouldBe Material.IRON_BLOCK
-        ZombiesArenaGenerator.materialAt(3, 68, 28) shouldBe Material.BLACK_CONCRETE
+    "night landmarks identify the boiler house, switch room and all four supply bays from the floor" {
+        ZombiesArenaGenerator.materialAt(-24, 89, 17) shouldBe Material.POLISHED_BLACKSTONE
+        ZombiesArenaGenerator.materialAt(-21, 84, 23) shouldBe Material.POLISHED_BLACKSTONE
+        ZombiesArenaGenerator.materialAt(25, 84, 22) shouldBe Material.OCHRE_FROGLIGHT
+        ZombiesArenaGenerator.materialAt(20, 75, 18) shouldBe Material.LIGHT_BLUE_STAINED_GLASS
+        ZombiesArenaGenerator.materialAt(12, 78, 1) shouldBe Material.POLISHED_DEEPSLATE
+        ZombiesArenaGenerator.materialAt(7, 63, -12) shouldBe Material.OCHRE_FROGLIGHT
+        ZombiesArenaGenerator.materialAt(7, 64, -12) shouldBe Material.WAXED_OXIDIZED_COPPER_GRATE
+        val signs = ZombiesArenaGenerator.STATIONS.values.map { x ->
+            (74 downTo 70).flatMap { y -> (x - 2..x + 2).map { ZombiesArenaGenerator.materialAt(it, y, -22) } }
+        }
+        signs.all { Material.OCHRE_FROGLIGHT in it } shouldBe true
+        val inks = setOf(Material.OCHRE_FROGLIGHT, Material.SMOOTH_QUARTZ)
+        signs.map { sign -> sign.filterNot { it in inks }.distinct().single() }.distinct().size shouldBe 4
     }
 
     "export the exact generator block volume for the existing atelier renderer when requested" {
@@ -81,7 +86,7 @@ class ZombiesArenaGeneratorTest : StringSpec({
             val palette = linkedMapOf("minecraft:air" to 0)
             val blocks = mutableListOf<List<Int>>()
             MockBukkitTestRuntime.open().use {
-                for (y in 60..77) for (z in -28..28) for (x in -28..28) {
+                for (y in 60..ZombiesArenaGenerator.MAX_Y) for (z in -28..28) for (x in -28..28) {
                     val material = ZombiesArenaGenerator.materialAt(x, y, z) ?: continue
                     val name = when (material) {
                         Material.CHEST -> ZombiesArenaGenerator.chestData(x).asString
@@ -92,12 +97,12 @@ class ZombiesArenaGeneratorTest : StringSpec({
                     blocks += listOf(x + 28, y - 60, z + 28, index)
                 }
             }
-            val data = mapOf("version" to 1, "size" to listOf(57, 18, 57), "origin" to listOf(28, 5, 9),
+            val data = mapOf("version" to 1, "size" to listOf(57, ZombiesArenaGenerator.MAX_Y - 59, 57), "origin" to listOf(28, 5, 9),
                 "materials" to palette.keys.map { mapOf("block" to it, "color" to "#808080", "name" to it) }, "blocks" to blocks)
             Files.writeString(directory.resolve("scene.blocks.json"), GsonBuilder().create().toJson(data))
             val window = ZombiesArenaGenerator.WINDOWS.first()
             Files.writeString(directory.resolve("interactions.json"), GsonBuilder().setPrettyPrinting().create().toJson(mapOf(
-                "source" to "ZombiesArenaGenerator v2; ZombiesBarricades.board; ZombiesMysteryBox.CARD_TIMES",
+                "source" to "ZombiesArenaGenerator v3; ZombiesBarricades.board; ZombiesMysteryBox.CARD_TIMES",
                 "window" to window,
                 "boards" to (0 until ZombiesBarricades.MAX_BOARDS).map { ZombiesBarricades.board(window, it) },
                 "case" to mapOf("x" to -4.0, "y" to 67.0, "z" to -21.2, "scale" to .6, "context" to "fixed"),

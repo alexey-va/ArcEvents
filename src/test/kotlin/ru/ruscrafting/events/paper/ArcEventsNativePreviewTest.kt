@@ -58,7 +58,7 @@ class ArcEventsNativePreviewTest : StringSpec({
             val service = mockk<ArcEventsService>(relaxed = true)
             every { service.snapshot() } returns ServiceSnapshot("host", NodeMode.HOST, "host", true, true, true, null, 1, null, null, 0, 0, 0, 0, 0, 0)
             every { service.currentMode() } returns null
-            every { service.modeAvailable(any()) } returns true
+            every { service.modeUnavailable(any()) } returns null
             every { service.isParticipant(any()) } returns false
             var last: PaperDialogScreen? = null
             val menu = ArcEventsDialogMenu(mockk<PaperDialogRuntime>(), service, locale, { config }, { _, _, _ -> },
@@ -123,19 +123,21 @@ class ArcEventsNativePreviewTest : StringSpec({
                 menu.open(player, EventsView.Main); save("$language-root")
                 menu.open(player, EventsView.Help); save("$language-rules-index")
                 last!!.buttons.map { it.id.value }.toSet() shouldBe EventMode.entries.map { "rules_${it.id}" }.toSet()
-                menu.open(player, EventsView.Fishing); save("$language-fishing")
+                menu.openFishing(player, EventEntryStatus(null), {}); save("$language-fishing")
                 last!!.buttons.any { it.id.value == "rules_fishing" } shouldBe true
+                menu.openFishing(player, EventEntryStatus(QueueState.RESERVED, ReservationStartResult.BUSY), {}); save("$language-fishing-transfer")
+                menu.openFishing(player, EventEntryStatus(null, ReservationStartResult.ARENA_UNAVAILABLE), {}); save("$language-fishing-unavailable")
                 for (mode in listOf(EventMode.ZOMBIES, EventMode.GUN_GAME, EventMode.DISASTERS)) {
-                    menu.openArcade(player, mode, null, false, false, true, false, 22, 24, {}, queueSize = 1)
+                    menu.openArcade(player, mode, EventEntryStatus(null), false, false, 22, 24, {}, queueSize = 1)
                     save("$language-${mode.id}")
                     last!!.buttons.any { it.id.value == "rules_${mode.id}" } shouldBe true
-                    menu.openArcade(player, mode, QueueState.QUEUED, true, false, true, false, 22, 24, {}, queueSize = 1)
+                    menu.openArcade(player, mode, EventEntryStatus(QueueState.QUEUED), true, false, 22, 24, {}, queueSize = 1)
                     save("$language-${mode.id}-queued")
                 }
                 menu.openArcadeLoading(player, EventMode.ZOMBIES, {}, {}); save("$language-zombies-loading")
-                menu.openArcade(player, EventMode.ZOMBIES, QueueState.QUEUED, true, false, true, false, 22, 24, {}, "queue.start-network-failed", 1)
+                menu.openArcade(player, EventMode.ZOMBIES, EventEntryStatus(QueueState.QUEUED), true, false, 22, 24, {}, "queue.start-network-failed", 1)
                 save("$language-zombies-error")
-                menu.openTtt(player, null, eventMenuPlan(null, true, true, false, false, false, false, false, false), Component.text("Inferno"))
+                menu.openTtt(player, EventEntryStatus(null), eventMenuPlan(null, true, true, false, false, false, false, false, false), Component.text("Inferno"))
                 save("$language-ttt")
                 last!!.buttons.any { it.id.value == "rules_ttt" } shouldBe true
                 last = trader.model(player, FishingProgress().copy(coins = 300), false) {}; save("$language-trader")

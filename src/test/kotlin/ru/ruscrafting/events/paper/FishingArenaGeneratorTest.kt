@@ -1,140 +1,86 @@
 package ru.ruscrafting.events.paper
 
 import io.kotest.core.spec.style.StringSpec
-import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.shouldBe
-import kotlin.math.floor
+import org.bukkit.Material
 
 class FishingArenaGeneratorTest : StringSpec({
-    "publishes five distinct stage contracts inside the portable bounds" {
-        val stages = FishingArenaStage.entries
-        stages.map { it.centerX } shouldBe listOf(0, 64, 128, 192, 256)
-        stages.map(FishingArenaGenerator::spawn).map { it.x }.distinct().size shouldBe 5
-        stages.map(FishingArenaGenerator::fightCenter).map { it.x }.distinct().size shouldBe 5
-        FishingArenaGenerator.TEMPLATE shouldBe "fishing-v3"
-        FishingArenaGenerator.MAX_X shouldBe 288
+    fun block(stage: FishingArenaStage, x: Int, y: Int, z: Int) =
+        FishingArenaGenerator.materialAt(stage.centerX + x, y, z)
 
+    "each island sits beyond the maximum view distance and has ocean to the horizon" {
+        FishingArenaGenerator.TEMPLATE shouldBe "fishing-v4"
+        val stages = FishingArenaStage.entries
+        stages.map { it.centerX } shouldBe listOf(0, 384, 768, 1152, 1536)
+        stages.zipWithNext().forEach { (first, second) ->
+            // Include the player's stage bounds and the complete footprint of the next island.
+            (second.centerX - 40 - (first.centerX + 29) > (16 + 1) * 16) shouldBe true
+            val gap = (first.centerX + second.centerX) / 2
+            FishingArenaGenerator.materialAt(gap, 63, 0) shouldBe Material.WATER
+            FishingArenaGenerator.materialAt(gap, 64, 0) shouldBe null
+        }
         for (stage in stages) {
-            val spawn = FishingArenaGenerator.spawn(stage)
-            val fight = FishingArenaGenerator.fightCenter(stage)
-            val exit = FishingArenaGenerator.exit(stage)
-            val trader = FishingArenaGenerator.trader(stage)
-            listOf(spawn, fight, exit, trader).forEach { point ->
-                point.x shouldBe point.x.coerceIn(FishingArenaGenerator.MIN_X.toDouble(), FishingArenaGenerator.MAX_X.toDouble() + 1.0)
-                point.z shouldBe point.z.coerceIn(FishingArenaGenerator.MIN_Z.toDouble(), FishingArenaGenerator.MAX_Z.toDouble() + 1.0)
-                point.y shouldBe FishingArenaGenerator.SPAWN_Y.toDouble()
-            }
-
-            for (point in listOf(spawn, fight, exit)) {
-                val blockX = floor(point.x).toInt()
-                val blockZ = floor(point.z).toInt()
-                FishingArenaGenerator.materialAt(blockX, FishingArenaGenerator.WALK_Y, blockZ)?.isSolid shouldBe true
-                FishingArenaGenerator.materialAt(blockX, FishingArenaGenerator.SPAWN_Y, blockZ) shouldBe null
-                FishingArenaGenerator.materialAt(blockX, FishingArenaGenerator.SPAWN_Y + 1, blockZ) shouldBe null
-            }
-
-            trader.x shouldBe stage.centerX + 8.5
-            trader.z shouldBe 0.5
-            FishingArenaGenerator.materialAt(stage.centerX + 8, 65, 0) shouldBe org.bukkit.Material.BARREL
-            for (dx in 0..8) {
-                FishingArenaGenerator.materialAt(stage.centerX + dx, FishingArenaGenerator.WALK_Y, 1)?.isSolid shouldBe true
-            }
-            FishingArenaGenerator.materialAt(stage.centerX + 8, 65, 1) shouldBe null
-            FishingArenaGenerator.materialAt(stage.centerX + 8, 66, 1) shouldBe null
-
-            val zone = FishingArenaGenerator.fishingZone(stage)
-            zone.center.x shouldBe stage.centerX + 0.5
-            zone.center.z shouldBe 20.5
-            zone.minimumDepth shouldBe 2
-            zone.waterSurfaceY shouldBe FishingArenaGenerator.WATER_SURFACE_Y
-            zone.minX..zone.maxX shouldContain stage.centerX
-            zone.minZ..zone.maxZ shouldContain 20
-            for (x in zone.minX..zone.maxX) {
-                for (z in zone.minZ..zone.maxZ) {
-                    for (y in FishingArenaGenerator.SEA_Y..FishingArenaGenerator.WATER_SURFACE_Y) {
-                        FishingArenaGenerator.materialAt(x, y, z) shouldBe org.bukkit.Material.WATER
-                    }
-                    FishingArenaGenerator.materialAt(x, FishingArenaGenerator.SEA_Y - 1, z)?.isSolid shouldBe true
-                    for (y in FishingArenaGenerator.WALK_Y..FishingArenaGenerator.MAX_Y) {
-                        FishingArenaGenerator.materialAt(x, y, z) shouldBe null
-                    }
-                }
+            for (z in listOf(-259, 80, 259)) {
+                block(stage, 0, 63, z) shouldBe Material.WATER
+                block(stage, 0, 64, z) shouldBe null
             }
         }
     }
 
-    "each stage keeps a clear combat and exit route, dock, and two deep casting water" {
+    "arrival, merchant, landing and departure connect at walking height with full headroom" {
         for (stage in FishingArenaStage.entries) {
-            for (x in stage.centerX - 10..stage.centerX + 10) {
-                for (z in -5..5) {
-                    FishingArenaGenerator.materialAt(x, FishingArenaGenerator.WALK_Y, z)?.isSolid shouldBe true
-                }
-            }
-            for (z in -9..17) {
-                FishingArenaGenerator.materialAt(stage.centerX, FishingArenaGenerator.WALK_Y, z)?.isSolid shouldBe true
-                FishingArenaGenerator.materialAt(stage.centerX, FishingArenaGenerator.SPAWN_Y, z) shouldBe null
-                FishingArenaGenerator.materialAt(stage.centerX, FishingArenaGenerator.SPAWN_Y + 1, z) shouldBe null
-            }
-        }
-    }
-
-    "stage palettes and authored landmarks stay distinct and bounded" {
-        val stages = FishingArenaStage.entries
-        val paletteSamples = stages.map { stage ->
-            FishingArenaGenerator.materialAt(stage.centerX + 4, FishingArenaGenerator.WALK_Y, 4)
-        }
-        paletteSamples shouldBe listOf(
-            org.bukkit.Material.SAND,
-            org.bukkit.Material.PRISMARINE_BRICKS,
-            org.bukkit.Material.POLISHED_BLACKSTONE,
-            org.bukkit.Material.MOSSY_STONE_BRICKS,
-            org.bukkit.Material.BLACKSTONE,
-        )
-
-        FishingArenaGenerator.materialAt(-8, 68, -2) shouldBe org.bukkit.Material.ORANGE_WOOL
-        FishingArenaGenerator.materialAt(53, 65, -4) shouldBe org.bukkit.Material.MOSSY_COBBLESTONE
-        FishingArenaGenerator.materialAt(121, 71, -4) shouldBe org.bukkit.Material.AMETHYST_BLOCK
-        FishingArenaGenerator.materialAt(207, 70, 0) shouldBe org.bukkit.Material.MOSS_BLOCK
-        FishingArenaGenerator.materialAt(244, 65, -3) shouldBe org.bukkit.Material.ORANGE_GLAZED_TERRACOTTA
-        FishingArenaGenerator.materialAt(FishingArenaGenerator.MIN_X - 1, FishingArenaGenerator.WALK_Y, 0) shouldBe null
-        FishingArenaGenerator.materialAt(FishingArenaGenerator.MAX_X + 1, FishingArenaGenerator.WALK_Y, 0) shouldBe null
-        FishingArenaGenerator.materialAt(0, FishingArenaGenerator.MAX_Y + 1, 0) shouldBe null
-    }
-
-    "islands are separated by generated ocean and route markers face their dock and exit" {
-        val stageCenters = FishingArenaStage.entries.map { it.centerX }
-        stageCenters.zipWithNext().forEach { (left, right) ->
-            val gap = (left + right) / 2
-            FishingArenaGenerator.materialAt(gap, FishingArenaGenerator.SEA_Y, 0) shouldBe org.bukkit.Material.WATER
-            FishingArenaGenerator.materialAt(gap, FishingArenaGenerator.WALK_Y, 0) shouldBe null
-        }
-        FishingArenaStage.entries.forEach { stage ->
-            FishingArenaGenerator.spawn(stage).z shouldBe 0.5
-            FishingArenaGenerator.fightCenter(stage).z shouldBe -3.5
-            FishingArenaGenerator.exit(stage).z shouldBe -8.5
-            FishingArenaGenerator.trader(stage).x shouldBe stage.centerX + 8.5
-            FishingArenaGenerator.trader(stage).z shouldBe 0.5
             FishingArenaGenerator.spawn(stage).yaw shouldBe 0f
-            FishingArenaGenerator.exit(stage).yaw shouldBe 180f
-            FishingArenaGenerator.destination(stage) shouldBe FishingArenaGenerator.exit(stage)
+            FishingArenaGenerator.exit(stage).z shouldBe -8.5
+            FishingArenaGenerator.catchLanding(stage).z shouldBe 10.5
+            val route = (-9..17).map { 0 to it } + (0..9).map { it to 1 } +
+                (-1..1).flatMap { x -> (9..11).map { z -> x to z } }
+            for ((x, z) in route) {
+                block(stage, x, 64, z)?.isSolid shouldBe true
+                for (y in 65..67) block(stage, x, y, z) shouldBe null
+            }
+            // The NPC stands behind this counter, beneath its canopy.
+            block(stage, 8, 65, 0) shouldBe Material.BARREL
+            block(stage, 8, 64, -2)?.isSolid shouldBe true
+            block(stage, 8, 65, -2) shouldBe null
+            block(stage, 8, 66, -2) shouldBe null
+            block(stage, 1, 72, -9) shouldBe Material.CYAN_WOOL
         }
     }
 
-    "new islands have double the walkable area and accessible shores" {
+    "a real cast from the end of the pier lands in open water between permanent channel marks" {
         for (stage in FishingArenaStage.entries) {
-            val center = stage.centerX
-            for (x in center - 19..center + 19) for (z in -14..7) {
-                FishingArenaGenerator.materialAt(x, FishingArenaGenerator.WALK_Y, z)?.isSolid shouldBe true
+            val zone = FishingArenaGenerator.fishingZone(stage)
+            zone.center.z shouldBe 25.5
+            zone.minX shouldBe stage.centerX - 8
+            zone.maxX shouldBe stage.centerX + 8
+            for (x in zone.minX..zone.maxX) for (z in zone.minZ..zone.maxZ) {
+                for (y in 60..63) FishingArenaGenerator.materialAt(x, y, z) shouldBe Material.WATER
+                FishingArenaGenerator.materialAt(x, 59, z) shouldBe Material.GRAVEL
+                for (y in 64..90) FishingArenaGenerator.materialAt(x, y, z) shouldBe null
             }
-            FishingArenaGenerator.materialAt(center + 20, FishingArenaGenerator.WALK_Y, 0) shouldBe org.bukkit.Material.STONE_SLAB
-            FishingArenaGenerator.materialAt(center + 21, FishingArenaGenerator.WATER_SURFACE_Y, 0) shouldBe org.bukkit.Material.WATER
-            FishingArenaGenerator.materialAt(center + 21, FishingArenaGenerator.WALK_Y, 0) shouldBe null
-            val landing = FishingArenaGenerator.catchLanding(stage)
-            landing.x shouldBe stage.centerX + 0.5
-            landing.z shouldBe 10.5
-            FishingArenaGenerator.materialAt(landing.x.toInt(), FishingArenaGenerator.WALK_Y, landing.z.toInt())?.isSolid shouldBe true
-            FishingArenaGenerator.materialAt(landing.x.toInt(), FishingArenaGenerator.SPAWN_Y, landing.z.toInt()) shouldBe null
-            FishingArenaGenerator.materialAt(landing.x.toInt(), FishingArenaGenerator.SPAWN_Y + 1, landing.z.toInt()) shouldBe null
+            for (x in listOf(-9, 9)) for (z in listOf(19, 35)) {
+                block(stage, x, 63, z) shouldBe Material.STRIPPED_DARK_OAK_LOG
+                block(stage, x, 64, z) shouldBe Material.RED_TERRACOTTA
+                block(stage, x, 66, z) shouldBe Material.LANTERN
+            }
+            val lowShore = (6..11).any { x -> (10..16).any { z ->
+                block(stage, x, 64, z) in setOf(Material.SMOOTH_SANDSTONE_SLAB, Material.STONE_SLAB) &&
+                    listOf(x + 1 to z, x to z + 1).any { (nx, nz) ->
+                        block(stage, nx, 63, nz) == Material.WATER && block(stage, nx, 64, nz) == null
+                    }
+            } }
+            lowShore shouldBe true
         }
+    }
+
+    "the starting view frames a functioning lighthouse, reef, tide ring, sea arch or crater" {
+        block(FishingArenaStage.CAMP, -16, 82, 33) shouldBe Material.OCHRE_FROGLIGHT
+        block(FishingArenaStage.CAMP, 16, 72, 24) shouldBe Material.STRIPPED_SPRUCE_LOG
+        block(FishingArenaStage.REEF, -19, 73, 26) shouldBe Material.CALCITE
+        block(FishingArenaStage.SHRINE, -17, 75, 29) shouldBe null
+        block(FishingArenaStage.SHRINE, -17, 80, 29) shouldBe Material.AMETHYST_BLOCK
+        block(FishingArenaStage.CLIFFS, -20, 69, 25) shouldBe null
+        block(FishingArenaStage.CLIFFS, -20, 75, 25) shouldBe Material.CALCITE
+        (70..82).any { y -> block(FishingArenaStage.VOLCANO, -23, y, 32) == Material.MAGMA_BLOCK } shouldBe true
     }
 })

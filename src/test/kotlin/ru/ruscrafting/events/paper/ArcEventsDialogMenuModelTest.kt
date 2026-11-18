@@ -10,6 +10,7 @@ import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
 import org.bukkit.entity.Player
 import ru.arc.paper.menu.PaperDialogRuntime
+import ru.arc.paper.menu.PaperDialogClickContext
 import ru.arc.paper.menu.PaperDialogScreen
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
@@ -42,11 +43,12 @@ class ArcEventsDialogMenuModelTest : StringSpec({
             val locale = ArcEventsLocale(root) { settings }
             val player = mockk<Player>(relaxed = true)
             every { player.uniqueId } returns UUID.randomUUID()
+            every { player.isOnline } returns true
             every { player.locale() } returns Locale.US
             every { player.hasPermission(any<String>()) } returns true
             val service = mockk<ArcEventsService>(relaxed = true)
             every { service.snapshot() } returns ServiceSnapshot("test", ru.ruscrafting.events.config.NodeMode.HOST, "test", true, true, true, null, 0, null, null, 0, 0, 0, 0, 0, 0)
-            every { service.modeAvailable(ru.ruscrafting.events.domain.EventMode.FISHING) } returns true
+            every { service.modeUnavailable(any()) } returns null
             every { service.isParticipant(any()) } returns false
             every { service.currentMode() } returns null
             val displayed = mutableListOf<PaperDialogScreen>()
@@ -56,7 +58,7 @@ class ArcEventsDialogMenuModelTest : StringSpec({
             menu.open(player, EventsView.Help) shouldBe true
             menu.open(player, EventsView.Statistics) shouldBe true
             menu.openTttLoading(player, {}, {}) shouldBe true
-            menu.open(player, EventsView.Fishing) shouldBe true
+            menu.openFishing(player, EventEntryStatus(null), {}) shouldBe true
             displayed.size shouldBe 5
             displayed.forEach { (it.exitButton != null) shouldBe true }
             displayed.first().exitButton!!.closeDialogBeforeAction shouldBe true
@@ -76,8 +78,33 @@ class ArcEventsDialogMenuModelTest : StringSpec({
             every { service.snapshot() } returns ServiceSnapshot("test", ru.ruscrafting.events.config.NodeMode.HOST, "test", true, true, true, null, 0,
                 UUID.randomUUID(), ru.ruscrafting.events.domain.MatchPhase.ACTIVE, 2, 2, 1, 1, 0, 12)
             every { service.currentMode() } returns ru.ruscrafting.events.domain.EventMode.TTT
-            menu.open(player, EventsView.Fishing) shouldBe true
+            menu.openFishing(player, EventEntryStatus(null, ReservationStartResult.BUSY), {}) shouldBe true
             PlainTextComponentSerializer.plainText().serialize(displayed.last().body.first().text) shouldContain "Идёт матч"
+            displayed.last().buttons.map { it.id.value } shouldBe listOf("action_menu_event_refresh_name", "rules_fishing")
+            val plain = PlainTextComponentSerializer.plainText()
+            val busy = ReservationStartResult.BUSY
+            val waiting = ru.ruscrafting.events.network.QueueState.QUEUED
+            val reserved = ru.ruscrafting.events.network.QueueState.RESERVED
+            menu.openFishing(player, EventEntryStatus(null, ReservationStartResult.ARENA_UNAVAILABLE), {}) shouldBe true
+            plain.serialize(displayed.last().body.first().text) shouldContain "Арена пока не готова"
+            menu.openFishing(player, EventEntryStatus(waiting, busy), {}) shouldBe true
+            displayed.last().buttons.map { it.id.value } shouldBe listOf("action_menu_event_leave_name", "rules_fishing")
+            plain.serialize(displayed.last().body.first().text) shouldContain "Вы в общей очереди"
+            var checks = 0
+            val click = mockk<PaperDialogClickContext>()
+            every { click.player } returns player
+            val route = EventEntryStatus(reserved, busy)
+            menu.openFishing(player, route, {}, checkEntry = { checks++ }) shouldBe true
+            displayed.last().buttons.map { it.id.value } shouldBe listOf("action_menu_event_check_route_name", "rules_fishing")
+            val tooltip = plain.serialize(displayed.last().buttons.first().tooltip)
+            tooltip shouldBe "Повторить вход в ваш матч или возврат после него."
+            plain.serialize(displayed.last().body.first().text) shouldContain "Ожидайте перехода"
+            displayed.last().buttons.first().onClick.handle(click)
+            menu.openTtt(player, route, eventMenuPlan(reserved, true, false, false, false, false, false, false, false),
+                Component.text("Inferno"), checkEntry = { checks++ }) shouldBe true
+            displayed.last().buttons.first().id.value shouldBe "action_menu_event_check_route_name"
+            displayed.last().buttons.first().onClick.handle(click)
+            checks shouldBe 2
         } finally {
             root.toFile().deleteRecursively()
         }

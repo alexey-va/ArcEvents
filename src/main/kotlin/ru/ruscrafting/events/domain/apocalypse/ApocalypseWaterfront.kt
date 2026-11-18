@@ -108,13 +108,20 @@ internal class ApocalypseWaterfront(
                 }
             }
         }
+        ApocalypseFreightPier.draw(groundY, land, ::material)
         loot = markers
         // Prepared on the content worker. The running server only compares actual blocks against these two versions.
-        lots = blocks.mapValues { (chunk, target) -> oldAndNew(chunk.first, chunk.second, target, original) }
+        var pierOverlapsSource = false
+        val prepared = blocks.mapValues { (chunk, target) ->
+            oldAndNew(chunk.first, chunk.second, target, original) { pierOverlapsSource = true }
+        }
+        // Other configured seeds may put a source city or bunker here. Keep its entire footprint intact.
+        lots = if (pierOverlapsSource) prepared.filterKeys { it.first > (ApocalypseFreightPier.EAST_X shr 4) } else prepared
     }
 
     private fun oldAndNew(
         cx: Int, cz: Int, target: Map<ApocalypsePoint, String>, original: (ApocalypseChunkCanvas) -> Unit,
+        sourceConflict: () -> Unit,
     ): List<ApocalypseSceneryCell> {
         val low = target.keys.minOf { it.y }
         val high = target.keys.maxOf { it.y }
@@ -126,7 +133,12 @@ internal class ApocalypseWaterfront(
                     baseline.fill(block.blockState, index(x1, y, z), index(x2, y, z) + 1)
             }
             override fun fillState(x: Int, y: Int, z: Int, state: String) {
-                if (y in low..high) baseline[index(x, y, z)] = state
+                if (y in low..high) {
+                    baseline[index(x, y, z)] = state
+                    // Only imported city/NBT pieces use fillState; natural terrain uses fill.
+                    if (cx <= (ApocalypseFreightPier.EAST_X shr 4) &&
+                        ApocalypsePoint(cx * 16 + x, y, cz * 16 + z) in target) sourceConflict()
+                }
             }
         })
         return target.map { (p, state) ->

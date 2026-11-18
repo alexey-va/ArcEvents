@@ -280,7 +280,7 @@ test('Zombies native window breach and Shift repair lead to one paid physical bo
     // Select only this fixture world's owned actors, then exercise the controller's
     // foreign-world cleanup without native damage cancellation or extra kill awards.
     const cleanupMarker = admin.getMessageBufferIndex();
-    admin.chat('/execute in minecraft:arcevents_zombies_zero_v2 as @e[type=minecraft:zombie,tag=arcevents-zombies] in minecraft:overworld run tp @s 0 -60 0');
+    admin.chat('/execute in minecraft:arcevents_zombies_zero_v3 as @e[type=minecraft:zombie,tag=arcevents-zombies] in minecraft:overworld run tp @s 0 -60 0');
     await expect(admin).toHaveReceivedMessage(/Teleported/, { since: cleanupMarker, timeout: 5000 });
     await waitForQa(admin, 'status', { zombies_phase: 'intermission', zombies_alive: 0, zombies_pending: 0 });
     await waitForQa(admin, `player ${player.username}`, { zombies_points: 875 });

@@ -1,6 +1,7 @@
 package ru.ruscrafting.events.paper
 
 import net.kyori.adventure.text.Component
+import net.kyori.adventure.text.JoinConfiguration
 import net.kyori.adventure.text.format.TextDecoration
 import org.bukkit.Bukkit
 import org.bukkit.Material
@@ -25,6 +26,7 @@ import ru.ruscrafting.events.domain.TttParticipant
 import ru.ruscrafting.events.domain.TttRole
 import ru.ruscrafting.events.network.QueueState
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
 
 sealed interface EventsView {
     data object Main : EventsView
@@ -62,6 +64,21 @@ class ArcEventsMenu(
     private val pendingArcadeActions = mutableMapOf<UUID, UUID>()
     private val selectedArenas = mutableMapOf<UUID, String>()
     private val dialogRuntime = PaperDialogRuntime(plugin)
+    private var firearmSettings: FirearmSettingsDialog? = null
+
+    internal fun bindFirearmSettings(firearms: TttFirearms, world: WorldFirearms) {
+        val protocols = ClientProtocolResolver()
+        firearmSettings = FirearmSettingsDialog(dialogRuntime, locale, firearms,
+            specFor = { player -> service.editableFirearmSpec(player) ?: world.editableSpec(player) },
+            cancelFire = { id -> world.cancel(id); service.clearFirearmScope(id) },
+            native = { player -> settings().ui.dialogsEnabled && protocols.resolve(player) >= MIN_DIALOG_PROTOCOL },
+            escapeCloses = escapeCloses)
+    }
+
+    internal fun openFirearmSettings(player: Player, admin: Boolean = false, args: List<String> = emptyList(),
+                                    quiet: Boolean = false): Boolean =
+        firearmSettings?.open(player, admin, args, quiet) == true
+
     private val dialogs = ArcEventsDialogMenu(dialogRuntime, service, locale, settings,
         { player, view, slot -> dispatchClick(player, view, slot, nativePresentation = true) },
         escapeCloses = escapeCloses, apocalypseSlot = { element(EventsView.Main, "apocalypse") },
@@ -75,6 +92,7 @@ class ArcEventsMenu(
         val view: EventsView,
         val frame: PaperMenuFrame,
         val arenaIds: List<String> = emptyList(),
+        val centerClick: (() -> Unit)? = null,
     )
 
     /** Command/hotkey entry: discard an older dialog flow before rendering a root. */
@@ -154,7 +172,9 @@ class ArcEventsMenu(
         Tasks.scheduler.runLater(1L) {
             try {
                 if (!player.isOnline || activeFrames[player.uniqueId] !== active || menuRuntime.session(player) == null) return@runLater
-                if (active.view == EventsView.EventArenas) {
+                if (active.centerClick != null && slot == element(active.view, "center")) {
+                    active.centerClick()
+                } else if (active.view == EventsView.EventArenas) {
                     clickEventArenas(player, slot, active.arenaIds)
                 } else if (active.view == EventsView.Arenas) {
                     clickArenas(player, slot, active.arenaIds)
@@ -183,6 +203,21 @@ class ArcEventsMenu(
     }
 
     private fun dispatchClick(player: Player, view: EventsView, slot: Int, nativePresentation: Boolean = false) {
+        if (slot == LEAVE_QUEUE_SLOT) {
+            if (service.isParticipant(player.uniqueId)) { open(player, view); return }
+            selectedArenas.remove(player.uniqueId)
+            closeSurface(player, nativePresentation)
+            service.leaveQueue(player)
+            return
+        }
+        if (slot == LEAVE_MATCH_SLOT) {
+            val mode = if (view == EventsView.Fishing) EventMode.FISHING else (view as? EventsView.Arcade)?.mode
+            val member = service.arcadeSnapshot()?.takeIf { it.mode == mode }?.participants?.get(player.uniqueId)
+            if (member == null || member.status == ParticipantStatus.RESTORED) { open(player, view); return }
+            closeSurface(player, nativePresentation)
+            service.leave(player)
+            return
+        }
         when (view) {
             EventsView.Main -> clickMain(player, slot, nativePresentation)
             EventsView.Help -> if (slot == element(view, "back")) open(player, EventsView.Main)
@@ -264,20 +299,31 @@ class ArcEventsMenu(
         }
     }
 
-    private fun openArcade(player: Player, mode: EventMode, feedback: String? = null) {
+    private fun <T> readEntry(player: Player, retryMatchId: String?, read: () -> CompletableFuture<T>): CompletableFuture<T> =
+        if (retryMatchId == null) read() else service.retryRoute(player, retryMatchId).thenCompose { read() }
+
+    private fun entryStatus(player: Player, mode: EventMode, queueState: QueueState?, readFailed: Boolean): EventEntryStatus =
+        EventEntryStatus(queueState, service.modeUnavailable(mode), readFailed,
+            inOtherMode = service.isParticipant(player.uniqueId) && service.currentMode() != mode)
+
+    private fun openArcade(player: Player, mode: EventMode, feedback: String? = null, retryMatchId: String? = null) {
         if (mode == EventMode.FISHING) {
             openFishing(player)
             return
         }
+        if (retryMatchId != null && player.uniqueId in pendingDialogLoads) return
+        val previousSession = menuRuntime.session(player)
         val token = UUID.randomUUID()
         pendingDialogLoads[player.uniqueId] = token
-        dialogs.openArcadeLoading(player, mode, { openArcade(player, mode) }) {
+        val dialogLoading = dialogs.openArcadeLoading(player, mode, { openArcade(player, mode) }) {
             pendingDialogLoads.remove(player.uniqueId, token)
         }
-        service.queueControl(player.uniqueId).whenComplete { control, failure ->
+        val id = player.uniqueId
+        readEntry(player, retryMatchId) { service.queueControl(id) }.whenComplete { control, failure ->
             Tasks.scheduler.runSync {
                 if (!player.isOnline || pendingDialogLoads[player.uniqueId] != token) return@runSync
                 pendingDialogLoads.remove(player.uniqueId, token)
+                if (!dialogLoading && previousSession != null && menuRuntime.session(player) !== previousSession) return@runSync
                 val queueState = control?.state
                 val view = EventsView.Arcade(mode)
                 val state = service.snapshot()
@@ -285,14 +331,15 @@ class ArcEventsMenu(
                 val controls = settings().eventControls
                 val adminOverride = controls.adminOverrideEnabled && player.hasPermission("arcevents.admin")
                 val creator = controls.creatorControlsEnabled && control?.ownedBy(player.uniqueId) == true
-                val arcadeParticipant = service.arcadeSnapshot()?.participants?.get(player.uniqueId)
+                val arcadeParticipant = service.arcadeSnapshot()?.takeIf { it.mode == mode }?.participants?.get(player.uniqueId)
                 val inArcadeMatch = arcadeParticipant != null && arcadeParticipant.status != ParticipantStatus.RESTORED
-                val modeAvailable = service.modeAvailable(mode)
+                val entry = entryStatus(player, mode, queueState, failure != null)
+                val checkEntry = { openArcade(player, mode, retryMatchId = control?.matchId) }
                 val canStart = queueState == QueueState.QUEUED && (adminOverride || creator ||
                     (!controls.creatorControlsEnabled && player.hasPermission("arcevents.start"))) &&
-                    modeAvailable && state.matchId == null && (control?.queueSize ?: 0) >= rules.minimumPlayers && failure == null
-                if (dialogs.openArcade(player, mode, queueState, canStart, inArcadeMatch, modeAvailable, failure != null,
-                        element(view, "center"), element(view, "right"), { openArcade(player, mode) }, feedback, control?.queueSize ?: 0)) return@runSync
+                    entry.ready && state.matchId == null && (control?.queueSize ?: 0) >= rules.minimumPlayers
+                if (dialogs.openArcade(player, mode, entry, canStart, inArcadeMatch,
+                        element(view, "center"), element(view, "right"), { openArcade(player, mode) }, feedback, control?.queueSize ?: 0, checkEntry)) return@runSync
                 if (mode == EventMode.ZOMBIES) {
                     player.sendEventMessage(locale.render("arcade.zombies-dialog-unavailable", player))
                     return@runSync
@@ -307,35 +354,52 @@ class ArcEventsMenu(
                 val inventory = inventory(player, view, "arcade.${mode.id}-title", values)
                 inventory.setItem(element(view, "overview"), item(Material.IRON_SWORD.takeIf { mode == EventMode.GUN_GAME } ?: Material.LIGHTNING_ROD, player, "arcade.${mode.id}-name", "arcade.${mode.id}-guide", values))
                 val queued = queueState == QueueState.QUEUED
-                inventory.setItem(element(view, "center"), item(
-                    when { inArcadeMatch -> Material.ENDER_PEARL; queued -> Material.RED_DYE; else -> Material.LIME_DYE }, player,
-                    when { inArcadeMatch -> "menu.event.evacuate-name"; queued -> "arcade.leave-name"; else -> "arcade.join-name" },
-                    when { inArcadeMatch -> "menu.event.evacuate-lore"; queued -> "arcade.leave-lore"; else -> "arcade.join-lore" }, values))
+                val center = when {
+                    inArcadeMatch -> Material.ENDER_PEARL to "menu.event.evacuate"
+                    entry.showCheck -> Material.COMPASS to entry.checkKey
+                    entry.inOtherMode -> null
+                    queued -> Material.RED_DYE to "arcade.leave"
+                    entry.ready -> Material.LIME_DYE to "arcade.join"
+                    else -> null
+                }
+                center?.let { (material, key) -> inventory.setItem(element(view, "center"), item(material, player, "$key-name", "$key-lore", values)) }
                 if (canStart) inventory.setItem(element(view, "right"), item(Material.LIME_CONCRETE, player, "arcade.start-name", "arcade.start-lore", values))
-                inventory.setItem(element(view, "left"), item(Material.CLOCK, player, "arcade.status-name", "arcade.status-lore", values + mapOf("queue_state" to locale.render(
-                    when { failure != null -> "state.network-degraded"; inArcadeMatch -> "menu.event.state.matched"; queueState != null -> queueStateLocaleKey(queueState); !modeAvailable -> "state.network-degraded"; else -> "state.idle" }, player))))
+                inventory.setItem(element(view, "left"), item(Material.CLOCK, player, "arcade.status-name", "arcade.status-lore",
+                    values + ("queue_state" to statusText(player, entry, inArcadeMatch))))
                 inventory.setItem(element(view, "help"), item(Material.KNOWLEDGE_BOOK, player, "arcade.${mode.id}-guide-name", "arcade.${mode.id}-guide", values))
                 inventory.setItem(element(view, "back"), backItem(player))
-                show(player, view, inventory)
+                show(player, view, inventory, centerClick = when {
+                    inArcadeMatch -> { { dispatchClick(player, view, LEAVE_MATCH_SLOT) } }
+                    entry.showCheck -> checkEntry
+                    queued -> { { dispatchClick(player, view, LEAVE_QUEUE_SLOT) } }
+                    else -> null
+                })
             }
         }
     }
 
-    private fun openFishing(player: Player, feedback: String? = null) {
-        if (dialogs.openFishing(player, { openFishing(player) }, feedback) {
-                pendingFishingActions.remove(player.uniqueId)
-            }) return
-        player.sendEventMessage(locale.render("arcade.fishing-dialog-unavailable", player))
+    private fun openFishing(player: Player, feedback: String? = null, retryMatchId: String? = null) {
+        val id = player.uniqueId
+        val token = UUID.randomUUID()
+        pendingDialogLoads[id] = token
+        if (!dialogs.openFishingLoading(player, { openFishing(player) }, checking = true) { pendingDialogLoads.remove(id, token) }) {
+            pendingDialogLoads.remove(id, token)
+            player.sendEventMessage(locale.render("arcade.fishing-dialog-unavailable", player))
+            return
+        }
+        readEntry(player, retryMatchId) { service.queueEntry(id) }.whenComplete { route, failure ->
+            Tasks.scheduler.runSync {
+                if (!player.isOnline || !pendingDialogLoads.remove(id, token)) return@runSync
+                val entry = entryStatus(player, EventMode.FISHING, route?.state, failure != null)
+                dialogs.openFishing(player, entry, { openFishing(player) }, feedback,
+                    checkEntry = { openFishing(player, retryMatchId = route?.matchId) })
+            }
+        }
     }
 
     private fun clickFishing(player: Player, slot: Int, nativePresentation: Boolean) {
         if (slot != FISHING_PRIMARY_SLOT) return
-        val participant = service.isParticipant(player.uniqueId) && service.currentMode() == EventMode.FISHING
-        if (participant) {
-            closeSurface(player, nativePresentation)
-            service.leave(player)
-            return
-        }
+        if (service.isParticipant(player.uniqueId)) { openFishing(player); return }
         val token = UUID.randomUUID()
         pendingFishingActions[player.uniqueId] = token
         val loading = dialogs.openFishingLoading(
@@ -370,12 +434,6 @@ class ArcEventsMenu(
         if (pendingArcadeActions.containsKey(player.uniqueId)) return
         if (slot !in setOf(element(view, "center"), element(view, "right"), ZOMBIES_SOLO_SLOT)) return
         if (slot == ZOMBIES_SOLO_SLOT && mode != EventMode.ZOMBIES) return
-        val participant = service.arcadeSnapshot()?.participants?.get(player.uniqueId)
-        if (slot == element(view, "center") && participant != null && participant.status != ParticipantStatus.RESTORED) {
-            closeSurface(player, nativePresentation)
-            service.leave(player)
-            return
-        }
         val token = UUID.randomUUID()
         pendingArcadeActions[player.uniqueId] = token
         pendingDialogLoads.remove(player.uniqueId)
@@ -409,12 +467,11 @@ class ArcEventsMenu(
                     return@runSync
                 }
                 if (slot == element(view, "center")) {
-                    if (control?.state == QueueState.QUEUED) {
+                    if (control?.state != null || service.isParticipant(player.uniqueId) || !service.modeAvailable(mode)) {
                         pendingArcadeActions.remove(player.uniqueId, token)
-                        closeSurface(player, nativePresentation)
-                        service.leaveQueue(player)
+                        openArcade(player, mode)
                     } else {
-                        service.joinQueue(player).whenComplete { joined, joinFailure ->
+                        service.joinQueue(player, mode).whenComplete { joined, joinFailure ->
                             Tasks.scheduler.runSync {
                                 if (!current()) return@runSync
                                 pendingArcadeActions.remove(player.uniqueId, token)
@@ -440,18 +497,24 @@ class ArcEventsMenu(
         }
     }
 
-    private fun openTtt(player: Player, feedback: String? = null) {
+    private fun openTtt(player: Player, feedback: String? = null, retryMatchId: String? = null) {
+        if (retryMatchId != null && player.uniqueId in pendingDialogLoads) return
+        val previousSession = menuRuntime.session(player)
         val loadToken = UUID.randomUUID()
         pendingDialogLoads[player.uniqueId] = loadToken
         val dialogLoading = dialogs.openTttLoading(player, { openTtt(player) }) {
             pendingDialogLoads.remove(player.uniqueId, loadToken)
         }
-        service.queueControl(player.uniqueId).whenComplete { queueControl, failure ->
+        val id = player.uniqueId
+        readEntry(player, retryMatchId) { service.queueControl(id) }.whenComplete { queueControl, failure ->
             Tasks.scheduler.runSync {
                 if (!player.isOnline || pendingDialogLoads[player.uniqueId] != loadToken) return@runSync
                 pendingDialogLoads.remove(player.uniqueId, loadToken)
+                if (!dialogLoading && previousSession != null && menuRuntime.session(player) !== previousSession) return@runSync
                 val state = service.snapshot()
                 val queueState = queueControl?.state
+                val entry = entryStatus(player, EventMode.TTT, queueState, failure != null)
+                val checkEntry = { openTtt(player, retryMatchId = queueControl?.matchId) }
                 val controls = settings().eventControls
                 val adminOverride = controls.adminOverrideEnabled && player.hasPermission("arcevents.admin")
                 val creatorControl = controls.creatorControlsEnabled && queueControl?.ownedBy(player.uniqueId) == true
@@ -462,41 +525,41 @@ class ArcEventsMenu(
                 val plan = eventMenuPlan(
                     queueState = queueState,
                     queueStateAvailable = failure == null,
-                    hostAvailable = state.hostAvailable,
+                    hostAvailable = entry.ready,
                     rosterAvailable = service.roster(player.uniqueId) != null,
                     shopAvailable = shopAccessible(service.currentMatch(), service.participant(player.uniqueId)),
                     reportAvailable = service.report() != null && service.participant(player.uniqueId) != null,
                     evacuationAvailable = evacuationAccessible(service.currentMatch(), service.participant(player.uniqueId)),
-                    canStart = canControl,
+                    canStart = canControl && entry.ready,
                     canSelectArena = canControl && (controls.creatorArenaSelectionEnabled || adminOverride),
                 )
                 val selectedArena = arenaName(selectedArenaId(player.uniqueId), player)
-                if (dialogLoading && dialogs.openTtt(player, queueState, plan, selectedArena, { openTtt(player) }, {
+                if (dialogLoading && dialogs.openTtt(player, entry, plan, selectedArena, { openTtt(player) }, {
                     pendingDialogLoads.remove(player.uniqueId, loadToken)
-                }, queueControl?.queueSize ?: 0, feedback)) return@runSync
+                }, queueControl?.queueSize ?: 0, feedback, checkEntry)) return@runSync
                 if (feedback != null) player.sendEventMessage(locale.render(feedback, player))
                 val view = EventsView.Ttt
                 val inventory = inventory(player, view, "menu.event.title")
                 val values = mapOf(
-                    "queue" to locale.text(state.queueSize),
+                    "queue" to locale.text(queueControl?.queueSize ?: 0),
                     "minimum" to locale.text(settings().ttt.minimumPlayers),
                     "arena_state" to locale.render(if (state.arenaReady) "state.arena-ready" else "state.arena-unavailable", player),
                     "selected_arena" to selectedArena,
                 )
                 inventory.setItem(element(view, "overview"), item(Material.SPYGLASS, player, "menu.event.overview-name", "menu.event.overview-lore", values))
-                if (plan.showQueueStatus) {
+                if (plan.showQueueStatus || plan.showJoinUnavailable) {
                     inventory.setItem(element(view, "left"), item(Material.CLOCK, player, "menu.event.queue-name", "menu.event.queue-lore", values + mapOf(
-                        "queue_state" to locale.render(queueStateLocaleKey(requireNotNull(queueState)), player),
+                        "queue_state" to statusText(player, entry, plan.showEvacuate),
                     )))
                 }
                 when {
                     plan.showJoin -> inventory.setItem(element(view, "center"), item(Material.LIME_DYE, player, "menu.event.join-name", "menu.event.join-lore"))
-                    plan.showJoinUnavailable -> inventory.setItem(element(view, "center"), item(Material.GRAY_DYE, player, "menu.event.join-unavailable-name", "menu.event.join-unavailable-lore"))
                     plan.showLeave -> inventory.setItem(element(view, "center"), item(Material.RED_DYE, player, "menu.event.leave-name", "menu.event.leave-lore"))
+                    entry.showCheck && !plan.showEvacuate -> inventory.setItem(element(view, "center"), item(Material.COMPASS, player, "${entry.checkKey}-name", "${entry.checkKey}-lore"))
                 }
                 if (plan.showStart) {
                     inventory.setItem(element(view, "right"), item(
-                        if (state.queueSize >= settings().ttt.minimumPlayers) Material.LIME_CONCRETE else Material.GRAY_CONCRETE,
+                        if ((queueControl?.queueSize ?: 0) >= settings().ttt.minimumPlayers) Material.LIME_CONCRETE else Material.GRAY_CONCRETE,
                         player,
                         "menu.event.start-name",
                         "menu.event.start-lore",
@@ -512,7 +575,11 @@ class ArcEventsMenu(
                 inventory.setItem(element(view, "help"), item(Material.KNOWLEDGE_BOOK, player, "menu.event.help-name", "menu.event.help-lore"))
                 inventory.setItem(element(view, "back"), backItem(player))
                 if (plan.showEvacuate) inventory.setItem(element(view, "evacuate"), item(Material.ENDER_PEARL, player, "menu.event.evacuate-name", "menu.event.evacuate-lore"))
-                show(player, view, inventory)
+                show(player, view, inventory, centerClick = when {
+                    plan.showLeave -> { { dispatchClick(player, view, LEAVE_QUEUE_SLOT) } }
+                    entry.showCheck && !plan.showEvacuate -> checkEntry
+                    else -> null
+                })
             }
         }
     }
@@ -540,18 +607,12 @@ class ArcEventsMenu(
                                     pendingArcadeActions.remove(player.uniqueId, token)
                                     openTtt(player)
                                 }
-                                queueState == QueueState.QUEUED -> {
-                                    pendingArcadeActions.remove(player.uniqueId, token)
-                                    selectedArenas.remove(player.uniqueId)
-                                    closeSurface(player, nativePresentation)
-                                    service.leaveQueue(player)
-                                }
-                                queueState == null && service.snapshot().hostAvailable -> {
-                                    service.joinQueue(player).whenComplete { _, _ ->
+                                queueState == null && !service.isParticipant(player.uniqueId) && service.modeAvailable(EventMode.TTT) -> {
+                                    service.joinQueue(player).whenComplete { joined, joinFailure ->
                                         Tasks.scheduler.runSync {
                                             if (!current()) return@runSync
                                             pendingArcadeActions.remove(player.uniqueId, token)
-                                            openTtt(player)
+                                            openTtt(player, if (joinFailure != null || joined != true) "queue.unavailable" else null)
                                         }
                                     }
                                 }
@@ -1089,8 +1150,9 @@ class ArcEventsMenu(
         view: EventsView,
         frame: PaperMenuFrame,
         arenaIds: List<String> = emptyList(),
+        centerClick: (() -> Unit)? = null,
     ) {
-        val active = ActiveFrame(view, frame, arenaIds.toList())
+        val active = ActiveFrame(view, frame, arenaIds.toList(), centerClick)
         activeFrames[player.uniqueId] = active
         menuRuntime.open(player, ArcEventsMenuLayouts.menu(view)) {
             val latest = activeFrames[player.uniqueId].takeIf { it === active } ?: active
@@ -1099,6 +1161,10 @@ class ArcEventsMenu(
     }
 
     private fun element(view: EventsView, id: String): Int = layouts.slot(view, id)
+
+    private fun statusText(player: Player, entry: EventEntryStatus, participating: Boolean): Component =
+        Component.join(JoinConfiguration.separator(Component.text(" · ")), entry.statusKeys(participating)
+            .ifEmpty { listOf("state.idle") }.map { locale.render(it, player) })
 
     private fun region(view: EventsView, id: String): List<Int> = layouts.region(view, id)
 
@@ -1216,3 +1282,23 @@ internal fun eventMenuPlan(
 }
 
 internal fun queueStateLocaleKey(state: QueueState): String = "menu.event.state.${state.name.lowercase()}"
+
+internal data class EventEntryStatus(
+    val queue: QueueState?,
+    val unavailable: ReservationStartResult? = null,
+    val readFailed: Boolean = false,
+    val inOtherMode: Boolean = false,
+) {
+    val ready get() = !readFailed && !inOtherMode && unavailable == null
+    val hasRoute get() = queue != null && queue != QueueState.QUEUED
+    val showCheck get() = !inOtherMode && (hasRoute || queue == null && !ready)
+    val checkKey get() = if (hasRoute) "menu.event.check-route" else "menu.event.refresh"
+
+    fun statusKeys(participating: Boolean): List<String> = buildList {
+        if (participating) { add("menu.event.state.matched"); return@buildList }
+        if (inOtherMode) { add("dialog.other-match"); return@buildList }
+        if (queue != null) add(if (queue == QueueState.MATCHED) "dialog.linked-match" else queueStateLocaleKey(queue))
+        if (readFailed) add("dialog.read-failed")
+        else if (!hasRoute && unavailable != null) add(if (unavailable == ReservationStartResult.BUSY) "dialog.busy" else "dialog.arena-pending")
+    }
+}

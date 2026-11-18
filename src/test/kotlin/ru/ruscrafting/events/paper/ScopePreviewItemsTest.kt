@@ -83,6 +83,13 @@ class ScopePreviewItemsTest : StringSpec({
             val customData = itemsAdderCustomData("gold_guns", "gold_g36")
             scopePreviewItemIdentity(plugin) { customData }(item) shouldBe "gold_guns:gold_g36"
             item shouldBe original
+            val loaded = item.clone().also { copy -> copy.editMeta { meta ->
+                meta.persistentDataContainer.set(org.bukkit.NamespacedKey(plugin, "world_firearm"),
+                    org.bukkit.persistence.PersistentDataType.STRING, FirearmId.G36.name)
+            } }
+            val variant = itemsAdderCustomData("gold_guns", "gold_beretta_arx200")
+            scopePreviewItemIdentity(plugin) { variant }(loaded) shouldBe "gold_guns:gold_beretta_arx200"
+            scopePreviewItemIdentity(plugin) { null }(loaded) shouldBe "arcevents:world_g36"
             // Also cover a plugin present by name without its optional API classes.
             paper.createSimplePlugin("ItemsAdder")
             scopePreviewItemIdentity(plugin) { customData }(item) shouldBe "gold_guns:gold_g36"

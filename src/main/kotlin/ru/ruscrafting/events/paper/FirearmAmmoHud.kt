@@ -35,11 +35,13 @@ internal data class FirearmAmmoHudState(
     val creative: Boolean = false,
     val reloading: Boolean = false,
     val zoom: Float = 1f,
+    val burstSize: Int? = null,
 ) {
     init {
         require(capacity in 1..64 && loaded in 0..capacity)
         require(reserve == null || reserve >= 0)
         require(zoom.isFinite() && zoom >= 1f)
+        require(burstSize == null || burstSize in 1..capacity)
     }
 }
 
@@ -198,7 +200,9 @@ internal fun firearmAmmoHudText(
         !state.creative && state.loaded == 0 -> "weapon.ammo-hud-empty"
         else -> "weapon.ammo-hud-reload"
     }
-    return output.append(Component.newline()).append(localized(reloadKey, emptyMap())).build()
+    output.append(Component.newline()).append(localized(reloadKey, emptyMap()))
+    state.burstSize?.let { output.append(localized("weapon.settings.hud-count", mapOf("rounds" to Component.text(it)))) }
+    return output.build()
 }
 
 internal data class FirearmAmmoHudBounds(val pixelWidth: Int, val lineCount: Int) {

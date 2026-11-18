@@ -28,6 +28,13 @@ class ArcEventsCommand(
     private val selectedAdminArenas = mutableMapOf<String, String>()
 
     override fun onCommand(sender: CommandSender, command: Command, label: String, args: Array<out String>): Boolean {
+        val burst = args.getOrNull(0).equals("burst", true)
+        val tune = args.getOrNull(0).equals("admin", true) && args.getOrNull(1).equals("gun", true)
+        if (burst || tune) {
+            if (tune && !sender.hasPermission("arcevents.admin")) deny(sender)
+            else player(sender)?.let { menu.openFirearmSettings(it, tune, args.drop(if (tune) 2 else 1)) }
+            return true
+        }
         if (sender is Player && apocalypse?.command(sender, args.toList()) == true) return true
         if (args.isEmpty()) {
             if (sender is Player) menu.openRoot(sender) else sender.sendEventMessage(locale.render("command.help", sender))
@@ -75,7 +82,7 @@ class ArcEventsCommand(
         val options = when (args.size) {
             1 -> buildList {
                 if (sender is Player) {
-                    addAll(listOf("menu", "join", "fishing", "zombies", "apocalypse", "leave", "spawn", "status", "shop", "roster", "report", "start"))
+                    addAll(listOf("menu", "join", "fishing", "zombies", "apocalypse", "leave", "spawn", "status", "shop", "roster", "report", "start", "burst"))
                     if (sender.hasPermission("arcevents.teamchat")) add("team")
                 }
                 add("help")
@@ -90,7 +97,8 @@ class ArcEventsCommand(
                     else -> listOf(EventMode.FISHING.id)
                 }
                 "admin" -> listOf("status", "player", "network", "arenas", "arena", "recovery", "start", "stop", "reload", "recover", "sound") +
-                    if (sender is Player) listOf("menu", "weapons") else emptyList()
+                    if (sender is Player) listOf("menu", "weapons", "gun") else emptyList()
+                "burst" -> if (sender is Player) listOf("1", "3", "6", "full", "default") else emptyList()
                 "qa" -> listOf("status", "player", "network", "arenas", "recovery")
                 "debug" -> if (settings().debugMutationsAllowed) DEBUG_ACTIONS else DEBUG_READ_ACTIONS
                 else -> emptyList()
@@ -105,6 +113,7 @@ class ArcEventsCommand(
         val action = args.getOrNull(1)?.lowercase()
         if (args.size == 3 && root in setOf("qa", "admin") && action == "player") return servicePlayerNames()
         if (root == "admin") {
+            if (args.size == 3 && action == "gun" && sender is Player) return listOf("default")
             if (args.size == 3 && action == "start") return EventMode.entries.map(EventMode::id)
             if (args.size == 4 && action == "start") return parseMode(args[2])?.let { arenaIds(it, includeAuto = true) }.orEmpty()
             if (args.size == 3 && action == "arena") return arenaIds(includeAuto = true)

@@ -22,19 +22,79 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionException
 
 class ApocalypseNetworkTest : FunSpec({
+    test("a return remains recoverable across host restarts until the matching origin sees its player") {
+        val fixture = ApocalypseNetworkFixture()
+        val host = fixture.network(serverId = "parkour")
+        val nonce = host.prepareReturn(APOCALYPSE_PLAYER, "spawn").join()
+        repeat(2) {
+            fixture.network(serverId = "parkour").returnPending(APOCALYPSE_PLAYER, "spawn", nonce).join() shouldBe true
+        }
+        fixture.network(serverId = "survival").acknowledgeReturn(APOCALYPSE_PLAYER) { true }.join() shouldBe false
+        fixture.network(serverId = "spawn").acknowledgeReturn(APOCALYPSE_PLAYER) { false }.join() shouldBe false
+        host.returnPending(APOCALYPSE_PLAYER, "spawn", nonce).join() shouldBe true
+
+        fixture.network(serverId = "spawn").acknowledgeReturn(APOCALYPSE_PLAYER) { true }.join() shouldBe true
+        host.returnPending(APOCALYPSE_PLAYER, "spawn", nonce).join() shouldBe false
+        fixture.network(serverId = "spawn").acknowledgeReturn(APOCALYPSE_PLAYER) { true }.join() shouldBe false
+        host.clearAcknowledgedReturn(APOCALYPSE_PLAYER, "spawn", nonce).join() shouldBe true
+    }
+
+    test("missing Redis data cannot acknowledge a return with a durable host nonce") {
+        val fixture = ApocalypseNetworkFixture()
+        val host = fixture.network(serverId = "parkour")
+        val nonce = host.prepareReturn(APOCALYPSE_PLAYER, "spawn").join()
+        val returns = "arc:events:apocalypse:returns:v1"
+        val id = APOCALYPSE_PLAYER.toString()
+        val row = requireNotNull(fixture.redis.loadMapEntries(returns, id).join().single())
+        fixture.redis.compareAndSetMapEntry(returns, id, row, null).join() shouldBe true
+
+        host.returnPending(APOCALYPSE_PLAYER, "spawn", nonce).join() shouldBe true
+        fixture.redis.loadMapEntries(returns, id).join().single() shouldBe row
+        fixture.network().acknowledgeReturn(APOCALYPSE_PLAYER) { true }.join() shouldBe true
+        host.returnPending(APOCALYPSE_PLAYER, "spawn", nonce).join() shouldBe false
+    }
+
+    test("a scheduler delay past admission expiry never sends a player with a dead ticket") {
+        val fixture = ApocalypseNetworkFixture()
+        var now = System.currentTimeMillis()
+        val relay = fixture.network(clock = { now })
+        relay.enter(fixture.player) { now += 30_001; true }.join() shouldBe null
+        fixture.pending() shouldBe null
+        verify(exactly = 0) { fixture.transfer.connect(any(), any()) }
+    }
+
+    test("a delayed acknowledgement cannot remove a later expedition's return") {
+        val fixture = ApocalypseNetworkFixture()
+        val host = fixture.network(serverId = "parkour")
+        host.prepareReturn(APOCALYPSE_PLAYER, "spawn").join()
+        lateinit var next: String
+        val result = fixture.network().acknowledgeReturn(APOCALYPSE_PLAYER) {
+            next = host.prepareReturn(APOCALYPSE_PLAYER, "survival").join()
+            true
+        }
+        result.join() shouldBe false
+        host.returnPending(APOCALYPSE_PLAYER, "survival", next).join() shouldBe true
+    }
+
     test("same-origin retry refreshes its pending ticket and sends the transfer again") {
         val fixture = ApocalypseNetworkFixture()
         val relay = fixture.network()
-        relay.enter(fixture.player) { fixture.player.isOnline }.join() shouldBe true
+        val first = requireNotNull(relay.enter(fixture.player) { fixture.player.isOnline }.join())
         val before = JsonParser.parseString(requireNotNull(fixture.pending())).asJsonObject
 
-        relay.enter(fixture.player) { fixture.player.isOnline }.join() shouldBe true
+        val second = requireNotNull(relay.enter(fixture.player) { fixture.player.isOnline }.join())
         val after = JsonParser.parseString(requireNotNull(fixture.pending())).asJsonObject
         (after["nonce"].asString != before["nonce"].asString) shouldBe true
         (after["at"].asLong >= before["at"].asLong) shouldBe true
         after["origin"].asString shouldBe "spawn"
         after["host"].asString shouldBe "parkour"
         verify(exactly = 2) { fixture.transfer.connect(fixture.player, BackendServerId.of("parkour")) }
+        relay.retryEntry(fixture.player, first) { true }.join() shouldBe false
+        relay.retryEntry(fixture.player, second) { false }.join() shouldBe false
+        relay.retryEntry(fixture.player, second) { true }.join() shouldBe true
+        fixture.network(serverId = "parkour").arrival(APOCALYPSE_PLAYER).join() shouldBe "spawn"
+        relay.retryEntry(fixture.player, second) { true }.join() shouldBe false
+        verify(exactly = 3) { fixture.transfer.connect(fixture.player, BackendServerId.of("parkour")) }
     }
 
     test("a valid pending ticket for another origin or host is left untouched") {
@@ -57,7 +117,7 @@ class ApocalypseNetworkTest : FunSpec({
             every { fixture.player.isOnline } returns !offline
             every { fixture.transfer.connect(any(), any()) } returns BackendTransferResult.SEND_FAILED
 
-            fixture.network().enter(fixture.player) { fixture.player.isOnline }.join() shouldBe false
+            fixture.network().enter(fixture.player) { fixture.player.isOnline }.join() shouldBe null
             fixture.pending() shouldBe null
             verify(exactly = if (offline) 0 else 1) { fixture.transfer.connect(any(), any()) }
         }
@@ -65,7 +125,7 @@ class ApocalypseNetworkTest : FunSpec({
 
     test("an online retired connection cannot send or retain its transfer ticket") {
         val fixture = ApocalypseNetworkFixture()
-        fixture.network().enter(fixture.player) { false }.join() shouldBe false
+        fixture.network().enter(fixture.player) { false }.join() shouldBe null
         fixture.pending() shouldBe null
         verify(exactly = 0) { fixture.transfer.connect(any(), any()) }
     }
@@ -107,14 +167,14 @@ class ApocalypseNetworkTest : FunSpec({
                 BackendTransferResult.SEND_FAILED
             }
             val result = fixture.network().enter(fixture.player) { fixture.player.isOnline }
-            if (throws) shouldThrow<CompletionException> { result.join() } else result.join() shouldBe false
+            if (throws) shouldThrow<CompletionException> { result.join() } else result.join() shouldBe null
             fixture.pending() shouldBe foreign
         }
     }
 
     test("only the addressed receiver consumes the ticket exactly once") {
         val fixture = ApocalypseNetworkFixture()
-        fixture.network().enter(fixture.player) { fixture.player.isOnline }.join() shouldBe true
+        requireNotNull(fixture.network().enter(fixture.player) { fixture.player.isOnline }.join())
         val raw = fixture.pending()
 
         fixture.network(serverId = "survival").arrival(APOCALYPSE_PLAYER).join() shouldBe null
@@ -152,13 +212,13 @@ private class ApocalypseNetworkFixture {
         redis.saveMapEntries("arc:events:apocalypse:host:v1", "parkour", System.currentTimeMillis().toString()).join()
     }
 
-    fun network(serverId: String = "spawn", redis: RedisOperations = this.redis): ApocalypseNetwork {
+    fun network(serverId: String = "spawn", redis: RedisOperations = this.redis, clock: () -> Long = System::currentTimeMillis): ApocalypseNetwork {
         val settings = mockk<ArcEventsConfig> {
             every { this@mockk.serverId } returns serverId
             every { hostServer } returns "parkour"
             every { network } returns NetworkSettings(true, setOf("spawn", "survival", "parkour"), 300, 45, 5, 20, true, true)
         }
-        return ApocalypseNetwork(redis, { settings }, transfer, ApocalypseNetworkTestWork)
+        return ApocalypseNetwork(redis, { settings }, transfer, ApocalypseNetworkTestWork, clock)
     }
 
     fun seed(raw: String) { redis.saveMapEntries(APOCALYPSE_ARRIVALS, APOCALYPSE_PLAYER.toString(), raw).join() }

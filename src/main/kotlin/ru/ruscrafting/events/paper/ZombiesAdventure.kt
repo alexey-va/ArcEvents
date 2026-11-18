@@ -258,12 +258,13 @@ class ZombiesAdventure(
     private fun damagePlayer(player: Player, damage: Double, now: Long) {
         if (!standing(player) || now < (protectedUntil[player.uniqueId] ?: 0)) return
         damagedAt[player.uniqueId] = now
-        rescues.entries.removeIf { it.value.rescuer == player.uniqueId }
+        stopRescuing(player.uniqueId)
         hurt(player, damage)
     }
 
     fun down(player: Player) {
         if (!belongsTo(player) || !director.down(player.uniqueId, clock())) return
+        stopRescuing(player.uniqueId)
         clearWeaponState(player.uniqueId)
         downLocations[player.uniqueId] = player.location.clone()
         player.health = 1.0
@@ -290,8 +291,10 @@ class ZombiesAdventure(
             }
             if (state.status != ZombiesStatus.DOWNED) continue
             if (state.recoveryAt?.let { now >= it } == true) { revive(player); continue }
-            val helper = roster.values.firstOrNull { standing(it) && it.isSneaking &&
-                it.location.distanceSquared(player.location) <= 6.25 && it.hasLineOfSight(player) }
+            fun canRescue(helper: Player) = standing(helper) && helper.isSneaking &&
+                helper.location.distanceSquared(player.location) <= RESCUE_DISTANCE_SQUARED && helper.hasLineOfSight(player)
+            val helper = rescues[id]?.let { roster[it.rescuer] }?.takeIf(::canRescue)
+                ?: roster.values.firstOrNull(::canRescue)
             if (helper == null) { rescues.remove(id); continue }
             val rescue = rescues[id]?.takeIf { it.rescuer == helper.uniqueId }
                 ?: Rescue(helper.uniqueId, now).also { rescues[id] = it }
@@ -319,10 +322,24 @@ class ZombiesAdventure(
     }
 
     fun handleMove(event: PlayerMoveEvent): Boolean {
-        val at = downLocations[event.player.uniqueId] ?: return false
-        if (!belongsTo(event.player)) return false
+        val player = event.player
+        val at = downLocations[player.uniqueId]
+        if ((at == null && rescues.isEmpty()) || !belongsTo(player)) return false
+        if (at == null) {
+            val to = event.to
+            rescues.entries.removeIf { (target, rescue) ->
+                rescue.rescuer == player.uniqueId && downLocations[target]?.let { downed ->
+                    to.world != downed.world || to.distanceSquared(downed) > RESCUE_DISTANCE_SQUARED
+                } == true
+            }
+            return false
+        }
         event.to = at.clone().also { it.yaw = event.to.yaw; it.pitch = event.to.pitch }
         return true
+    }
+
+    internal fun stopRescuing(playerId: UUID) {
+        rescues.entries.removeIf { it.value.rescuer == playerId }
     }
 
     fun handleDamage(event: EntityDamageEvent): Boolean {
@@ -489,6 +506,7 @@ class ZombiesAdventure(
     fun disconnect(player: Player, restored: Boolean = false) {
         mysteryBox.cancel(player.uniqueId, technical = false)
         director.disconnect(player.uniqueId)
+        stopRescuing(player.uniqueId)
         downLocations.remove(player.uniqueId)
         rescues.remove(player.uniqueId)
         if (!restored) {
@@ -524,5 +542,8 @@ class ZombiesAdventure(
         rescues.clear()
     }
 
-    companion object { private const val TAG = "arcevents-zombies" }
+    companion object {
+        private const val TAG = "arcevents-zombies"
+        private const val RESCUE_DISTANCE_SQUARED = 6.25
+    }
 }

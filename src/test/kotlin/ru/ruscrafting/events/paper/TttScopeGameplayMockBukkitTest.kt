@@ -31,6 +31,9 @@ class TttScopeGameplayMockBukkitTest : StringSpec({
     "event burst guns accept their remaining rounds and shotguns retain one shell per volley" {
         val shots = mockk<FirearmShots>(relaxed = true)
         val accepted = mutableListOf<FirearmSpec>()
+        val burst = slot<FirearmBurst>()
+        val finish = slot<(Boolean) -> Unit>()
+        every { shots.fireBurst(any(), any(), any(), any(), any(), any(), capture(burst), capture(finish), any()) } returns true
         every { shots.fire(any(), any(), any(), any(), any(), any(), any(), any()) } answers {
             accepted += arg<FirearmSpec>(1)
             true
@@ -47,7 +50,9 @@ class TttScopeGameplayMockBukkitTest : StringSpec({
                     f.advanceTime(1_000)
                     player.inventory.setItemInMainHand(f.firearms.firearmItem(id, player, matchId, loaded))
                     f.service.useFirearm(player) shouldBe true
-                    accepted.last() shouldBe spec.copy(roundsPerShot = loaded, pellets = loaded)
+                    burst.captured.size shouldBe loaded
+                    repeat(loaded) { burst.captured.takeRound() shouldBe true }
+                    finish.captured(true)
                     f.firearms.state(player.inventory.itemInMainHand)?.loaded shouldBe 0
                     f.firearms.reserveAmmo(player, matchId) shouldBe 0
                 }
@@ -91,7 +96,8 @@ class TttScopeGameplayMockBukkitTest : StringSpec({
         val shots = mockk<FirearmShots>(relaxed = true)
         val scopes = mockk<TttScopes>(relaxed = true)
         val finished = slot<(Boolean) -> Unit>()
-        every { shots.fire(any(), any(), any(), any(), any(), any(), capture(finished), any()) } returns true
+        val burst = slot<FirearmBurst>()
+        every { shots.fireBurst(any(), any(), any(), any(), any(), any(), capture(burst), capture(finished), any()) } returns true
         TttRoundFixture(shots = shots, scopes = scopes).use { f ->
             f.reloadRuntime { it.replace("weapons:\n  enabled: false", "weapons:\n  enabled: true") }
             f.startActiveRound()
@@ -101,6 +107,8 @@ class TttScopeGameplayMockBukkitTest : StringSpec({
             player.inventory.setItemInMainHand(f.firearms.firearmItem(FirearmId.G36, player, matchId, 2))
             player.inventory.setItem(10, f.firearms.ammunition(player, matchId, 7))
             f.service.useFirearm(player) shouldBe true
+            f.firearms.state(player.inventory.itemInMainHand)?.loaded shouldBe 2
+            repeat(2) { burst.captured.takeRound() shouldBe true }
             f.firearms.state(player.inventory.itemInMainHand)?.loaded shouldBe 0
             f.service.useFirearm(player) shouldBe false
             verify(exactly = 0) { scopes.animateReload(any(), any(), any(), any(), any()) }
@@ -293,6 +301,16 @@ class TttScopeGameplayMockBukkitTest : StringSpec({
 
             click.useItemInHand() shouldBe Event.Result.DENY
             verify(exactly = 1) { scopes.toggle(player, target) }
+            val chest = player.world.getBlockAt(8, 65, 8)
+            chest.type = Material.CHEST
+            fun clickChest() = f.paper.callEvent(PlayerInteractEvent(player, Action.RIGHT_CLICK_BLOCK,
+                player.inventory.itemInMainHand, chest, BlockFace.UP, EquipmentSlot.HAND))
+            (clickChest().useInteractedBlock() != Event.Result.DENY) shouldBe true
+            verify(exactly = 1) { scopes.toggle(player, target) }
+            player.isSneaking = true
+            clickChest().useInteractedBlock() shouldBe Event.Result.DENY
+            player.isSneaking = false
+            verify(exactly = 2) { scopes.toggle(player, target) }
             f.service.onReservation(ReservationBatch(UUID.randomUUID(), emptyList())) shouldBe false
             f.service.matchIdentity() shouldBe null
             f.service.phase() shouldBe null
@@ -529,7 +547,8 @@ class TttScopeGameplayMockBukkitTest : StringSpec({
             for (id in FirearmId.entries) {
                 val scope = f.firearms.refreshItem(f.firearms.firearmItem(id, player, "match", 1), player)
                 text(scope).contains("ПКМ") shouldBe true
-                text(scope).contains("прицел вкл/выкл") shouldBe true
+                text(scope).contains("ПКМ — прицел") shouldBe true
+                text(scope).contains("Shift+F — настройки") shouldBe true
                 f.firearms.state(scope) shouldBe FirearmState(id, 1, "match")
                 scope.itemMeta.lore().orEmpty().all { !it.hasDecoration(net.kyori.adventure.text.format.TextDecoration.ITALIC) } shouldBe true
             }

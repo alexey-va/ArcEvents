@@ -89,8 +89,8 @@ class ArcEventsConfigTest : StringSpec({
             Files.writeString(file, original)
             val host = ArcEventsConfig.inspect(root)
             host.arenas.single { it.id == "zombies" }.let {
-                it.world shouldBe "arcevents_zombies_zero_v2"
-                it.template shouldBe "zombies-zero-v2"
+                it.world shouldBe "arcevents_zombies_zero_v3"
+                it.template shouldBe "zombies-zero-v3"
                 it.operational(4) shouldBe true
             }
             Files.writeString(file, original.replace("waves: 10", "waves: 12"))
@@ -99,6 +99,22 @@ class ArcEventsConfigTest : StringSpec({
             shouldThrow<IllegalArgumentException> { ArcEventsReloadPolicy.validate(host, changed, true, "zombies") }
             Files.writeString(file, original.replace("waves: 10", "waves: 21"))
             shouldThrow<IllegalArgumentException> { ArcEventsConfig.inspect(root) }
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    "previous bundled world names select fresh maps without rewriting an operator's custom world" {
+        val root = Files.createTempDirectory("arcevents-map-upgrade-")
+        try {
+            ArcEventsConfig.load(root)
+            val file = root.resolve("config.yml")
+            val host = Files.readString(file).replace("node-mode: RELAY", "node-mode: HOST")
+            Files.writeString(file, host.replace("arcevents_fishing_v4", "arcevents_fishing_v3")
+                .replace("arcevents_zombies_zero_v3", "arcevents_zombies_zero_v2"))
+            val arenas = ArcEventsConfig.inspect(root).arenas.associateBy { it.id }
+            arenas.getValue("fishing").world shouldBe "arcevents_fishing_v4"
+            arenas.getValue("zombies").world shouldBe "arcevents_zombies_zero_v3"
+            Files.writeString(file, host.replace("arcevents_fishing_v4", "local_archipelago"))
+            ArcEventsConfig.inspect(root).arenas.single { it.id == "fishing" }.world shouldBe "local_archipelago"
         } finally { root.toFile().deleteRecursively() }
     }
 
@@ -117,8 +133,8 @@ class ArcEventsConfigTest : StringSpec({
             Files.writeString(root.resolve("config.yml"), original.replace("node-mode: RELAY", "node-mode: HOST"))
             val host = ArcEventsConfig.inspect(root)
             host.arenas.single { it.id == "fishing" }.let { arena ->
-                arena.world shouldBe "arcevents_fishing_v3"
-                arena.template shouldBe "fishing-v3"
+                arena.world shouldBe "arcevents_fishing_v4"
+                arena.template shouldBe "fishing-v4"
                 arena.operational(1) shouldBe true
             }
             current.arenas.none { it.id == "fishing" } shouldBe true
@@ -518,6 +534,16 @@ class ArcEventsConfigTest : StringSpec({
             }
         } finally {
             root.toFile().deleteRecursively()
+        }
+    }
+
+    "the host accepts every production relay as an origin for entry and return" {
+        val host = ArcEventsConfig.inspect(opsRoot().resolve("parkour/plugins/ArcEvents"))
+        val relays = listOf("classic/plugins", "classic_survival/plugins", "slimefun/configuration/plugins")
+        for (path in relays) {
+            val relay = ArcEventsConfig.inspect(opsRoot().resolve("$path/ArcEvents"))
+            relay.hostServer shouldBe host.serverId
+            (relay.serverId in host.network.allowedOrigins) shouldBe true
         }
     }
 

@@ -163,7 +163,8 @@ class ArcadeSession(
             when (match.phase) {
                 MatchPhase.COUNTDOWN -> broadcast("arcade.countdown", mapOf("seconds" to locale.text(secondsRemaining())))
                 MatchPhase.ACTIVE -> {
-                    online().forEach { player ->
+                    val roster = online()
+                    roster.forEach { player ->
                         resetPlayer(player)
                         spawn(player)
                         giveLoadout(player)
@@ -174,7 +175,7 @@ class ArcadeSession(
                     if (match.mode == EventMode.DISASTERS) prepareHazard()
                     if (match.mode == EventMode.ZOMBIES) {
                         val adventure = ZombiesAdventure(plugin, locale, items, firearms, settings().zombies,
-                            match.matchId, online().first().world, online(),
+                            match.matchId, roster.first().world, roster,
                             active = { current?.matchId == match.matchId && current?.phase == MatchPhase.ACTIVE },
                             isAlive = ::isAlive,
                             revivePlayer = { player ->
@@ -194,7 +195,7 @@ class ArcadeSession(
                         adventure.start()
                     }
                     if (match.mode == EventMode.FISHING) {
-                        val player = online().single()
+                        val player = roster.single()
                         val adventure = FishingAdventure(plugin, locale, items, firearms, settings().fishing, match.matchId,
                             player, player.world, teleport, ::hurt, {
                                 if (current?.matchId == match.matchId && current?.phase == MatchPhase.ACTIVE && isAlive(player.uniqueId)) {
@@ -270,9 +271,9 @@ class ArcadeSession(
     fun shouldCancelDamage(victimId: UUID, attackerId: UUID?, projectile: Boolean, projectileMatchId: UUID?): Boolean {
         val match = current ?: return false
         if (projectileMatchId != null && projectileMatchId != match.matchId) return true
-        val victim = participant(victimId)
-        val attacker = attackerId?.let(::participant)
-        if (victim == null && attacker == null) return false
+        val victim = participant(victimId)?.takeUnless { it.status == ParticipantStatus.RESTORED }
+        val attacker = attackerId?.let(::participant)?.takeUnless { it.status == ParticipantStatus.RESTORED }
+        if (victim == null && attacker == null) return projectileMatchId != null
         if (match.phase != MatchPhase.ACTIVE || victim?.status != ParticipantStatus.ALIVE) return true
         if (projectile && projectileMatchId != match.matchId) return true
         if (attackerId != null && attacker?.status != ParticipantStatus.ALIVE) return true
@@ -284,19 +285,20 @@ class ArcadeSession(
         return false
     }
 
-    fun recordAttack(victim: UUID, attacker: UUID?) {
+    fun recordAttack(victim: UUID, attacker: UUID?, firearmId: FirearmId?) {
         val match = current ?: return
-        if (match.mode == EventMode.GUN_GAME && attacker != null && attacker != victim && isAlive(attacker) && isAlive(victim)) {
-            recentAttacks.record(match.matchId, victim, attacker)
+        if (match.mode == EventMode.GUN_GAME && firearmId != null && attacker != null && isAlive(attacker) && isAlive(victim)) {
+            recentAttacks.record(match.matchId, victim, attacker, firearmId)
         }
     }
 
     fun eliminate(player: Player, killerId: UUID?, knifeKill: Boolean = false) {
         val before = current ?: return
         if (before.phase != MatchPhase.ACTIVE || !isAlive(player.uniqueId)) return
-        val killer = killerId ?: recentAttacks.consume(before.matchId, player.uniqueId)
-        recentAttacks.forget(player.uniqueId)
-        val after = runtime.eliminate(player.uniqueId, killer, knifeKill)
+        val recent = recentAttacks.consume(before.matchId, player.uniqueId)
+        val killer = killerId ?: recent?.attackerId
+        val firearmId = recent?.takeIf { !knifeKill && it.attackerId == killer }?.firearmId
+        val after = runtime.eliminate(player.uniqueId, killer, knifeKill, firearmId)
         if (after == before) return
         if (before.mode == EventMode.ZOMBIES) {
             zombies?.down(player)
@@ -326,6 +328,7 @@ class ArcadeSession(
 
     fun sendChat(player: Player, message: Component) {
         val sender = participant(player.uniqueId) ?: return
+        if (sender.status in setOf(ParticipantStatus.DISCONNECTED, ParticipantStatus.RESTORED)) return
         val cooperative = current?.mode == EventMode.ZOMBIES
         val living = cooperative || sender.status in setOf(ParticipantStatus.ALIVE, ParticipantStatus.RESERVED)
         online().filter { cooperative || (participant(it.uniqueId)?.status in setOf(ParticipantStatus.ALIVE, ParticipantStatus.RESERVED)) == living }
@@ -521,7 +524,7 @@ class ArcadeSession(
 
     private fun restorePlayers() {
         val match = current ?: return
-        online().filter { participant(it.uniqueId)?.status != ParticipantStatus.RESTORED }.forEach { player ->
+        online(includeDisconnected = true).forEach { player ->
             recover(player) { result ->
                 result.onSuccess { recovery -> if (recovery != null) recovered(player, recovery) }
                     .onFailure { plugin.logger.log(Level.SEVERE, "ArcEvents arcade recovery failed for ${player.uniqueId}", it) }
@@ -596,7 +599,9 @@ class ArcadeSession(
         zombies = null
         owned?.close()
     }
-    private fun online(): List<Player> = current?.participants?.values?.filter { it.status != ParticipantStatus.RESTORED }
+    private fun online(includeDisconnected: Boolean = false): List<Player> = current?.participants?.values?.filter {
+        it.status != ParticipantStatus.RESTORED && (includeDisconnected || it.status != ParticipantStatus.DISCONNECTED)
+    }
         ?.mapNotNull { plugin.server.getPlayer(it.playerId)?.takeIf(Player::isOnline) }.orEmpty()
     private fun hazardId(): String = listOf("meteors", "lightning", "fog")[requireNotNull(current).disasterRound % 3]
     private fun hazardName(player: Player) = locale.render("arcade.hazard-${hazardId()}", player)

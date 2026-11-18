@@ -114,6 +114,27 @@ class EventNetworkCoordinatorMockBukkitTest : FunSpec({
         }
     }
 
+    test("an explicit local transfer check completes an orphaned match or an already pending return on a preserve host") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture().use { fixture ->
+                fixture.start()
+                every { fixture.transfer.connect(any(), any()) } returns BackendTransferResult.SENT
+                for (alreadyReturning in listOf(false, true)) {
+                    val player = fixture.addPlayer(if (alreadyReturning) "Returning" else "Orphaned")
+                    val match = UUID.randomUUID()
+                    fixture.seedMatched(player, match)
+                    if (alreadyReturning) fixture.markReturnPending(player)
+                    fixture.coordinator.resumeExistingRoute(player, requireNotNull(fixture.queueEntry(player)), retryOnHost = true)
+                    fixture.tick(5)
+                    val updated = requireNotNull(fixture.queueEntry(player))
+                    updated.matchId shouldBe match.toString()
+                    updated.state shouldBe QueueState.RETURN_PENDING
+                    verify(exactly = 1) { fixture.transfer.connect(player, BackendServerId.of("spawn")) }
+                }
+            }
+        }
+    }
+
     test("disposable host preserves stale match routes for the origin without redirecting a later join") {
         failOnUnsupportedMockBukkitOperation {
             EventNetworkCoordinatorFixture(disposable = true).use { fixture ->
@@ -303,6 +324,28 @@ class EventNetworkCoordinatorMockBukkitTest : FunSpec({
                 fixture.queueEntry(player) shouldBe before
                 verify(exactly = 2) { fixture.transfer.connect(player, BackendServerId.of("parkour")) }
                 fixture.reservations shouldBe emptyList()
+            }
+        }
+    }
+
+    test("an unavailable new arena still routes a previous match through its owning host") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture(relay = true).use { fixture ->
+                fixture.start() // This host only advertises Fishing.
+                val player = fixture.addPlayer("OtherArena")
+                fixture.seedMatched(player, UUID.randomUUID())
+                val before = fixture.queueEntry(player)
+                every { fixture.transfer.connect(player, BackendServerId.of("parkour")) } returns BackendTransferResult.SENT
+
+                fixture.await(fixture.coordinator.reserveNow(player, mode = EventMode.TTT)) shouldBe ReservationStartResult.RECOVERY_PENDING
+                fixture.coordinator.reconfigure()
+                fixture.tick(3)
+                verify(exactly = 2) { fixture.transfer.connect(player, BackendServerId.of("parkour")) }
+                fixture.queueEntry(player) shouldBe before
+
+                val fresh = fixture.addPlayer("FreshArena")
+                fixture.await(fixture.coordinator.reserveNow(fresh, mode = EventMode.TTT)) shouldBe ReservationStartResult.ARENA_UNAVAILABLE
+                fixture.queueEntry(fresh) shouldBe null
             }
         }
     }
@@ -616,6 +659,49 @@ class EventNetworkCoordinatorMockBukkitTest : FunSpec({
                 fixture.coordinator.reconfigure()
                 fixture.tick(3)
                 verify(exactly = 1) { fixture.transfer.connect(player, BackendServerId.of("survival")) }
+            }
+        }
+    }
+
+    test("a submitted reservation transfer retries until the host claims the exact row") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture().use { fixture ->
+                fixture.start()
+                val player = fixture.addPlayer("SubmittedRetry")
+                val matchId = UUID.randomUUID()
+                fixture.seedReserved(player, matchId, "survival")
+                every { fixture.transfer.connect(player, BackendServerId.of("survival")) } returns BackendTransferResult.SENT
+                fixture.publishRoute(matchId, player, "survival")
+                fixture.tick(3)
+
+                fixture.coordinator.reconfigure()
+                fixture.tick(3)
+                verify(exactly = 2) { fixture.transfer.connect(player, BackendServerId.of("survival")) }
+                fixture.releaseReservation(player, matchId)
+                fixture.coordinator.reconfigure()
+                fixture.tick(3)
+                verify(exactly = 2) { fixture.transfer.connect(player, BackendServerId.of("survival")) }
+                fixture.queueEntry(player)?.state shouldBe QueueState.RETURN_PENDING
+            }
+        }
+    }
+
+    test("a new backend join revokes the old connection's unsatisfied transfer retry") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture().use { fixture ->
+                fixture.start()
+                val player = fixture.addPlayer("NextConnection")
+                val matchId = UUID.randomUUID()
+                fixture.seedReserved(player, matchId, "survival")
+                every { fixture.transfer.connect(player, BackendServerId.of("survival")) } returns BackendTransferResult.SENT
+                fixture.publishRoute(matchId, player, "survival")
+                fixture.tick(3)
+                fixture.coordinator.handleJoin(player)
+                fixture.coordinator.reconfigure()
+                fixture.tick(3)
+
+                verify(exactly = 1) { fixture.transfer.connect(player, BackendServerId.of("survival")) }
+                fixture.queueEntry(player)?.state shouldBe QueueState.RESERVED
             }
         }
     }

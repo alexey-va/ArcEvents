@@ -221,7 +221,7 @@ class LocaleContractTest : StringSpec({
                 }
                 config.string("fishing.catch").contains("<catches>") shouldBe true
                 val hud = config.string("fishing.hud")
-                parameters(hud) shouldBe setOf("stage", "total", "catches", "needed", "coins")
+                parameters(hud) shouldBe setOf("island", "stage", "total", "catches", "needed", "coins")
                 authoredLines(hud).size shouldBe 1
                 (visible(hud).length <= 88) shouldBe true
                 ru.ruscrafting.events.domain.FishingIsland.entries.forEach { island ->

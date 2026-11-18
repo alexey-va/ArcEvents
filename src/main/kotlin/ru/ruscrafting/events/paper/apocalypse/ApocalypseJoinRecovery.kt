@@ -4,10 +4,10 @@ internal enum class ApocalypseJoinRecovery { NONE, RESUME, ORIGIN, QUARANTINE }
 
 /** A returned record may retain its root as a receipt for a failed native playerdata save. */
 internal fun apocalypseJoinRecovery(phase: ApocalypsePlayerPhase?, hasOrigin: Boolean,
-    savedSession: String?, nativeSession: String?): ApocalypseJoinRecovery {
+    savedSession: String?, nativeSession: String?, inExpeditionWorld: Boolean = false): ApocalypseJoinRecovery {
     if (phase == ApocalypsePlayerPhase.ACTIVE && savedSession != null && savedSession == nativeSession)
         return ApocalypseJoinRecovery.RESUME
-    if (phase != null && phase != ApocalypsePlayerPhase.PARKED || nativeSession != null)
+    if (phase != null && phase != ApocalypsePlayerPhase.PARKED || nativeSession != null || inExpeditionWorld)
         return if (hasOrigin) ApocalypseJoinRecovery.ORIGIN else ApocalypseJoinRecovery.QUARANTINE
     return ApocalypseJoinRecovery.NONE
 }

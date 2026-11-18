@@ -90,7 +90,7 @@ class ArcEventsMenuMockBukkitTest : FunSpec({
             }
         } }
     }
-    test("main menu opens both arcade mode cards") {
+    test("arcade cards open and a stale inventory transfer check never joins a new queue") {
         failOnUnsupportedMockBukkitOperation { MockBukkitTestRuntime.open().use { paper ->
             val plugin = paper.createSimplePlugin("ArcEventsModeMenuTest"); PaperArcRuntime.installScheduling(plugin)
             val player = paper.addPlayer("ModeQA"); val root = Files.createTempDirectory("arcevents-mode-menu-")
@@ -99,7 +99,9 @@ class ArcEventsMenuMockBukkitTest : FunSpec({
                 val settings = ArcEventsConfig.load(root); val locale = ArcEventsLocale(root) { settings }; val layouts = ArcEventsMenuLayouts(root)
                 val service = mockk<ArcEventsService> {
                     every { snapshot() } returns testSnapshot(0)
+                    every { isParticipant(any()) } returns false
                     every { modeAvailable(any()) } returns true
+                    every { modeUnavailable(any()) } returns null
                     every { queueControl(player.uniqueId) } returns CompletableFuture.completedFuture(QueueControlSnapshot(null, null))
                     every { arcadeSnapshot() } returns null
                 }
@@ -113,6 +115,25 @@ class ArcEventsMenuMockBukkitTest : FunSpec({
                         player.openInventory.topInventory shouldBe arcadeInventory
                         menu.open(player)
                     }
+                    val routeId = java.util.UUID.randomUUID().toString()
+                    val view = EventsView.Arcade(EventMode.DISASTERS)
+                    every { service.modeUnavailable(EventMode.DISASTERS) } returns ReservationStartResult.BUSY
+                    every { service.queueControl(player.uniqueId) } returns CompletableFuture.completedFuture(
+                        QueueControlSnapshot(QueueState.RETURN_PENDING, null, matchId = routeId))
+                    menu.open(player, view)
+                    paper.performTicks(2)
+                    val center = layouts.slot(view, "center")
+                    player.openInventory.topInventory.getItem(center)?.type shouldBe Material.COMPASS
+                    every { service.retryRoute(player, routeId) } returns CompletableFuture.completedFuture(Unit)
+                    every { service.modeUnavailable(EventMode.DISASTERS) } returns null
+                    every { service.queueControl(player.uniqueId) } returns CompletableFuture.completedFuture(QueueControlSnapshot(null, null))
+                    paper.callEvent(InventoryClickEvent(player.openInventory, InventoryType.SlotType.CONTAINER, center, ClickType.LEFT, InventoryAction.PICKUP_ALL))
+                    paper.performTicks(3)
+                    verify(exactly = 1) { service.retryRoute(player, routeId) }
+                    verify(exactly = 0) { service.joinQueue(player, any()) }
+                    verify(exactly = 0) { service.leaveQueue(player) }
+                    verify(exactly = 0) { service.startFromQueue(any(), any(), any()) }
+                    player.openInventory.topInventory.getItem(center)?.type shouldBe Material.LIME_DYE
                 }
             } finally { Tasks.reset(); root.toFile().deleteRecursively() }
         } }
@@ -130,6 +151,7 @@ class ArcEventsMenuMockBukkitTest : FunSpec({
                     every { currentMode() } returns EventMode.DISASTERS
                     every { snapshot() } returns testSnapshot(3)
                     every { modeAvailable(any()) } returns true
+                    every { modeUnavailable(any()) } returns null
                     every { queueControl(player.uniqueId) } returns CompletableFuture.completedFuture(QueueControlSnapshot(null, null))
                     every { arcadeSnapshot() } returns null
                 }
@@ -151,6 +173,8 @@ class ArcEventsMenuMockBukkitTest : FunSpec({
                 val service = mockk<ArcEventsService> {
                     every { snapshot() } returns testSnapshot(3)
                     every { modeAvailable(any()) } returns true
+                    every { modeUnavailable(any()) } returns null
+                    every { isParticipant(any()) } returns false
                     every { queueControl(player.uniqueId) } returns deferred
                     every { arcadeSnapshot() } returns null
                     every { startFromQueue(any(), any(), EventMode.GUN_GAME) } returns CompletableFuture.completedFuture(ReservationStartResult.STARTED)

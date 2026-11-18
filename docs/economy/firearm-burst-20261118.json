@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "title": "ArcEvents firearm bursts and per-item tuning, 2026-11-18",
+  "assumptions": [
+    "Low/base/high are the prior illustrative world-firearm cohorts of 1/5/20 Survival or Adventure players. Each fires 100/500/2500 rounds per hour for 1/2/4 hours per day, with enough reserve and no wasted shots. This compares equal use before and after, not predicted use.",
+    "Each ordinary cartridge represents one ordinary iron nugget. Reload puts a paid round into the magazine. Expending that paid round is an item sink. A new burst debits at launch, so canceled future rounds do not add an item sink.",
+    "Creative expends zero paid rounds and preserves magazine and reserve. Match-scoped and Apocalypse expedition resources are outside the ordinary-world cohort.",
+    "ArcEvents adds no Vault or token settlement. Optional purchases of nuggets from the existing shop, actual ammo use, and any change in ordinary kill reward throughput are unmeasured. Current shop configuration and the planned SELL-to-contract transition are unchanged."
+  ],
+  "participants": [1, 5, 20],
+  "currencies": {
+    "vault": {"minor_per_unit": 100, "flows": []},
+    "tokens": {"minor_per_unit": 1, "flows": []},
+    "iron_nugget_equivalent": {
+      "minor_per_unit": 1,
+      "flows": [{
+        "id": "ordinary_rounds_expended",
+        "kind": "item",
+        "source": "WorldFirearms.completeReload, FirearmAmmoRecipe, FirearmControls.fire",
+        "basis": "One paid ordinary round per actual round spent in the equal-use scenario. Alternative representations are counted once.",
+        "before": {"enabled": true, "amount_per_event": {"value": "1", "unit": "major"}, "events_per_player_day": [100, 1000, 10000]},
+        "after": {"enabled": true, "amount_per_event": {"value": "1", "unit": "major"}, "events_per_player_day": [100, 1000, 10000]}
+      }]
+    }
+  }
+}

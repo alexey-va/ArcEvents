@@ -46,6 +46,7 @@ import org.bukkit.event.player.PlayerMoveEvent
 import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.event.player.PlayerSwapHandItemsEvent
 import org.bukkit.event.player.PlayerTeleportEvent
+import org.bukkit.event.player.PlayerToggleSneakEvent
 import org.bukkit.event.player.PlayerChangedWorldEvent
 import org.bukkit.event.server.BroadcastMessageEvent
 import org.bukkit.inventory.EquipmentSlot
@@ -139,6 +140,11 @@ class ArcEventsListener(
         service.handleZombiesTarget(event)
     }
 
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    fun onZombiesSneak(event: PlayerToggleSneakEvent) {
+        if (!event.isSneaking) service.zombiesAdventure(event.player)?.stopRescuing(event.player.uniqueId)
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onDamage(event: EntityDamageEvent) {
         val victim = event.entity as? Player ?: return
@@ -146,37 +152,46 @@ class ArcEventsListener(
         val damager = (event as? EntityDamageByEntityEvent)?.damager
         val projectile = damager as? Projectile
         val attacker = damager?.let(::attacker)
+        val attackerId = attacker?.uniqueId
+        val projectileMatchId = projectile?.let(service::projectileMatchId)
         val victimParticipates = service.isParticipant(victim.uniqueId)
-        if (!victimParticipates && attacker?.let { service.isFishingParticipant(it.uniqueId) || service.isZombiesParticipant(it.uniqueId) } != true &&
+        val attackerParticipates = attackerId?.let(service::isParticipant) == true
+        if (!victimParticipates && !attackerParticipates && projectileMatchId == null &&
             (victim.bypassesEventProtection() || attacker?.bypassesEventProtection() == true)
         ) return
         if (service.withinProtectedArena(victim.location) && !victimParticipates) {
             event.isCancelled = true
             return
         }
-        if (victim.uniqueId in pendingEliminations) {
+        if (victim.uniqueId in pendingEliminations || attackerId in pendingEliminations) {
             event.isCancelled = true
             return
         }
         if (service.shouldCancelDamage(
                 victim.uniqueId,
-                attacker?.uniqueId,
+                attackerId,
                 projectile = projectile != null,
-                projectileMatchId = projectile?.let(service::projectileMatchId),
+                projectileMatchId = projectileMatchId,
             )
         ) {
             event.isCancelled = true
             return
         }
-        if (attacker != null && service.useTraitorBlade(attacker, victim)) {
+        if (!victimParticipates) return
+        if (damager is Player && event.cause == EntityDamageEvent.DamageCause.ENTITY_ATTACK &&
+            service.useTraitorBlade(damager, victim)
+        ) {
             event.isCancelled = true
             return
         }
-        val multiplier = service.damageMultiplier(attacker?.uniqueId)
+        val multiplier = service.damageMultiplier(attackerId)
         if (attacker != null && multiplier < 1.0) event.damage *= multiplier
-        service.recordAttack(victim.uniqueId, attacker?.uniqueId)
-        val lethal = service.phase() == MatchPhase.ACTIVE && service.isAlive(victim.uniqueId) && event.finalDamage >= victim.health
-        service.recordDamage(victim, attacker, event.finalDamage.coerceAtMost(victim.health), lethal)
+        val damage = event.finalDamage
+        if (damage <= 0.0 || !damage.isFinite()) return
+        val health = victim.health
+        service.recordAttack(victim.uniqueId, attackerId)
+        val lethal = service.phase() == MatchPhase.ACTIVE && service.isAlive(victim.uniqueId) && damage >= health
+        service.recordDamage(victim, attacker, damage.coerceAtMost(health), lethal)
         if (lethal) {
             event.isCancelled = true
             if (!pendingEliminations.add(victim.uniqueId)) return
@@ -184,7 +199,7 @@ class ArcEventsListener(
             Tasks.scheduler.runLater(1L) {
                 try {
                     if (victim.isOnline && service.matchIdentity() == matchId) {
-                        if (attacker == null) service.eliminate(victim) else service.eliminate(victim, attacker.uniqueId)
+                        service.eliminate(victim, attackerId)
                     }
                 } finally {
                     pendingEliminations.remove(victim.uniqueId)
@@ -260,6 +275,7 @@ class ArcEventsListener(
         if (service.handleFishingInteract(event)) return
         val kind = itemResolver.kind(event.item) ?: run {
             if (worldFirearms?.interact(event) == true) return
+            if (clicked?.type?.isInteractable == true && event.action == Action.RIGHT_CLICK_BLOCK && !player.isSneaking) return
             if (event.hand == EquipmentSlot.HAND && event.action in setOf(Action.RIGHT_CLICK_AIR, Action.RIGHT_CLICK_BLOCK) &&
                 service.toggleScopePreview(player)
             ) event.isCancelled = true
@@ -422,6 +438,10 @@ class ArcEventsListener(
         }
     }
     @EventHandler(ignoreCancelled = true) fun onSwap(event: PlayerSwapHandItemsEvent) {
+        if (event.player.isSneaking && menu.openFirearmSettings(event.player, quiet = true)) {
+            event.isCancelled = true
+            return
+        }
         if (worldFirearms?.swap(event) == true) return
         if (service.isParticipant(event.player.uniqueId) && service.phase() in CONTROLLED_PHASES) {
             event.isCancelled = true

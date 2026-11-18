@@ -49,6 +49,9 @@ data class QueueEntry(
 
     fun queuedPlayer(): QueuedPlayer = QueuedPlayer(UUID.fromString(playerId), playerName, originServer, joinedAtMs)
 
+    /** Only a queue place can disappear on expiry. A timed-out reservation still owes its player a return. */
+    fun isExpiredQueuePlace(nowMs: Long): Boolean = state == QueueState.QUEUED && expiresAtMs < nowMs
+
     companion object {
         private const val MAX_QUEUE_MS = 60 * 60 * 1000L
         private const val MAX_RESERVATION_MS = 5 * 60 * 1000L

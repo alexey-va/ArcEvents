@@ -45,6 +45,24 @@ import java.nio.file.Path
 import java.util.UUID
 
 class FirearmShotsTest : StringSpec({
+    "a full selected magazine launches at bounded intervals and only charges emitted rounds" {
+        firearmBurstCosts(7, 4, 2) shouldBe listOf(2, 2, 2, 1)
+        for (stopAfter in listOf(7, 48)) withShotFixture { f ->
+            val spec = TttFirearmCatalog.specs.getValue(FirearmId.RPL_20)
+            val releases = mutableListOf<Int>()
+            val completed = mutableListOf<Boolean>()
+            val burst = FirearmBurst(48, 2, 0) {
+                if (releases.size >= stopAfter) false else { releases += f.tick; true }
+            }
+            f.shots.fireBurst(f.player, spec, false, { true }, { false }, 1.0, burst, completed::add) { _, _, _ -> } shouldBe true
+            releases shouldBe emptyList()
+            f.until(180) { completed.isNotEmpty() }
+            releases.size shouldBe stopAfter
+            releases.zipWithNext().all { (a, b) -> b - a >= 2 } shouldBe true
+            completed shouldBe listOf(stopAfter == 48)
+        }
+    }
+
     "launcher blasts use radial falloff and respect both target admission and cover" {
         for (covered in listOf(false, true)) withShotFixture { f ->
             val contact = Vector(0.0, 65.0, 2.0)
@@ -876,7 +894,8 @@ private class ShotFixture(val scheduler: TestTaskScheduler) : AutoCloseable {
     var eye = Location(world, 0.0, 64.0, 0.0)
     var valid = true
     var targetEyeY = 65.62
-    private var tick = 0
+    var tick = 0
+        private set
     data class Ray(val tick: Int, val origin: Location, val direction: Vector, val distance: Double)
     val rays = mutableListOf<Ray>()
     val births = mutableListOf<Pair<Int, Location>>()

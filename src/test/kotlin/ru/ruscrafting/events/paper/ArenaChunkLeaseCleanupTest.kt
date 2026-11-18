@@ -21,7 +21,15 @@ import java.util.UUID
 import java.util.concurrent.CompletableFuture
 
 class ArenaChunkLeaseCleanupTest : FunSpec({
-    listOf("already completed", "delayed", "stale generation").forEach { completion ->
+    test("only the first fishing quay gates host startup") {
+        val arena = mockk<ru.ruscrafting.events.config.ArenaSettings> {
+            every { template } returns FishingArenaGenerator.TEMPLATE
+        }
+        val chunks = ArenaWorldProvisioner.arenaChunks(arena)
+        chunks.toSet() shouldBe setOf(-1 to 0, -1 to 1, 0 to 0, 0 to 1)
+    }
+
+    listOf("already completed", "delayed", "stale generation", "failed sibling").forEach { completion ->
         test("arena retains a $completion chunk in its Paper completion before another queue tick") {
             failOnUnsupportedMockBukkitOperation {
                 MockBukkitTestRuntime.open().use { paper ->
@@ -44,6 +52,11 @@ class ArenaChunkLeaseCleanupTest : FunSpec({
                     every { world.getChunkAtAsync(0, 0, false) } answers {
                         requested = true
                         loaded
+                    }
+                    var siblingRequested = false
+                    every { world.getChunkAtAsync(1, 0, false) } answers {
+                        siblingRequested = true
+                        CompletableFuture.failedFuture(IllegalStateException("test chunk unavailable"))
                     }
                     val owner = mockk<Plugin>(relaxed = true) {
                         every { server.worldContainer } returns plugin.dataFolder
@@ -71,9 +84,15 @@ class ArenaChunkLeaseCleanupTest : FunSpec({
                     val provisioner = ArenaWorldProvisioner(owner, tickets)
                     val owned = mutableListOf<ru.arc.paper.chunk.PaperChunkTicketLease>()
                     try {
-                        val loading = provisioner.loadChunks(world, listOf(0 to 0), false, owned, work)
+                        val siblingFailure = completion == "failed sibling"
+                        val coordinates = if (siblingFailure) listOf(0 to 0, 1 to 0) else listOf(0 to 0)
+                        val loading = provisioner.loadChunks(world, coordinates, false, owned, work)
                         var ticks = 0
-                        while (!requested && !loading.isDone && ticks++ < 10) paper.performTicks(1)
+                        while ((!requested || (siblingFailure && !siblingRequested)) && !loading.isDone && ticks++ < 10) paper.performTicks(1)
+                        if (siblingFailure) {
+                            siblingRequested shouldBe true
+                            loading.isDone shouldBe false
+                        }
                         requested shouldBe true
                         if (completion == "stale generation") {
                             current = false
@@ -82,12 +101,12 @@ class ArenaChunkLeaseCleanupTest : FunSpec({
                             scope.close()
                         }
                         loaded.complete(chunk)
-                        if (completion != "stale generation" && loading.isCompletedExceptionally) loading.join()
+                        if (completion != "stale generation" && !siblingFailure && loading.isCompletedExceptionally) loading.join()
                         // No scheduler tick is allowed between Paper's completion and
                         // acquiring the plugin ticket that prevents immediate unloading.
                         acquired shouldBe if (completion == "stale generation") 0 else 1
                         loading.isDone shouldBe true
-                        loading.isCompletedExceptionally shouldBe (completion == "stale generation")
+                        loading.isCompletedExceptionally shouldBe (completion == "stale generation" || siblingFailure)
                         if (current) {
                             val release = provisioner.releaseChunkLeases(owned, work)
                             ticks = 0

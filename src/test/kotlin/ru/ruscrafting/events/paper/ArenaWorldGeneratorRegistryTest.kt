@@ -51,20 +51,22 @@ class ArenaWorldGeneratorRegistryTest : StringSpec({
 
     "fishing archipelago restores its deterministic generator" {
         val container = Files.createTempDirectory("arcevents-fishing-generator-")
-        val arena = Files.createDirectory(container.resolve("fishing-v3"))
+        val arena = Files.createDirectory(container.resolve(FishingArenaGenerator.TEMPLATE))
         Files.writeString(arena.resolve(ARENA_TEMPLATE_MARKER), FishingArenaGenerator.TEMPLATE + "\n")
 
         (ArenaWorldGeneratorRegistry.generatorFor(container, arena.fileName.toString()) is FishingArenaGenerator) shouldBe true
     }
 
-    "retired fishing worlds keep their existing chunks without acquiring the new map" {
-        val container = Files.createTempDirectory("arcevents-retired-fishing-")
-        val arena = Files.createDirectory(container.resolve("old_fishing"))
-        Files.writeString(arena.resolve(ARENA_TEMPLATE_MARKER), "fishing-v1\n")
-        (ArenaWorldGeneratorRegistry.generatorFor(container, "old_fishing") is EmptyArenaChunkGenerator) shouldBe true
-        Files.readString(arena.resolve(ARENA_TEMPLATE_MARKER)) shouldBe "fishing-v1\n"
-        Files.writeString(arena.resolve(ARENA_TEMPLATE_MARKER), "fishing-v2\n")
-        (ArenaWorldGeneratorRegistry.generatorFor(container, "old_fishing") is EmptyArenaChunkGenerator) shouldBe true
+    "retired minigame worlds retain their chunks and marker across upgrades" {
+        val container = Files.createTempDirectory("arcevents-retired-")
+        val retired = listOf("fishing-v1", "fishing-v2", "fishing-v3", "zombies-zero-v1", "zombies-zero-v2")
+        for (template in retired) {
+            val arena = Files.createDirectory(container.resolve(template))
+            val marker = arena.resolve(ARENA_TEMPLATE_MARKER)
+            Files.writeString(marker, "$template\n")
+            (ArenaWorldGeneratorRegistry.generatorFor(container, template) is EmptyArenaChunkGenerator) shouldBe true
+            Files.readString(marker) shouldBe "$template\n"
+        }
     }
 
     "unowned worlds get no generator and corrupt owned markers fail closed" {

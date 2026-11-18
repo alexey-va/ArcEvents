@@ -10,6 +10,7 @@ command:
     <#8c8c8c>   Shop: <#92bed8>/arcevents shop  <#8c8c8c>report: <#92bed8>/arcevents report
     <#e8dfd2>   Zombies, solo or team: <#92bed8>/arcevents zombies
     <#e8dfd2>   Enter the apocalypse <#92bed8>/arcevents apocalypse
+    <#e8dfd2>   Held weapon <#92bed8>Shift+F <#e8dfd2>or <#92bed8>/arcevents burst
   unknown: '<prefix> <#c42323>Unknown<#8c8c8c>: <#e6fff3><input>'
   failed: '<prefix> <#ff6b61>Could not complete: <#e8dfd2><reason>'
   reload-ok: '<prefix> <#2bba43>Configuration and locales reloaded.'
@@ -53,6 +54,18 @@ menu:
     join-name: <#9bd48d>Join queue
     join-lore:
     - <#e8dfd2>Take a place in the next match.
+    check-route-name: '<#ffffff>Check transfer'
+    check-route-lore:
+    - ''
+    - '<#e8dfd2>Retry entering your match or returning after it.'
+    - ''
+    - '<#9bd48d>[▶] Click to check.'
+    refresh-name: '<#ffffff>Refresh status'
+    refresh-lore:
+    - ''
+    - '<#e8dfd2>Check arena availability and your queue place.'
+    - ''
+    - '<#9bd48d>[▶] Click to refresh.'
     join-unavailable-name: '<#8c8c8c><bold>Queue unavailable'
     join-unavailable-lore:
     - <#e8dfd2>The queue is temporarily unavailable. Try again later.
@@ -81,9 +94,9 @@ menu:
     evacuate-lore:
     - <#e8dfd2>Leave the round and restore your previous player state.
     state:
-      queued: '<#7bd88f>queued'
-      reserved: '<#e3b341>roster found'
-      arrived: '<#5fb3ff>preparing for match'
+      queued: '<#9bd48d>You are in the shared queue'
+      reserved: '<#f4d87a>Your place is reserved. Waiting for transfer.'
+      arrived: '<#92bed8>Entry confirmed. Your match is getting ready.'
       matched: '<#7bd88f>in match'
       return_pending: '<#ff9f0f>returning after match'
   stats:
@@ -124,7 +137,8 @@ menu:
       - '<#f2f0e6>The number of placements depends on the arena.'
       - '<#8c8c8c>The loot effect pattern signals its rarity.'
       - ''
-      - '<#8c8c8c>LMB — fire <#8c8c8c>F — reload'
+      - '<#8c8c8c>LMB — fire · RMB — aim'
+      - '<#8c8c8c>F — reload · Shift+F — settings'
     controls-name: '<#92bed8><bold>Commands'
     controls-lore:
     - <#86dcf1>/arcevents<#e8dfd2> — match menu
@@ -143,6 +157,9 @@ menu:
       - '<#8c8c8c>   <#f2f0e6>Node<#8c8c8c>: <#f2f0e6><server> <#8c8c8c>(<node_mode><#8c8c8c>)'
       - '<#8c8c8c>   <#f2f0e6>Host<#8c8c8c>: <#f2f0e6><host>'
       - '<#8c8c8c>   <#f2f0e6>Status<#8c8c8c>: <network_state>'
+      - ''
+      - '<#e8dfd2>Tune damage and spread for the held weapon'
+      - '<#92bed8>/arcevents admin gun'
     arenas-name: '<#92bed8><bold>Round maps'
     arenas-lore:
     - '<#8c8c8c>Ready maps: <#f2f0e6><arenas>'
@@ -351,7 +368,7 @@ queue:
   start-insufficient: <prefix> <#f4d87a>Not enough players to start yet.
   start-arena-unavailable: <prefix> <#f4d87a>Map unavailable. Try again later.
   start-busy: <prefix> <#f4d87a>Another match is still running.
-  start-recovery-pending: <prefix> <#f4d87a>The previous match is finishing. Try again shortly.
+  start-recovery-pending: '<prefix> <#f4d87a>Wait for your transfer or equipment recovery to finish.'
   start-network-failed: <prefix> <#ff6b61>Could not start the match. Try again.
   start-not-owner: <prefix> <#f4d87a>The queue creator starts the match.
   arena-selected: '<prefix> <#7bd88f>Next-round map: <arena><#f2f0e6>.'
@@ -464,6 +481,28 @@ body:
   hit-body: '<#f2f0e6>body'
 
 weapon:
+  settings:
+    burst-title: '<#ffb277>Firing mode'
+    tuning-title: '<white>Weapon tuning'
+    held: '<weapon>'
+    burst-help: '<#e8dfd2>Choose how many rounds to fire per click. Click LMB again to stop your selected burst.'
+    single-help: '<#e8dfd2>The magazine holds one round. Click LMB to fire.'
+    tuning-help: '<#e8dfd2>Changes stay with the item in your hand. Damage applies to each projectile.'
+    count: '<white>Rounds per click'
+    damage: '<white>Damage per projectile · 0.1–40'
+    spread: '<white>Spread · 0–30°'
+    save: '<#9bd48d>Save'
+    full: '<white>Fire entire magazine'
+    default-burst: '<white>Use default burst'
+    default-tuning: '<white>Restore default values'
+    tune: '<#86dcf1>Damage and spread ›'
+    hold: '<prefix> <#e8dfd2>Hold an available weapon in your main hand.'
+    changed: '<prefix> <#ffb277>The item changed. Open its settings again.'
+    burst-command: '<prefix> <#e8dfd2>Choose 1 to <capacity> rounds.<newline>  <#92bed8>/arcevents burst number<newline>  <#e8dfd2>Use <#92bed8>full <#e8dfd2>for the magazine or <#92bed8>default <#e8dfd2>for the stock burst.'
+    admin-command: '<prefix> <#e8dfd2>Damage per projectile 0.1–40, spread 0–30°.<newline>  <#92bed8>/arcevents admin gun damage spread<newline>  <#e8dfd2>Restore defaults with <#92bed8>/arcevents admin gun default'
+    burst-saved: '<prefix> <#9bd48d>Rounds per click — <rounds>.'
+    tuning-saved: '<prefix> <#9bd48d>Damage — <damage> · spread — <spread>°.'
+    hud-count: '  <#f4d7a1>×<rounds>'
   sound-preset-original: 'Original'
   sound-preset-sharp: 'Sharp'
   sound-preset-heavy: 'Heavy'
@@ -487,7 +526,8 @@ weapon:
     - '<#8c8c8c>Magazine: <#f2f0e6><loaded>/<#f2f0e6><magazine>'
     - '<#8c8c8c>Damage: <#f2f0e6><damage> <#8c8c8c>range: <#f2f0e6><range>'
     - ''
-    - '<#e3b341>LMB<#f2f0e6> — fire  <#e3b341>RMB<#f2f0e6> — toggle aim  <#e3b341>F<#f2f0e6> — reload'
+    - '<#e3b341>LMB<#f2f0e6> — fire  <#e3b341>RMB<#f2f0e6> — aim'
+    - '<#e3b341>F<#f2f0e6> — reload  <#e3b341>Shift+F<#f2f0e6> — settings'
   rarity:
     common: '<#8c8c8c>Common weapon'
     uncommon: '<#7bd88f>Uncommon weapon'
@@ -508,7 +548,7 @@ weapon:
   ammo-hud-reserve: '<#9eabb8>  reserve <reserve></#9eabb8>'
   ammo-hud-creative: '<#9de1e8>∞  Unlimited</#9de1e8>'
   ammo-hud-controls: '<#d9e0e6><white>LMB</white> Fire  <white>RMB</white> Aim</#d9e0e6>'
-  ammo-hud-reload: '<#d9e0e6><white>F</white> Reload</#d9e0e6>'
+  ammo-hud-reload: '<#d9e0e6><white>F</white> Reload  <white>Shift+F</white> Mode</#d9e0e6>'
   ammo-hud-reloading: '<#ffd080><white>F</white> Reloading…</#ffd080>'
   ammo-hud-empty: '<#ff8b82>Empty  <white>F</white> Reload</#ff8b82>'
   creative-ammo-actionbar: '<weapon>  <#ffffff>∞  <#aaaaaa>Ammo is unlimited'
@@ -602,7 +642,7 @@ admin:
   arena-selection-failed: '<prefix> <#c42323>Map <arena> cannot be selected: it is not ready or a match is active.'
   started: '<prefix> <#2bba43>Roster reservation started.'
   start-failed: '<prefix> <#c42323>Not enough players are queued.'
-  start-recovery-pending: '<prefix> <#ff9f0f>Finish restoring your player state first.'
+  start-recovery-pending: '<prefix> <#f4d87a>Wait for your transfer or equipment recovery to finish.'
   busy: '<prefix> <#ff9f0f>The HOST is running another match.'
   network-failed: '<prefix> <#c42323>Redis did not confirm the reservation.'
   stopped: '<prefix> <#2bba43>Match stopped. Recovery started.'
@@ -767,7 +807,7 @@ arcade:
   zombies-briefing: <#ffb277>Survive <waves> waves.<newline>  <#e8dfd2>LMB — fire · RMB — aim · F — reload
   gungame-briefing: <#ffb277>Each elimination advances your weapon. Finish with the knife.<newline>  <#e8dfd2>LMB — fire · RMB — aim · F — reload
   disasters-briefing: <#ffb277>Survive and move away from marked strikes.
-  fishing-briefing: <#86dcf1>Take your rod and cast by the pier.
+  fishing-briefing: <#86dcf1>Follow the planks to the buoys and take out your rod.
   zombies-solo-name: <#9bd48d>Play solo
   zombies-solo-lore:
   - <#e8dfd2>Start a separate match just for you.
@@ -775,7 +815,7 @@ arcade:
   zombies-team-lore:
   - <#e8dfd2>Join the shared queue and launch your squad here.
 fishing:
-  start: <#86dcf1>Cast your rod into the marked water by the pier.
+  start: <#86dcf1>Cast between the buoys from the end of the pier.
   catch: '<#86dcf1>Caught: <catches>. <#e8dfd2>RMB the ground to release it.'
   complete: "<newline>  <#7bd88f>Expedition complete. All five trophies delivered.<newline>"
   creature-defeated: '<#9bd48d>Catch defeated. <#e8dfd2>Fish in slot 5: RMB the trader.'
@@ -814,14 +854,16 @@ fishing:
   food-full: "<#e3b341>Your health and hunger are already full."
   inventory-full: "<#e3b341>Make room for your purchase."
   purchase-failed: "<#e3b341>Purchase unavailable. Check your expedition credits and unlocked island."
-  hud: <#86dcf1>Island <stage>/<total> <#ffffff>· Catch <catches>/<needed> · <coins> tokens
+  hud: <#86dcf1><island> <#ffffff>· <stage>/<total> · catch <catches>/<needed> · <coins> tokens
   quest-ready: "<#7bd88f>Task complete. Collect special bait from the trader."
   quest-bait: "<#67d7ff>Special bait is on the hook: catch the boss."
-  travel-unlocked: "<newline>  <#7bd88f>Trophy accepted. The next island is open.<newline>"
-  travel-started: "<#67d7ff>Island <stage> unlocked. New gear is available at the trader."
-  travel-marker: "<#67d7ff>Next island"
+  travel-unlocked: "<newline>  <#7bd88f>Trophy accepted. Board under the teal flag.<newline>"
+  travel-started: "<#67d7ff>Island <stage> · <island>"
+  travel-marker: "<#67d7ff>Ferry<newline><#e8dfd2>Stand under the flag"
   trader-marker: <#f4d87a>Trader<newline><#e8dfd2>RMB — trade and supplies
-  invalid-catch: "<#e3b341>Cast into the marked water beside the dock."
+  invalid-catch: "<#e3b341>Cast between the buoys from the pier tip."
+  reel-now: "<#f4d87a>Bite! Right-click to reel in."
+  travel-retry: "<#e3b341>Passage delayed. Walk back to the flag to retry."
   encounter-restored: "<#7bd88f>Encounter restored."
   telegraph: "<#d84a4a>Incoming attack! Move more than <radius> blocks away from the marker."
   phase:
@@ -837,7 +879,7 @@ fishing:
   rod-name: "<#67d7ff>Expedition rod"
   rod-lore:
     - ""
-    - "<#e8dfd2>Level <rod-level>. Cast into the marked water beside the dock."
+    - "<#e8dfd2>Level <rod-level>. Cast between the buoys."
     - ""
     - "<#e8dfd2>Subdue your catch before selling or eating it."
     - ""
@@ -884,7 +926,7 @@ fishing:
     shotgun-name: "<#e3b341>Double-barrel shotgun"
     shotgun-description: "Strong up close; reload after two shots."
     burst_rifle-name: <#ffb277>G36
-    burst_rifle-description: "Short bursts consume three rounds per click."
+    burst_rifle-description: "The stock burst fires three rounds. Press Shift+F to change it."
     assault_rifle-name: <#ffb277>AEK-971
     assault_rifle-description: "Faster, tighter bursts for the later islands."
     sniper-name: <#ffb277>McMillan
@@ -1029,6 +1071,10 @@ dialog:
   ready: <#e8dfd2>No active match
   busy: <#ffb277>Match in progress
   unavailable: <#ff6b61>Events unavailable
+  arena-pending: '<#f4d87a>The arena is not ready yet.'
+  read-failed: '<#ff6b61>Could not check your event status.'
+  other-match: '<#f4d87a>You are playing another event.'
+  linked-match: '<#92bed8>You have a place in an existing match.'
   queue-facts: <#e8dfd2>Queued <#ffffff><queue><#e8dfd2> · To start <#ffffff><minimum>–<maximum>
   queue-status: <#e8dfd2><queue_state>
   ttt-overview: <#ffb277>Find the traitors among the players.
@@ -1119,7 +1165,7 @@ dialog:
   start-insufficient: <#f4d87a>Not enough players to start yet.
   start-arena-unavailable: <#f4d87a>Map unavailable. Try again later.
   start-busy: <#f4d87a>Another match is still running.
-  start-recovery-pending: <#f4d87a>The previous match is finishing. Try again shortly.
+  start-recovery-pending: '<#f4d87a>Wait for your transfer or equipment recovery to finish.'
   start-network-failed: <#ff6b61>Could not start the match. Try again.
   start-not-owner: <#f4d87a>The queue creator starts the match.
   start-client-unsupported: <#e3b341>This expedition requires enabled dialogs and Java 1.21.6 or newer.
@@ -1146,7 +1192,12 @@ apocalypse:
   mining:
     required-tool: '<#ffb277>Mine tungsten ore with an iron, diamond or netherite pickaxe.'
     diamond-tool: '<#ffb277>Mine columbite with a diamond or netherite pickaxe.'
-  occupied: '<#ffb277>You cannot enter right now. Finish your current game, or try again later if the world is full.'
+  occupied: '<#ffb277>Finish your match or wait for your gear to return.'
+  queued: '<#ffb277>You are in the match queue.<newline>  <#e8dfd2>Use <#92bed8>/arcevents leave<#e8dfd2> to leave it.'
+  route-pending: '<#ffb277>Finish your current transfer first.<newline>  <#e8dfd2>Open an event page and select “Check transfer”.'
+  queue-read-failed: '<#ffb277>Could not check your other events. Try again.'
+  respawn-first: '<#ffb277>Respawn before entering the Apocalypse.'
+  full: '<#ffb277>The Apocalypse world is full. Try again later.'
   pending: '<#e8dfd2>Your transfer is in progress.'
   unavailable: '<#ffb277>The apocalypse world is currently unavailable.'
   denied: '<#ffb277>This command requires a world administrator. To change the day, use a number from 1 to 10000.'
@@ -1185,7 +1236,7 @@ apocalypse:
       address: '<bearing><newline><#382b21>X <x> Y <y> Z <z>'
       track: '<#235a76><underlined>Track landmark'
       weapons: '<#382b21>Use the axe in melee. Carry spare rounds for firearms. Open parts crates with a crowbar.'
-      controls: '<#324855>Left click — fire<newline>Right click — aim<newline>F — reload'
+      controls: '<#324855>Left click — fire<newline>Right click — aim<newline>F — reload<newline>Shift+F — settings'
       workbench: '<#382b21>Weapon benches I, II and III each build different guns. Right-click a bench to see its recipes.'
       parts: '<#382b21>Each recipe shows which parts are missing from your pack. Open bunker parts crates with a crowbar.'
       health: '<#382b21>Infection has four stages. A vaccine cures and gives temporary immunity. A golden apple also cures.'
@@ -1260,7 +1311,7 @@ apocalypse:
     kit-gun: '<#e8dfd2>You have a gun. Spare rounds <white><ammo></white>.'
     kit-axe: '<#e8dfd2>The axe is useful in melee. Spare rounds <white><ammo></white>.'
     weapons-help: '<#e8dfd2>Look for guns in cities and bunkers. Open gun storage by hand. Use a crowbar for parts crates.'
-    controls: '<#92bed8>Left click <white>fire · <#92bed8>Right click <white>aim · <#92bed8>F <white>reload'
+    controls: '<#92bed8>Left click <white>fire · <#92bed8>Right click <white>aim · <#92bed8>F <white>reload<newline><#92bed8>Shift+F <white>weapon settings'
     health-title: '<#ffb277><bold>Infection'
     health-help: '<#e8dfd2>A zombie hit can infect you. Infection has four stages. A vaccine cures it and briefly prevents reinfection. A golden apple also cures infection.'
     horde-title: '<#ffb277><bold>Horde · day <day>'

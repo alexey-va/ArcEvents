@@ -1,6 +1,7 @@
 package ru.ruscrafting.events.paper
 
 import com.google.gson.Gson
+import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
@@ -23,6 +24,20 @@ internal class ArenaStagingFiles(private val container: Path) {
         Files.writeString(stage.resolve(INTENT), gson.toJson(Intent(1, name, world, template)),
             StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
         return stage
+    }
+
+    /** Publish a marked directory before Paper can write even the first chunk. Worker-only. */
+    fun createGeneratedWorld(world: String, template: String) {
+        require(isGeneratedArenaTemplate(template))
+        val destination = container.resolve(world)
+        val stage = create(world, template)
+        Files.writeString(stage.resolve(ARENA_TEMPLATE_MARKER), "$template\n",
+            StandardOpenOption.CREATE_NEW, StandardOpenOption.SYNC)
+        FileChannel.open(stage, StandardOpenOption.READ).use { it.force(true) }
+        // Same filesystem. The ordinary move rejects an existing target, even an empty foreign folder.
+        Files.move(stage, destination)
+        FileChannel.open(container, StandardOpenOption.READ).use { it.force(true) }
+        Files.delete(destination.resolve(INTENT))
     }
 
     fun recover(loadedWorldNames: Set<String>): Recovery {
@@ -69,7 +84,9 @@ internal class ArenaStagingFiles(private val container: Path) {
         val intent = gson.fromJson(Files.readString(marker), Intent::class.java)
         require(intent.format == 1 && intent.stage == stage.name && intent.world.isNotBlank() &&
             container.resolve(intent.world).normalize().parent == container &&
-            PackagedArenaTemplates.find(intent.template) != null) { "Arena staging ownership does not match its path" }
+            (PackagedArenaTemplates.find(intent.template) != null || isGeneratedArenaTemplate(intent.template))) {
+            "Arena staging ownership does not match its path"
+        }
     }
 
     companion object {
@@ -77,3 +94,7 @@ internal class ArenaStagingFiles(private val container: Path) {
         const val INTENT = ".arcevents-staging.json"
     }
 }
+
+internal fun isGeneratedArenaTemplate(template: String): Boolean = template == TttCitadelBlueprint.TEMPLATE ||
+    template == DisasterArenaGenerator.TEMPLATE || template == FishingArenaGenerator.TEMPLATE ||
+    template == ZombiesArenaGenerator.TEMPLATE

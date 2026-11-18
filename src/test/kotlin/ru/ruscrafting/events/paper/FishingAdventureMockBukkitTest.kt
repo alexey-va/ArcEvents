@@ -32,10 +32,19 @@ import ru.ruscrafting.events.domain.FishingGear
 import ru.ruscrafting.events.domain.FishingPhase
 import ru.ruscrafting.events.domain.MatchPhase
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
 import java.util.function.Consumer
 
 internal class FishingTestWorld(private val server: org.mockbukkit.mockbukkit.ServerMock) : org.mockbukkit.mockbukkit.world.WorldMock() {
-    init { name = "arcevents_fishing_v3" }
+    init { name = "arcevents_fishing_v4" }
+
+    var passageReady: CompletableFuture<Unit> = CompletableFuture.completedFuture(Unit)
+
+    // MockBukkit has no async chunk loader. Tests can withhold the native completion.
+    override fun getChunkAtAsync(x: Int, z: Int, generate: Boolean, urgent: Boolean): CompletableFuture<org.bukkit.Chunk> {
+        check(generate)
+        return passageReady.thenApply { getChunkAt(x, z) }
+    }
 
     override fun dropItem(location: Location, stack: org.bukkit.inventory.ItemStack): Item =
         object : org.mockbukkit.mockbukkit.entity.ItemMock(server, UUID.randomUUID(), stack) {
@@ -202,8 +211,16 @@ class FishingAdventureMockBukkitTest : FunSpec({
                 if (stage < FishingArenaStage.entries.lastIndex) {
                     adventure.snapshot().phase shouldBe FishingPhase.TRAVEL
                     val center = FishingArenaStage.entries[stage].centerX
+                    val fishingWorld = world as FishingTestWorld
+                    if (stage == 0) fishingWorld.passageReady = CompletableFuture()
                     player.simulatePlayerMove(Location(world, center + 0.5, 65.0, -8.5))
                     fixture.advanceTime(1_000)
+                    if (stage == 0) {
+                        adventure.snapshot().stage shouldBe 0
+                        player.location.x shouldBe center + 0.5
+                        fishingWorld.passageReady.complete(Unit)
+                    }
+                    player.location.x shouldBe FishingArenaStage.entries[stage + 1].centerX + 0.5
                     adventure.snapshot().stage shouldBe stage + 1
                     adventure.snapshot().phase shouldBe FishingPhase.CASTING
                 }
@@ -223,6 +240,39 @@ class FishingAdventureMockBukkitTest : FunSpec({
             fixture.advanceTime(9_000)
             fixture.escrow.pendingCount() shouldBe 0
             fixture.assertOriginalPlayerStateRestored(fixture.players.take(1))
+        } }
+    }
+
+    test("a discarded hook or a bite beyond the buoys lets the player cast again") {
+        failOnUnsupportedMockBukkitOperation { TttRoundFixture().use { fixture ->
+            fixture.startActiveArcade(EventMode.FISHING)
+            val player = fixture.players.first() as PlayerMock
+            val adventure = requireNotNull(fixture.service.fishingAdventure(player))
+            player.simulatePlayerMove(Location(player.world, 0.5, 65.0, 16.5))
+            val hook = mockk<FishHook>(relaxed = true)
+            every { hook.uniqueId } returns UUID.randomUUID()
+            every { hook.location } returns Location(player.world, 9.0, 63.0, 25.5)
+            hook.location.block.type = Material.WATER
+            fun event(state: PlayerFishEvent.State) = PlayerFishEvent(player, null, hook, EquipmentSlot.HAND, state)
+            fixture.paper.callEvent(event(PlayerFishEvent.State.FISHING))
+            adventure.snapshot().phase shouldBe FishingPhase.BITE
+            // The hook was discarded by Paper, so the next session tick releases the cast.
+            fixture.advanceTime(1_000)
+            adventure.snapshot().phase shouldBe FishingPhase.CASTING
+            fixture.paper.callEvent(event(PlayerFishEvent.State.FISHING))
+            val outside = event(PlayerFishEvent.State.BITE)
+            fixture.paper.callEvent(outside)
+            outside.isCancelled shouldBe true
+            adventure.snapshot().phase shouldBe FishingPhase.CASTING
+            adventure.snapshot().totalCatches shouldBe 0
+            fixture.paper.callEvent(event(PlayerFishEvent.State.FISHING))
+            val floatingItem = mockk<Item>(relaxed = true)
+            val snag = PlayerFishEvent(player, floatingItem, hook, EquipmentSlot.HAND, PlayerFishEvent.State.CAUGHT_ENTITY)
+            fixture.paper.callEvent(snag)
+            snag.isCancelled shouldBe true
+            verify(exactly = 0) { floatingItem.remove() }
+            adventure.snapshot().phase shouldBe FishingPhase.CASTING
+            castCatch(fixture, player, adventure)
         } }
     }
 

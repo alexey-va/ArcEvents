@@ -14,8 +14,11 @@ import org.bukkit.block.Block
 import org.bukkit.block.data.BlockData
 import org.bukkit.inventory.ItemStack
 import org.bukkit.persistence.PersistentDataType
+import org.bukkit.entity.Entity
 import org.bukkit.entity.Player
 import org.bukkit.entity.Zombie
+import org.bukkit.event.player.PlayerMoveEvent
+import org.bukkit.event.player.PlayerToggleSneakEvent
 import org.bukkit.util.Vector
 import org.bukkit.util.RayTraceResult
 import org.bukkit.FluidCollisionMode
@@ -31,6 +34,7 @@ import ru.ruscrafting.events.domain.FirearmId
 import ru.ruscrafting.events.domain.TttFirearmCatalog
 import ru.ruscrafting.events.domain.ZombiesOffer
 import ru.ruscrafting.events.domain.ZombiesRules
+import ru.ruscrafting.events.domain.ZombiesStatus
 import java.util.UUID
 import java.util.function.Consumer
 
@@ -103,6 +107,38 @@ class ZombiesAdventureTest : StringSpec({
             f.signs.forEach { verify(exactly = 1) { it.remove() } }
             f.game.tick()
             f.completed shouldBe listOf(false)
+        }
+    }
+
+    "sneak release and leaving reach between wave ticks each restart the rescue timer" {
+        ZombieControllerFixture(multiplayer = true).use { f ->
+            val teammate = requireNotNull(f.teammate)
+            val teammateId = teammate.uniqueId
+            f.game.start()
+            f.game.down(teammate)
+            f.sneaking = true
+            f.game.tick()
+
+            val service = mockk<ArcEventsGameplayBoundary>()
+            every { service.zombiesAdventure(f.player) } returns f.game
+            val listener = ArcEventsListener(service, mockk(), mockk())
+            f.now = 2_000
+            f.sneaking = false
+            listener.onZombiesSneak(PlayerToggleSneakEvent(f.player, false))
+            f.sneaking = true
+            f.now = 3_000
+            f.game.tick()
+            f.game.director.players.getValue(teammateId).status shouldBe ZombiesStatus.DOWNED
+
+            f.now = 4_000
+            f.game.handleMove(PlayerMoveEvent(f.player, f.at.clone(), f.at.clone().add(5.0, 0.0, 0.0))) shouldBe false
+            f.now = 6_000
+            f.game.tick()
+            f.game.director.players.getValue(teammateId).status shouldBe ZombiesStatus.DOWNED
+
+            f.now = 9_000
+            f.game.tick()
+            f.game.director.players.getValue(teammateId).status shouldBe ZombiesStatus.ALIVE
         }
     }
 
@@ -221,11 +257,12 @@ class ZombiesAdventureTest : StringSpec({
     }
 })
 
-private class ZombieControllerFixture : AutoCloseable {
+private class ZombieControllerFixture(multiplayer: Boolean = false) : AutoCloseable {
     private val paper = MockBukkitTestRuntime.open()
     private val plugin = paper.createSimplePlugin("ZombieControllerTest")
     val world = mockk<World>(relaxed = true)
     val player = mockk<Player>(relaxed = true)
+    val teammate = if (multiplayer) mockk<Player>(relaxed = true) else null
     val match = UUID.randomUUID()
     var at = Location(world, .5, 65.0, -18.5)
     var now = 0L
@@ -255,6 +292,13 @@ private class ZombieControllerFixture : AutoCloseable {
         every { player.location } answers { at.clone() }
         every { player.eyeLocation } answers { at.clone().add(0.0, 1.62, 0.0) }
         every { player.isSneaking } answers { sneaking }
+        every { player.hasLineOfSight(any<Entity>()) } returns true
+        teammate?.let {
+            every { it.uniqueId } returns UUID.randomUUID()
+            every { it.isOnline } returns true
+            every { it.world } returns world
+            every { it.location } answers { at.clone().add(1.0, 0.0, 0.0) }
+        }
         every { player.inventory.getItem(any<Int>()) } answers { inventory[firstArg()] }
         every { player.inventory.setItem(any<Int>(), any()) } answers {
             val slot = firstArg<Int>()
@@ -307,7 +351,7 @@ private class ZombieControllerFixture : AutoCloseable {
                 weaponDisplays += display
             }
         }
-        game = ZombiesAdventure(plugin, locale, items, firearms, ZombiesRules(), match, world, listOf(player),
+        game = ZombiesAdventure(plugin, locale, items, firearms, ZombiesRules(), match, world, listOfNotNull(player, teammate),
             active = { true }, isAlive = { true }, revivePlayer = {}, hurt = { _, _ -> }, killed = { kills++ },
             complete = { completed += it }, clearWeaponState = {}, displays = displays, sounds = { false }, particles = { false }, clock = { now })
     }

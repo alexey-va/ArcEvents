@@ -98,8 +98,8 @@ class TttMatchRuntime(
 
     fun eliminate(victimId: UUID, killerId: UUID?): TttElimination {
         val match = requireCurrent()
-        val effectiveKiller = killerId ?: recentAttacks.consume(match.matchId, victimId)
-        recentAttacks.forget(victimId)
+        val recent = recentAttacks.consume(match.matchId, victimId)
+        val effectiveKiller = killerId ?: recent?.attackerId
         val (changed, outcome) = engine().eliminate(match, victimId, effectiveKiller)
         val rewarded = rewardKiller(changed, victimId, effectiveKiller)
         current = rewarded

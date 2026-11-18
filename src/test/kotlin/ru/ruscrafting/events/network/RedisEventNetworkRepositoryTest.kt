@@ -317,6 +317,11 @@ class RedisEventNetworkRepositoryTest : StringSpec({
         val matchId = uuid(104)
         repository.reserve(matchId, "parkour", 1, 1, 2_000, 10).join()!!
 
+        // A click between expiry and the maintenance tick must not overwrite the transfer's origin.
+        val retained = requireNotNull(repository.loadQueueEntry(reservedPlayer).join())
+        repository.leaveQueue(reservedPlayer, 2_011).join() shouldBe QueueLeaveResult.Reserved(retained)
+        repository.joinQueue(reservedPlayer, "Reserved", "survival", 2_011, 60_000).join() shouldBe QueueJoinResult.Existing(retained)
+        repository.loadQueue(2_011).join() shouldBe listOf(retained)
         val expired = repository.expireReservations(2_011).join()
         expired.map(QueueEntry::playerId) shouldBe listOf(reservedPlayer.toString())
         expired.single().state shouldBe QueueState.RETURN_PENDING

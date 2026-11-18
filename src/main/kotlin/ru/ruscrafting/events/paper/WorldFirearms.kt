@@ -52,8 +52,7 @@ class WorldFirearms(
     private val loadedKey = NamespacedKey(plugin, "world_loaded_rounds")
     private val vanillaAmmunition = ItemStack.of(Material.IRON_NUGGET)
     private val reloads = mutableMapOf<UUID, Reload>()
-    private val automaticReloads = mutableMapOf<UUID, Any>()
-    private val cooldownUntil = mutableMapOf<UUID, Long>()
+    private val controls = FirearmControls(shots, clock)
     private var closed = false
 
     /** Air interaction is natively pre-cancelled, so it must still reach the firing path. */
@@ -93,19 +92,22 @@ class WorldFirearms(
         if (!pdc.has(firearmKey) && !pdc.has(loadedKey)) return WorldFirearmState(id, 0)
         if (pdc.get(firearmKey, PersistentDataType.STRING) != id.name) return null
         val loaded = pdc.get(loadedKey, PersistentDataType.INTEGER) ?: return null
-        return WorldFirearmState(id, loaded).takeIf { loaded in 0..spec(item).magazineSize }
+        return WorldFirearmState(id, loaded).takeIf { loaded in 0..baseSpec(item).magazineSize }
     }
 
     internal fun ammoHudState(player: Player): FirearmAmmoHudState? {
-        val state = state(player.inventory.itemInMainHand) ?: return null
+        val held = player.inventory.itemInMainHand
+        val state = state(held) ?: return null
         if (!eligible(player)) return null
+        val spec = baseSpec(held)
         return FirearmAmmoHudState(
             loaded = state.loaded,
-            capacity = spec(player.inventory.itemInMainHand).magazineSize,
+            capacity = spec.magazineSize,
             reserve = reserve(player.inventory.storageContents),
             creative = player.gameMode == GameMode.CREATIVE,
             reloading = player.uniqueId in reloads || scopes.isReloading(player.uniqueId),
             zoom = scopes.projectedZoom(player.uniqueId) ?: 1f,
+            burstSize = firearms.selectedBurst(held, spec),
         )
     }
 
@@ -142,40 +144,29 @@ class WorldFirearms(
     private fun fire(player: Player): Boolean {
         val state = authorizedState(player) ?: return false
         val playerId = player.uniqueId
-        val creative = player.gameMode == GameMode.CREATIVE
-        if (creative) cancel(playerId)
-        if (playerId in reloads || playerId in automaticReloads) {
+        if (player.gameMode == GameMode.CREATIVE) {
+            reloads.remove(playerId)?.let { it.task?.cancel(); it.presentation?.close() }
+        }
+        if (playerId in reloads) {
             feedback(player, "reloading-actionbar")
             return false
         }
         scopes.cancelReload(playerId)
-        val now = clock()
-        if (now < (cooldownUntil[playerId] ?: Long.MIN_VALUE)) return false
-        val spec = spec(player.inventory.itemInMainHand)
-        val trigger = if (creative) spec else firearmTriggerSpec(spec, state.loaded)
-        if (trigger == null) {
-            if (reserve(player.inventory.storageContents) > 0) return reload(player)
-            cooldownUntil[playerId] = now + 350L
-            feedback(player, "world-empty-actionbar")
-            return false
-        }
-        val loaded = if (creative) state.loaded else state.loaded - trigger.roundsPerShot
-        val replacement = if (creative) null else withLoaded(player.inventory.itemInMainHand, state.id, loaded)
+        val held = player.inventory.itemInMainHand
+        val spec = spec(held)
         val worldId = player.world.uid
-        val slot = player.inventory.heldItemSlot
-        val automaticReload = if (!creative && loaded == 0 && reserve(player.inventory.storageContents) > 0) Any() else null
         val valid = { eligible(player) && player.world.uid == worldId }
         val target: (Entity) -> Boolean = { entity ->
             entity is LivingEntity && entity.uniqueId != playerId && entity.isValid && !entity.isDead &&
                 entity.world.uid == worldId &&
                 (entity !is Player || (entity.isOnline && entity.gameMode != GameMode.SPECTATOR))
         }
-        val accepted = shots.fire(player, trigger, scopes.isAiming(playerId), valid, target, afterFiring = { launched ->
-            if (automaticReload != null && automaticReloads.remove(playerId, automaticReload) && launched &&
-                valid() && player.gameMode != GameMode.CREATIVE && player.inventory.heldItemSlot == slot &&
-                player.inventory.itemInMainHand == replacement && this.state(player.inventory.itemInMainHand) == WorldFirearmState(state.id, 0)
-            ) reload(player)
-        }) { entity, _, amount ->
+        return controls.fire(player, spec, firearms.selectedBurst(held, spec), state.loaded,
+            scopes.isAiming(playerId), valid, target,
+            withLoaded = { item, rounds -> withLoaded(item, state.id, rounds, player) },
+            hasReserve = { reserve(player.inventory.storageContents) > 0 },
+            reload = { reload(player) }, empty = { feedback(player, "world-empty-actionbar") },
+            busy = { feedback(player, "world-busy-actionbar") }) { entity, _, amount ->
             if (amount.isFinite() && amount > 0.0 && valid() && target(entity) &&
                 (entity !is Player || entity.world.pvp) && canTarget(player, entity)
             ) {
@@ -183,19 +174,10 @@ class WorldFirearms(
                 (entity as LivingEntity).damage(amount, player)
             }
         }
-        if (!accepted) {
-            feedback(player, "world-busy-actionbar")
-            return false
-        }
-        cooldownUntil[playerId] = now + spec.cooldownTicks * 50L
-        if (creative) return true
-        player.inventory.setItemInMainHand(requireNotNull(replacement))
-        if (automaticReload != null) automaticReloads[playerId] = automaticReload
-        return true
     }
 
     private fun reload(player: Player): Boolean {
-        automaticReloads.remove(player.uniqueId)
+        controls.cancel(player.uniqueId)
         val state = authorizedState(player) ?: return false
         if (player.gameMode == GameMode.CREATIVE) {
             cancel(player.uniqueId)
@@ -269,7 +251,7 @@ class WorldFirearms(
         val consumed = minOf(spec.magazineSize - pending.state.loaded, reserve(contents))
         if (consumed <= 0) return
         val loaded = pending.state.loaded + consumed
-        val replacement = withLoaded(held, pending.state.id, loaded)
+        val replacement = withLoaded(held, pending.state.id, loaded, player)
         var remaining = consumed
         for (slot in contents.indices) {
             if (remaining == 0) break
@@ -288,22 +270,39 @@ class WorldFirearms(
         )))
     }
 
-    private fun withLoaded(item: ItemStack, id: FirearmId, loaded: Int): ItemStack = item.clone().also { replacement ->
+    private fun withLoaded(item: ItemStack, id: FirearmId, loaded: Int, player: Player): ItemStack = item.clone().also { replacement ->
         check(replacement.editMeta { meta ->
             meta.persistentDataContainer.set(firearmKey, PersistentDataType.STRING, id.name)
             meta.persistentDataContainer.set(loadedKey, PersistentDataType.INTEGER, loaded)
         }) { "Ordinary firearm metadata could not be updated: $id" }
+        if (itemIdentity(item)?.startsWith("arcevents:world_") == true) {
+            firearms.refreshWorldLore(item, replacement, player, firearms.spec(id))
+        }
     }
 
     private fun usableAmmo(item: ItemStack): Boolean =
         item.isSimilar(vanillaAmmunition) || firearms.isWorldAmmunition(item) ||
             (!item.itemMeta.persistentDataContainer.has(eventItemKey) && itemIdentity(item) == "arc:firearm_ammo")
 
-    private fun spec(item: ItemStack) = packedFirearms[itemIdentity(item)]?.let { it.spec(firearms.spec(it.profile)) }
+    private fun baseSpec(item: ItemStack) = packedFirearms[itemIdentity(item)]?.let { it.spec(firearms.spec(it.profile)) }
         ?: firearms.spec(requireNotNull(firearmId(item)))
+
+    private fun spec(item: ItemStack) = firearms.tunedSpec(item, baseSpec(item))
+
+    internal fun editableSpec(player: Player) = player.inventory.itemInMainHand.let { held ->
+        if (eligible(player) && state(held) != null) baseSpec(held) else null
+    }
+
 
     private fun scopeTarget(item: ItemStack, slot: Int) = itemIdentity(item)?.let { packedScopeTarget(it, slot) }
         ?: FirearmScopeTarget(null, requireNotNull(firearmId(item)), slot)
+
+    internal fun scopeTarget(player: Player): FirearmScopeTarget? {
+        val held = player.inventory.itemInMainHand
+        return if (eligible(player) && state(held) != null && player.uniqueId !in reloads) {
+            scopeTarget(held, player.inventory.heldItemSlot)
+        } else null
+    }
 
     private fun reserve(contents: Array<ItemStack?>): Int = contents.sumOf { item ->
         if (item != null && usableAmmo(item)) item.amount else 0
@@ -313,7 +312,7 @@ class WorldFirearms(
 
     /** Inventory/scope changes cancel reloads without resetting the cross-weapon cooldown. */
     fun cancel(playerId: UUID) {
-        automaticReloads.remove(playerId)
+        controls.cancel(playerId)
         reloads.remove(playerId)?.let { pending ->
             pending.task?.cancel()
             pending.presentation?.close()
@@ -323,7 +322,7 @@ class WorldFirearms(
 
     fun forget(playerId: UUID) {
         cancel(playerId)
-        cooldownUntil.remove(playerId)
+        controls.forget(playerId)
     }
 
     override fun close() {
@@ -333,7 +332,6 @@ class WorldFirearms(
             it.presentation?.close()
         }
         reloads.clear()
-        automaticReloads.clear()
-        cooldownUntil.clear()
+        controls.clear()
     }
 }

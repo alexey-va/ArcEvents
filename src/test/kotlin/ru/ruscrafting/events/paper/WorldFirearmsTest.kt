@@ -36,6 +36,55 @@ import java.nio.file.Files
 import java.util.UUID
 
 class WorldFirearmsTest : FunSpec({
+    test("selected fire debits each live item round and cancellation keeps the last-round cooldown") {
+        WorldFirearmFixture().use { f ->
+            val base = f.firearms.spec(FirearmId.G36)
+            val custom = f.firearms.setBurst(f.firearms.setTuning(
+                f.gun(WORLD_GUN_IDS.getValue(base.id), 20), base, 6.25, 0.0), base, 15)
+            f.player.inventory.setItemInMainHand(custom)
+            f.click() shouldBe true
+            val (spec, burst, complete) = f.bursts.single()
+            spec.damagePerPellet shouldBe 6.25
+            spec.spreadDegrees shouldBe 0.0
+            burst.size shouldBe 15
+            burst.intervalTicks shouldBe 2
+            f.runtime.state(f.player.inventory.itemInMainHand)?.loaded shouldBe 20
+            f.advance(1)
+            burst.takeRound() shouldBe true
+            f.runtime.state(f.player.inventory.itemInMainHand)?.loaded shouldBe 19
+            f.click() // Stop with LMB.
+            burst.takeRound() shouldBe false
+            complete(false)
+            f.click()
+            f.bursts.size shouldBe 1
+            f.advance(2)
+            f.click()
+            val next = f.bursts.last().second
+            next.takeRound() shouldBe true
+            f.player.inventory.heldItemSlot = 1
+            next.takeRound() shouldBe false
+            f.runtime.state(f.player.inventory.getItem(0))?.loaded shouldBe 18
+            f.firearms.selectedBurst(f.player.inventory.getItem(0)!!, base) shouldBe 15
+        }
+    }
+
+    test("selected Creative burst is magazine-bounded and never spends ammunition") {
+        WorldFirearmFixture().use { f ->
+            val base = f.firearms.spec(FirearmId.RPL_20)
+            f.player.gameMode = GameMode.CREATIVE
+            f.player.inventory.setItemInMainHand(f.firearms.setBurst(f.gun(WORLD_GUN_IDS.getValue(base.id), 0), base, 48))
+            f.player.inventory.setItem(10, ItemStack.of(Material.IRON_NUGGET, 12))
+            f.click()
+            val (_, burst, complete) = f.bursts.single()
+            burst.size shouldBe 48
+            repeat(48) { burst.takeRound() shouldBe true }
+            complete(true)
+            f.runtime.state(f.player.inventory.itemInMainHand)?.loaded shouldBe 0
+            f.vanillaReserve() shouldBe 12
+            verify(exactly = 0) { f.scopes.animateReload(any(), any(), any(), any(), any()) }
+        }
+    }
+
     test("native ArcEvents guns fire and reload without an ItemsAdder item") {
         WorldFirearmFixture().use { f ->
             f.player.inventory.setItemInMainHand(f.firearms.worldFirearmItem(FirearmId.FIVE_SEVEN, f.player, 1))
@@ -115,7 +164,10 @@ class WorldFirearmsTest : FunSpec({
                     val before = f.accepted.size
                     f.click() shouldBe true
                     f.accepted.size shouldBe before + 1
-                    f.accepted.last().spec shouldBe spec.copy(roundsPerShot = loaded, pellets = loaded)
+                    f.bursts.last().second.size shouldBe loaded
+                    f.bursts.last().second.intervalTicks shouldBe 1
+                    f.runtime.state(f.player.inventory.itemInMainHand)?.loaded shouldBe loaded
+                    repeat(loaded) { f.bursts.last().second.takeRound() shouldBe true }
                     f.runtime.state(f.player.inventory.itemInMainHand)?.loaded shouldBe 0
                     f.vanillaReserve() shouldBe 0
                 }
@@ -151,6 +203,8 @@ class WorldFirearmsTest : FunSpec({
             f.player.inventory.setItemInMainHand(f.gun(WORLD_GUN_IDS.getValue(id), 2))
             f.player.inventory.setItem(10, ItemStack.of(Material.IRON_NUGGET, 7))
             f.click() shouldBe true
+            f.runtime.state(f.player.inventory.itemInMainHand)?.loaded shouldBe 2
+            repeat(2) { f.bursts.single().second.takeRound() shouldBe true }
             f.runtime.state(f.player.inventory.itemInMainHand)?.loaded shouldBe 0
             f.vanillaReserve() shouldBe 7
             f.click() shouldBe true
@@ -681,6 +735,7 @@ private class WorldFirearmFixture : AutoCloseable {
     val firearms: TttFirearms
     val runtime: WorldFirearms
     val accepted = mutableListOf<WorldShot>()
+    val bursts = mutableListOf<Triple<FirearmSpec, FirearmBurst, (Boolean) -> Unit>>()
     val scopes = mockk<TttScopes>(relaxed = true)
     var actionsAllowed = true
     var targetsAllowed = true
@@ -704,6 +759,13 @@ private class WorldFirearmFixture : AutoCloseable {
         val locale = ArcEventsLocale(dataRoot) { settings }
         firearms = TttFirearms(plugin, locale) { settings }
         val shots = mockk<FirearmShots>()
+        every { shots.fireBurst(any(), any(), any(), any(), any(), any(), any(), any(), any()) } answers {
+            if (admission) {
+                bursts += Triple(arg(1), arg(6), arg(7))
+                accepted += WorldShot(arg(1), arg(3), arg(4), arg(7), arg(8))
+            }
+            admission
+        }
         every { shots.fire(any(), any(), any(), any(), any(), any(), any(), any()) } answers {
             if (admission) {
                 accepted += WorldShot(arg(1), arg(3), arg(4), arg(6), arg(7))

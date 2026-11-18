@@ -36,6 +36,20 @@ ttt:
   body-despawn-seconds: 60
 
 arcade:
+  fishing:
+    preparation-seconds: 1
+    countdown-seconds: 1
+  disasters:
+    minimum-players: 2
+    maximum-players: 2
+    preparation-seconds: 1
+    countdown-seconds: 1
+    intermission-seconds: 3
+    disaster-seconds: 9
+    disaster-rounds: 1
+    post-round-seconds: 3
+    arena:
+      enabled: true
   zombies:
     minimum-players: 1
     maximum-players: 4

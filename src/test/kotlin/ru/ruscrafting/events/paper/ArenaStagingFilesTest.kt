@@ -6,6 +6,23 @@ import io.kotest.matchers.shouldBe
 import java.nio.file.Files
 
 class ArenaStagingFilesTest : FunSpec({
+    test("the first generated chunk can only be written into an already owned world") {
+        val container = Files.createTempDirectory("arena-first-generation")
+        val store = ArenaStagingFiles(container)
+        val world = "events_fishing"
+        store.createGeneratedWorld(world, FishingArenaGenerator.TEMPLATE)
+        Files.readString(container.resolve(world).resolve(ARENA_TEMPLATE_MARKER)).trim() shouldBe FishingArenaGenerator.TEMPLATE
+        (ArenaWorldGeneratorRegistry.generatorFor(container, world) is FishingArenaGenerator) shouldBe true
+        // An interruption before native generation leaves the final world intact on the next startup.
+        store.recover(emptySet()).removed shouldBe 0
+        Files.isDirectory(container.resolve(world)) shouldBe true
+
+        val foreign = Files.createDirectory(container.resolve("foreign"))
+        shouldThrow<java.nio.file.FileAlreadyExistsException> { store.createGeneratedWorld("foreign", FishingArenaGenerator.TEMPLATE) }
+        Files.exists(foreign.resolve(ARENA_TEMPLATE_MARKER)) shouldBe false
+        store.recover(emptySet()).removed shouldBe 1
+    }
+
     test("interrupted owned stage is removed on worker recovery and unmarked legacy is retained") {
         val container = Files.createTempDirectory("arena-stage-recovery")
         val store = ArenaStagingFiles(container)

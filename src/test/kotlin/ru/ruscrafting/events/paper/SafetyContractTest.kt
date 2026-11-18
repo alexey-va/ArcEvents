@@ -24,6 +24,7 @@ import org.bukkit.event.EventPriority
 import org.bukkit.event.block.Action
 import org.bukkit.event.entity.ProjectileLaunchEvent
 import org.bukkit.event.entity.EntityDamageByEntityEvent
+import org.bukkit.event.entity.EntityDamageEvent.DamageCause
 import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.event.player.PlayerSwapHandItemsEvent
 import org.bukkit.event.server.BroadcastMessageEvent
@@ -240,6 +241,7 @@ class SafetyContractTest : StringSpec({
         val playerId = UUID.randomUUID()
         every { player.uniqueId } returns playerId
         every { player.location } returns mockk()
+        every { player.isSneaking } returns false
         every { player.hasPermission(ArcEventsListener.ADMIN_BYPASS_PERMISSION) } returns true
         every { service.isParticipant(playerId) } returns true
         every { service.phase() } returns MatchPhase.ACTIVE
@@ -276,7 +278,7 @@ class SafetyContractTest : StringSpec({
         verify(exactly = 0) { service.registerDroppedLoot(any()) }
     }
 
-    "fishing melee cannot bypass isolation by targeting an outside administrator" {
+    "match melee cannot bypass isolation by targeting an outside administrator" {
         val service = mockk<ArcEventsGameplayBoundary>(relaxed = true)
         val attacker = mockk<Player>(relaxed = true)
         val victim = mockk<Player>(relaxed = true)
@@ -285,11 +287,12 @@ class SafetyContractTest : StringSpec({
         every { attacker.uniqueId } returns attackerId
         every { victim.uniqueId } returns victimId
         every { victim.hasPermission(ArcEventsListener.ADMIN_BYPASS_PERMISSION) } returns true
-        every { service.isFishingParticipant(attackerId) } returns true
+        every { service.isParticipant(attackerId) } returns true
         every { service.shouldCancelDamage(victimId, attackerId, false, null) } returns true
         val event = mockk<EntityDamageByEntityEvent>(relaxed = true)
         every { event.entity } returns victim
         every { event.damager } returns attacker
+        every { event.cause } returns DamageCause.ENTITY_ATTACK
 
         ArcEventsListener(service, mockk(), mockk()).onDamage(event)
 
@@ -330,12 +333,43 @@ class SafetyContractTest : StringSpec({
         val event = mockk<EntityDamageByEntityEvent>(relaxed = true)
         every { event.entity } returns victim
         every { event.damager } returns attacker
+        every { event.cause } returns DamageCause.ENTITY_ATTACK
 
         ArcEventsListener(service, mockk(), mockk()).onDamage(event)
 
         verify(exactly = 1) { service.useTraitorBlade(attacker, victim) }
         verify(exactly = 1) { event.isCancelled = true }
         verify(exactly = 0) { service.damageMultiplier(any()) }
+        verify(exactly = 0) { service.recordDamage(any(), any(), any(), any()) }
+    }
+
+    "a zero damage match projectile never uses the shooter's held blade or changes kill attribution" {
+        val service = mockk<ArcEventsGameplayBoundary>(relaxed = true)
+        val attacker = mockk<Player>(relaxed = true)
+        val victim = mockk<Player>(relaxed = true)
+        val projectile = mockk<org.bukkit.entity.Projectile>()
+        val event = mockk<EntityDamageByEntityEvent>(relaxed = true)
+        val matchId = UUID.randomUUID()
+        val attackerId = UUID.randomUUID()
+        val victimId = UUID.randomUUID()
+        every { attacker.uniqueId } returns attackerId
+        every { victim.uniqueId } returns victimId
+        every { projectile.shooter } returns attacker
+        every { event.entity } returns victim
+        every { event.damager } returns projectile
+        every { event.cause } returns DamageCause.PROJECTILE
+        every { event.finalDamage } returns 0.0
+        every { service.isParticipant(victimId) } returns true
+        every { service.isParticipant(attackerId) } returns true
+        every { service.projectileMatchId(projectile) } returns matchId
+        every { service.damageMultiplier(attackerId) } returns 1.0
+        every { service.useTraitorBlade(attacker, victim) } returns true
+
+        ArcEventsListener(service, mockk(), mockk()).onDamage(event)
+
+        verify(exactly = 1) { service.shouldCancelDamage(victimId, attackerId, true, matchId) }
+        verify(exactly = 0) { service.useTraitorBlade(attacker, victim) }
+        verify(exactly = 0) { service.recordAttack(any(), any()) }
         verify(exactly = 0) { service.recordDamage(any(), any(), any(), any()) }
     }
 

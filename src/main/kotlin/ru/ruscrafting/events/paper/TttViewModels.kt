@@ -1,6 +1,7 @@
 package ru.ruscrafting.events.paper
 
 import ru.ruscrafting.events.domain.CombatRecord
+import ru.ruscrafting.events.domain.FirearmId
 import ru.ruscrafting.events.domain.MatchEndReason
 import ru.ruscrafting.events.domain.RosterEntry
 import ru.ruscrafting.events.domain.TttRole
@@ -41,4 +42,4 @@ data class RoundReportView(
 
 data class RosterView(val entries: List<RosterEntry>)
 
-data class PendingHitContext(val attackerId: UUID, val victimId: UUID, val weaponKey: String, val headshot: Boolean)
+data class PendingHitContext(val attackerId: UUID, val victimId: UUID, val firearmId: FirearmId, val headshot: Boolean)

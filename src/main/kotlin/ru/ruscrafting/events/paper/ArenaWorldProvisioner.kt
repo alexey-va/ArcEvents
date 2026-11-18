@@ -21,6 +21,7 @@ import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 import java.security.MessageDigest
+import java.util.concurrent.CompletableFuture
 import java.util.Comparator
 import java.util.UUID
 import kotlin.math.ceil
@@ -51,7 +52,10 @@ class ArenaWorldProvisioner(private val plugin: Plugin,
     )
 
     /** Worker filesystem preparation, then budgeted Paper activation. Arenas retain their established order. */
-    fun ensureLoadedAsync(settings: ArcEventsConfig, work: EventWork, excludedArenaId: String? = null, mandatoryPoints: (ArenaSettings) -> List<ru.ruscrafting.events.config.EventLocation> = { emptyList() }): java.util.concurrent.CompletableFuture<List<World>> {
+    fun ensureLoadedAsync(settings: ArcEventsConfig, work: EventWork, excludedArenaId: String? = null,
+        mandatoryPoints: (ArenaSettings) -> List<ru.ruscrafting.events.config.EventLocation> = { emptyList() },
+        onReady: (ArenaSettings, World) -> Unit = { _, _ -> },
+    ): CompletableFuture<List<World>> {
         check(this.work == null && !closed)
         this.work = work
         val enabled = settings.arenas.filter { it.enabled && it.id != excludedArenaId }
@@ -69,10 +73,23 @@ class ArenaWorldProvisioner(private val plugin: Plugin,
             if (recovery.removed > 0) plugin.logger.info("Removed ${recovery.removed} interrupted owned arena stages")
             if (recovery.retainedLegacy.isNotEmpty()) plugin.logger.warning(
                 "Retained unmarked legacy arena staging folders for inspection: ${recovery.retainedLegacy.joinToString()}")
-            enabled.map { prepare(it, existing[it.world]) }
-        }.thenCompose { prepared ->
-            var chain = java.util.concurrent.CompletableFuture.completedFuture(mutableListOf<World>())
-            prepared.forEach { arena -> chain = chain.thenCompose { worlds -> activateAsync(settings, arena, work).thenApply { worlds.apply { add(it) } } } }
+        }.thenCompose {
+            var chain = CompletableFuture.completedFuture(mutableListOf<World>())
+            enabled.forEach { arena -> chain = chain.thenCompose { worlds ->
+                work.compute { prepare(arena, existing[arena.world]) }.thenCompose { activateAsync(settings, it, work) }
+                    .handle { world, failure -> work.onMain {
+                        check(!closed)
+                        if (failure != null) {
+                            if (stageWorld != null || leaseReleaseFailure != null) throw failure
+                            plugin.logger.log(java.util.logging.Level.SEVERE, "ArcEvents arena ${arena.id} failed preparation and remains closed", failure)
+                        } else {
+                            check(plugin.server.getWorld(arena.world) === world)
+                            onReady(arena, world)
+                            worlds.add(world)
+                        }
+                        worlds
+                    } }.thenCompose { it }
+            } }
             chain.thenApply { it.toList() }
         }
     }
@@ -82,7 +99,7 @@ class ArenaWorldProvisioner(private val plugin: Plugin,
         require(!Files.isSymbolicLink(folder)) { "Arena world directory must not be a symbolic link" }
         val existed = Files.exists(folder)
         require(!existed || Files.isDirectory(folder)) { "Arena path must be a directory" }
-        val builtIn = arena.template in setOf(TttCitadelBlueprint.TEMPLATE, DisasterArenaGenerator.TEMPLATE, FishingArenaGenerator.TEMPLATE, ZombiesArenaGenerator.TEMPLATE)
+        val builtIn = isGeneratedArenaTemplate(arena.template)
         val packaged = PackagedArenaTemplates.find(arena.template)
         val imported = ReviewedImportedArenaTemplates.find(arena.template)
         require(arena.template.isEmpty() || builtIn || packaged != null || imported != null) { "Arena template ${arena.template} is not reviewed" }
@@ -92,11 +109,10 @@ class ArenaWorldProvisioner(private val plugin: Plugin,
             if (packaged != null) requirePackagedWorld(folder, arena, packaged)
             if (imported != null) requireReviewedImportedWorld(folder, arena, imported)
         }
+        if (builtIn && !existed) staging.createGeneratedWorld(arena.world, arena.template)
         if (imported != null && !existed) error("Reviewed imported arena world ${arena.world} is missing")
         val files = if (!existed && packaged != null) loadPackagedFiles(packaged) else emptyMap()
-        val range = arenaChunks(arena)
-        return PreparedArena(arena, folder, existed, existing, builtIn, packaged, imported, files,
-            range.x.flatMap { x -> range.z.map { z -> x to z } })
+        return PreparedArena(arena, folder, existed, existing, builtIn, packaged, imported, files, arenaChunks(arena))
     }
 
     private fun activateAsync(settings: ArcEventsConfig, prepared: PreparedArena, work: EventWork): java.util.concurrent.CompletableFuture<World> {
@@ -122,12 +138,9 @@ class ArenaWorldProvisioner(private val plugin: Plugin,
             configure(world, arena, settings)
             world
         } }.thenCompose { world ->
-            loadChunks(world, prepared.chunks, prepared.builtIn && !prepared.existed, owned, work)
+            // A previous startup may have stopped after publishing ownership and generating only part of the arena.
+            loadChunks(world, prepared.chunks, prepared.builtIn, owned, work)
                 .thenCompose { sanitizeAndValidate(world, arena, settings, prepared.packaged != null || prepared.imported != null, prepared.chunks, work) }
-                .thenCompose { if (prepared.builtIn && !prepared.existed) work.compute {
-                    Files.writeString(prepared.folder.resolve(ARENA_TEMPLATE_MARKER), arena.template + "\n", StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
-                    Unit
-                } else java.util.concurrent.CompletableFuture.completedFuture(Unit) }
                 .thenCompose { work.onMain {
                     check(!closed && plugin.server.getWorld(world.uid) === world)
                     // Keep only the small set used by synchronous readiness checks. Loot acquires its own chunks asynchronously.
@@ -165,22 +178,29 @@ class ArenaWorldProvisioner(private val plugin: Plugin,
 
     internal fun loadChunks(world: World, chunks: List<Pair<Int, Int>>, generate: Boolean,
         owned: MutableList<ru.arc.paper.chunk.PaperChunkTicketLease>, work: EventWork): java.util.concurrent.CompletableFuture<Unit> {
-        var chain = java.util.concurrent.CompletableFuture.completedFuture(Unit)
-        chunks.forEach { (x, z) -> chain = chain.thenCompose { work.callNative {
-            check(!closed && plugin.server.getWorld(world.uid) === world)
-            // Paper completes this future on main. Retain its loaded chunk before
-            // yielding to the next tick; an unretained chunk may unload meanwhile.
-            world.getChunkAtAsync(x, z, generate).thenApply { chunk ->
-                check(work.isCurrent() && !closed && plugin.server.getWorld(world.uid) === world && chunk != null && world.isChunkLoaded(x, z)) { "Could not load arena chunk $x,$z" }
-                val acquired = tickets.acquire(chunk)
-                val lease = (acquired as? ru.arc.paper.chunk.PaperChunkTicketAcquireResult.Acquired)?.lease
-                    ?: error("Could not retain arena chunk $x,$z: $acquired")
-                owned += lease
-                leases += lease
-                Unit
+        var previous = CompletableFuture.completedFuture(Unit)
+        for (batch in chunks.chunked(6)) {
+            val loads = batch.map { (x, z) ->
+                previous.thenCompose {
+                    work.callNative {
+                        check(!closed && plugin.server.getWorld(world.uid) === world)
+                        world.getChunkAtAsync(x, z, generate).thenApply { chunk ->
+                            check(work.isCurrent() && !closed && plugin.server.getWorld(world.uid) === world &&
+                                chunk != null && world.isChunkLoaded(x, z)) { "Could not load arena chunk $x,$z" }
+                            // Paper completes on main. Pin the chunk before another tick can unload it.
+                            val acquired = tickets.acquire(chunk)
+                            val lease = (acquired as? ru.arc.paper.chunk.PaperChunkTicketAcquireResult.Acquired)?.lease
+                                ?: error("Could not retain arena chunk $x,$z: $acquired")
+                            owned += lease
+                            leases += lease
+                        }
+                    }.thenCompose { it }
+                }
             }
-        }.thenCompose { it } } }
-        return chain
+            // allOf also waits for sibling callbacks on failure, so cleanup sees every acquired lease.
+            previous = CompletableFuture.allOf(*loads.toTypedArray()).thenApply { Unit }
+        }
+        return previous
     }
 
     internal fun releaseChunkLeases(owned: MutableList<ru.arc.paper.chunk.PaperChunkTicketLease>, work: EventWork): java.util.concurrent.CompletableFuture<Unit> = work.onMain {
@@ -642,15 +662,6 @@ class ArenaWorldProvisioner(private val plugin: Plugin,
         world.simulationDistance = settings.arenaRuntime.simulationDistance
     }
 
-    private fun arenaChunks(arena: ArenaSettings): ArenaChunks {
-        val bounds = requireNotNull(arena.bounds)
-        val x = floor(bounds.minimum.x).toInt().floorDiv(16)..ceil(bounds.maximum.x).toInt().floorDiv(16)
-        val z = floor(bounds.minimum.z).toInt().floorDiv(16)..ceil(bounds.maximum.z).toInt().floorDiv(16)
-        val count = x.count().toLong() * z.count().toLong()
-        require(count in 1..MAX_ARENA_CHUNKS) { "Arena ${arena.id} spans $count chunks; limit is $MAX_ARENA_CHUNKS" }
-        return ArenaChunks(x, z)
-    }
-
     private fun directChild(parent: Path, child: String): Path {
         val resolved = parent.resolve(child).normalize()
         require(resolved.parent == parent) { "Arena world must be a direct child of the world container" }
@@ -687,9 +698,20 @@ class ArenaWorldProvisioner(private val plugin: Plugin,
         .digest(bytes)
         .joinToString("") { byte -> "%02x".format(byte) }
 
-    private data class ArenaChunks(val x: IntRange, val z: IntRange)
-
     companion object {
+        internal fun arenaChunks(arena: ArenaSettings): List<Pair<Int, Int>> {
+            if (arena.template == FishingArenaGenerator.TEMPLATE) {
+                // The player starts on the camp quay. Ferry travel prepares each destination asynchronously.
+                return (-1..0).flatMap { x -> (0..1).map { z -> x to z } }
+            }
+            val bounds = requireNotNull(arena.bounds)
+            val x = floor(bounds.minimum.x).toInt().floorDiv(16)..ceil(bounds.maximum.x).toInt().floorDiv(16)
+            val z = floor(bounds.minimum.z).toInt().floorDiv(16)..ceil(bounds.maximum.z).toInt().floorDiv(16)
+            val count = x.count().toLong() * z.count().toLong()
+            require(count in 1..MAX_ARENA_CHUNKS) { "Arena ${arena.id} spans $count chunks; limit is $MAX_ARENA_CHUNKS" }
+            return x.flatMap { cx -> z.map { cz -> cx to cz } }
+        }
+
         private const val SOURCE_MANIFEST = ".arcevents-source.json"
         private const val SOURCE_ARTIFACTS = ".arcevents-source"
         private const val SOURCE_MANIFEST_FORMAT = 2

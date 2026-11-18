@@ -7,6 +7,12 @@ actions; permission-gated QA reads and scoped administrator setup establish
 test preconditions without granting ordinary players that authority. The
 relay suite remains under `src/test/e2e` and runs separately.
 
+The Fishing case starts a solo expedition from the public menu. It walks to the
+quay, casts into the generated water, reels in a native bite, then evacuates and
+checks the original inventory slots and location. The Disasters case starts from
+the public two-player queue, plays a meteor round, and checks both players after
+the result. Run these cases together with `TEST_FILES=fishing-disasters.spec.js`.
+
 The three Zombies cases verify native dialog callbacks for one-click solo and
 an open squad queue, isolation of an unrelated queued player, real firearm kills,
 exact inventory restoration, and cooperative play after a teammate leaves.

@@ -160,9 +160,8 @@ class ArcEventsService(
     private val teleportAuthorizer = ScopedTeleportAuthorizer()
     private var projectiles = linkedMapOf<UUID, Entity>()
     private val bodyRegistry = TttBodyRegistry(plugin, locale, packetDisplays, clock, work)
-    private val shotCooldownUntil = mutableMapOf<UUID, Long>()
+    private val firearmControls = FirearmControls(shots, clock)
     private val reloadTasks = mutableMapOf<UUID, ScheduledTask>()
-    private val automaticReloads = mutableMapOf<UUID, Any>()
     private val mapSpawnReturns = mutableMapOf<UUID, MapSpawnReturn>()
     private var pendingHit: PendingHitContext? = null
     private var roundReport: RoundReportView? = null
@@ -224,8 +223,27 @@ class ArcEventsService(
         return arcadeParticipant?.status?.let { it != ParticipantStatus.RESTORED } == true
     }
     fun stats(playerId: UUID): PlayerEventStats = network.stats(playerId)
+    fun queueEntry(playerId: UUID): CompletableFuture<QueueEntry?> = network.queueEntry(playerId)
     fun queueState(playerId: UUID): CompletableFuture<QueueState?> = network.queueState(playerId)
     fun queueControl(playerId: UUID): CompletableFuture<QueueControlSnapshot> = network.queueControl(playerId)
+    fun modeUnavailable(mode: EventMode): ReservationStartResult? = network.startUnavailable(mode)
+
+    /** A status button may outlive the route it displayed. It can only retry that exact match. */
+    fun retryRoute(player: Player, matchId: String): CompletableFuture<Unit> =
+        network.queueEntry(player.uniqueId).thenCompose { entry -> onMain {
+            val id = player.uniqueId
+            if (!started || !player.isOnline || plugin.server.getPlayer(id) !== player || entry?.matchId != matchId || entry.playerId != id.toString() ||
+                independentInventoryOwner(id) || isParticipant(id) || escrow.isLocked(id)) return@onMain
+            if (hasPendingRecovery(id)) {
+                if (id in pendingPlayers(UUID.fromString(matchId)).orEmpty()) {
+                    recoverPlayer(player) { result -> result.onSuccess { recovery ->
+                        if (recovery != null) completeRecovery(player, recovery)
+                    }.onFailure { plugin.logger.log(Level.WARNING, "ArcEvents entry recovery failed for $id", it) } }
+                }
+            } else check(network.resumeExistingRoute(player, entry, retryOnHost = true) != ReservationStartResult.NETWORK_FAILURE) {
+                "ArcEvents could not resume match $matchId for $id"
+            }
+        } }
     fun selectableArenaIds(): List<String> = network.selectableArenaIds()
     fun selectableArenaIds(mode: EventMode): List<String> = network.selectableArenaIds(mode)
     fun report(): RoundReportView? = roundReport
@@ -372,12 +390,12 @@ class ArcEventsService(
         return result
     }
 
-    fun joinQueue(player: Player): CompletableFuture<Boolean> {
+    fun joinQueue(player: Player, mode: EventMode = EventMode.TTT): CompletableFuture<Boolean> {
         if (hasPendingRecovery(player.uniqueId)) {
             player.sendEventMessage(locale.render("match.restore-pending", player))
             return CompletableFuture.completedFuture(false)
         }
-        return network.join(player)
+        return network.join(player, mode)
     }
 
     fun leaveQueue(player: Player) = network.leave(player)
@@ -516,7 +534,7 @@ class ArcEventsService(
 
     override fun handleJoin(player: Player) {
         Tasks.scheduler.runLater(1L) {
-            if (!started || !player.isOnline) return@runLater
+            if (!started || !player.isOnline || independentInventoryOwner(player.uniqueId)) return@runLater
             val pending = hasPendingRecovery(player.uniqueId)
             if (pending) {
                 recoverPlayer(player) { result ->
@@ -686,8 +704,13 @@ class ArcEventsService(
     fun escrowPending(playerId: UUID): Boolean = hasPendingRecovery(playerId)
 
     override fun recordAttack(victimId: UUID, attackerId: UUID?) {
-        if (arcade.current != null) arcade.recordAttack(victimId, attackerId) else runtime.recordAttack(victimId, attackerId)
+        if (arcade.current != null) {
+            arcade.recordAttack(victimId, attackerId, pendingFirearmHit(attackerId, victimId)?.firearmId)
+        } else runtime.recordAttack(victimId, attackerId)
     }
+
+    private fun pendingFirearmHit(attackerId: UUID?, victimId: UUID): PendingHitContext? =
+        pendingHit?.takeIf { it.attackerId == attackerId && it.victimId == victimId }
 
     override fun damageMultiplier(attackerId: UUID?): Double {
         if (arcade.current != null) return 1.0
@@ -702,8 +725,8 @@ class ArcEventsService(
         if (current.phase != MatchPhase.ACTIVE || finalDamage <= 0.0 || !finalDamage.isFinite()) return
         val victimParticipant = current.participant(victim.uniqueId) ?: return
         val attackerParticipant = attacker?.uniqueId?.let(current::participant)
-        val hit = pendingHit?.takeIf { it.attackerId == attacker?.uniqueId && it.victimId == victim.uniqueId }
-        val weaponKey = hit?.weaponKey ?: weaponKey(attacker)
+        val hit = pendingFirearmHit(attacker?.uniqueId, victim.uniqueId)
+        val weaponKey = hit?.let { "firearm.${it.firearmId.name.lowercase()}" } ?: weaponKey(attacker)
         val friendly = attackerParticipant != null && attackerParticipant.role.team == victimParticipant.role.team
         val record = CombatRecord(
             sequence = runtime.nextCombatSequence(),
@@ -723,20 +746,25 @@ class ArcEventsService(
 
     override fun shouldCancelDamage(victimId: UUID, attackerId: UUID?, projectile: Boolean, projectileMatchId: UUID?): Boolean {
         if (victimId in arrivalPlayers || (attackerId != null && attackerId in arrivalPlayers)) return true
-        if (arcade.current != null) {
+        val arcadeMatch = arcade.current
+        if (arcadeMatch != null) {
+            val firearmHit = pendingFirearmHit(attackerId, victimId) != null
             if (attackerId != null && (arcade.isParticipant(victimId) || arcade.isParticipant(attackerId)) &&
-                arcade.current?.mode == EventMode.GUN_GAME && pendingHit == null) {
-                val attacker = plugin.server.getPlayer(attackerId)
-                if (attacker == null || items.kind(attacker.inventory.itemInMainHand) != EventItemKind.ARCADE_KNIFE) return true
+                arcadeMatch.mode == EventMode.GUN_GAME && !firearmHit) {
+                val held = plugin.server.getPlayer(attackerId)?.inventory?.itemInMainHand
+                if (arcadeMatch.participants[attackerId]?.stage != FirearmId.entries.size ||
+                    items.kind(held) != EventItemKind.ARCADE_KNIFE ||
+                    !items.belongsTo(held, arcadeMatch.matchId.toString())
+                ) return true
             }
             return arcade.shouldCancelDamage(victimId, attackerId, projectile, projectileMatchId)
         }
         val current = match
         if (projectileMatchId != null && projectileMatchId != current?.matchId) return true
         if (current == null) return false
-        val victim = current.participant(victimId)
-        val attacker = attackerId?.let(current::participant)
-        if (victim == null && attacker == null) return false
+        val victim = current.participant(victimId)?.takeUnless { it.status == ParticipantStatus.RESTORED }
+        val attacker = attackerId?.let(current::participant)?.takeUnless { it.status == ParticipantStatus.RESTORED }
+        if (victim == null && attacker == null) return projectileMatchId != null
         if (projectile && projectileMatchId != current.matchId) return true
         if (victim == null || victim.status != ParticipantStatus.ALIVE) return true
         if (attackerId != null && (attacker == null || attacker.status != ParticipantStatus.ALIVE)) return true
@@ -745,7 +773,7 @@ class ArcEventsService(
 
     override fun useTraitorBlade(attacker: Player, victim: Player): Boolean {
         // A bullet keeps its accepted weapon even if the inventory later equips a knife.
-        if (pendingHit?.let { it.attackerId == attacker.uniqueId && it.victimId == victim.uniqueId } == true) return false
+        if (pendingFirearmHit(attacker.uniqueId, victim.uniqueId) != null) return false
         if (arcade.current != null) return arcade.useKnife(attacker, victim)
         val current = match ?: return false
         val attackerState = current.participant(attacker.uniqueId) ?: return false
@@ -1009,55 +1037,33 @@ class ArcEventsService(
         val state = authorizedFirearm(player) ?: return false
         val matchId = state.matchId
         val held = player.inventory.itemInMainHand
-        val creative = player.gameMode == GameMode.CREATIVE
-        if (creative) {
-            automaticReloads.remove(player.uniqueId)
-            reloadTasks.remove(player.uniqueId)?.cancel()
-        }
-        if (reloadTasks.containsKey(player.uniqueId) || automaticReloads.containsKey(player.uniqueId)) {
+        if (player.gameMode == GameMode.CREATIVE) reloadTasks.remove(player.uniqueId)?.cancel()
+        if (player.uniqueId in reloadTasks) {
             player.sendEventActionBar(locale.render("weapon.reloading-actionbar", player))
             return false
         }
         scopes?.cancelReload(player.uniqueId)
-        val spec = firearms.spec(state.id)
-        val now = clock()
-        if (now < (shotCooldownUntil[player.uniqueId] ?: 0L)) return false
-        val trigger = if (creative) spec else firearmTriggerSpec(spec, state.loaded)
-        if (trigger == null) {
-            if (firearms.reserveAmmo(player, matchId) > 0) return reloadFirearm(player)
-            shotCooldownUntil[player.uniqueId] = now + 350L
-            player.sendEventActionBar(locale.render("weapon.empty-actionbar", player))
-            if (settings().ui.sounds) player.playSound(player.location, Sound.BLOCK_LEVER_CLICK, 0.7f, 1.7f)
-            return false
-        }
+        val spec = firearms.tunedSpec(held, firearms.spec(state.id))
         val worldId = player.world.uid
-        val slot = player.inventory.heldItemSlot
-        val loaded = if (creative) state.loaded else state.loaded - trigger.roundsPerShot
-        val replacement = if (creative) null else firearms.updateLoaded(held, player, loaded)
-        val automaticReload = if (!creative && loaded == 0 && firearms.reserveAmmo(player, matchId) > 0) Any() else null
-        if (!shots.fire(player, trigger, scopes?.isAiming(player.uniqueId) == true,
-                valid = { player.isOnline && !player.isDead && player.world.uid == worldId &&
-                    activeMatchId() == matchId && phase() == MatchPhase.ACTIVE && isAlive(player.uniqueId) },
-                target = { entity -> eventFirearmTarget(player, entity, matchId) },
-                headshotMultiplier = settings().gameplay.headshotMultiplier,
-                afterFiring = { launched ->
-                    if (automaticReload != null && automaticReloads.remove(player.uniqueId, automaticReload) && launched &&
-                        player.isOnline && !player.isDead && player.gameMode != GameMode.CREATIVE && player.world.uid == worldId &&
-                        player.inventory.heldItemSlot == slot && player.inventory.itemInMainHand == replacement &&
-                        authorizedFirearm(player) == state.copy(loaded = 0)
-                    ) reloadFirearm(player)
-                },
-                hit = { entity, position, damage -> hitByFirearm(player, state.id.name.lowercase(), entity, position, damage, matchId) },
-            )) return false
-        shotCooldownUntil[player.uniqueId] = now + spec.cooldownTicks * 50L
-        if (creative) return true
-        player.inventory.setItemInMainHand(requireNotNull(replacement))
-        if (automaticReload != null) automaticReloads[player.uniqueId] = automaticReload
-        return true
+        return firearmControls.fire(player, spec, firearms.selectedBurst(held, spec), state.loaded,
+            scopes?.isAiming(player.uniqueId) == true,
+            valid = { settings().weapons.enabled && player.isOnline && !player.isDead && player.world.uid == worldId &&
+                activeMatchId() == matchId && phase() == MatchPhase.ACTIVE && isAlive(player.uniqueId) &&
+                hasSelectedFishingFirearm(player, state.id, matchId) },
+            target = { entity -> eventFirearmTarget(player, entity, matchId) },
+            headshotMultiplier = settings().gameplay.headshotMultiplier,
+            withLoaded = { item, rounds -> firearms.updateLoaded(item, player, rounds) },
+            hasReserve = { firearms.reserveAmmo(player, matchId) > 0 }, reload = { reloadFirearm(player) },
+            empty = {
+                player.sendEventActionBar(locale.render("weapon.empty-actionbar", player))
+                if (settings().ui.sounds) player.playSound(player.location, Sound.BLOCK_LEVER_CLICK, 0.7f, 1.7f)
+            }, busy = { player.sendEventActionBar(locale.render("weapon.world-busy-actionbar", player)) },
+            hit = { entity, position, damage -> hitByFirearm(player, state.id, entity, position, damage, matchId) },
+        )
     }
 
     override fun reloadFirearm(player: Player): Boolean {
-        automaticReloads.remove(player.uniqueId)
+        firearmControls.cancel(player.uniqueId)
         val state = authorizedFirearm(player) ?: return false
         if (player.gameMode == GameMode.CREATIVE) {
             reloadTasks.remove(player.uniqueId)?.cancel()
@@ -1149,13 +1155,14 @@ class ArcEventsService(
             creative = player.gameMode == GameMode.CREATIVE,
             reloading = player.uniqueId in reloadTasks || scopes?.isReloading(player.uniqueId) == true,
             zoom = scopes?.projectedZoom(player.uniqueId) ?: 1f,
+            burstSize = firearms.selectedBurst(player.inventory.itemInMainHand, firearms.spec(state.id)),
         )
     }
 
     private fun authorizedFirearm(player: Player): FirearmState? {
         val matchId = activeMatchId()
         val state = firearms.state(player.inventory.itemInMainHand)
-        if (!settings().weapons.enabled || phase() != MatchPhase.ACTIVE || !isAlive(player.uniqueId) ||
+        if (!settings().weapons.enabled || player.gameMode == GameMode.SPECTATOR || phase() != MatchPhase.ACTIVE || !isAlive(player.uniqueId) ||
             currentMode() == EventMode.DISASTERS || state == null || state.matchId != matchId ||
             !hasSelectedFishingFirearm(player, state.id, state.matchId)
         ) {
@@ -1172,18 +1179,25 @@ class ArcEventsService(
         return state
     }
 
+    internal fun editableFirearmSpec(player: Player) = if (isParticipant(player.uniqueId)) {
+        authorizedFirearm(player)?.let { firearms.spec(it.id) }
+    } else null
+
     private fun scopeTarget(player: Player): FirearmScopeTarget? {
         val state = authorizedFirearm(player) ?: return null
         if (reloadTasks.containsKey(player.uniqueId)) return null
         return FirearmScopeTarget(state.matchId, state.id, player.inventory.heldItemSlot)
     }
 
+    internal var worldScopeTarget: ((Player) -> FirearmScopeTarget?)? = null
+
     private fun previewScopeTarget(player: Player): FirearmScopeTarget? {
         if (isParticipant(player.uniqueId) || withinProtectedArena(player.location) ||
             !player.hasPermission(SCOPE_PREVIEW_PERMISSION)
         ) return null
+        worldScopeTarget?.let { return it(player) }
         val held = player.inventory.itemInMainHand
-        if (held.isEmpty || items.kind(held) != null) return null
+        if (held.isEmpty || held.amount != 1 || items.kind(held) != null) return null
         val identity = scopePreviewItemId(held) ?: return null
         return packedScopeTarget(identity, player.inventory.heldItemSlot)
     }
@@ -1209,7 +1223,7 @@ class ArcEventsService(
     }
 
     override fun clearFirearmScope(playerId: UUID) {
-        automaticReloads.remove(playerId)
+        firearmControls.cancel(playerId)
         reloadTasks.remove(playerId)?.cancel()
         scopes?.clear(playerId)
     }
@@ -1717,7 +1731,7 @@ class ArcEventsService(
     private fun clearWeaponState(playerId: UUID) {
         clearFirearmScope(playerId)
         reloadTasks.remove(playerId)?.cancel()
-        shotCooldownUntil.remove(playerId)
+        firearmControls.forget(playerId)
     }
 
     private fun startReservedArcade(batch: ReservationBatch, online: List<Player>) {
@@ -2354,8 +2368,7 @@ class ArcEventsService(
         }
         reloadTasks.values.forEach { task -> runCatching(task::cancel) }
         reloadTasks.clear()
-        automaticReloads.clear()
-        shotCooldownUntil.clear()
+        firearmControls.clear()
         return cleaned
     }
 
@@ -2376,7 +2389,7 @@ class ArcEventsService(
 
     private fun hitByFirearm(
         shooter: Player,
-        firearmId: String,
+        firearmId: FirearmId,
         entity: Entity,
         impact: FirearmHit,
         baseDamage: Double,
@@ -2393,7 +2406,7 @@ class ArcEventsService(
         }
         val target = entity as? Player ?: return
         val headshot = impact.headshot
-        pendingHit = PendingHitContext(shooter.uniqueId, target.uniqueId, "firearm.$firearmId", headshot)
+        pendingHit = PendingHitContext(shooter.uniqueId, target.uniqueId, firearmId, headshot)
         try {
             target.damage(baseDamage, shooter)
         } finally {

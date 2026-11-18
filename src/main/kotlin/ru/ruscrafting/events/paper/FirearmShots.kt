@@ -62,6 +62,7 @@ class FirearmShots(
         val afterFiring: (Boolean) -> Unit,
         var pendingRounds: Int,
         val expires: Long,
+        val burst: FirearmBurst?,
     ) {
         val world: World = shooter.world
         val entityId = shooter.entityId
@@ -75,7 +76,7 @@ class FirearmShots(
         var allRoundsLaunched = true
     }
 
-    private class Round(val shot: Shot, val pellets: Int, val due: Long) {
+    private class Round(val shot: Shot, val pellets: Int, val due: Long, val index: Int = 0) {
         var remaining = pellets
         var blastReservations = 0
         val impacts = linkedMapOf<UUID, Impact>()
@@ -120,20 +121,36 @@ class FirearmShots(
         headshotMultiplier: Double = 1.0,
         afterFiring: (Boolean) -> Unit = {},
         hit: (Entity, FirearmHit, Double) -> Unit,
+    ): Boolean = submit(shooter, spec, aiming, valid, target, headshotMultiplier, null, afterFiring, hit)
+
+    internal fun fireBurst(
+        shooter: Player, spec: FirearmSpec, aiming: Boolean, valid: () -> Boolean, target: (Entity) -> Boolean,
+        headshotMultiplier: Double, burst: FirearmBurst, afterFiring: (Boolean) -> Unit,
+        hit: (Entity, FirearmHit, Double) -> Unit,
+    ): Boolean = submit(shooter, spec, aiming, valid, target, headshotMultiplier, burst, afterFiring, hit)
+
+    private fun submit(
+        shooter: Player, spec: FirearmSpec, aiming: Boolean, valid: () -> Boolean, target: (Entity) -> Boolean,
+        headshotMultiplier: Double, burst: FirearmBurst?, afterFiring: (Boolean) -> Unit,
+        hit: (Entity, FirearmHit, Double) -> Unit,
     ): Boolean {
-        if (closed || spec.pellets !in 1..16 || reserved + spec.pellets > MAX_BULLETS ||
+        if (closed || spec.pellets !in 1..16 ||
+            burst != null && (burst.size !in 1..spec.magazineSize || burst.intervalTicks !in 1..100) ||
             !headshotMultiplier.isFinite() || headshotMultiplier < 0.0 || !shooter.isOnline || shooter.isDead || !valid()
         ) return false
+        val pattern = firearmRoundPellets(spec)
+        val count = if (burst == null) spec.pellets else pattern.first()
+        if (reserved + count > MAX_BULLETS) return false
         val eye = shooter.eyeLocation
         if (!eye.world.isChunkLoaded(eye.blockX shr 4, eye.blockZ shr 4)) return false
-        val pattern = firearmRoundPellets(spec)
         val shot = Shot(shooter, spec, aiming, soundPreset().soundKey(spec.id),
-            valid, target, headshotMultiplier, hit, afterFiring, pattern.size,
-            tick + MAX_LIFETIME_TICKS)
+            valid, target, headshotMultiplier, hit, afterFiring, if (burst == null) pattern.size else 1,
+            tick + MAX_LIFETIME_TICKS + (burst?.let { (it.size - 1) * it.intervalTicks } ?: 0), burst)
         // Start the scheduler before accepting anything, so a scheduling failure cannot debit ammo.
         if (task == null) task = Tasks.scheduler.runTimer(1L, 1L) { advance() }
-        pattern.forEachIndexed { index, pellets -> rounds += Round(shot, pellets, tick + 1L + index) }
-        reserved += spec.pellets
+        if (burst == null) pattern.forEachIndexed { index, pellets -> rounds += Round(shot, pellets, tick + 1L + index) }
+        else rounds += Round(shot, count, tick + 1L)
+        reserved += count
         return true
     }
 
@@ -164,7 +181,17 @@ class FirearmShots(
                     reserved -= round.pellets
                     fail(round.shot, "launch", failure)
                 } finally {
-                    resolveRound(round.shot, launched)
+                    val shot = round.shot
+                    val burst = shot.burst
+                    val next = round.index + 1
+                    if (launched && burst != null && next < burst.size) {
+                        val pattern = firearmRoundPellets(shot.spec)
+                        val pellets = pattern[next % pattern.size]
+                        if (reserved + pellets <= MAX_BULLETS) {
+                            rounds += Round(shot, pellets, tick + burst.intervalTicks, next)
+                            reserved += pellets
+                        } else resolveRound(shot, false)
+                    } else resolveRound(shot, launched)
                 }
             }
         }
@@ -186,7 +213,8 @@ class FirearmShots(
             val bullet = bullets.removeFirst()
             advanced++
             work++
-            val keep = try { live(bullet.round.shot) && (bullet.born == tick || step(bullet)) } catch (failure: Exception) {
+            val keep = try { tick - bullet.born <= MAX_LIFETIME_TICKS && live(bullet.round.shot) &&
+                (bullet.born == tick || step(bullet)) } catch (failure: Exception) {
                 fail(bullet.round.shot, "flight", failure)
                 false
             }
@@ -244,6 +272,10 @@ class FirearmShots(
                 Random.nextDouble(-1.0, 1.0) * shot.spec.spreadDegrees,
                 Random.nextDouble(-1.0, 1.0) * shot.spec.spreadDegrees)
             Bullet(round, muzzle.toVector(), Vector(spread.x, spread.y, spread.z).multiply(shot.profile.speed), tick)
+        }
+        if (shot.burst?.takeRound?.invoke() == false) {
+            reserved -= round.pellets
+            return false
         }
         bullets.addAll(created)
         // Publish a birth frame before the first swept step; otherwise the first display would appear 15–45 m away.

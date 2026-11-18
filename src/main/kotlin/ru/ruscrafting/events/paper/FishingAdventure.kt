@@ -168,6 +168,11 @@ class FishingAdventure(
             return
         }
         enforceStageBounds()
+        // Paper can discard a hook on a slot change without emitting a final fishing event.
+        if (progress.phase == FishingPhase.BITE && hookId?.let(plugin.server::getEntity)?.isValid != true) {
+            hookId = null
+            progress = progress.reelIn()
+        }
         showTraderNpc()
         if (!firearms.enabled && progress.equippedGear.firearmId != null && player.inventory.getItem(2)?.isEmpty == false) {
             syncLoadout()
@@ -238,6 +243,7 @@ class FishingAdventure(
             ) {
                 cancelFishEvent(event)
                 if (progress.bag.size >= FishingRules.MAX_BAG) sendActionBar("fishing.bag-full")
+                else if (progress.phase == FishingPhase.CASTING && !inFishingZone(player.location)) sendActionBar("fishing.invalid-catch")
                 return
             }
             hookId = hook.uniqueId
@@ -255,7 +261,15 @@ class FishingAdventure(
             return
         }
         when (event.state) {
-            PlayerFishEvent.State.BITE -> Unit
+            PlayerFishEvent.State.BITE -> {
+                if (inCurrentFishingWater(hook.location)) {
+                    sendActionBar("fishing.reel-now")
+                } else {
+                    cancelFishEvent(event)
+                    progress = progress.reelIn()
+                    sendActionBar("fishing.invalid-catch")
+                }
+            }
             PlayerFishEvent.State.CAUGHT_ENTITY -> {
                 cancelFishEvent(event)
                 progress = progress.reelIn()
@@ -498,6 +512,7 @@ class FishingAdventure(
         "fishing.hud",
         mapOf(
             "stage" to locale.text(progress.stage + 1),
+            "island" to localized("fishing.island.${stage().name.lowercase()}"),
             "total" to locale.text(rules.islands),
             "catches" to locale.text(progress.catchesOnStage),
             "needed" to locale.text(rules.catchesPerIsland),
@@ -780,35 +795,55 @@ class FishingAdventure(
         val previous = progress
         val next = progress.travelToNextStage()
         if (next === progress) return
+        val nextStage = FishingArenaStage.entries[next.stage]
+        val spawn = FishingArenaGenerator.spawn(nextStage)
         transitioning = true
+        fun stillTravelling() = !closed && work?.isCurrent() != false && progress === previous &&
+            player.isOnline && player.world.uid == world.uid
         cleanupEntities(stale = false).thenCompose {
             onMain {
-                if (closed || progress !== previous || !player.isOnline || player.world.uid != world.uid) {
-                    throw CancellationException("Fishing source changed during stage cleanup")
+                if (!stillTravelling()) throw CancellationException("Fishing source changed before departure")
+                val cx = spawn.x.toInt() shr 4
+                val cz = spawn.z.toInt() shr 4
+                val prepared = if (world.isChunkLoaded(cx, cz)) CompletableFuture.completedFuture(Unit)
+                else world.getChunkAtAsync(cx, cz, true).thenApply {
+                    checkNotNull(it) { "Fishing destination chunk could not be generated" }
+                    Unit
                 }
-                creatures.clear()
-                fuses.clear()
-                travelMarker = null
-                traderMarker = null
-                traderNpc = null
-                telegraph = null
-                nextAttackAtMs = 0L
-                stunnedUntilMs = 0L
-                movementEndsAtMs = 0L
-                nextHitAcceptedAtMs = 0L
-                progress = next
-                transitioning = false
-                syncLoadout()
-                player.inventory.heldItemSlot = 0
-                player.updateInventory()
-                teleportTo(stage())
-                message("fishing.travel-started", mapOf("stage" to locale.text(progress.stage + 1)))
-            }
+                // Paper completes this chunk future on main. Board in its callback while the chunk is loaded.
+                prepared.thenApply {
+                    if (!stillTravelling()) throw CancellationException("Fishing source changed during departure")
+                    teleportTo(nextStage)
+                    creatures.clear()
+                    fuses.clear()
+                    traderNpc = null
+                    telegraph = null
+                    nextAttackAtMs = 0L
+                    stunnedUntilMs = 0L
+                    movementEndsAtMs = 0L
+                    nextHitAcceptedAtMs = 0L
+                    progress = next
+                    transitioning = false
+                    syncLoadout()
+                    player.inventory.heldItemSlot = 0
+                    player.updateInventory()
+                    message("fishing.travel-started", mapOf(
+                        "stage" to locale.text(progress.stage + 1), "island" to localized("fishing.island.${stage().name.lowercase()}"),
+                    ))
+                }
+            }.thenCompose { it }
         }.whenComplete { _, failure ->
             if (failure != null && !closed && work?.isCurrent() != false) {
-                // A failed cleanup cannot admit the next stage. The current receipt still owns the player.
-                plugin.logger.log(java.util.logging.Level.SEVERE, "Could not clean fishing stage for $matchIdString", failure)
-                close()
+                plugin.logger.log(java.util.logging.Level.WARNING, "Could not board fishing passage for $matchIdString", failure)
+                onMain {
+                    if (!closed && progress === previous) {
+                        transitioning = false
+                        if (player.isOnline && player.world.uid == world.uid) {
+                            teleportTo(stage())
+                            sendActionBar("fishing.travel-retry")
+                        }
+                    }
+                }
             }
         }
     }
@@ -951,8 +986,8 @@ class FishingAdventure(
 
     private fun inCurrentFishingWater(location: Location): Boolean {
         val zone = FishingArenaGenerator.fishingZone(stage())
-        if (location.world.uid != world.uid || location.x !in zone.minX.toDouble()..(zone.maxX + 1).toDouble() ||
-            location.z !in zone.minZ.toDouble()..(zone.maxZ + 1).toDouble() ||
+        if (location.world.uid != world.uid || location.blockX !in zone.minX..zone.maxX ||
+            location.blockZ !in zone.minZ..zone.maxZ ||
             location.blockY !in (zone.waterSurfaceY - zone.minimumDepth)..(zone.waterSurfaceY + 1)
         ) return false
         return location.block.type == Material.WATER || location.block.getRelative(0, -1, 0).type == Material.WATER
@@ -1053,9 +1088,8 @@ class FishingAdventure(
     private fun cancelFishEvent(event: PlayerFishEvent) {
         event.isCancelled = true
         event.expToDrop = 0
-        if (event.state == PlayerFishEvent.State.CAUGHT_FISH || event.state == PlayerFishEvent.State.CAUGHT_ENTITY) {
-            (event.caught as? Item)?.remove()
-        }
+        // CAUGHT_FISH creates a vanilla reward; CAUGHT_ENTITY points at an existing world entity.
+        if (event.state == PlayerFishEvent.State.CAUGHT_FISH) (event.caught as? Item)?.remove()
         event.hook.remove()
         if (hookId == event.hook.uniqueId) hookId = null
     }

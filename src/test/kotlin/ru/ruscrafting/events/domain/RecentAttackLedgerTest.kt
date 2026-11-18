@@ -12,10 +12,10 @@ class RecentAttackLedgerTest : StringSpec({
         val victim = UUID.randomUUID()
         val attacker = UUID.randomUUID()
 
-        ledger.record(match, victim, attacker)
+        ledger.record(match, victim, attacker, FirearmId.FLINTLOCK)
         now = 10_999L
 
-        ledger.consume(match, victim) shouldBe attacker
+        ledger.consume(match, victim) shouldBe RecentAttack(match, attacker, 1_000L, FirearmId.FLINTLOCK)
         ledger.consume(match, victim) shouldBe null
     }
 
