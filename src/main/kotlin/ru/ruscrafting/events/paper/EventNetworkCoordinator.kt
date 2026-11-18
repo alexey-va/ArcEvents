@@ -32,6 +32,7 @@ import ru.ruscrafting.events.network.QueueLeaveResult
 import ru.ruscrafting.events.network.QueueState
 import ru.ruscrafting.events.network.RedisEventNetworkRepository
 import ru.ruscrafting.events.network.ReservationBatch
+import java.util.IdentityHashMap
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
@@ -98,8 +99,9 @@ class EventNetworkCoordinator(
     private val reservationTransferRetries = ConcurrentHashMap<UUID, ReservationTransferRetry>()
     private val reservationTransferAttempts = ConcurrentHashMap.newKeySet<UUID>()
     private val recoveredReturnAttempts = ConcurrentHashMap<UUID, RecoveredReturnAttempt>()
-    /** Keeps a return route alive while the proxy transfer that initiated it is still in flight. */
-    private val pendingTransfers = ConcurrentHashMap.newKeySet<UUID>()
+    private data class SubmittedTransfer(val matchId: UUID, val destination: String, val retryAtMs: Long)
+    /** Main-thread only. A receipt belongs to the exact Bukkit connection that sent the packet. */
+    private val submittedTransfers = IdentityHashMap<Player, SubmittedTransfer>()
     private val startInFlight = AtomicBoolean(false)
     private val joinAttempts = mutableMapOf<UUID, Any>()
     private val firearmSoundLock = Any()
@@ -415,14 +417,12 @@ class EventNetworkCoordinator(
                     }
                     // Keep the row and the host's escrow intact. The service restores escrow on join
                     // before the network coordinator may acknowledge the return route.
-                    if (player.uniqueId !in pendingTransfers) {
-                        rememberReservationTransferRetry(player, UUID.fromString(entry.matchId), destination, recovery = true)
-                        val sent = runCatching { transferSent(player, destination) }
-                            .onFailure { plugin.logger.log(Level.WARNING, "ArcEvents recovery transfer failed for ${player.uniqueId}", it) }
-                            .getOrDefault(false)
-                        if (!sent) return ReservationStartResult.NETWORK_FAILURE
-                        pendingTransfers += player.uniqueId
-                    }
+                    val matchId = UUID.fromString(entry.matchId)
+                    rememberReservationTransferRetry(player, matchId, destination, recovery = true)
+                    val sent = runCatching { transferSent(player, matchId, destination) }
+                        .onFailure { plugin.logger.log(Level.WARNING, "ArcEvents recovery transfer failed for ${player.uniqueId}", it) }
+                        .getOrDefault(false)
+                    if (!sent) return ReservationStartResult.NETWORK_FAILURE
                 }
             }
             QueueState.RESERVED -> route(EventNetworkMessage.create(
@@ -634,7 +634,7 @@ class EventNetworkCoordinator(
     fun handleJoin(player: Player) {
         val joinAttempt = Any()
         joinAttempts[player.uniqueId] = joinAttempt
-        pendingTransfers.remove(player.uniqueId)
+        submittedTransfers.remove(player)
         reservationTransferRetries.remove(player.uniqueId)
         val current = settings()
         // A disposable-host recovery belongs to the join that initiated it. Do not let a
@@ -777,10 +777,13 @@ class EventNetworkCoordinator(
         }
     }
 
-    fun returnPlayer(player: Player, originServer: String): Boolean {
+    /** Apocalypse owns its own ticket and receipt. Match returns carry their exact match ID below. */
+    fun returnPlayer(player: Player, originServer: String): Boolean = returnPlayer(player, null, originServer)
+
+    private fun returnPlayer(player: Player, matchId: UUID?, originServer: String): Boolean {
         val current = settings()
         if (!current.network.returnToOrigin || originServer == current.serverId) return true
-        if (originServer !in current.network.allowedOrigins || !transferSent(player, originServer)) {
+        if (originServer !in current.network.allowedOrigins || !transferSent(player, matchId, originServer)) {
             player.sendEventMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.return-transfer", player))))
             return false
         }
@@ -868,7 +871,7 @@ class EventNetworkCoordinator(
                     // SENT confirms packet submission, not a completed proxy transfer. A return
                     // requested during backend join may be ignored until that connection is ready.
                     rememberRecoveredReturn(player.uniqueId, recovery)
-                    returnPlayer(player, originServer)
+                    returnPlayer(player, recovery.matchId, originServer)
                 } finally {
                     recoveredReturnAttempts.remove(player.uniqueId, attempt)
                 }
@@ -993,11 +996,10 @@ class EventNetworkCoordinator(
                 if (settings().serverId == destination) {
                     handleJoin(player)
                 } else if (settings().network.transferOnReservation) {
-                    if (playerId in pendingTransfers || reservationTransferRetries.containsKey(playerId)) return@runSync
+                    val retry = reservationTransferRetries[playerId]
+                    if (retry?.player === player && retry.matchId == matchId && retry.destinationServer == destination) return@runSync
                     rememberReservationTransferRetry(player, matchId, destination)
-                    if (transferSent(player, destination)) {
-                        pendingTransfers += playerId
-                    } else {
+                    if (!transferSent(player, matchId, destination)) {
                         player.sendEventMessage(locale.render("command.failed", player, mapOf("reason" to locale.render("reason.transfer", player))))
                     }
                 }
@@ -1033,7 +1035,7 @@ class EventNetworkCoordinator(
                     }
                 }
                 if (current.serverId == origin || !current.network.returnToOrigin) {
-                    if (current.serverId == origin && playerId in pendingTransfers) {
+                    if (current.serverId == origin && submittedTransfers[player]?.matchId == matchId) {
                         debug.event("return_waiting_for_transfer", "player" to playerId, "match" to matchId)
                         return@runSync
                     }
@@ -1048,7 +1050,7 @@ class EventNetworkCoordinator(
                         }
                     }
                 } else {
-                    returnPlayer(player, origin)
+                    returnPlayer(player, matchId, origin)
                 }
             }
         }
@@ -1105,12 +1107,20 @@ class EventNetworkCoordinator(
         }
     }
 
-    private fun transferSent(player: Player, destination: String): Boolean =
-        transfer.connect(player, BackendServerId.of(destination)) == BackendTransferResult.SENT
+    private fun transferSent(player: Player, matchId: UUID?, destination: String): Boolean {
+        val now = clock()
+        val previous = submittedTransfers[player]
+        if (previous != null && previous.matchId == matchId && previous.destination == destination && now < previous.retryAtMs) return true
+        if (transfer.connect(player, BackendServerId.of(destination)) != BackendTransferResult.SENT) return false
+        // A global heartbeat may follow the first packet by a single tick. Give this submission a full interval.
+        if (matchId != null) submittedTransfers[player] = SubmittedTransfer(matchId, destination, now + settings().network.heartbeatSeconds * 1_000L)
+        return true
+    }
 
     private fun maintain() {
         if (!started) return
         val now = clock()
+        submittedTransfers.keys.removeIf { player -> plugin.server.getPlayer(player.uniqueId) !== player || !player.isOnline }
         repository.expireReservations(now).whenComplete { expired, failure ->
             Tasks.scheduler.runSync {
                 if (!started) return@runSync
@@ -1161,10 +1171,8 @@ class EventNetworkCoordinator(
                             return@runSync
                         }
                         // SENT only submitted a proxy packet. This same connection still owns the exact route.
-                        val sent = runCatching { transferSent(player, retry.destinationServer) }
+                        runCatching { transferSent(player, retry.matchId, retry.destinationServer) }
                             .onFailure { plugin.logger.log(Level.WARNING, "ArcEvents reservation transfer retry failed for $playerId", it) }
-                            .getOrDefault(false)
-                        if (sent) pendingTransfers += playerId
                     } finally {
                         reservationTransferAttempts.remove(playerId)
                     }
@@ -1264,7 +1272,7 @@ class EventNetworkCoordinator(
         reservationTransferRetries.clear()
         reservationTransferAttempts.clear()
         recoveredReturnAttempts.clear()
-        pendingTransfers.clear()
+        submittedTransfers.clear()
         startInFlight.set(false)
     }
 

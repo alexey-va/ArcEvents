@@ -338,6 +338,7 @@ class EventNetworkCoordinatorMockBukkitTest : FunSpec({
                 every { fixture.transfer.connect(player, BackendServerId.of("parkour")) } returns BackendTransferResult.SENT
 
                 fixture.await(fixture.coordinator.reserveNow(player, mode = EventMode.TTT)) shouldBe ReservationStartResult.RECOVERY_PENDING
+                fixture.advanceTime(5_000)
                 fixture.coordinator.reconfigure()
                 fixture.tick(3)
                 verify(exactly = 2) { fixture.transfer.connect(player, BackendServerId.of("parkour")) }
@@ -593,16 +594,25 @@ class EventNetworkCoordinatorMockBukkitTest : FunSpec({
         }
     }
 
-    test("a submitted recovery return retries until the proxy actually removes the player") {
+    test("a submitted return waits a full heartbeat across duplicate recovery signals and retries until departure") {
         failOnUnsupportedMockBukkitOperation {
             EventNetworkCoordinatorFixture().use { fixture ->
                 fixture.start()
                 val player = fixture.addPlayer("PendingReturn")
-                fixture.seedMatched(player, UUID.randomUUID())
+                val matchId = UUID.randomUUID()
+                fixture.seedMatched(player, matchId)
                 every { fixture.transfer.connect(any(), any()) } returns BackendTransferResult.SENT
 
-                fixture.coordinator.returnRecoveredPlayer(player, PlayerRecovery(UUID.fromString(fixture.queueEntry(player)!!.matchId), "spawn"))
+                val recovery = PlayerRecovery(matchId, "spawn")
+                fixture.coordinator.returnRecoveredPlayer(player, recovery)
                 fixture.tick(3)
+                fixture.advanceTime(150)
+                fixture.publishReturn(matchId, player, "spawn")
+                fixture.coordinator.returnRecoveredPlayer(player, recovery)
+                fixture.coordinator.reconfigure()
+                fixture.tick(3)
+                verify(exactly = 1) { fixture.transfer.connect(player, BackendServerId.of("spawn")) }
+                fixture.advanceTime(4_850)
                 fixture.coordinator.reconfigure()
                 fixture.tick(3)
 
@@ -663,17 +673,27 @@ class EventNetworkCoordinatorMockBukkitTest : FunSpec({
         }
     }
 
-    test("a submitted reservation transfer retries until the host claims the exact row") {
+    test("a submitted reservation waits a full heartbeat across duplicate route messages and maintenance ticks") {
         failOnUnsupportedMockBukkitOperation {
             EventNetworkCoordinatorFixture().use { fixture ->
                 fixture.start()
                 val player = fixture.addPlayer("SubmittedRetry")
                 val matchId = UUID.randomUUID()
-                fixture.seedReserved(player, matchId, "survival")
+                fixture.seedReserved(player, matchId, "survival", reservationMs = 30_000)
                 every { fixture.transfer.connect(player, BackendServerId.of("survival")) } returns BackendTransferResult.SENT
                 fixture.publishRoute(matchId, player, "survival")
                 fixture.tick(3)
 
+                fixture.advanceTime(150)
+                fixture.publishRoute(matchId, player, "survival")
+                fixture.coordinator.reconfigure()
+                fixture.tick(3)
+                verify(exactly = 1) { fixture.transfer.connect(player, BackendServerId.of("survival")) }
+                fixture.advanceTime(4_849)
+                fixture.coordinator.reconfigure()
+                fixture.tick(3)
+                verify(exactly = 1) { fixture.transfer.connect(player, BackendServerId.of("survival")) }
+                fixture.advanceTime(1)
                 fixture.coordinator.reconfigure()
                 fixture.tick(3)
                 verify(exactly = 2) { fixture.transfer.connect(player, BackendServerId.of("survival")) }
@@ -682,6 +702,28 @@ class EventNetworkCoordinatorMockBukkitTest : FunSpec({
                 fixture.tick(3)
                 verify(exactly = 2) { fixture.transfer.connect(player, BackendServerId.of("survival")) }
                 fixture.queueEntry(player)?.state shouldBe QueueState.RETURN_PENDING
+            }
+        }
+    }
+
+    test("a replacement match can use the same connection and destination before the old transfer retry is due") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture().use { fixture ->
+                fixture.start()
+                val player = fixture.addPlayer("NextMatch")
+                val first = UUID.randomUUID()
+                val next = UUID.randomUUID()
+                every { fixture.transfer.connect(player, BackendServerId.of("survival")) } returns BackendTransferResult.SENT
+                fixture.seedReserved(player, first, "survival")
+                fixture.publishRoute(first, player, "survival")
+                fixture.tick(3)
+                fixture.releaseReservation(player, first)
+                fixture.acknowledgeReturn(player, first) shouldBe true
+                fixture.seedReserved(player, next, "survival")
+                fixture.publishRoute(next, player, "survival")
+                fixture.tick(3)
+                verify(exactly = 2) { fixture.transfer.connect(player, BackendServerId.of("survival")) }
+                fixture.queueEntry(player)?.matchId shouldBe next.toString()
             }
         }
     }
@@ -841,9 +883,9 @@ private class EventNetworkCoordinatorFixture(
         repository.completeReservation(matchId, listOf(player.uniqueId)).get(5, TimeUnit.SECONDS)
     }
 
-    fun seedReserved(player: org.bukkit.entity.Player, matchId: UUID, destination: String, origin: String = settings.serverId) {
+    fun seedReserved(player: org.bukkit.entity.Player, matchId: UUID, destination: String, origin: String = settings.serverId, reservationMs: Long = 10) {
         repository.joinQueue(player.uniqueId, player.name, origin, nowMs, 60_000L).get(5, TimeUnit.SECONDS)
-        repository.reserve(matchId, destination, 1, 1, nowMs, 10L).get(5, TimeUnit.SECONDS)
+        repository.reserve(matchId, destination, 1, 1, nowMs, reservationMs).get(5, TimeUnit.SECONDS)
     }
 
     fun publishRoute(matchId: UUID, player: org.bukkit.entity.Player, destination: String) {
@@ -887,6 +929,9 @@ private class EventNetworkCoordinatorFixture(
     fun releaseReservation(player: org.bukkit.entity.Player, matchId: UUID) {
         repository.releaseReservation(matchId, listOf(player.uniqueId)).get(5, TimeUnit.SECONDS)
     }
+
+    fun acknowledgeReturn(player: org.bukkit.entity.Player, matchId: UUID): Boolean =
+        repository.acknowledgeReturn(player.uniqueId, matchId).get(5, TimeUnit.SECONDS)
 
     fun heartbeat(): HostNode = redisStore.loadMap(RedisEventNetworkRepository.NODES_KEY).get(5, TimeUnit.SECONDS)
         .getValue(settings.serverId)
