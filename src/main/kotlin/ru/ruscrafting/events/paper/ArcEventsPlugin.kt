@@ -348,7 +348,7 @@ open class ArcEventsPlugin : JavaPlugin() {
             val ammoRecipe = lifecycle.own(FirearmAmmoRecipe(this, firearms))
             server.pluginManager.registerEvents(ammoRecipe, this)
             server.onlinePlayers.forEach(firearmItems::refreshLater)
-            val actionHud = lifecycle.own(EventActionHud(packetDisplays) { player ->
+            val actionHud = lifecycle.own(EventActionHud(packetDisplays, eventActionQuestSuppression(this)) { player ->
                 if (preparing || escrow.isLocked(player.uniqueId)) return@EventActionHud null
                 val hint = activeService.fishingAdventure(player)?.actionHint()
                     ?: activeService.zombiesAdventure(player)?.rescueHint(player)

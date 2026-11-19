@@ -8,6 +8,7 @@ import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import io.mockk.verifyOrder
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.TextColor
 import net.kyori.adventure.text.format.TextDecoration
@@ -24,11 +25,13 @@ import org.bukkit.configuration.file.YamlConfiguration
 import org.bukkit.entity.Display
 import org.bukkit.entity.Player
 import org.bukkit.entity.TextDisplay
+import org.bukkit.plugin.Plugin
 import org.bukkit.util.RayTraceResult
 import org.bukkit.util.Transformation
 import org.bukkit.util.Vector
 import ru.arc.paper.display.PacketTextDisplay
 import ru.arc.paper.display.PaperPacketDisplays
+import ru.arc.staffspells.api.QuestGuidanceHudService
 import ru.ruscrafting.events.domain.TttFirearmCatalog
 import java.io.InputStreamReader
 import java.nio.file.Files
@@ -115,6 +118,55 @@ class FirearmAmmoHudTest : StringSpec({
         }
         verify(exactly = 1) { f.parts.single().remove() }
         verify(exactly = 0) { f.displays.close(); f.displays.closeAsync() }
+    }
+
+    "the visible item card takes quest priority, renews its lease and releases it on every exit" {
+        val f = AmmoHudFixture()
+        val id = f.player.uniqueId
+        val guidance = mockk<QuestGuidanceHudService>(relaxed = true)
+        f.guidance = guidance
+        f.state = f.state!!.copy(creative = true)
+        f.hud.use { hud ->
+            hud.tick(listOf(f.player))
+            val first = f.parts.single()
+            verifyOrder { guidance.setSuppressed(f.plugin, id, "event-action-hud", true); first.showTo(f.player) }
+            f.nanos += 999_000_000L
+            hud.tick(listOf(f.player))
+            verify(exactly = 1) { guidance.setSuppressed(f.plugin, id, "event-action-hud", true) }
+            f.nanos += 1_000_000L
+            hud.tick(listOf(f.player))
+            verify(exactly = 2) { guidance.setSuppressed(f.plugin, id, "event-action-hud", true) }
+            f.state = null
+            hud.tick(listOf(f.player))
+            verifyOrder { first.remove(); guidance.setSuppressed(f.plugin, id, "event-action-hud", false) }
+            f.state = FirearmAmmoHudState(2, 5)
+            hud.tick(listOf(f.player))
+            hud.clear(id) // Teleport clears immediately even when the item stays selected.
+            verify(exactly = 2) { guidance.setSuppressed(f.plugin, id, "event-action-hud", false) }
+            hud.tick(listOf(f.player))
+        }
+        verify(exactly = 3) { guidance.setSuppressed(f.plugin, id, "event-action-hud", false) }
+    }
+
+    "a missing or reloaded optional quest provider leaves the item card usable" {
+        val f = AmmoHudFixture()
+        val id = f.player.uniqueId
+        val guidance = mockk<QuestGuidanceHudService>(relaxed = true)
+        f.hud.use { hud ->
+            hud.tick(listOf(f.player))
+            val card = f.parts.single()
+            verify(exactly = 1) { card.showTo(f.player) }
+            f.guidance = guidance
+            f.nanos += 1_000_000_000L
+            hud.tick(listOf(f.player))
+            verify(exactly = 1) { guidance.setSuppressed(f.plugin, id, "event-action-hud", true) }
+            f.guidance = null
+            f.state = f.state!!.copy(loaded = 4)
+            f.nanos += 1_000_000_000L
+            hud.tick(listOf(f.player))
+            f.parts.single() shouldBe card
+            verify(exactly = 1) { card.text(any()) }
+        }
     }
 
     "no gun death spectator offline world change and explicit teleport cleanup retire the private card" {
@@ -355,5 +407,12 @@ private class AmmoHudFixture {
     }
     private val local = ammoHudLocale("ru")
     var action: Component? = null
-    val hud = EventActionHud(displays) { action?.let { EventActionHudFrame(it) } ?: state?.hudFrame(local) }
+    var guidance: QuestGuidanceHudService? = null
+    val plugin = mockk<Plugin>(relaxed = true) {
+        every { server.servicesManager.load(QuestGuidanceHudService::class.java) } answers { guidance }
+    }
+    var nanos = 0L
+    val hud = EventActionHud(displays, eventActionQuestSuppression(plugin), { nanos }) {
+        action?.let { EventActionHudFrame(it) } ?: state?.hudFrame(local)
+    }
 }

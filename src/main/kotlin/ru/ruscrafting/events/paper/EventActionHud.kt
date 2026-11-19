@@ -9,6 +9,7 @@ import org.bukkit.Location
 import org.bukkit.entity.Display
 import org.bukkit.entity.Player
 import org.bukkit.entity.TextDisplay
+import org.bukkit.plugin.Plugin
 import org.bukkit.util.Transformation
 import org.bukkit.util.Vector
 import org.joml.Quaternionf
@@ -17,7 +18,10 @@ import ru.arc.paper.display.DisplayGeometry
 import ru.arc.paper.display.PacketTextDisplay
 import ru.arc.paper.display.PaperPacketDisplays
 import ru.arc.paper.menu.DialogTextLayout
+import ru.arc.staffspells.api.QuestGuidanceHudService
 import java.util.UUID
+import java.util.concurrent.TimeUnit
+import java.util.logging.Level
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.max
@@ -35,6 +39,8 @@ internal data class EventActionHudFrame(
 /** A player's current action and magazine share one private, camera-facing native passenger. */
 internal class EventActionHud(
     private val displays: PaperPacketDisplays,
+    private val suppressQuest: (UUID, Boolean) -> Unit,
+    private val nanoTime: () -> Long = System::nanoTime,
     private val frameProvider: (Player) -> EventActionHudFrame?,
 ) : AutoCloseable {
     private data class Card(
@@ -47,19 +53,23 @@ internal class EventActionHud(
     )
 
     private val cards = mutableMapOf<UUID, Card>()
+    private var lastRenewal = nanoTime()
     private var closed = false
 
     fun tick(players: Iterable<Player>) {
         if (closed) return
+        val now = nanoTime()
+        val renew = now - lastRenewal >= TimeUnit.SECONDS.toNanos(1)
+        if (renew) lastRenewal = now
         val present = HashSet<UUID>()
         for (player in players) {
             present += player.uniqueId
-            refresh(player)
+            refresh(player, renew)
         }
         cards.keys.filter { it !in present }.forEach(::clear)
     }
 
-    fun refresh(player: Player) {
+    fun refresh(player: Player, renewSuppression: Boolean = false) {
         if (closed) return
         val frame = if (player.isOnline && player.isValid && !player.isDead &&
             player.gameMode != GameMode.SPECTATOR) frameProvider(player) else null
@@ -124,14 +134,16 @@ internal class EventActionHud(
                     teleportDuration = 0
                     transformation = transform
                     attachTo(player)
+                    suppressQuest(player.uniqueId, true)
                     showTo(player)
                 }
                 cards[player.uniqueId] = Card(display, player.world.uid, frame, bounds, transform, fraction)
             } catch (failure: Exception) {
-                display.remove()
+                try { display.remove() } finally { suppressQuest(player.uniqueId, false) }
                 throw failure
             }
         } else {
+            if (renewSuppression) suppressQuest(player.uniqueId, true)
             if (card.frame.text != text) {
                 card.display.text(text)
                 card.display.lineWidth = bounds.pixelWidth
@@ -150,13 +162,37 @@ internal class EventActionHud(
         }
     }
 
-    fun clear(playerId: UUID) { cards.remove(playerId)?.display?.remove() }
+    fun clear(playerId: UUID) {
+        val card = cards.remove(playerId) ?: return
+        try { card.display.remove() } finally { suppressQuest(playerId, false) }
+    }
 
     override fun close() {
         if (closed) return
         closed = true
         cards.keys.toList().forEach(::clear)
         // The shared display owner belongs to ArcEventsService, not this feature.
+    }
+}
+
+/** ARC owns the API. ArcDungeons supplies the optional provider and expires abandoned leases. */
+internal fun eventActionQuestSuppression(plugin: Plugin): (UUID, Boolean) -> Unit {
+    var compatible = true
+    var failed = false
+    return { playerId, visible ->
+        if (compatible) {
+            try {
+                plugin.server.servicesManager.load(QuestGuidanceHudService::class.java)
+                    ?.setSuppressed(plugin, playerId, "event-action-hud", visible)
+                failed = false
+            } catch (oldApi: LinkageError) {
+                compatible = false
+                plugin.logger.log(Level.WARNING, "Quest hint suppression is unavailable in this ARC version", oldApi)
+            } catch (failure: RuntimeException) {
+                if (!failed) plugin.logger.log(Level.WARNING, "Could not update quest hint suppression for the event HUD", failure)
+                failed = true
+            }
+        }
     }
 }
 
