@@ -5,6 +5,7 @@ import net.kyori.adventure.text.event.ClickEvent
 import org.bukkit.GameMode
 import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
+import ru.arc.core.Tasks
 import ru.arc.paper.menu.*
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.domain.FirearmSpec
@@ -105,6 +106,7 @@ internal class FirearmSettingsDialog(
         fun button(id: String, key: String, close: Boolean = true, act: (PaperDialogClickContext) -> Unit) =
             PaperDialogButton(PaperDialogActionId.of(id), text(key), width = 200,
                 closeDialogBeforeAction = close, onClick = PaperDialogClickHandler(act))
+        var dismissed = false
         val buttons = buildList {
             if (admin) {
                 add(button("save", "save") { applyTuning(it.player, held, listOf(it.text(DAMAGE).orEmpty(), it.text(SPREAD).orEmpty())) })
@@ -121,7 +123,14 @@ internal class FirearmSettingsDialog(
                 if (player.hasPermission("arcevents.admin")) add(button("tune", "tune", false) { show(it.player, held, true) })
             }
             add(button("main_menu", "main-menu", false) {
-                if (!openMainMenu(it.player)) show(it.player, held, admin)
+                // ARC builds its root asynchronously. Let it start a new flow after this dialog callback.
+                Tasks.scheduler.runLater(1L) {
+                    if (!player.isOnline || dismissed) return@runLater
+                    if (!openMainMenu(player)) {
+                        runtime.beginFlow(player)
+                        show(player, held, admin)
+                    }
+                }
             })
         }
         val description = if (admin) "tuning-help" else if (base.magazineSize == 1) "single-help" else "burst-help"
@@ -140,7 +149,7 @@ internal class FirearmSettingsDialog(
                 TttItems.nonItalic(locale.render("menu.common.close-name", player)), width = 200,
                 closeDialogBeforeAction = true, onClick = PaperDialogClickHandler {}),
             id = if (admin) "events.weapon.tune" else "events.weapon.burst",
-        ), reopen = { show(player, held, admin) }, onDismiss = {}, closeOnEscape = escapeCloses(player))
+        ), reopen = { show(player, held, admin) }, onDismiss = { dismissed = true }, closeOnEscape = escapeCloses(player))
     }
 
     private fun openMainMenu(player: Player): Boolean {

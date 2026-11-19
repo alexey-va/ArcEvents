@@ -4,12 +4,15 @@ import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import net.kyori.adventure.text.event.ClickEvent
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
 import org.bukkit.Material
 import org.bukkit.command.PluginCommandUtils
 import org.bukkit.inventory.ItemStack
 import ru.arc.config.ConfigManager
+import ru.arc.core.Tasks
+import ru.arc.core.TestTaskScheduler
 import ru.arc.paper.menu.*
 import ru.arc.paper.testing.MockBukkitTestRuntime
 import ru.ruscrafting.events.config.ArcEventsConfig
@@ -18,6 +21,10 @@ import ru.ruscrafting.events.domain.FirearmId
 import java.nio.file.Files
 
 class FirearmSettingsDialogTest : StringSpec({
+    lateinit var scheduler: TestTaskScheduler
+    beforeTest { scheduler = TestTaskScheduler(); Tasks.install(scheduler) }
+    afterTest { Tasks.reset() }
+
     "both weapon forms open the server menu and recheck the captured item and permissions on save" {
         MockBukkitTestRuntime.open().use { paper ->
             val data = Files.createTempDirectory("arcevents-fire-settings-")
@@ -46,7 +53,11 @@ class FirearmSettingsDialogTest : StringSpec({
                 player.inventory.setItemInMainHand(original)
                 val runtime = mockk<PaperDialogRuntime>(relaxed = true)
                 lateinit var screen: PaperDialogScreen
-                every { runtime.open(player, any(), any(), any(), any()) } answers { screen = secondArg() }
+                lateinit var dismiss: () -> Unit
+                every { runtime.open(player, any(), any(), any(), any()) } answers {
+                    screen = secondArg()
+                    dismiss = arg(3)
+                }
                 var allowed = true
                 var native = true
                 val settings = FirearmSettingsDialog(runtime, locale, guns, { base.takeIf { allowed } }, {}, { native }, { false })
@@ -66,10 +77,20 @@ class FirearmSettingsDialogTest : StringSpec({
                 mainMenu.closeDialogBeforeAction shouldBe false
                 val initialScreen = screen
                 press("main_menu")
+                (screen === initialScreen) shouldBe true
+                scheduler.tick()
                 (screen !== initialScreen) shouldBe true
                 screen.id shouldBe "events.weapon.burst"
+                verify(exactly = 2) { runtime.beginFlow(player) }
                 paper.server.commandMap.register("arc", menuCommand)
                 press("main_menu")
+                dismiss()
+                scheduler.tick()
+                mainMenuOpens shouldBe 0
+                settings.open(player, false, emptyList(), false)
+                press("main_menu")
+                mainMenuOpens shouldBe 0
+                scheduler.tick()
                 mainMenuOpens shouldBe 1
                 held() shouldBe original
 
@@ -97,6 +118,7 @@ class FirearmSettingsDialogTest : StringSpec({
                 screen.inputs.map { it.id.value } shouldBe listOf("damage", "spread")
                 screen.buttons.map { it.id.value } shouldBe listOf("save", "reset", "main_menu")
                 press("main_menu")
+                scheduler.tick()
                 mainMenuOpens shouldBe 3
                 settings.open(player, true, emptyList(), false)
                 grant.setPermission("arcevents.admin", false)
