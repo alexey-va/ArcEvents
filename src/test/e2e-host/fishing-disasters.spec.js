@@ -7,6 +7,7 @@ const mainMenu = '/arcevents menu';
 const idle = { phase: 'idle', participants: 0, queue: 0 };
 const dock = new Vec3(0.5, 65, 16.5);
 const castTarget = new Vec3(0.5, 63.7, 24.5);
+const landing = new Vec3(0.5, 65, 10.5);
 
 async function openMode(player, observed, mode, actionId) {
   const mainId = `action_arcade_${mode}_name`;
@@ -35,18 +36,24 @@ const tagged = (item, kind, match) => {
   return data.includes(kind) && data.includes(match);
 };
 
-test('Fishing enters through the public menu, lands a native bite, and restores the original player', async ({ player, createPlayer }) => {
+test('Fishing enters through the public menu, lands a native bite, releases the catch, and restores the original player', async ({ player, createPlayer }) => {
   await ready('fishing');
   const admin = await createPlayer();
   await admin.makeOp();
   const observed = observe(player);
   const { bot } = player;
+  const displayText = bot.registry.entitiesByName.text_display.metadataKeys.indexOf('text');
   let reeled = false;
+  let releaseHint = false;
   let restored = false;
-  const reel = (message) => {
-    if (reeled || !String(message).includes('Right-click to reel in.')) return;
-    reeled = true;
-    bot.activateItem();
+  const handleHint = (entity) => {
+    if (entity.name !== 'text_display') return;
+    const text = JSON.stringify(entity.metadata[displayText]) ?? '';
+    if (!reeled && text.includes('Fish on!') && text.includes('RMB') && text.includes('Reel in')) {
+      reeled = true;
+      bot.activateItem();
+    }
+    if (text.includes('RMB on ground') && text.includes('Release')) releaseHint = true;
   };
   try {
     await waitForQa(admin, 'status', idle);
@@ -62,14 +69,25 @@ test('Fishing enters through the public menu, lands a native bite, and restores 
     await until(() => bot.blockAt(castTarget)?.name === 'water', 'Generated casting water did not arrive');
     await bot.lookAt(castTarget, true);
     const catchSince = player.getMessageBufferIndex();
-    bot.on('actionBar', reel);
+    bot.on('entityUpdate', handleHint);
     bot.activateItem();
     const hook = await until(() => Object.values(bot.entities).find((entity) =>
       entity.name === 'fishing_bobber' && bot.blockAt(entity.position)?.name === 'water'), 'The ordinary cast did not send a bobber in the water');
-    await expect(player).toHaveReceivedMessage(/Caught: .+RMB the ground/, { since: catchSince, timeout: 25000 });
+    await expect(player).toHaveReceivedMessage(/You caught .+\./, { since: catchSince, timeout: 25000 });
     assert.ok(reeled, 'A catch appeared without a native bite and retrieval');
     await until(() => !bot.entities[hook.id] && bot.heldItem?.name === 'tropical_fish' &&
       tagged(bot.heldItem, 'FISHING_LIVE_CATCH', match), 'Retrieval did not consume the hook and issue its match-bound live catch');
+    await until(() => releaseHint, 'The live catch did not show its native release hint');
+
+    await walkTo(player, landing.offset(0, 0, 2));
+    const floor = bot.blockAt(landing.offset(0, -1, 0));
+    assert.equal(floor?.name, 'oak_planks', 'The dry landing block did not arrive');
+    const releaseSince = player.getMessageBufferIndex();
+    await bot.activateBlock(floor, new Vec3(0, 1, 0), new Vec3(0.5, 1, 0.5));
+    await expect(player).toHaveReceivedMessage(/Catch ashore\. LMB to attack\./, { since: releaseSince });
+    await until(() => !bot.inventory.slots[40] && bot.nearestEntity((entity) =>
+      ['silverfish', 'spider', 'salmon'].includes(entity.name) && entity.position.distanceTo(landing) < 1),
+    'Releasing the caught item did not replace it with a native encounter on the dock');
 
     const since = observed.screens.length;
     player.chat(mainMenu);
@@ -81,7 +99,7 @@ test('Fishing enters through the public menu, lands a native bite, and restores 
     restored = true;
   } finally {
     if (!restored && bot.entity) player.chat('/arcevents leave');
-    bot.removeListener('actionBar', reel);
+    bot.removeListener('entityUpdate', handleHint);
     observed.stop();
   }
 });

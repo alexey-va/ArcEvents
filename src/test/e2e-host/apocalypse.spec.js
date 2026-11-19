@@ -223,7 +223,12 @@ test('Apocalypse enters through the native menu and opens actionable guide route
   try {
     player.chat('/arcevents');
     const menu=await until(()=>dialogs.screens.find(s=>apocButton(s,'action_apocalypse_menu_name')),'Apocalypse entry missing from native main menu');
-    apocClick(player,menu,'action_apocalypse_menu_name');await players(admin,1);
+    const cardSince=dialogs.screens.length;
+    apocClick(player,menu,'action_apocalypse_menu_name');
+    const enter='action_apocalypse_enter_name';
+    const card=await until(()=>dialogs.screens.slice(cardSince).find(s=>apocButton(s,enter)),'Apocalypse card did not offer ordinary entry');
+    assert.ok(!apocButton(card,'action_apocalypse_test_name'),'The ordinary player received the admin-only entry button');
+    apocClick(player,card,enter);await players(admin,1);
     const expedition=items(player);let since=dialogs.screens.length;
     player.chat('/arcevents');
     const guide=await until(()=>dialogs.screens.slice(since).find(s=>apocButton(s,'track_supplies')),'Bare /arcevents did not open the field guide');
