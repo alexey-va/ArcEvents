@@ -27,7 +27,7 @@ menu:
     title: '<#20252b>Ивенты'
     main-body:
     - '<#e8dfd2>В очереди: <#ffffff><queue>'
-    ttt-name: '<#e3b341><bold>Тайные роли'
+    ttt-name: '<#c4abff><bold>Тайные роли'
     ttt-lore:
     - <#e8dfd2>Найдите предателей среди игроков.
     - <#e8dfd2>Скрытые роли · командное расследование
@@ -45,7 +45,7 @@ menu:
     loading-name: <#ffb277>Очередь
     loading-lore:
     - <#e8dfd2>Проверяем доступные действия…
-    overview-name: <#ffb277>Найдите предателей
+    overview-name: <#c4abff>Найдите предателей
     overview-lore:
     - <#e8dfd2>Мирные и детективы против скрытых предателей.
     queue-name: <#86dcf1>Ваш статус
@@ -176,6 +176,10 @@ menu:
     reload-lore:
     - <#f2f0e6>Проверить и применить безопасные параметры.
     - <#8c8c8c>Идентичность узла требует перезапуска.
+    solo-test-name: '<#c4a7e7><action>'
+    solo-test-lore:
+    - '<#e8dfd2><roster>'
+    - '<#e8dfd2>Результат не учитывается в статистике.'
     recover-name: '<#c58cff><bold>Повторить восстановление'
     recover-lore:
     - <#f2f0e6>Вернуть состояние всем доступным игрокам.
@@ -375,7 +379,7 @@ queue:
 
 match:
   unavailable: '<prefix> <#ff9f0f>Вы сейчас не участвуете в матче.'
-  preparing-title: '<#e3b341>Исследуйте карту'
+  preparing-title: '<#c4abff>Исследуйте карту'
   preparing-subtitle: '<#f2f0e6>Роли скрыты <#8fa6b8>— <#d87a82>урон выключен'
   preparing-guide: <#e8dfd2>Правила и управление — <#86dcf1>/arcevents
   countdown-title: '<#ffcc33><bold><seconds>'
@@ -429,7 +433,7 @@ role:
   detective-label: '<#5fb3ff>Детектив'
 
 hud:
-  scoreboard-title: '<#ffcc33><bold>Тайные роли'
+  scoreboard-title: '<#c4abff><bold>Тайные роли'
   phase-line: <#ffffff><phase>
   time-line: '<#ffffff>Время: <#ffcc33><time>'
   alive-line: '<#ffffff>Живых: <#55ff88><alive><#8fa6b8>/<#55ff88><players>'
@@ -441,9 +445,9 @@ hud:
   objective-innocent: '<#7bd88f>найдите предателей'
   objective-traitor: '<#d84a4a>устраните мирных'
   objective-detective: '<#5fb3ff>исследуйте тела'
-  bossbar-preparing: <#ffb277>Роли через <time>
+  bossbar-preparing: <#c4abff>Роли через <time>
   bossbar-countdown: '<role>  <#ffffff>старт через <#ffcc33><time>'
-  bossbar-active: <#ffb277>До конца <time>
+  bossbar-active: <#c4abff>До конца <time>
   countdown-actionbar: '<role>  <#f2f0e6>Огонь через <#e3b341><time>'
   preparing-tips:
   - <#e8dfd2>Соберите оружие на карте
@@ -638,6 +642,7 @@ chat:
 
 admin:
   arena-unavailable: '<prefix> <#c42323>Арена не готова: проверьте мир и точки.'
+  solo-usage: '<prefix> <#e8dfd2>/arcevents admin solo <#c4a7e7>режим<newline>  <#e8dfd2>ttt, gungame, disasters, fishing, zombies, apocalypse'
   arena-selected: '<prefix> <#2bba43>Следующая карта: <arena><#e6fff3>.'
   arena-selection-failed: '<prefix> <#c42323>Карту <arena> нельзя выбрать: она не готова или матч уже идёт.'
   started: '<prefix> <#2bba43>Резервирование состава запущено.'
@@ -694,66 +699,66 @@ debug:
 
 arcade:
   zombies-title: '<#ffb277>Зомби: Нулевой сектор'
-  zombies-name: '<#ffb277><bold>Зомби: Нулевой сектор'
-  zombies-guide-name: '<#ffb277>Удержите сектор'
+  zombies-name: '<#ff9c82><bold>Зомби: Нулевой сектор'
+  zombies-guide-name: '<#ff9c82>Удержите сектор'
   zombies-dialog-unavailable: '<#e8dfd2>Для режима зомби нужен клиент Java 1.21.6 или новее с поддержкой диалогов.'
-  zombies-hud: '<#ffb277>Нулевой сектор <#e8dfd2>| Начало через <seconds> с'
+  zombies-hud: '<#ff9c82>Нулевой сектор <#e8dfd2>| Начало через <seconds> с'
   zombies-lore:
   - <#e8dfd2>Выдержите волны зомби.
   - <#e8dfd2>Один или команда до четырёх игроков
   zombies-guide:
-  - <#ffb277>Удержите сектор
+  - <#ff9c82>Удержите сектор
   - <#e8dfd2>Пройдите <waves> волн в составе <minimum>–<maximum> игроков.
   - <#e8dfd2>Очки за убийства и волны тратьте на станции у входа.
   - ''
-  - <#ffb277>Оружейный ящик
+  - <#ff9c82>Оружейный ящик
   - <#e8dfd2>ПКМ — оплатить открытие. Заберите своё оружие вовремя.
   - <#e8dfd2>Если не забрать оружие, очки не вернутся.
   - ''
-  - <#ffb277>Баррикады
+  - <#ff9c82>Баррикады
   - <#e8dfd2>Удерживайте Shift у окна, чтобы вернуть доски. Ремонт бесплатный.
   unsupported-mode: '<prefix> <#c42323>Неизвестный режим: <mode>.'
   gungame-title: '<#20252b>Гонка вооружений'
-  gungame-name: '<#e3b341><bold>Гонка вооружений'
+  gungame-name: '<#f4c575><bold>Гонка вооружений'
   gungame-lore:
   - <#e8dfd2>Новое оружие за каждое устранение.
   - <#e8dfd2>Завершите гонку ударом ножа.
-  gungame-guide-name: '<#e3b341><bold>Правила гонки вооружений'
+  gungame-guide-name: '<#f4c575><bold>Правила гонки вооружений'
   gungame-guide:
-  - <#ffb277>Цель
+  - <#f4c575>Цель
   - <#e8dfd2>Устраните игрока каждым оружием, затем ножом.
   - ''
-  - <#ffb277>Управление
+  - <#f4c575>Управление
   - <#e8dfd2>ЛКМ — огонь · ПКМ — прицел · F — перезарядка.
   - ''
-  - <#ffb277>Возрождение
+  - <#f4c575>Возрождение
   - <#e8dfd2>После устранения вы вернётесь с короткой защитой.
   disasters-title: '<#20252b>Катастрофы'
-  disasters-name: '<#ff9f0f><bold>Катастрофы'
+  disasters-name: '<#9fc6ff><bold>Катастрофы'
   disasters-lore:
   - <#e8dfd2>Переживите череду катастроф.
   - <#e8dfd2>Следите за предупреждениями об ударах.
-  disasters-guide-name: '<#ff9f0f><bold>Правила катастроф'
+  disasters-guide-name: '<#9fc6ff><bold>Правила катастроф'
   disasters-guide:
-  - <#ffb277>Цель
+  - <#9fc6ff>Цель
   - <#e8dfd2>Переживите <rounds> раундов. Очки получают выжившие.
   - ''
-  - <#ffb277>Укрытия
+  - <#9fc6ff>Укрытия
   - '<#e8dfd2>Метеоры: уходите от кругов на земле.'
   - '<#e8dfd2>Молнии: укройтесь под медным навесом.'
   - '<#e8dfd2>Туман: поднимитесь на каменную террасу.'
   fishing-title: '<#20252b>Острова глубин'
-  fishing-name: '<#67d7ff><bold>Острова глубин'
+  fishing-name: '<#74ded2><bold>Острова глубин'
   fishing-lore:
   - <#e8dfd2>Рыбачьте, сражайтесь и откройте пять островов.
   - <#e8dfd2>Одиночная экспедиция
-  fishing-guide-name: '<#67d7ff><bold>Правила островов глубин'
+  fishing-guide-name: '<#74ded2><bold>Правила островов глубин'
   fishing-guide:
-  - <#86dcf1>Рыбачьте → сражайтесь → улучшайте снаряжение
+  - <#74ded2>Рыбачьте → сражайтесь → улучшайте снаряжение
   - <#e8dfd2>Забросьте у причала. С уловом в руке нажмите ПКМ по земле.
   - <#e8dfd2>Победите добычу и продайте её торговцу под навесом.
   - ''
-  - <#86dcf1>Откройте следующий остров
+  - <#74ded2>Откройте следующий остров
   - <#e8dfd2>Выполните задание торговца и заберите наживку босса.
   - <#e8dfd2>Выловите босса, победите и сдайте трофей.
   - ''
@@ -772,9 +777,9 @@ arcade:
   countdown: <#ffb277>Старт через <seconds> с
   started: '<#7bd88f>Режим <mode> начался.'
   hud: '<#f2f0e6><mode> <#8c8c8c>| <#e3b341><seconds> с <#8c8c8c>| Очки: <#7bd88f><score> <#8c8c8c>| Этап: <#92bed8><stage>/<total> <#8c8c8c>| Раунд: <#92bed8><round>'
-  gungame-hud: <#ffb277>Оружие <stage>/<total> <#ffffff>· <seconds> с · <score> убийств
-  disasters-hud: <#ffb277>Раунд <round>/<rounds> <#ffffff>· <seconds> с · <score> оч.
-  fishing-hud: <#86dcf1>Экспедиция <#ffffff>· <seconds> с
+  gungame-hud: <#f4c575>Оружие <stage>/<total> <#ffffff>· <seconds> с · <score> убийств
+  disasters-hud: <#9fc6ff>Раунд <round>/<rounds> <#ffffff>· <seconds> с · <score> оч.
+  fishing-hud: <#74ded2>Экспедиция <#ffffff>· <seconds> с
   result: '<#ffb277>Победители: <#ffffff><winners>'
   eliminated: <#ff6b61>Возрождение через <seconds> с
   respawn: <#9bd48d>Вы в строю
@@ -804,21 +809,43 @@ arcade:
   status-name: <#86dcf1>Участие
   status-lore: <#e8dfd2><queue_state>
 
-  zombies-briefing: <#ffb277>Выдержите <waves> волн.<newline>  <#e8dfd2>ЛКМ — огонь · ПКМ — прицел · F — перезарядка
-  gungame-briefing: <#ffb277>Новое оружие за устранение. Последний — нож.<newline>  <#e8dfd2>ЛКМ — огонь · ПКМ — прицел · F — перезарядка
-  disasters-briefing: <#ffb277>Выживайте и уходите от меток ударов.
-  fishing-briefing: <#86dcf1>Идите по настилу к буям. Возьмите удочку.
+  zombies-briefing: <#ff9c82>Выдержите <waves> волн.<newline>  <#e8dfd2>ЛКМ — огонь · ПКМ — прицел · F — перезарядка
+  gungame-briefing: <#f4c575>Новое оружие за устранение. Последний — нож.<newline>  <#e8dfd2>ЛКМ — огонь · ПКМ — прицел · F — перезарядка
+  disasters-briefing: <#9fc6ff>Выживайте и уходите от меток ударов.
+  fishing-briefing: <#74ded2>Идите по настилу к буям. Возьмите удочку.
   zombies-solo-name: <#9bd48d>Играть одному
   zombies-solo-lore:
   - <#e8dfd2>Начать отдельный матч только для вас.
   zombies-team-name: <#ffffff>Собрать отряд
   zombies-team-lore:
   - <#e8dfd2>Встать в общую очередь и запустить отряд здесь.
+practice:
+  ttt:
+    action: 'Тест с ботами'
+    roster: 'Боты заполнят свободные роли в раунде.'
+  gungame:
+    action: 'Дуэль с ботом'
+    roster: 'Один бот будет вашим противником в гонке оружия.'
+  disasters:
+    action: 'Тест с соперником'
+    roster: 'Бот рядом с вами попытается пережить катастрофы.'
+  fishing:
+    action: 'Тест с напарником'
+    roster: 'Напарник будет рыбачить рядом с вами.'
+  zombies:
+    action: 'Тест без статистики'
+    roster: 'Вы один в секторе против обычных волн зомби.'
+  companion:
+    angler: '<#74ded2>Рыболов'
+    runner: '<#9fc6ff><name> <#e8dfd2>· Соперник'
+
 fishing:
-  start: <#86dcf1>С конца причала забросьте крючок между буями.
-  catch: '<#86dcf1>Улов: <catches>. <#e8dfd2>ПКМ по земле — выпустить.'
+  start: <#74ded2>С конца причала забросьте крючок между буями.
+  catch: '<#74ded2>Ваш улов — <catches>.'
   complete: "<newline>  <#7bd88f>Экспедиция завершена. Все пять трофеев сданы.<newline>"
   creature-defeated: '<#9bd48d>Улов побеждён. <#e8dfd2>Рыба в слоте 5: ПКМ по торговцу.'
+  card-bite: '<#74ded2><bold>Клюёт!</bold></#74ded2><newline><white>ПКМ</white> <#a0b9b6>·</#a0b9b6> <#e2eeed>Подсечь</#e2eeed>'
+  card-release: '<#74ded2><species></#74ded2><newline><white>ПКМ по земле</white> <#a0b9b6>·</#a0b9b6> <#e2eeed>Выпустить</#e2eeed>'
   creature-hit: "<#7bd88f>Здоровье добычи: <health>."
   creature-name: "<#ff9f0f>Опасная добыча"
   boss-name: "<#d6a8ff>Хозяин острова"
@@ -854,7 +881,7 @@ fishing:
   food-full: "<#e3b341>Здоровье и сытость уже полные."
   inventory-full: "<#e3b341>Освободите место для покупки."
   purchase-failed: "<#e3b341>Покупка недоступна. Проверьте жетоны экспедиции и открытый остров."
-  hud: <#86dcf1><island> <#ffffff>· <stage>/<total> · улов <catches>/<needed> · <coins> жет.
+  hud: <#74ded2><island> <#ffffff>· <stage>/<total> · улов <catches>/<needed> · <coins> жет.
   quest-ready: "<#7bd88f>Задание выполнено. Получите особую наживку у торговца."
   quest-bait: "<#67d7ff>Особая наживка на крючке: выловите босса."
   travel-unlocked: "<newline>  <#7bd88f>Трофей принят. Идите под бирюзовый флаг.<newline>"
@@ -1000,7 +1027,7 @@ fishing:
 
 zombies:
   ready: <#e8dfd2>ЛКМ — огонь · ПКМ — прицел · F — перезарядка
-  wave-title: '<#ffb277>Волна <wave> / <total>'
+  wave-title: '<#ff9c82>Волна <wave> / <total>'
   wave-subtitle: <#e8dfd2>Держитесь вместе
   brute-warning: '<#ff8b82>Громила в секторе | следите за огненным кругом'
   brute-name: '<#ff8b82>Громила'
@@ -1008,11 +1035,12 @@ zombies:
   self-revive: '<#ffbe6b>Автоподъём через 3 секунды. <#e8dfd2>Единственный запасной шанс израсходован.'
   downed: <#ff6b61>Вы ранены. <#e8dfd2>Напарник может поднять вас за 25 секунд.
   teammate-downed: <#ff6b61><player> ранен. <#e8dfd2>Shift рядом — поднять.
+  card-revive: '<#ff9c82><player></#ff9c82> <#fff0da>· <seconds> с</#fff0da><newline><white>Держите Shift</white> <#f2e7dd>до подъёма</#f2e7dd>'
   reviving: '<#9bd48d>Поднимаете <player> | <seconds> с'
   revived: <#9bd48d>Вы в строю. <#e8dfd2>Защита на 4 секунды.
   waiting: '<#e8dfd2>Вы вернётесь с боезапасом после завершения волны.'
   weapon-received: '<#9bd48d>Получено: <weapon>'
-  hud-wave: '<#ffb277>Волна <wave>/<total> <#e8dfd2>| Зомби: <remaining> | <points> оч. | Усиление <power>/3'
+  hud-wave: '<#ff9c82>Волна <wave>/<total> <#e8dfd2>| Зомби: <remaining> | <points> оч. | Усиление <power>/3'
   hud-intermission: '<#9bd48d>Передышка <seconds> с <#e8dfd2>| Далее волна <wave>/<total> | <points> оч.'
   hud-self-revive: '<#ffbe6b>Автоподъём через <seconds> с <#e8dfd2>| Последний запасной шанс'
   hud-downed: '<#ff8b82>Ранен | <seconds> с <#e8dfd2>| Напарник: Shift рядом'
@@ -1077,12 +1105,12 @@ dialog:
   linked-match: '<#92bed8>За вами закреплено место в матче.'
   queue-facts: <#e8dfd2>В очереди <#ffffff><queue><#e8dfd2> · Для старта <#ffffff><minimum>–<maximum>
   queue-status: <#e8dfd2><queue_state>
-  ttt-overview: <#ffb277>Найдите предателей среди игроков.
+  ttt-overview: '<#c4abff>Осматривайте тела, чтобы вычислить предателей.'
   ttt-map: '<#e8dfd2>Карта: <#ffffff><selected_arena>'
-  gungame-overview: <#ffb277>Смена оружия за убийство. Победа — ножом.
-  disasters-overview: <#ffb277>Переживите <rounds> раундов катастроф.
-  zombies-overview: <#ffb277>Выдержите <waves> волн зомби.
-  fishing-overview: <#86dcf1>Пять островов. Пять боссов. Одна экспедиция.
+  gungame-overview: '<#f4c575>Каждое устранение даёт новое оружие. Победите ножом.'
+  disasters-overview: '<#9fc6ff>Ищите укрытие. Переживите <rounds> раундов катастроф.'
+  zombies-overview: '<#ff9c82>Чините баррикады и отбейте <waves> волн зомби.'
+  fishing-overview: '<#74ded2>Ловите между буями. На каждом острове свой босс.'
   fishing-facts: <#e8dfd2>Один игрок · До <minutes> мин.
   fishing-active: <#e8dfd2><phase> · Осталось <minutes> мин.
   rules-title: '<#86dcf1>Правила: <mode>'
@@ -1091,6 +1119,18 @@ dialog:
   rules-tooltip: <#e8dfd2>Цель, управление и особенности режима.
   rules-next: <#86dcf1>Управление и советы ›
   rules-previous: <#86dcf1>‹ Основные правила
+  apocalypse-overview: '<#c4d58b>Обыщите бункер и найдите выход на поверхность.'
+  apocalypse-facts: '<#e8dfd2>Общий мир · Прогресс сохраняется'
+  rules-apocalypse-0:
+  - '<#c4d58b>Стартовый бункер'
+  - '<#e8dfd2>По коридору найдите припасы. Лестница в шахте ведёт наверх.'
+  - ''
+  - '<#c4d58b>На поверхности'
+  - '<#e8dfd2>Ищите снаряжение в городах и укрытие перед ордой.'
+  - '<#e8dfd2>Полевой справочник покажет ближайшие ориентиры.'
+  - ''
+  - '<#c4d58b>Возвращение'
+  - '<#e8dfd2>/arcevents leave сохранит экспедицию и вернёт вас назад.'
   rules-ttt-0:
   - <#9bd48d>Мирный
   - <#e8dfd2>Выживите и найдите предателей по уликам.
@@ -1101,56 +1141,56 @@ dialog:
   - <#86dcf1>Детектив
   - <#e8dfd2>Ваша роль открыта. Проверяйте тела и защищайте мирных.
   rules-ttt-1:
-  - <#ffb277>До боя
+  - <#c4abff>До боя
   - <#e8dfd2>Соберите оружие на карте. Роли скрыты, урон выключен.
   - ''
-  - <#ffb277>Во время боя
+  - <#c4abff>Во время боя
   - <#e8dfd2>ЛКМ — огонь · ПКМ — прицел · F — перезарядка.
   - '<#e8dfd2>ПКМ по телу — осмотреть. Снаряжение роли: /arcevents.'
   - ''
-  - <#ffb277>Общение
+  - <#c4abff>Общение
   - <#e8dfd2>Чат слышен рядом. /arcevents team — чат своей роли.
   - <#e8dfd2>Наблюдатели общаются отдельно. Не раскрывайте чужие роли.
   rules-gungame-0:
-  - <#ffb277>Цель
+  - <#f4c575>Цель
   - <#e8dfd2>Устраните игрока каждым оружием, затем ножом.
   - ''
-  - <#ffb277>Управление
+  - <#f4c575>Управление
   - <#e8dfd2>ЛКМ — огонь · ПКМ — прицел · F — перезарядка.
   - ''
-  - <#ffb277>Возрождение
+  - <#f4c575>Возрождение
   - <#e8dfd2>После устранения вы вернётесь с короткой защитой.
   rules-disasters-0:
-  - <#ffb277>Цель
+  - <#9fc6ff>Цель
   - <#e8dfd2>Переживите <rounds> раундов. Очки получают выжившие.
   - ''
-  - <#ffb277>Укрытия
+  - <#9fc6ff>Укрытия
   - '<#e8dfd2>Метеоры: уходите от кругов на земле.'
   - '<#e8dfd2>Молнии: укройтесь под медным навесом.'
   - '<#e8dfd2>Туман: поднимитесь на каменную террасу.'
   rules-fishing-0:
-  - <#86dcf1>Рыбачьте → сражайтесь → улучшайте снаряжение
+  - <#74ded2>Рыбачьте → сражайтесь → улучшайте снаряжение
   - <#e8dfd2>Забросьте у причала. С уловом в руке нажмите ПКМ по земле.
   - <#e8dfd2>Победите добычу и продайте её торговцу под навесом.
   - ''
-  - <#86dcf1>Откройте следующий остров
+  - <#74ded2>Откройте следующий остров
   - <#e8dfd2>Выполните задание торговца и заберите наживку босса.
   - <#e8dfd2>Выловите босса, победите и сдайте трофей.
   - ''
   - <#e8dfd2>Покупки и жетоны действуют только в этой экспедиции.
   rules-zombies-0:
-  - <#ffb277>Удержите сектор
+  - <#ff9c82>Удержите сектор
   - <#e8dfd2>Пройдите <waves> волн в составе <minimum>–<maximum> игроков.
   - <#e8dfd2>Очки за убийства и волны тратьте на станции у входа.
   - ''
-  - <#ffb277>Оружейный ящик
+  - <#ff9c82>Оружейный ящик
   - <#e8dfd2>ПКМ — оплатить открытие. Заберите своё оружие вовремя.
   - <#e8dfd2>Если не забрать оружие, очки не вернутся.
   - ''
-  - <#ffb277>Баррикады
+  - <#ff9c82>Баррикады
   - <#e8dfd2>Удерживайте Shift у окна, чтобы вернуть доски. Ремонт бесплатный.
   rules-zombies-1:
-  - <#ffb277>Управление
+  - <#ff9c82>Управление
   - <#e8dfd2>ЛКМ — огонь · ПКМ — прицел · F — перезарядка.
   - <#e8dfd2>Нож — во втором слоте. Уходите от круга Громилы.
   - ''
@@ -1177,12 +1217,19 @@ dialog:
   report-damage: <#ffffff><damage><#e8dfd2> / <#f4d87a><friendly>
 
 apocalypse:
-  menu-name: '<#ffb277><bold>Апокалипсис'
+  menu-name: '<#c4d58b><bold>Апокалипсис'
   menu-lore:
   - '<#e8dfd2>Исследуйте заброшенные города и бункеры.'
   - '<#e8dfd2>Каждую десятую ночь приходит орда.'
-  - '<#9bd48d>Войти в мир выживания'
-  entered: '<#ffb277>Апокалипсис. <#e8dfd2>Обыщите бункер и поднимайтесь по лестнице. Для выхода введите <#92bed8>/arcevents leave<#e8dfd2>.'
+  - '<#e8dfd2>Ваш прогресс сохраняется между вылазками.'
+  enter-name: '<#9bd48d>Войти в мир'
+  enter-lore:
+  - '<#e8dfd2>Начать или продолжить свою экспедицию.'
+  test-name: '<#c4a7e7>Тест в общем мире'
+  test-lore:
+  - '<#e8dfd2>Войти одному в общий мир с зомби.'
+  - '<#e8dfd2>Прогресс вашего персонажа сохраняется как обычно.'
+  entered: '<#c4d58b>Апокалипсис. <#e8dfd2>Обыщите бункер и поднимайтесь по лестнице. Для выхода введите <#92bed8>/arcevents leave<#e8dfd2>.'
   resumed: '<#9bd48d>Вы снова в мире апокалипсиса.'
   returned: '<#9bd48d>Вы вернулись из апокалипсиса.'
   fly:
@@ -1207,9 +1254,9 @@ apocalypse:
   field-off: '<#9bd48d>Силовое поле отключено. Проход открыт.'
   cured: '<#9bd48d>Лекарство подействовало.'
   vaccine: '<#9bd48d>Вакцина от заражения'
-  status: '<#ffb277>День <day> <#e8dfd2>· <phase> · выживших <players> · врагов <enemies> · <infection>'
+  status: '<#c4d58b>День <day> <#e8dfd2>· <phase> · выживших <players> · врагов <enemies> · <infection>'
   location: '<#e8dfd2>Ближайший объект <#ffffff><location>'
-  hud: '<#ffb277>День <day> <#e8dfd2>· <infection> · врагов <enemies>'
+  hud: '<#c4d58b>День <day> <#e8dfd2>· <infection> · врагов <enemies>'
   infection:
     healthy: '<#9bd48d>Здоров'
     incubating: '<#f4d87a>Инкубация'
@@ -1284,7 +1331,7 @@ apocalypse:
       sw: 'ЮЗ'
       w: 'З'
       nw: 'СЗ'
-    title: '<#ffb277><bold>Полевой справочник'
+    title: '<#c4d58b><bold>Полевой справочник'
     author: 'Выжившие'
     starter-arrival: '<#e8dfd2>Пройдите по коридору в зал с припасами. На поверхность ведёт лестница в шахте.'
     continuing: '<#e8dfd2>Вы снова в экспедиции. Справочник покажет ближайшие ориентиры.'

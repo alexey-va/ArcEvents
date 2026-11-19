@@ -10,6 +10,7 @@ import org.bukkit.inventory.ItemStack
 import ru.arc.paper.playerstate.PaperPlayerStateCodec
 import ru.arc.paper.playerstate.PaperPlayerStateService
 import ru.arc.paper.testing.MockBukkitTestRuntime
+import ru.ruscrafting.events.config.PlayerStateMode
 import java.nio.file.Files
 import java.nio.charset.StandardCharsets
 import java.util.UUID
@@ -116,7 +117,7 @@ class PlayerStateEscrowMockBukkitTest : FunSpec({
         Files.exists(record) shouldBe true
 
         val original = Files.readString(record)
-        val disposable = PlayerStateEscrow(RecoveryBatchStore(dataRoot), enabled = false)
+        val disposable = PlayerStateEscrow(RecoveryBatchStore(dataRoot, mode = PlayerStateMode.DISPOSABLE))
         disposable.recoveryBacklog() shouldBe 0
         disposable.pendingPlayers() shouldBe emptySet()
         disposable.pendingPlayers(matchId) shouldBe emptySet()

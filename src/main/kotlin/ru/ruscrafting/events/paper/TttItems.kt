@@ -89,8 +89,8 @@ class TttItems(
         player.updateInventory()
     }
 
-    fun clearForEvent(player: Player): Boolean {
-        if (!settings().gameplay.clearInventory) return false
+    fun clearForEvent(player: Player, practice: Boolean = false): Boolean {
+        if (!practice && !settings().gameplay.clearInventory) return false
         player.inventory.clear()
         player.inventory.armorContents = arrayOfNulls(4)
         player.inventory.setItemInOffHand(ItemStack.empty())

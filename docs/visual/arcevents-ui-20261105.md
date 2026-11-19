@@ -28,3 +28,25 @@ Optional `--client-jar` and `--resource-pack` arguments reuse verified local art
 - The source manifest for those selected samples is [arcevents-ui-samples-20261105.yml](arcevents-ui-samples-20261105.yml); run it with the shared `render_plugin_surface_dump.py`, `--project-root .` and `--gui-scale 3`.
 
 These are offline previews, not live Minecraft client captures. Native dialogs use the official panorama as a backdrop; HUD backgrounds are schematic. Legacy head-dependent inventory previews are excluded because the renderer cannot resolve the real head/skin textures. The historical preview's removed fake player-head model was not substituted for runtime player heads. Native input, timing, pack delivery and client appearance are separate observations from export, rendering and server/protocol tests.
+
+## Six-mode catalog, 2026-11-19
+
+The six activity buttons keep their accent in the card title, objective and in-game briefing. The detail screen puts the objective and participation facts above the action grid. Play comes first, Rules opens the guide, and administrators see a violet test action.
+
+| Mode | Subject accent | Panel | Administrator action |
+| --- | --- | --- | --- |
+| Hidden Roles | Lilac `#c4abff` | Plum | Fill the other roles with bots |
+| Gun Game | Brass `#f4c575` | Cocoa | Duel a bot on the weapon ladder |
+| Disasters | Storm blue `#9fc6ff` | Navy | Survive alongside a rival |
+| Islands of the Deep | Sea green `#74ded2` | Evergreen | Fish alongside an angler |
+| Zombies | Coral `#ff9c82` | Ornate | Play the waves without recording stats |
+| Apocalypse | Field green `#c4d58b` | Evergreen | Enter the shared survival world with normal character saves |
+
+Match tests require `arcevents.admin` and exclude the result from ordinary statistics. On the Apocalypse card each player sees one entry action. The administrator's tooltip describes the shared world and its regular saves. Both the card and the Rules index open `events.rules.apocalypse.0`.
+
+After running `ArcEventsNativePreviewTest`, the six administrator cards and their tooltips can be rendered with the server resource pack and pinned client.
+
+```sh
+python3 -B scripts/render-native-preview \
+  --states ru-root,ru-ttt-admin,ru-gungame-admin,ru-disasters-admin,ru-fishing-admin,ru-zombies-admin,ru-apocalypse-admin,ru-apocalypse,ru-rules-apocalypse
+```

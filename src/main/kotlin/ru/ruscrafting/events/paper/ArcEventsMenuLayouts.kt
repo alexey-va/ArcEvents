@@ -61,6 +61,7 @@ class ArcEventsMenuLayouts(dataRoot: Path) {
             EventsView.Help, EventsView.EventHelp -> HELP
             EventsView.Ttt -> TTT
             EventsView.Fishing -> error("Fishing uses the native dialog only")
+            EventsView.Apocalypse -> error("Apocalypse opens directly when native dialogs are unavailable")
             is EventsView.Arcade -> ARCADE
             EventsView.Statistics -> STATISTICS
             EventsView.Admin -> ADMIN

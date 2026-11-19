@@ -64,17 +64,23 @@ class ArcadeSession(
     private var hazardVictim: UUID? = null
     private var fishing: FishingAdventure? = null
     private var zombies: ZombiesAdventure? = null
+    private var practiceRoster: PracticeRoster? = null
+    private var practiceCompanions: ArcadePracticeCompanions? = null
 
-    fun start(matchId: UUID, mode: EventMode, entries: List<QueueEntry>, players: List<Player>, rules: ArcadeRules): CompletableFuture<Unit> {
+    internal fun start(matchId: UUID, mode: EventMode, entries: List<QueueEntry>, players: List<Player>, rules: ArcadeRules,
+        practice: PracticeRoster? = null): CompletableFuture<Unit> {
         check(current == null)
         require(entries.map { UUID.fromString(it.playerId) }.toSet() == players.map { it.uniqueId }.toSet())
         require(players.distinctBy { it.uniqueId }.size == players.size)
         require(entries.all { it.mode == mode.id })
+        check(players.none { escrow.pendingAnotherMatch(it.uniqueId, matchId) }) { "Player still has recovery from another match" }
         resultShown = false
         rosterCommitted = false
-        val match = runtime.start(matchId, mode, entries.map(QueueEntry::queuedPlayer), rules)
+        require(practice == null || practice.matchId == matchId && players.singleOrNull()?.uniqueId == practice.ownerId)
+        val match = runtime.start(matchId, mode, entries.map(QueueEntry::queuedPlayer) + practice?.bots.orEmpty(), rules)
+        practiceRoster = practice
         var mutationAttempted = false
-        val preservePlayerState = settings().playerStateMode == PlayerStateMode.PRESERVE
+        val preservePlayerState = practice != null || settings().playerStateMode == PlayerStateMode.PRESERVE
         fun current() = current?.matchId == matchId && current?.phase == MatchPhase.PREPARING && players.all(Player::isOnline)
         val applyPlayer: (Player) -> Unit = { player ->
             mutationAttempted = true
@@ -172,6 +178,10 @@ class ArcadeSession(
                             player.sendEventMessage(locale.render("arcade.started", player, mapOf("mode" to modeName(player))))
                         }
                     }
+                    if (practiceRoster != null && match.mode in setOf(EventMode.DISASTERS, EventMode.FISHING)) {
+                        practiceCompanions = ArcadePracticeCompanions(plugin, packetDisplays, roster.single(), match.mode,
+                            match.matchId, locale, practiceRoster?.bots?.singleOrNull()).also { it.start() }
+                    }
                     if (match.mode == EventMode.DISASTERS) prepareHazard()
                     if (match.mode == EventMode.ZOMBIES) {
                         val adventure = ZombiesAdventure(plugin, locale, items, firearms, settings().zombies,
@@ -220,7 +230,8 @@ class ArcadeSession(
             if (match.mode == EventMode.GUN_GAME) {
                 match.participants.values.filter { it.status == ParticipantStatus.DEAD && (it.respawnAtMs ?: Long.MAX_VALUE) <= now }
                     .forEach { state ->
-                        plugin.server.getPlayer(state.playerId)?.takeIf(Player::isOnline)?.let { player ->
+                        if (practiceRoster?.bots?.any { it.playerId == state.playerId } == true) runtime.respawn(state.playerId)
+                        else plugin.server.getPlayer(state.playerId)?.takeIf(Player::isOnline)?.let { player ->
                             runtime.respawn(state.playerId)
                             resetPlayer(player)
                             spawn(player)
@@ -228,8 +239,13 @@ class ArcadeSession(
                             player.sendEventMessage(locale.render("arcade.respawn", player))
                         }
                     }
-            } else if (match.mode == EventMode.DISASTERS) tickDisasters()
-            else if (match.mode == EventMode.FISHING) fishing?.tick()
+            } else if (match.mode == EventMode.DISASTERS) {
+                practiceCompanions?.tick(match.disasterRound, hazardId(), match.disasterActive)
+                tickDisasters()
+            } else if (match.mode == EventMode.FISHING) {
+                fishing?.tick()
+                fishing?.let { practiceCompanions?.tick(it.snapshot().stage, "", true) }
+            }
             else if (match.mode == EventMode.ZOMBIES) zombies?.tick()
         }
         current?.let(::updateHud)
@@ -250,6 +266,9 @@ class ArcadeSession(
         clearWeaponState(player.uniqueId)
         removeHud(player)
         runtime.disconnect(player.uniqueId)
+        if (practiceRoster?.ownerId == player.uniqueId && current?.phase in setOf(MatchPhase.ACTIVE, MatchPhase.PREPARING, MatchPhase.COUNTDOWN)) {
+            runtime.cancel(MatchEndReason.ADMIN)
+        }
         zombies?.disconnect(player)
         // PlayerQuitEvent still exposes the departing player as online; restoring there rejects teleport.
         val departingMatchId = current?.takeIf { it.phase == MatchPhase.CANCELLED }?.matchId
@@ -298,7 +317,8 @@ class ArcadeSession(
         val recent = recentAttacks.consume(before.matchId, player.uniqueId)
         val killer = killerId ?: recent?.attackerId
         val firearmId = recent?.takeIf { !knifeKill && it.attackerId == killer }?.firearmId
-        val after = runtime.eliminate(player.uniqueId, killer, knifeKill, firearmId)
+        val botKnife = practiceRoster?.bots?.any { it.playerId == killer } == true && before.participants[killer]?.stage == FirearmId.entries.size
+        val after = runtime.eliminate(player.uniqueId, killer, knifeKill || botKnife, firearmId)
         if (after == before) return
         if (before.mode == EventMode.ZOMBIES) {
             zombies?.down(player)
@@ -324,6 +344,16 @@ class ArcadeSession(
         if (shouldCancelDamage(victim.uniqueId, attacker.uniqueId, false, null)) return false
         eliminate(victim, attacker.uniqueId, knifeKill = true)
         return true
+    }
+
+    internal fun eliminatePracticeFighter(victim: UUID, killer: UUID, firearm: FirearmId?) {
+        val before = current ?: return
+        if (before.mode != EventMode.GUN_GAME || before.phase != MatchPhase.ACTIVE || practiceRoster?.bots?.none { it.playerId == victim } != false) return
+        val after = runtime.eliminate(victim, killer, knifeKill = firearm == null, firearmId = firearm)
+        if (before.participants[killer]?.stage != after.participants[killer]?.stage) {
+            plugin.server.getPlayer(killer)?.let { clearWeaponState(killer); giveLoadout(it) }
+        }
+        if (after.phase == MatchPhase.RESOLVING) showResult()
     }
 
     fun sendChat(player: Player, message: Component) {
@@ -418,6 +448,7 @@ class ArcadeSession(
             player.sendEventMessage(locale.render("arcade.disaster-warning", player, mapOf("hazard" to hazardName(player), "seconds" to locale.text(match.rules.intermissionSeconds))))
             player.sendEventMessage(locale.render("arcade.hazard-${hazardId()}-guide", player))
         }
+        practiceCompanions?.resetRound()
     }
 
     private fun tickDisasters() {
@@ -438,20 +469,28 @@ class ArcadeSession(
             if (changed.phase == MatchPhase.RESOLVING) showResult() else prepareHazard()
             return
         }
-        val alive = online().filter { isAlive(it.uniqueId) }
+        val alive = online().filter { isAlive(it.uniqueId) }.associateBy(Player::getUniqueId)
+        val locations = alive.mapValues { it.value.location }.toMutableMap()
+        val bot = practiceRoster?.bots?.singleOrNull()?.playerId
+        if (bot != null && isAlive(bot)) practiceCompanions?.location()?.let { locations[bot] = it }
+        fun hurtParticipant(id: UUID, damage: Double) {
+            if (id == bot) {
+                if (practiceCompanions?.hitByHazard(damage) == true) runtime.eliminate(id, null)
+            } else alive[id]?.let { hurt(it, damage) }
+        }
         when (hazardId()) {
             "meteors" -> {
                 if (impacts.isNotEmpty() && now >= impactAt) {
                     impacts.forEach { point ->
                         if (settings().ui.particles) point.world.spawnParticle(Particle.EXPLOSION, point, 1)
                         if (settings().ui.sounds) point.world.playSound(point, Sound.ENTITY_GENERIC_EXPLODE, 0.7f, 1.1f)
-                        alive.filter { it.world == point.world && it.location.distanceSquared(point) <= 9.0 }.forEach { hurt(it, 12.0) }
+                        locations.filterValues { it.world == point.world && it.distanceSquared(point) <= 9.0 }.keys.forEach { hurtParticipant(it, 12.0) }
                     }
                     impacts = emptyList()
                 }
                 if (now / 3000L != lastHazardPulse && impacts.isEmpty()) {
                     lastHazardPulse = now / 3000L
-                    impacts = alive.map { it.location.clone() }
+                    impacts = locations.values.toList()
                     impactAt = now + 2000L
                 }
                 impacts.forEach { point ->
@@ -461,15 +500,15 @@ class ArcadeSession(
             }
             "lightning" -> if (now / 2000L != lastHazardPulse) {
                 lastHazardPulse = now / 2000L
-                alive.filter { player -> (player.location.blockY + 2..72).none { y -> player.world.getBlockAt(player.location.blockX, y, player.location.blockZ).type.isSolid } }
-                    .forEach { player ->
-                        player.world.strikeLightningEffect(player.location)
-                        hurt(player, 6.0)
+                locations.filterValues { at -> (at.blockY + 2..72).none { y -> at.world.getBlockAt(at.blockX, y, at.blockZ).type.isSolid } }
+                    .forEach { (id, at) ->
+                        at.world.strikeLightningEffect(at)
+                        hurtParticipant(id, 6.0)
                     }
             }
-            "fog" -> alive.filter { it.location.y < 68.0 }.forEach { player ->
-                player.addPotionEffect(PotionEffect(PotionEffectType.DARKNESS, 30, 0, false, false))
-                hurt(player, 3.0)
+            "fog" -> locations.filterValues { it.y < 68.0 }.keys.forEach { id ->
+                alive[id]?.addPotionEffect(PotionEffect(PotionEffectType.DARKNESS, 30, 0, false, false))
+                hurtParticipant(id, 3.0)
             }
         }
     }
@@ -487,6 +526,7 @@ class ArcadeSession(
         val completedWaves = zombies?.director?.completedWaves ?: 0
         closeFishing()
         closeZombies()
+        closePracticeCompanions()
         restoreAt = clock() + match.rules.postRoundSeconds * 1000L
         impacts = emptyList()
         val winners = match.winners.mapNotNull { match.participants[it]?.playerName }.sorted().joinToString(", ")
@@ -501,7 +541,7 @@ class ArcadeSession(
             player.sendEventMessage(result)
             player.showTitle(Title.title(modeName(player), result, Title.Times.times(Duration.ofMillis(150), Duration.ofSeconds(4), Duration.ofMillis(400))))
         }
-        match.participants.values.forEach { participant ->
+        if (practiceRoster == null) match.participants.values.forEach { participant ->
             runCatching {
                 network.recordStats(participant.playerId) { it.recordArcade(match.matchId, participant, participant.playerId in match.winners) }
             }.onFailure { plugin.logger.log(Level.WARNING, "ArcEvents could not submit arcade statistics", it) }
@@ -516,6 +556,7 @@ class ArcadeSession(
         runtime.beginRestoring()
         closeFishing()
         closeZombies()
+        closePracticeCompanions()
         impacts = emptyList()
         recentAttacks.clear()
         online().forEach { clearWeaponState(it.uniqueId); removeHud(it) }
@@ -530,14 +571,13 @@ class ArcadeSession(
                     .onFailure { plugin.logger.log(Level.SEVERE, "ArcEvents arcade recovery failed for ${player.uniqueId}", it) }
             }
         }
-        val pending = if (settings().playerStateMode == PlayerStateMode.DISPOSABLE) {
-            emptySet()
-        } else runCatching { escrow.pendingPlayers(match.matchId) }.getOrElse { return }
+        val pending = runCatching { escrow.pendingPlayers(match.matchId) }.getOrElse { return }
         val onlineIds = match.participants.keys.filterTo(mutableSetOf()) { plugin.server.getPlayer(it)?.isOnline == true }
         val restoredIds = requireNotNull(current).participants.values.filter { it.status == ParticipantStatus.RESTORED }.mapTo(mutableSetOf()) { it.playerId }
         if (EventRecoveryGate.blocked(onlineIds, pending, restoredIds)) return
         arenaPool.release(match.matchId)
         runtime.release()
+        practiceRoster = null
         bars.clear()
     }
 
@@ -589,6 +629,12 @@ class ArcadeSession(
         if (match.mode != EventMode.FISHING || match.phase != MatchPhase.ACTIVE || !isAlive(player.uniqueId)) return null
         return fishing?.takeIf { it.belongsTo(player) }
     }
+    private fun closePracticeCompanions() {
+        val companions = practiceCompanions
+        practiceCompanions = null
+        companions?.close()
+    }
+
     private fun closeFishing() {
         val owned = fishing
         fishing = null

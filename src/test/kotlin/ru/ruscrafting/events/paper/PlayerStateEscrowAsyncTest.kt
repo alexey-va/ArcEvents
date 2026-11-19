@@ -14,9 +14,11 @@ import ru.arc.paper.playerstate.PaperItemStackBinaryCodec
 import ru.arc.paper.playerstate.PaperPlayerStateCodec
 import ru.arc.paper.playerstate.PaperPlayerStateService
 import ru.arc.paper.testing.MockBukkitTestRuntime
+import ru.ruscrafting.events.network.QueueEntry
 import java.nio.file.Files
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CompletionException
 import java.util.concurrent.atomic.AtomicInteger
 
 class PlayerStateEscrowAsyncTest : FunSpec({
@@ -87,6 +89,46 @@ class PlayerStateEscrowAsyncTest : FunSpec({
             mutations shouldBe 0
             player.inventory.getItem(0) shouldBe ItemStack.of(Material.EMERALD, 5)
             h.escrow.pendingCount(id) shouldBe 1
+        }
+    }
+
+    test("disconnect during practice recovery retains the journal until the next connection restores it") {
+        EscrowHarness().use { h ->
+            val player = h.paper.server.addPlayer("Leaving")
+            val original = ItemStack.of(Material.EMERALD, 5)
+            player.inventory.setItem(12, original.clone())
+            val match = QueueEntry.newPracticeMatchId()
+            val captured = h.escrow.commitThenMutateAsync(match, listOf(player), mapOf(player.uniqueId to "survival"), 1_787_730_000_000) {
+                player.inventory.clear()
+            }
+            h.until { captured.isDone }
+            captured.join()
+
+            val gate = CompletableFuture<Unit>()
+            h.computeGate = gate
+            val departing = h.escrow.recoverAsync(player)
+            h.tick()
+            departing.isDone shouldBe false
+            player.disconnect() shouldBe true
+            h.computeGate = null
+            gate.complete(Unit)
+            h.until { departing.isDone }
+
+            val failure = departing.handle { _, cause -> cause }.join()
+            val deferred = ((failure as? CompletionException)?.cause ?: failure) as RecoveryDeferredUntilJoin
+            deferred.matchId shouldBe match.toString()
+            h.persisted.get() shouldBe 0
+            h.escrow.isLocked(player.uniqueId) shouldBe false
+            h.escrow.pendingPlayers(match) shouldBe setOf(player.uniqueId)
+            player.inventory.isEmpty shouldBe true
+
+            player.reconnect() shouldBe true
+            val returning = h.escrow.recoverAsync(player)
+            h.until { returning.isDone }
+            returning.join() shouldBe PlayerRecovery(match, "survival")
+            player.inventory.getItem(12) shouldBe original
+            h.persisted.get() shouldBe 1
+            h.escrow.pendingCount(match) shouldBe 0
         }
     }
 

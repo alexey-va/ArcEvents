@@ -4,8 +4,9 @@ node-mode: RELAY
 host-server: parkour
 
 # PRESERVE commits and restores complete player-state snapshots around events.
-# DISPOSABLE is host-only: inventories and temporary gameplay state are cleared
-# on event exit, and legacy recovery files are retained but ignored. Review old
+# DISPOSABLE clears public arcade loadouts on host exit. Administrator practice
+# always restores a separate snapshot from data/practice-recovery. Older ordinary
+# recovery files are retained but ignored on DISPOSABLE hosts. Review old
 # recovery records before switching back. Restart-only.
 player-state:
   mode: PRESERVE

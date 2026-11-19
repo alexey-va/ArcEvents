@@ -49,6 +49,15 @@ class EventNetworkProtocolTest : StringSpec({
         }
     }
 
+    "practice requires a trusted admin start for one named requester" {
+        val request = EventNetworkMessage.create(EventNetworkSignal.START_REQUEST, destinationServer = "parkour",
+            requesterId = UUID.randomUUID(), adminBypass = true, mode = EventMode.GUN_GAME.id, practicePlayerName = "Tester")
+        request.validated().practicePlayerName shouldBe "Tester"
+        shouldThrow<IllegalArgumentException> { request.copy(adminBypass = false).validated() }
+        shouldThrow<IllegalArgumentException> { request.copy(requesterId = null).validated() }
+        shouldThrow<IllegalArgumentException> { request.copy(signal = EventNetworkSignal.NODE_PROBE).validated() }
+    }
+
     "cross-server start messages are target and correlation bound" {
         val request = EventNetworkMessage.create(
             EventNetworkSignal.START_REQUEST,

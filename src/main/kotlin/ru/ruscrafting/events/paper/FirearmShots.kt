@@ -314,7 +314,8 @@ class FirearmShots(
                 return false
             }
             result.hitEntity?.takeIf(shot.target)?.let { entity ->
-                val headshot = entity is Player && end.y >= entity.eyeLocation.y - .38
+                val headshot = entity is LivingEntity && (entity is Player || PracticeFighters.TAG in entity.scoreboardTags) &&
+                    end.y >= entity.eyeLocation.y - .38
                 val damage = shot.spec.damagePerPellet * if (headshot) shot.headshotMultiplier else 1.0
                 val previous = bullet.round.impacts[entity.uniqueId]
                 if (previous == null) bullet.round.impacts[entity.uniqueId] = Impact(shot, entity, end, headshot, damage)

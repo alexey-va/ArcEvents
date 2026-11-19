@@ -6,6 +6,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from zipfile import ZipFile
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,6 +29,24 @@ def fonts_in(value, found, inherited='minecraft:default'):
         for key, child in value.items():
             if key != 'font':
                 fonts_in(child, found, font)
+
+
+def collapse_shared_spaces(fonts, pack):
+    """The flat glyph map can share a spacing glyph only when its actual advances match."""
+    with ZipFile(pack) as archive:
+        advances = {}
+        for char, providers in fonts.items():
+            if len(providers) == 1:
+                continue
+            for provider in providers:
+                if provider not in advances:
+                    namespace, name = provider.split(':')
+                    first = json.loads(archive.read(f'assets/{namespace}/font/{name}.json'))['providers'][0]
+                    advances[provider] = first.get('advances', {}) if first.get('type') == 'space' else {}
+            values = {advances[provider].get(char) for provider in providers}
+            if len(values) != 1 or None in values:
+                raise SystemExit(f'Ambiguous glyph U+{ord(char):X} in {sorted(providers)}')
+            fonts[char] = {min(providers)}
 
 
 def main():
@@ -77,12 +96,15 @@ def main():
                                     'tooltip-key': f'{state}.exit_tip', 'width': screen['exit']['width']}
         texts[state] = values
         dialogs.append(dialog)
-    ambiguous = {f'U+{ord(char):X}': sorted(providers) for char, providers in fonts.items() if len(providers) != 1}
-    if ambiguous:
-        raise SystemExit(f'Ambiguous font providers: {ambiguous}')
+    baseline = yaml.safe_load((ROOT / 'visual-preview.yml').read_text())
+    renderer = args.ops_root.resolve() / '.agents/skills/design-ruscrafting-surfaces/scripts/render_plugin_surface_dump.py'
+    if any(len(providers) > 1 for providers in fonts.values()):
+        sys.path.insert(0, str(renderer.parent))
+        from render_plugin_surface_dump import resolve_resource_pack
+        args.resource_pack = resolve_resource_pack(baseline, args.resource_pack, output.parent / '.surface-cache')
+        collapse_shared_spaces(fonts, args.resource_pack)
     resolved = output.parent / 'resolved.json'
     resolved.write_text(json.dumps(texts, ensure_ascii=False, indent=2))
-    baseline = yaml.safe_load((ROOT / 'visual-preview.yml').read_text())
     manifest = {key: baseline[key] for key in ('schema', 'minecraft-version', 'minecraft-client-sha1',
                                                'minecraft-asset-index-sha1', 'resource-pack')}
     manifest.update({'plugin': 'ArcEvents · Native UI', 'gallery-accent': '#ffb277',
@@ -93,7 +115,7 @@ def main():
                                      'Background is the pinned official Minecraft panorama, not the server world.']})
     manifest_path = output.parent / 'native-manifest.yml'
     manifest_path.write_text(yaml.safe_dump(manifest, allow_unicode=True, sort_keys=False))
-    command = [sys.executable, '-B', str(args.ops_root / '.agents/skills/design-ruscrafting-surfaces/scripts/render_plugin_surface_dump.py'),
+    command = [sys.executable, '-B', str(renderer),
                '--manifest', str(manifest_path), '--project-root', str(ROOT), '--output', str(output), '--gui-scale', str(args.gui_scale)]
     for option, value in (('--client-jar', args.client_jar), ('--resource-pack', args.resource_pack)):
         if value:

@@ -135,6 +135,43 @@ class EventNetworkCoordinatorMockBukkitTest : FunSpec({
         }
     }
 
+    test("the practice origin reconnects its tester to host escrow before acknowledging the return") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture(relay = true).use { fixture ->
+                fixture.start()
+                val player = fixture.addPlayer("PracticeOrigin")
+                val match = QueueEntry.newPracticeMatchId()
+                fixture.seedMatched(player, match, "spawn")
+                every { fixture.transfer.connect(player, BackendServerId.of("parkour")) } returns BackendTransferResult.SENT
+                fixture.coordinator.handleJoin(player)
+                fixture.tick(8)
+                verify(exactly = 1) { fixture.transfer.connect(player, BackendServerId.of("parkour")) }
+                fixture.queueEntry(player)?.state shouldBe QueueState.MATCHED
+            }
+        }
+    }
+
+    test("disposable host resumes private returns for the same admin after a fresh connection") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture(disposable = true).use { fixture ->
+                fixture.start()
+                every { fixture.transfer.connect(any(), any()) } returns BackendTransferResult.SENT
+                for (alreadyReturning in listOf(false, true)) {
+                    val player = fixture.addPlayer(if (alreadyReturning) "PracticeReturn" else "PracticeMatch")
+                    val match = QueueEntry.newPracticeMatchId()
+                    fixture.seedMatched(player, match)
+                    if (alreadyReturning) fixture.markReturnPending(player)
+                    fixture.coordinator.handleJoin(player)
+                    fixture.tick(8)
+                    val entry = requireNotNull(fixture.queueEntry(player))
+                    entry.practice shouldBe true
+                    entry.state shouldBe QueueState.RETURN_PENDING
+                    verify(exactly = 1) { fixture.transfer.connect(player, BackendServerId.of("spawn")) }
+                }
+            }
+        }
+    }
+
     test("disposable host preserves stale match routes for the origin without redirecting a later join") {
         failOnUnsupportedMockBukkitOperation {
             EventNetworkCoordinatorFixture(disposable = true).use { fixture ->
@@ -379,6 +416,52 @@ class EventNetworkCoordinatorMockBukkitTest : FunSpec({
                     entries.map(QueueEntry::playerId) shouldBe listOf(requester.uniqueId.toString())
                 }
                 fixture.queueEntry(peer) shouldBe peerBefore
+            }
+        }
+    }
+
+    test("an admin starts a private match outside FIFO, and a repeated click keeps the same return route") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture().use { fixture ->
+                fixture.start()
+                val peer = fixture.addPlayer("PublicPlayer")
+                fixture.queuePlayer(peer)
+                val before = fixture.queueEntry(peer)
+                val tester = fixture.addPlayer("PrivateTester")
+                fixture.await(fixture.coordinator.reservePractice(tester, EventMode.ZOMBIES)) shouldBe ReservationStartResult.NOT_OWNER
+                fixture.queueEntry(tester) shouldBe null
+                tester.isOp = true
+                fixture.await(fixture.coordinator.reservePractice(tester, EventMode.ZOMBIES)) shouldBe ReservationStartResult.STARTED
+                fixture.await(fixture.coordinator.reservePractice(tester, EventMode.ZOMBIES)) shouldBe ReservationStartResult.RECOVERY_PENDING
+                fixture.reservations.single().apply {
+                    practice shouldBe true
+                    requesterId shouldBe tester.uniqueId
+                    entries.map(QueueEntry::playerId) shouldBe listOf(tester.uniqueId.toString())
+                }
+                fixture.queueEntry(peer) shouldBe before
+            }
+        }
+    }
+
+    test("a relay practice request creates one private route from its authenticated origin") {
+        failOnUnsupportedMockBukkitOperation {
+            EventNetworkCoordinatorFixture().use { fixture ->
+                fixture.start()
+                val tester = UUID.randomUUID()
+                val request = EventNetworkMessage.create(
+                    EventNetworkSignal.START_REQUEST, nowMs = fixture.now(), destinationServer = "parkour",
+                    requesterId = tester, adminBypass = true, mode = EventMode.GUN_GAME.id, practicePlayerName = "Tester",
+                )
+                fixture.publishMessage(request, "unknown")
+                fixture.tick(3)
+                fixture.queueEntry(tester) shouldBe null
+                fixture.publishMessage(request.copy(eventId = UUID.randomUUID().toString()), "survival")
+                fixture.tick(8)
+                val batch = fixture.reservations.single()
+                batch.practice shouldBe true
+                batch.entries.single().originServer shouldBe "survival"
+                batch.entries.single().playerId shouldBe tester.toString()
+                batch.mode shouldBe EventMode.GUN_GAME
             }
         }
     }
@@ -865,6 +948,8 @@ private class EventNetworkCoordinatorFixture(
     fun advanceTime(deltaMs: Long) {
         nowMs += deltaMs
     }
+
+    fun now(): Long = nowMs
 
     fun persistSound(preset: FirearmSoundPreset) {
         redisStore.saveMapEntries(RedisEventNetworkRepository.SETTINGS_KEY,

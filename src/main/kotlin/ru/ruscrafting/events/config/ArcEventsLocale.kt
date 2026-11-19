@@ -8,6 +8,7 @@ import ru.arc.text.ConfigLocaleCatalog
 import ru.arc.text.LocalizedMiniMessage
 import ru.ruscrafting.events.domain.FirearmId
 import ru.ruscrafting.events.domain.FirearmRarity
+import ru.ruscrafting.events.domain.EventMode
 import java.nio.file.Path
 
 class ArcEventsLocale(
@@ -33,6 +34,11 @@ class ArcEventsLocale(
 
     fun text(value: Any?): Component = renderer.literal(value)
 
+    fun soloTestText(player: Player, mode: EventMode) = mapOf(
+        "action" to render("practice.${mode.id}.action", player),
+        "roster" to render("practice.${mode.id}.roster", player),
+    )
+
     fun prepare(): Prepared = Prepared(LocalizedMiniMessage(
         catalogs = mapOf(
             "ru" to ConfigLocaleCatalog(Config(dataRoot, "lang/ru.yml")),
@@ -54,6 +60,9 @@ class ArcEventsLocale(
     companion object {
         val REQUIRED_SCALARS = setOf(
             "prefix", "command.player-only", "command.no-permission", "command.help", "command.failed",
+            "menu.admin.solo-test-name", "admin.solo-usage", "apocalypse.enter-name", "apocalypse.test-name",
+            "dialog.apocalypse-overview", "dialog.apocalypse-facts", "practice.companion.angler", "practice.companion.runner",
+            "fishing.card-bite", "fishing.card-release", "zombies.card-revive",
             "reason.network", "reason.contended", "reason.transfer", "reason.return-transfer",
             "state.mode-relay", "state.mode-host",
             "phase.idle", "phase.reserved", "phase.preparing", "phase.countdown", "phase.active",
@@ -143,7 +152,8 @@ class ArcEventsLocale(
             "fishing.invalid-catch", "fishing.reel-now", "fishing.travel-retry", "fishing.encounter-restored", "fishing.telegraph",
             "fishing.phase.casting", "fishing.phase.bite", "fishing.phase.creature", "fishing.phase.travel",
             "fishing.phase.boss", "fishing.phase.complete", "fishing.phase.closed",
-        ) + listOf("burst-title", "tuning-title", "held", "burst-help", "single-help", "tuning-help", "count", "damage", "spread",
+        ) + EventMode.entries.flatMap { mode -> listOf("practice.${mode.id}.action", "practice.${mode.id}.roster") } +
+            listOf("burst-title", "tuning-title", "held", "burst-help", "single-help", "tuning-help", "count", "damage", "spread",
             "save", "full", "default-burst", "default-tuning", "tune", "hold", "changed", "burst-command", "admin-command",
             "burst-saved", "tuning-saved", "hud-count").map { "weapon.settings.$it" } +
             listOf("ready", "wave-title", "wave-subtitle", "brute-warning", "brute-name", "wave-cleared", "self-revive",
@@ -157,6 +167,7 @@ class ArcEventsLocale(
         } + FirearmRarity.entries.map { rarity -> "weapon.rarity.${rarity.name.lowercase()}" }
 
         val REQUIRED_LISTS = setOf(
+            "menu.admin.solo-test-lore", "apocalypse.enter-lore", "apocalypse.test-lore", "dialog.rules-apocalypse-0",
             "menu.main.ttt-lore", "menu.main.stats-lore", "menu.main.help-lore", "menu.main.admin-lore", "menu.main.main-body", "menu.common.close-lore",
             "menu.event.loading-lore", "menu.event.overview-lore", "menu.event.queue-lore", "menu.event.join-lore", "menu.event.join-unavailable-lore",
             "menu.event.leave-lore", "menu.event.start-lore", "menu.event.arena-lore", "menu.event.roster-lore", "menu.event.shop-lore",

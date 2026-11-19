@@ -12,9 +12,12 @@ import ru.arc.persistence.DurableMutationReceipt
 import ru.arc.persistence.DurableRecoveryCompletion
 import ru.arc.persistence.DurableRecoveryWorkflow
 import ru.arc.persistence.DurableRecordJournal
+import ru.ruscrafting.events.config.PlayerStateMode
+import ru.ruscrafting.events.network.QueueEntry
 import java.nio.charset.StandardCharsets
 import java.nio.file.Path
 import java.util.UUID
+import java.util.concurrent.CancellationException
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionException
 import java.util.concurrent.atomic.AtomicInteger
@@ -61,18 +64,29 @@ data class RecoveryBatch(
 }
 
 class RecoveryBatchStore(
-    dataRoot: Path,
+    private val dataRoot: Path,
     private val gson: Gson = Gson(),
     private val stateCodec: PaperPlayerStateCodec = PaperPlayerStateCodec(),
+    private val mode: PlayerStateMode = PlayerStateMode.PRESERVE,
 ) {
-    private val journal by lazy { DurableRecordJournal(
+    private val publicJournal by lazy { openJournal("recovery") }
+    private val practiceJournal by lazy { openJournal("practice-recovery") }
+
+    private fun openJournal(name: String) = DurableRecordJournal(
         root = dataRoot,
-        relativeDirectory = Path.of("data/recovery"),
+        relativeDirectory = Path.of("data", name),
         maxRecordBytes = MAX_BATCH_BYTES,
         encode = { batch: RecoveryBatch -> (gson.toJson(batch) + "\n").toByteArray(StandardCharsets.UTF_8) },
         decode = { bytes -> requireNotNull(gson.fromJson(bytes.toString(StandardCharsets.UTF_8), RecoveryBatch::class.java)) },
         validate = { batch -> batch.validated(stateCodec) },
-    ) }
+    )
+
+    private fun journal(matchId: String): DurableRecordJournal<RecoveryBatch> {
+        if (QueueEntry.isPracticeMatch(UUID.fromString(matchId))) return practiceJournal
+        check(mode == PlayerStateMode.PRESERVE) { "Ordinary matches have no escrow on a disposable host" }
+        return publicJournal
+    }
+
     private data class RecoveryView(
         val batches: List<RecoveryBatch>,
         val pending: Map<UUID, Pair<RecoveryBatch, CorePlayerState>>,
@@ -100,12 +114,13 @@ class RecoveryBatchStore(
 
     @Synchronized
     fun commit(batch: RecoveryBatch): RecoveryBatch =
-        committed(journal.commit(batch.matchId, batch.validated(stateCodec)))
+        committed(journal(batch.matchId).commit(batch.matchId, batch.validated(stateCodec)))
 
     /** Adds newly arrived players while retaining every earlier pre-mutation snapshot. */
     @Synchronized
     fun merge(batch: RecoveryBatch): RecoveryBatch {
         val candidate = batch.validated(stateCodec)
+        val journal = journal(candidate.matchId)
         val current = journal.loadOrNull(candidate.matchId)
         if (current == null) return committed(journal.commit(candidate.matchId, candidate))
         val existing = current.validated(stateCodec)
@@ -129,6 +144,7 @@ class RecoveryBatchStore(
 
     @Synchronized
     fun acknowledgeExactly(expected: RecoveryBatch, playerId: UUID): DurableAcknowledgementOutcome {
+        val journal = journal(expected.matchId)
         val current = journal.loadOrNull(expected.matchId)
             ?: return DurableAcknowledgementOutcome.ALREADY_ACKNOWLEDGED
         if (!expected.sameContent(current)) return DurableAcknowledgementOutcome.CONTENT_MISMATCH
@@ -143,7 +159,10 @@ class RecoveryBatchStore(
         return DurableAcknowledgementOutcome.ACKNOWLEDGED
     }
 
-    fun loadAll(): List<RecoveryBatch> = view?.batches ?: journal.loadAll().map { stored ->
+    fun loadAll(): List<RecoveryBatch> = view?.batches ?: buildList {
+        if (mode == PlayerStateMode.PRESERVE) addAll(publicJournal.loadAll())
+        addAll(practiceJournal.loadAll())
+    }.map { stored ->
         stored.value.also { batch ->
             require(stored.recordId == batch.matchId) { "Recovery batch filename does not match its match id" }
         }
@@ -179,6 +198,9 @@ class PlayerStateEscrow(
     private val recoveryTails = mutableMapOf<String, CompletableFuture<Unit>>()
     private var closed = false
     fun isLocked(playerId: UUID): Boolean = playerId in inFlight
+    fun currentOperation(playerId: UUID): CompletableFuture<*>? = inFlight[playerId]
+    fun pendingAnotherMatch(playerId: UUID, matchId: UUID): Boolean =
+        enabled && store.pendingFor(playerId)?.first?.let { it.matchId != matchId.toString() } == true
     fun close() { closed = true }
 
     private val cachedRecoveryBacklog = AtomicInteger(if (enabled) loadPendingCount() else 0)
@@ -215,7 +237,8 @@ class PlayerStateEscrow(
         identities.forEach { inFlight[it] = result }
         val pending = players.iterator()
         val captured = mutableListOf<Pair<UUID, ByteArray>>()
-        fun current() = !closed && tasks.isCurrent() && isCurrent() && players.all { it.isOnline && !it.isDead } && identities.all { inFlight[it] === result }
+        fun current() = !closed && tasks.isCurrent() && isCurrent() &&
+            players.all { it.isOnline && !it.isDead && it.server.getPlayer(it.uniqueId) === it } && identities.all { inFlight[it] === result }
         tasks.capture(::current) {
             if (pending.hasNext()) {
                 val player = pending.next()
@@ -253,14 +276,17 @@ class PlayerStateEscrow(
         val predecessor = recoveryTails[admittedBatch.matchId] ?: CompletableFuture.completedFuture(Unit)
         val tail = CompletableFuture<Unit>()
         recoveryTails[admittedBatch.matchId] = tail
+        fun current() = !closed && tasks.isCurrent() && inFlight[id] === result
         predecessor.thenCompose { tasks.onMain {
-            check(!closed && tasks.isCurrent() && player.isOnline && inFlight[id] === result)
+            check(current())
+            requireRestoreConnection(player, admittedBatch.matchId)
             val latest = requireNotNull(store.pendingFor(id)) { "Player recovery changed before capture" }
             require(latest.first.matchId == admittedBatch.matchId && latest.second == admittedState) { "Player recovery source changed" }
             latest
         } }.thenCompose { (batch, state) -> tasks.compute { stateCodec.prepareDecode(state.envelope) }
             .thenCompose { prepared -> tasks.onMain {
-                tasks.capture({ !closed && tasks.isCurrent() && player.isOnline && inFlight[id] === result }) {
+                tasks.capture(::current) {
+                    requireRestoreConnection(player, batch.matchId)
                     // Native blob failures retain the exact journal record and never acknowledge it.
                     val snapshot = stateCodec.decode(prepared)
                     require(snapshot.playerId == id)
@@ -324,6 +350,7 @@ class PlayerStateEscrow(
     fun recover(player: Player, teleport: (Location) -> Boolean = player::teleport): PlayerRecovery? {
         check(enabled) { "Player-state escrow is disabled by player-state.mode" }
         val (batch, state) = store.pendingFor(player.uniqueId) ?: return null
+        requireRestoreConnection(player, batch.matchId)
         val completion = try {
             workflow.restoreThenAcknowledge(batch) {
                 completed {
@@ -347,6 +374,10 @@ class PlayerStateEscrow(
 
     private data class PlayerRestoreReceipt(val playerId: UUID, val recovery: PlayerRecovery)
 
+    private fun requireRestoreConnection(player: Player, matchId: String) {
+        if (!player.isOnline || player.server.getPlayer(player.uniqueId) !== player) throw RecoveryDeferredUntilJoin(matchId)
+    }
+
     private fun refreshRecoveryBacklog() {
         if (!enabled) return
         runCatching(::loadPendingCount).onSuccess(cachedRecoveryBacklog::set)
@@ -365,3 +396,5 @@ class PlayerStateEscrow(
 }
 
 data class PlayerRecovery(val matchId: UUID, val returnServer: String)
+
+internal class RecoveryDeferredUntilJoin(val matchId: String) : CancellationException("Player disconnected before recovery for $matchId")

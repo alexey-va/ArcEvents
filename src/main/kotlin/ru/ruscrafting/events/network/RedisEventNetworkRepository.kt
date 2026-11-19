@@ -165,6 +165,25 @@ class RedisEventNetworkRepository(
     fun loadQueueEntry(playerId: UUID): CompletableFuture<QueueEntry?> =
         redis.loadMapEntries(QUEUE_KEY, playerId.toString()).thenApply { values -> values.firstOrNull()?.let(queueCodec::decode) }
 
+    /** Create only the human's return route. A private requester is never briefly eligible for public FIFO. */
+    fun reservePractice(
+        matchId: UUID, destination: String, playerId: UUID, playerName: String, origin: String,
+        mode: EventMode, nowMs: Long, reservationMs: Long,
+    ): CompletableFuture<ReservationBatch?> {
+        val entry = QueueEntry(
+            playerId.toString(), playerName, origin, mode.id, QueueState.RESERVED, nowMs, nowMs + reservationMs,
+            matchId.toString(), destination,
+        ).validated()
+        require(entry.practice) { "Private reservations require a private match id" }
+        return queue.update(entry.playerId) { current ->
+            if (current == null || current.isExpiredQueuePlace(nowMs) ||
+                current.state == QueueState.QUEUED && current.originServer == origin
+            ) RedisHashDecision.Write(entry) else RedisHashDecision.Reject
+        }.thenApply { update ->
+            update.acceptedValue()?.let { ReservationBatch(matchId, listOf(it), requesterId = playerId, mode = mode, practice = true) }
+        }
+    }
+
     /** Reserves only the authenticated requester row without consuming FIFO neighbours. */
     fun reserveForRequester(
         matchId: UUID,
@@ -243,8 +262,9 @@ class RedisEventNetworkRepository(
                 QueueState.RESERVED -> if (entry.destinationServer == currentServer && entry.expiresAtMs >= nowMs) {
                     RedisHashDecision.Write(entry.copy(state = QueueState.ARRIVED, expiresAtMs = Long.MAX_VALUE).validated())
                 } else RedisHashDecision.Reject
-                QueueState.ARRIVED -> if (entry.destinationServer == currentServer) RedisHashDecision.Write(entry) else RedisHashDecision.Reject
-                QueueState.MATCHED -> if (currentServer == entry.destinationServer) RedisHashDecision.Write(entry) else RedisHashDecision.Reject
+                QueueState.ARRIVED, QueueState.MATCHED -> if (
+                    entry.destinationServer == currentServer || entry.practice && entry.originServer == currentServer
+                ) RedisHashDecision.Write(entry) else RedisHashDecision.Reject
                 QueueState.RETURN_PENDING -> if (
                     currentServer == entry.originServer || currentServer == entry.destinationServer
                 ) RedisHashDecision.Write(entry) else RedisHashDecision.Reject
@@ -495,7 +515,7 @@ class RedisEventNetworkRepository(
         private val STATS_REQUIRED_FIELDS = STATS_FIELDS - "lastMatchId"
         private val MESSAGE_FIELDS = setOf(
             "eventId", "signal", "occurredAtMs", "matchId", "playerId", "destinationServer", "queueSize", "winner",
-            "endReason", "replyTo", "startResult", "requesterId", "preferredArenaId", "adminBypass", "mode", "requesterOnly",
+            "endReason", "replyTo", "startResult", "requesterId", "preferredArenaId", "adminBypass", "mode", "requesterOnly", "practicePlayerName",
         )
         private val MESSAGE_REQUIRED_FIELDS = setOf("eventId", "signal", "occurredAtMs")
         private val ROUTED_STATES = setOf(

@@ -27,7 +27,7 @@ menu:
     title: '<#20252b>Events'
     main-body:
     - '<#e8dfd2>Queued: <#ffffff><queue>'
-    ttt-name: '<#e3b341><bold>Hidden Roles'
+    ttt-name: '<#c4abff><bold>Hidden Roles'
     ttt-lore:
     - <#e8dfd2>Find the traitors among the players.
     - <#e8dfd2>Hidden roles · team investigation
@@ -45,7 +45,7 @@ menu:
     loading-name: <#ffb277>Queue
     loading-lore:
     - <#e8dfd2>Checking available actions…
-    overview-name: <#ffb277>Find the traitors
+    overview-name: <#c4abff>Find the traitors
     overview-lore:
     - <#e8dfd2>Innocents and detectives face hidden traitors.
     queue-name: <#86dcf1>Your status
@@ -176,6 +176,10 @@ menu:
     reload-lore:
     - <#f2f0e6>Validate and apply safe settings.
     - <#8c8c8c>Node identity requires a restart.
+    solo-test-name: '<#c4a7e7><action>'
+    solo-test-lore:
+    - '<#e8dfd2><roster>'
+    - '<#e8dfd2>Results are excluded from your stats.'
     recover-name: '<#c58cff><bold>Retry recovery'
     recover-lore:
     - <#f2f0e6>Restore every currently available player.
@@ -375,7 +379,7 @@ queue:
 
 match:
   unavailable: '<prefix> <#ff9f0f>You are not participating in a match.'
-  preparing-title: '<#e3b341>Explore the map'
+  preparing-title: '<#c4abff>Explore the map'
   preparing-subtitle: '<#f2f0e6>Roles hidden <#8fa6b8>— <#d87a82>damage disabled'
   preparing-guide: <#e8dfd2>Rules and controls — <#86dcf1>/arcevents
   countdown-title: '<#ffcc33><bold><seconds>'
@@ -429,7 +433,7 @@ role:
   detective-label: '<#5fb3ff>Detective'
 
 hud:
-  scoreboard-title: '<#ffcc33><bold>Hidden Roles'
+  scoreboard-title: '<#c4abff><bold>Hidden Roles'
   phase-line: <#ffffff><phase>
   time-line: '<#ffffff>Time: <#ffcc33><time>'
   alive-line: '<#ffffff>Alive: <#55ff88><alive><#8fa6b8>/<#55ff88><players>'
@@ -441,9 +445,9 @@ hud:
   objective-innocent: '<#7bd88f>find the traitors'
   objective-traitor: '<#d84a4a>eliminate innocents'
   objective-detective: '<#5fb3ff>inspect bodies'
-  bossbar-preparing: <#ffb277>Roles in <time>
+  bossbar-preparing: <#c4abff>Roles in <time>
   bossbar-countdown: '<role>  <#ffffff>start in <#ffcc33><time>'
-  bossbar-active: <#ffb277><time> remaining
+  bossbar-active: <#c4abff><time> remaining
   countdown-actionbar: '<role>  <#f2f0e6>Combat in <#e3b341><time>'
   preparing-tips:
   - <#e8dfd2>Find weapons on the map
@@ -638,6 +642,7 @@ chat:
 
 admin:
   arena-unavailable: '<prefix> <#c42323>Arena not ready: check its world and points.'
+  solo-usage: '<prefix> <#e8dfd2>/arcevents admin solo <#c4a7e7>mode<newline>  <#e8dfd2>ttt, gungame, disasters, fishing, zombies, apocalypse'
   arena-selected: '<prefix> <#2bba43>Next map: <arena><#e6fff3>.'
   arena-selection-failed: '<prefix> <#c42323>Map <arena> cannot be selected: it is not ready or a match is active.'
   started: '<prefix> <#2bba43>Roster reservation started.'
@@ -694,66 +699,66 @@ debug:
 
 arcade:
   zombies-title: '<#ffb277>Zombies: Sector Zero'
-  zombies-name: '<#ffb277><bold>Zombies: Sector Zero'
-  zombies-guide-name: '<#ffb277>Hold the sector'
+  zombies-name: '<#ff9c82><bold>Zombies: Sector Zero'
+  zombies-guide-name: '<#ff9c82>Hold the sector'
   zombies-dialog-unavailable: '<#e8dfd2>Zombies requires Java 1.21.6 or newer with native dialog support.'
-  zombies-hud: '<#ffb277>Sector Zero <#e8dfd2>| Starting in <seconds>s'
+  zombies-hud: '<#ff9c82>Sector Zero <#e8dfd2>| Starting in <seconds>s'
   zombies-lore:
   - <#e8dfd2>Survive waves of zombies.
   - <#e8dfd2>Solo or a team of up to four
   zombies-guide:
-  - <#ffb277>Hold the sector
+  - <#ff9c82>Hold the sector
   - <#e8dfd2>Survive <waves> waves with <minimum>–<maximum> players.
   - <#e8dfd2>Spend kill and wave points at the entrance stations.
   - ''
-  - <#ffb277>Mystery box
+  - <#ff9c82>Mystery box
   - <#e8dfd2>RMB to pay for a roll. Claim your weapon before it expires.
   - <#e8dfd2>Unclaimed weapons do not refund the points.
   - ''
-  - <#ffb277>Barricades
+  - <#ff9c82>Barricades
   - <#e8dfd2>Hold Shift at a window to replace boards. Repairs are free.
   unsupported-mode: '<prefix> <#c42323>Unsupported mode: <mode>.'
   gungame-title: '<#20252b>Gun Game'
-  gungame-name: '<#e3b341><bold>Gun Game'
+  gungame-name: '<#f4c575><bold>Gun Game'
   gungame-lore:
   - <#e8dfd2>A new weapon for every elimination.
   - <#e8dfd2>Finish the race with a knife kill.
-  gungame-guide-name: '<#e3b341><bold>Gun Game rules'
+  gungame-guide-name: '<#f4c575><bold>Gun Game rules'
   gungame-guide:
-  - <#ffb277>Goal
+  - <#f4c575>Goal
   - <#e8dfd2>Eliminate a player with each weapon, then with the knife.
   - ''
-  - <#ffb277>Controls
+  - <#f4c575>Controls
   - <#e8dfd2>LMB — fire · RMB — aim · F — reload.
   - ''
-  - <#ffb277>Respawning
+  - <#f4c575>Respawning
   - <#e8dfd2>After elimination, return with brief spawn protection.
   disasters-title: '<#20252b>Disasters'
-  disasters-name: '<#ff9f0f><bold>Disasters'
+  disasters-name: '<#9fc6ff><bold>Disasters'
   disasters-lore:
   - <#e8dfd2>Survive a series of disasters.
   - <#e8dfd2>Watch for warnings before each strike.
-  disasters-guide-name: '<#ff9f0f><bold>Disasters rules'
+  disasters-guide-name: '<#9fc6ff><bold>Disasters rules'
   disasters-guide:
-  - <#ffb277>Goal
+  - <#9fc6ff>Goal
   - <#e8dfd2>Survive <rounds> rounds. Survivors earn points.
   - ''
-  - <#ffb277>Shelter
+  - <#9fc6ff>Shelter
   - '<#e8dfd2>Meteors: move out of the marked circles.'
   - '<#e8dfd2>Lightning: shelter under a copper canopy.'
   - '<#e8dfd2>Fog: climb onto a stone terrace.'
   fishing-title: '<#20252b>Islands of the Deep'
-  fishing-name: '<#67d7ff><bold>Islands of the Deep'
+  fishing-name: '<#74ded2><bold>Islands of the Deep'
   fishing-lore:
   - <#e8dfd2>Fish, fight and unlock five islands.
   - <#e8dfd2>Solo expedition
-  fishing-guide-name: '<#67d7ff><bold>Islands of the Deep rules'
+  fishing-guide-name: '<#74ded2><bold>Islands of the Deep rules'
   fishing-guide:
-  - <#86dcf1>Fish → fight → upgrade
+  - <#74ded2>Fish → fight → upgrade
   - <#e8dfd2>Cast by the pier. Hold your catch and RMB the ground.
   - <#e8dfd2>Defeat the catch and sell it to the trader under the canopy.
   - ''
-  - <#86dcf1>Unlock the next island
+  - <#74ded2>Unlock the next island
   - <#e8dfd2>Complete the trader’s task and claim the boss bait.
   - <#e8dfd2>Catch the boss, defeat it and hand in its trophy.
   - ''
@@ -772,9 +777,9 @@ arcade:
   countdown: <#ffb277>Starting in <seconds>s
   started: '<#7bd88f><mode> has started.'
   hud: '<#f2f0e6><mode> <#8c8c8c>| <#e3b341><seconds>s <#8c8c8c>| Score: <#7bd88f><score> <#8c8c8c>| Stage: <#92bed8><stage>/<total> <#8c8c8c>| Round: <#92bed8><round>'
-  gungame-hud: <#ffb277>Weapon <stage>/<total> <#ffffff>· <seconds>s · <score> kills
-  disasters-hud: <#ffb277>Round <round>/<rounds> <#ffffff>· <seconds>s · <score> pts
-  fishing-hud: <#86dcf1>Expedition <#ffffff>· <seconds>s
+  gungame-hud: <#f4c575>Weapon <stage>/<total> <#ffffff>· <seconds>s · <score> kills
+  disasters-hud: <#9fc6ff>Round <round>/<rounds> <#ffffff>· <seconds>s · <score> pts
+  fishing-hud: <#74ded2>Expedition <#ffffff>· <seconds>s
   result: '<#ffb277>Winners: <#ffffff><winners>'
   eliminated: <#ff6b61>Respawning in <seconds>s
   respawn: <#9bd48d>Back in action
@@ -804,21 +809,43 @@ arcade:
   status-name: <#86dcf1>Participation
   status-lore: <#e8dfd2><queue_state>
 
-  zombies-briefing: <#ffb277>Survive <waves> waves.<newline>  <#e8dfd2>LMB — fire · RMB — aim · F — reload
-  gungame-briefing: <#ffb277>Each elimination advances your weapon. Finish with the knife.<newline>  <#e8dfd2>LMB — fire · RMB — aim · F — reload
-  disasters-briefing: <#ffb277>Survive and move away from marked strikes.
-  fishing-briefing: <#86dcf1>Follow the planks to the buoys and take out your rod.
+  zombies-briefing: <#ff9c82>Survive <waves> waves.<newline>  <#e8dfd2>LMB — fire · RMB — aim · F — reload
+  gungame-briefing: <#f4c575>Each elimination advances your weapon. Finish with the knife.<newline>  <#e8dfd2>LMB — fire · RMB — aim · F — reload
+  disasters-briefing: <#9fc6ff>Survive and move away from marked strikes.
+  fishing-briefing: <#74ded2>Follow the planks to the buoys and take out your rod.
   zombies-solo-name: <#9bd48d>Play solo
   zombies-solo-lore:
   - <#e8dfd2>Start a separate match just for you.
   zombies-team-name: <#ffffff>Form a squad
   zombies-team-lore:
   - <#e8dfd2>Join the shared queue and launch your squad here.
+practice:
+  ttt:
+    action: 'Test with bots'
+    roster: 'Bots fill the other roles in the round.'
+  gungame:
+    action: 'Duel a bot'
+    roster: 'Face one bot on the weapon ladder.'
+  disasters:
+    action: 'Test with a rival'
+    roster: 'A bot tries to survive the disasters alongside you.'
+  fishing:
+    action: 'Test with an angler'
+    roster: 'An angler fishes beside you at the pier.'
+  zombies:
+    action: 'Unranked solo test'
+    roster: 'Face the regular zombie waves on your own.'
+  companion:
+    angler: '<#74ded2>Angler'
+    runner: '<#9fc6ff><name> <#e8dfd2>· Rival'
+
 fishing:
-  start: <#86dcf1>Cast between the buoys from the end of the pier.
-  catch: '<#86dcf1>Caught: <catches>. <#e8dfd2>RMB the ground to release it.'
+  start: <#74ded2>Cast between the buoys from the end of the pier.
+  catch: '<#74ded2>You caught <catches>.'
   complete: "<newline>  <#7bd88f>Expedition complete. All five trophies delivered.<newline>"
   creature-defeated: '<#9bd48d>Catch defeated. <#e8dfd2>Fish in slot 5: RMB the trader.'
+  card-bite: '<#74ded2><bold>Fish on!</bold></#74ded2><newline><white>RMB</white> <#a0b9b6>·</#a0b9b6> <#e2eeed>Reel in</#e2eeed>'
+  card-release: '<#74ded2><species></#74ded2><newline><white>RMB on ground</white> <#a0b9b6>·</#a0b9b6> <#e2eeed>Release</#e2eeed>'
   creature-hit: "<#7bd88f>Prey health: <health>."
   creature-name: "<#ff9f0f>Dangerous catch"
   boss-name: "<#d6a8ff>Island boss"
@@ -854,7 +881,7 @@ fishing:
   food-full: "<#e3b341>Your health and hunger are already full."
   inventory-full: "<#e3b341>Make room for your purchase."
   purchase-failed: "<#e3b341>Purchase unavailable. Check your expedition credits and unlocked island."
-  hud: <#86dcf1><island> <#ffffff>· <stage>/<total> · catch <catches>/<needed> · <coins> tokens
+  hud: <#74ded2><island> <#ffffff>· <stage>/<total> · catch <catches>/<needed> · <coins> tokens
   quest-ready: "<#7bd88f>Task complete. Collect special bait from the trader."
   quest-bait: "<#67d7ff>Special bait is on the hook: catch the boss."
   travel-unlocked: "<newline>  <#7bd88f>Trophy accepted. Board under the teal flag.<newline>"
@@ -1000,7 +1027,7 @@ fishing:
 
 zombies:
   ready: <#e8dfd2>LMB — fire · RMB — aim · F — reload
-  wave-title: '<#ffb277>Wave <wave> / <total>'
+  wave-title: '<#ff9c82>Wave <wave> / <total>'
   wave-subtitle: <#e8dfd2>Stay together
   brute-warning: '<#ff8b82>Brute incoming | watch the fire circle'
   brute-name: '<#ff8b82>Brute'
@@ -1008,11 +1035,12 @@ zombies:
   self-revive: '<#ffbe6b>Self-revive in 3 seconds. <#e8dfd2>Your single second chance has been used.'
   downed: <#ff6b61>You are down. <#e8dfd2>A teammate has 25 seconds to revive you.
   teammate-downed: <#ff6b61><player> is down. <#e8dfd2>Hold Shift nearby to revive.
+  card-revive: '<#ff9c82><player></#ff9c82> <#fff0da>· <seconds>s</#fff0da><newline><white>Hold Shift</white> <#f2e7dd>to revive</#f2e7dd>'
   reviving: '<#9bd48d>Reviving <player> | <seconds>s'
   revived: <#9bd48d>Back in action. <#e8dfd2>Protected for 4 seconds.
   waiting: '<#e8dfd2>You will return with ammunition when this wave ends.'
   weapon-received: '<#9bd48d>Received: <weapon>'
-  hud-wave: '<#ffb277>Wave <wave>/<total> <#e8dfd2>| Zombies: <remaining> | <points> pts | Power <power>/3'
+  hud-wave: '<#ff9c82>Wave <wave>/<total> <#e8dfd2>| Zombies: <remaining> | <points> pts | Power <power>/3'
   hud-intermission: '<#9bd48d>Resupply <seconds>s <#e8dfd2>| Next wave <wave>/<total> | <points> pts'
   hud-self-revive: '<#ffbe6b>Self-revive in <seconds>s <#e8dfd2>| Last spare chance'
   hud-downed: '<#ff8b82>Down | <seconds>s <#e8dfd2>| Teammate: hold Shift nearby'
@@ -1077,12 +1105,12 @@ dialog:
   linked-match: '<#92bed8>You have a place in an existing match.'
   queue-facts: <#e8dfd2>Queued <#ffffff><queue><#e8dfd2> · To start <#ffffff><minimum>–<maximum>
   queue-status: <#e8dfd2><queue_state>
-  ttt-overview: <#ffb277>Find the traitors among the players.
+  ttt-overview: '<#c4abff>Inspect the bodies to find the traitors.'
   ttt-map: '<#e8dfd2>Map: <#ffffff><selected_arena>'
-  gungame-overview: <#ffb277>Advance with each kill. Win with the knife.
-  disasters-overview: <#ffb277>Survive <rounds> rounds of disasters.
-  zombies-overview: <#ffb277>Survive <waves> waves of zombies.
-  fishing-overview: <#86dcf1>Five islands. Five bosses. One expedition.
+  gungame-overview: '<#f4c575>Get a new weapon with each kill. Win with the knife.'
+  disasters-overview: '<#9fc6ff>Find shelter and survive <rounds> rounds of disasters.'
+  zombies-overview: '<#ff9c82>Repair the barricades and fend off <waves> waves of zombies.'
+  fishing-overview: '<#74ded2>Cast between the buoys. Each island has a boss.'
   fishing-facts: <#e8dfd2>One player · Up to <minutes> min.
   fishing-active: <#e8dfd2><phase> · <minutes> min left
   rules-title: '<#86dcf1>Rules: <mode>'
@@ -1091,6 +1119,18 @@ dialog:
   rules-tooltip: <#e8dfd2>Goal, controls and mode details.
   rules-next: <#86dcf1>Controls and tips ›
   rules-previous: <#86dcf1>‹ Main rules
+  apocalypse-overview: '<#c4d58b>Search the bunker and find your way to the surface.'
+  apocalypse-facts: '<#e8dfd2>Shared world · Your progress carries over'
+  rules-apocalypse-0:
+  - '<#c4d58b>Starting bunker'
+  - '<#e8dfd2>Follow the corridor to the supplies. Take the shaft ladder up.'
+  - ''
+  - '<#c4d58b>On the surface'
+  - '<#e8dfd2>Search cities for gear and find shelter before the horde arrives.'
+  - '<#e8dfd2>Your field guide points to nearby landmarks.'
+  - ''
+  - '<#c4d58b>Return'
+  - '<#e8dfd2>/arcevents leave saves your expedition and takes you back.'
   rules-ttt-0:
   - <#9bd48d>Innocent
   - <#e8dfd2>Survive and use evidence to find the traitors.
@@ -1101,56 +1141,56 @@ dialog:
   - <#86dcf1>Detective
   - <#e8dfd2>Your role is public. Inspect bodies and protect innocents.
   rules-ttt-1:
-  - <#ffb277>Before combat
+  - <#c4abff>Before combat
   - <#e8dfd2>Find weapons on the map. Roles are hidden; damage is off.
   - ''
-  - <#ffb277>During combat
+  - <#c4abff>During combat
   - <#e8dfd2>LMB — fire · RMB — aim · F — reload.
   - '<#e8dfd2>RMB a body to inspect it. Role equipment: /arcevents.'
   - ''
-  - <#ffb277>Communication
+  - <#c4abff>Communication
   - <#e8dfd2>Chat is local. /arcevents team is your role’s team chat.
   - <#e8dfd2>Spectators have a separate chat. Keep hidden roles secret.
   rules-gungame-0:
-  - <#ffb277>Goal
+  - <#f4c575>Goal
   - <#e8dfd2>Eliminate a player with each weapon, then with the knife.
   - ''
-  - <#ffb277>Controls
+  - <#f4c575>Controls
   - <#e8dfd2>LMB — fire · RMB — aim · F — reload.
   - ''
-  - <#ffb277>Respawning
+  - <#f4c575>Respawning
   - <#e8dfd2>After elimination, return with brief spawn protection.
   rules-disasters-0:
-  - <#ffb277>Goal
+  - <#9fc6ff>Goal
   - <#e8dfd2>Survive <rounds> rounds. Survivors earn points.
   - ''
-  - <#ffb277>Shelter
+  - <#9fc6ff>Shelter
   - '<#e8dfd2>Meteors: move out of the marked circles.'
   - '<#e8dfd2>Lightning: shelter under a copper canopy.'
   - '<#e8dfd2>Fog: climb onto a stone terrace.'
   rules-fishing-0:
-  - <#86dcf1>Fish → fight → upgrade
+  - <#74ded2>Fish → fight → upgrade
   - <#e8dfd2>Cast by the pier. Hold your catch and RMB the ground.
   - <#e8dfd2>Defeat the catch and sell it to the trader under the canopy.
   - ''
-  - <#86dcf1>Unlock the next island
+  - <#74ded2>Unlock the next island
   - <#e8dfd2>Complete the trader’s task and claim the boss bait.
   - <#e8dfd2>Catch the boss, defeat it and hand in its trophy.
   - ''
   - <#e8dfd2>Purchases and tokens last for this expedition only.
   rules-zombies-0:
-  - <#ffb277>Hold the sector
+  - <#ff9c82>Hold the sector
   - <#e8dfd2>Survive <waves> waves with <minimum>–<maximum> players.
   - <#e8dfd2>Spend kill and wave points at the entrance stations.
   - ''
-  - <#ffb277>Mystery box
+  - <#ff9c82>Mystery box
   - <#e8dfd2>RMB to pay for a roll. Claim your weapon before it expires.
   - <#e8dfd2>Unclaimed weapons do not refund the points.
   - ''
-  - <#ffb277>Barricades
+  - <#ff9c82>Barricades
   - <#e8dfd2>Hold Shift at a window to replace boards. Repairs are free.
   rules-zombies-1:
-  - <#ffb277>Controls
+  - <#ff9c82>Controls
   - <#e8dfd2>LMB — fire · RMB — aim · F — reload.
   - <#e8dfd2>Knife in slot two. Get out of the Brute’s marked circle.
   - ''
@@ -1177,12 +1217,19 @@ dialog:
   report-damage: <#ffffff><damage><#e8dfd2> / <#f4d87a><friendly>
 
 apocalypse:
-  menu-name: '<#ffb277><bold>Apocalypse'
+  menu-name: '<#c4d58b><bold>Apocalypse'
   menu-lore:
   - '<#e8dfd2>Explore abandoned cities and underground bunkers.'
   - '<#e8dfd2>A horde arrives every tenth night.'
-  - '<#9bd48d>Enter the survival world'
-  entered: '<#ffb277>Apocalypse. <#e8dfd2>Search the bunker and take the stairs to the surface. To return, use <#92bed8>/arcevents leave<#e8dfd2>.'
+  - '<#e8dfd2>Your progress carries over between visits.'
+  enter-name: '<#9bd48d>Enter world'
+  enter-lore:
+  - '<#e8dfd2>Start or resume your expedition.'
+  test-name: '<#c4a7e7>Test in the shared world'
+  test-lore:
+  - '<#e8dfd2>Enter the shared world alone, with its roaming zombies.'
+  - '<#e8dfd2>Your character progress is saved as usual.'
+  entered: '<#c4d58b>Apocalypse. <#e8dfd2>Search the bunker and take the stairs to the surface. To return, use <#92bed8>/arcevents leave<#e8dfd2>.'
   resumed: '<#9bd48d>You are back in the apocalypse world.'
   returned: '<#9bd48d>You returned from the apocalypse.'
   fly:
@@ -1207,9 +1254,9 @@ apocalypse:
   field-off: '<#9bd48d>Force field disabled. The passage is open.'
   cured: '<#9bd48d>The medicine has taken effect.'
   vaccine: '<#9bd48d>Infection vaccine'
-  status: '<#ffb277>Day <day> <#e8dfd2>· <phase> · survivors <players> · hostiles <enemies> · <infection>'
+  status: '<#c4d58b>Day <day> <#e8dfd2>· <phase> · survivors <players> · hostiles <enemies> · <infection>'
   location: '<#e8dfd2>Nearest site <#ffffff><location>'
-  hud: '<#ffb277>Day <day> <#e8dfd2>· <infection> · hostiles <enemies>'
+  hud: '<#c4d58b>Day <day> <#e8dfd2>· <infection> · hostiles <enemies>'
   infection:
     healthy: '<#9bd48d>Healthy'
     incubating: '<#f4d87a>Incubating'
@@ -1284,7 +1331,7 @@ apocalypse:
       sw: 'SW'
       w: 'W'
       nw: 'NW'
-    title: '<#ffb277><bold>Field guide'
+    title: '<#c4d58b><bold>Field guide'
     author: 'Survivors'
     starter-arrival: '<#e8dfd2>Follow the corridor to the supply hall. The ladder in the shaft leads to the surface.'
     continuing: '<#e8dfd2>You are back in the expedition. Your field guide shows nearby landmarks.'

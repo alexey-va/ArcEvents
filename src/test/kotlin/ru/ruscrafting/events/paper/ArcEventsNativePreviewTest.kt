@@ -96,7 +96,7 @@ class ArcEventsNativePreviewTest : StringSpec({
             fun save(id: String) {
                 val screen = requireNotNull(last)
                 val components = listOf(screen.title) + screen.body.map { it.text } + screen.buttons.flatMap { listOf(it.label, it.tooltip) }
-                components.map(plain::serialize).none { Regex("<(?:queue|waves|minimum|maximum|mode|minutes|rounds|availability)>").containsMatchIn(it) } shouldBe true
+                components.map(plain::serialize).none { Regex("<(?:queue|waves|minimum|maximum|mode|minutes|rounds|availability|action|roster)>").containsMatchIn(it) } shouldBe true
                 exports[id] = mapOf(
                     "title" to legacy.serialize(screen.title), "columns" to screen.columns,
                     "body" to screen.body.map { mapOf("text" to legacy.serialize(it.text), "width" to it.width) },
@@ -108,6 +108,7 @@ class ArcEventsNativePreviewTest : StringSpec({
             }
             for (language in listOf("ru", "en")) {
                 every { player.locale() } returns Locale.forLanguageTag(language)
+                every { player.hasPermission("arcevents.admin") } returns false
                 workbench.open(player, ApocalypseWorkbenchStation.CRAFTING, { true }, { _, _ -> }, {})
                 save("$language-workbench-starter")
                 workbench.open(player, ApocalypseWorkbenchStation.T2, { true }, { _, _ -> })
@@ -121,8 +122,17 @@ class ArcEventsNativePreviewTest : StringSpec({
                 guide.show(player, routes)
                 save("$language-apocalypse-route")
                 menu.open(player, EventsView.Main); save("$language-root")
+                val subjects = last!!.buttons.take(6).map { legacy.serialize(it.label).take(8) }
+                subjects.toSet().size shouldBe 6
                 menu.open(player, EventsView.Help); save("$language-rules-index")
-                last!!.buttons.map { it.id.value }.toSet() shouldBe EventMode.entries.map { "rules_${it.id}" }.toSet()
+                last!!.buttons.map { it.id.value }.toSet() shouldBe (EventMode.entries.map { "rules_${it.id}" } + "rules_apocalypse").toSet()
+                menu.open(player, EventsView.Apocalypse); save("$language-apocalypse")
+                last!!.buttons.map { it.id.value } shouldBe listOf("action_apocalypse_enter_name", "rules_apocalypse")
+                val click = mockk<PaperDialogClickContext>()
+                every { click.player } returns player
+                last!!.buttons.last().onClick.handle(click)
+                last!!.id shouldBe "events.rules.apocalypse.0"
+                save("$language-rules-apocalypse")
                 menu.openFishing(player, EventEntryStatus(null), {}); save("$language-fishing")
                 last!!.buttons.any { it.id.value == "rules_fishing" } shouldBe true
                 menu.openFishing(player, EventEntryStatus(QueueState.RESERVED, ReservationStartResult.BUSY), {}); save("$language-fishing-transfer")
@@ -164,6 +174,19 @@ class ArcEventsNativePreviewTest : StringSpec({
                         menu.openRules(player, mode, 1); save("$language-rules-${mode.id}-controls")
                     }
                 }
+                every { player.hasPermission("arcevents.admin") } returns true
+                val ready = EventEntryStatus(null)
+                for (mode in EventMode.entries) {
+                    when (mode) {
+                        EventMode.TTT -> menu.openTtt(player, ready, eventMenuPlan(null, true, true, false, false, false, false, false, false), Component.text("Inferno"))
+                        EventMode.FISHING -> menu.openFishing(player, ready, {})
+                        else -> menu.openArcade(player, mode, ready, false, false, 22, 24, {})
+                    }
+                    last!!.buttons.count { it.id.value == "action_menu_admin_solo_test_name" } shouldBe 1
+                    save("$language-${mode.id}-admin")
+                }
+                menu.open(player, EventsView.Apocalypse); save("$language-apocalypse-admin")
+                last!!.buttons.map { it.id.value } shouldBe listOf("action_apocalypse_test_name", "rules_apocalypse")
             }
             val output = Path.of("build/reports/native-ui/content.json")
             Files.createDirectories(output.parent)

@@ -43,12 +43,15 @@ class ArcEventsCommandTest : StringSpec({
     "nested staff completion is permission gated and ordinary start only offers fishing" {
         val player = mockk<Player>(relaxed = true)
         every { player.hasPermission("arcevents.play") } returns true
+        executor.onTabComplete(player, command, "arcevents", arrayOf("admin", "solo", "")) shouldBe emptyList()
         listOf(
             arrayOf("admin", ""), arrayOf("admin", "player", ""), arrayOf("qa", "player", ""),
             arrayOf("debug", ""), arrayOf("debug", "kill", ""), arrayOf("help", ""), arrayOf("unknown", ""),
         ).forEach { executor.onTabComplete(player, command, "arcevents", it) shouldBe emptyList() }
         executor.onTabComplete(player, command, "arcevents", arrayOf("start", "")) shouldBe listOf("fishing")
         every { player.hasPermission("arcevents.admin") } returns true
+        executor.onTabComplete(player, command, "arcevents", arrayOf("admin", "solo", "")) shouldBe
+            listOf("apocalypse", "disasters", "fishing", "gungame", "ttt", "zombies")
         executor.onTabComplete(player, command, "arcevents", arrayOf("start", "G")) shouldBe listOf("gungame")
         every { player.hasPermission("arcevents.play") } returns false
         executor.onTabComplete(player, command, "arcevents", arrayOf("admin", "")) shouldBe emptyList()
@@ -151,7 +154,7 @@ class ArcEventsCommandTest : StringSpec({
         }
         executor.onTabComplete(player, command, "arcevents", arrayOf("admin", "sound", "")) shouldBe emptyList()
         every { player.hasPermission("arcevents.admin") } returns true
-        executor.onTabComplete(player, command, "arcevents", arrayOf("admin", "so")) shouldBe listOf("sound")
+        executor.onTabComplete(player, command, "arcevents", arrayOf("admin", "so")) shouldBe listOf("solo", "sound")
         executor.onTabComplete(player, command, "arcevents", arrayOf("admin", "sound", "")) shouldBe
             listOf("1", "2", "3", "default", "echo", "heavy", "original", "sharp")
         executor.onTabComplete(player, command, "arcevents", arrayOf("ADMIN", "SOUND", "H")) shouldBe listOf("heavy")

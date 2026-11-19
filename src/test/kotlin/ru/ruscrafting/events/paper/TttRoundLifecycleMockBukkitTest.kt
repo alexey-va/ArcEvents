@@ -1,6 +1,5 @@
 package ru.ruscrafting.events.paper
 
-import com.google.gson.Gson
 import io.papermc.paper.chat.ChatRenderer
 import io.papermc.paper.event.player.AsyncChatEvent
 import io.kotest.core.spec.style.FunSpec
@@ -551,9 +550,9 @@ class TttRoundLifecycleMockBukkitTest : FunSpec({
 
 internal class TttRoundFixture(
     private val disposable: Boolean = false,
-    scopes: TttScopes? = null,
-    scopePreviewItemId: (ItemStack) -> String? = { null },
-    shots: FirearmShots? = null,
+    private val scopes: TttScopes? = null,
+    private val scopePreviewItemId: (ItemStack) -> String? = { null },
+    private val shots: FirearmShots? = null,
 ) : AutoCloseable {
     var rejectRecovery = false
     var clientProtocolVersion = MIN_DIALOG_PROTOCOL
@@ -582,12 +581,14 @@ internal class TttRoundFixture(
     val lootSpawner: TttLootSpawner = mockk(relaxed = true) {
         every { spawnAsync(any(), any(), any()) } returns CompletableFuture.completedFuture(Unit)
     }
-    val escrow: PlayerStateEscrow
+    var escrow: PlayerStateEscrow
+        private set
     val network: EventNetworkCoordinator = mockk(relaxed = true) {
         every { stats(any()) } returns PlayerEventStats()
     }
     val arenaPool: ArenaPool
-    val service: ArcEventsService
+    var service: ArcEventsService
+        private set
     val players: List<Player>
     private val originals: Map<UUID, OriginalPlayerState>
     private var reservationBatch: ReservationBatch? = null
@@ -616,14 +617,41 @@ internal class TttRoundFixture(
         settings = ArcEventsConfig.load(dataRoot)
         locale = ArcEventsLocale(dataRoot) { settings }
         items = TttItems(plugin, locale) { settings }
-        escrow = PlayerStateEscrow(
-            RecoveryBatchStore(dataRoot, Gson()),
-            enabled = settings.playerStateMode == ru.ruscrafting.events.config.PlayerStateMode.PRESERVE,
-        )
+        escrow = openEscrow()
         arenaPool = ArenaPool(settings = { settings }, ready = { _, _ -> true })
         firearms = TttFirearms(plugin, locale) { settings }
+        service = installService()
+        players = listOf(
+            createPlayer("Alpha", Material.DIAMOND, 10.0, 1),
+            createPlayer("Bravo", Material.EMERALD, 20.0, 2),
+            createPlayer("Charlie", Material.GOLD_INGOT, 30.0, 3),
+            createPlayer("Delta", Material.LAPIS_LAZULI, 40.0, 4),
+        )
+        originals = players.associate { player ->
+            player.uniqueId to OriginalPlayerState(
+                location = player.location.clone(),
+                gameMode = player.gameMode,
+                mainHand = player.inventory.itemInMainHand.clone(),
+            )
+        }
+    }
+
+    private fun openEscrow() = PlayerStateEscrow(RecoveryBatchStore(dataRoot, mode = settings.playerStateMode))
+
+    /** Discard the old process's match and callbacks, leaving its committed journal and native players in place. */
+    fun restartAfterCrash() {
+        org.bukkit.event.HandlerList.unregisterAll(plugin)
+        paper.server.scheduler.cancelTasks(plugin)
+        escrow.close()
+        arenaPool.clear()
+        escrow = openEscrow()
+        service = installService()
+        service.start()
+    }
+
+    private fun installService(): ArcEventsService {
         val lootScene = TttLootScene(plugin, firearms, packetDisplays) { settings }
-        service = ArcEventsService(
+        val service = ArcEventsService(
             plugin = plugin,
             settings = { settings },
             locale = locale,
@@ -656,19 +684,7 @@ internal class TttRoundFixture(
                 if (rejectRecovery) event.isCancelled = true
             }
         }, plugin)
-        players = listOf(
-            createPlayer("Alpha", Material.DIAMOND, 10.0, 1),
-            createPlayer("Bravo", Material.EMERALD, 20.0, 2),
-            createPlayer("Charlie", Material.GOLD_INGOT, 30.0, 3),
-            createPlayer("Delta", Material.LAPIS_LAZULI, 40.0, 4),
-        )
-        originals = players.associate { player ->
-            player.uniqueId to OriginalPlayerState(
-                location = player.location.clone(),
-                gameMode = player.gameMode,
-                mainHand = player.inventory.itemInMainHand.clone(),
-            )
-        }
+        return service
     }
 
     fun startPreparingRound(mode: EventMode = EventMode.TTT): CompletableFuture<DebugMutationResult> {
@@ -745,6 +761,24 @@ internal class TttRoundFixture(
     }
 
     fun reservationMatchId(): UUID = requireNotNull(reservationBatch).matchId
+
+    fun startPracticeReservation(mode: EventMode, origin: String = "parkour"): ReservationBatch {
+        if (!started) {
+            started = true
+            service.start()
+            paper.performTicks(1)
+        }
+        val owner = players.first()
+        owner.isOp = true
+        val id = QueueEntry.newPracticeMatchId()
+        val entry = QueueEntry(owner.uniqueId.toString(), owner.name, origin, mode.id, QueueState.ARRIVED,
+            nowMs - 1000, Long.MAX_VALUE, id.toString(), "parkour")
+        return ReservationBatch(id, listOf(entry), owner.uniqueId, preferredArenaId = if (mode in setOf(EventMode.GUN_GAME, EventMode.TTT)) "test" else null,
+            mode = mode, practice = true).also {
+            reservationBatch = it
+            service.onReservation(it) shouldBe true
+        }
+    }
 
     fun arrive(player: Player): Boolean {
         val batch = requireNotNull(reservationBatch)

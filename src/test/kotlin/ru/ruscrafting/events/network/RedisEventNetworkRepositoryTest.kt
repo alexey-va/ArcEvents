@@ -101,6 +101,26 @@ class RedisEventNetworkRepositoryTest : StringSpec({
         repository.loadQueueEntry(requester).join()?.state shouldBe QueueState.QUEUED
     }
 
+    "a private match reserves the tester atomically and preserves an outstanding return or another origin" {
+        val repository = RedisEventNetworkRepository(InMemoryRedis())
+        val tester = uuid(2)
+        val match = QueueEntry.newPracticeMatchId()
+        fun practice(origin: String) = repository.reservePractice(
+            match, "parkour", tester, "Tester", origin, EventMode.GUN_GAME, 3_000, 60_000,
+        ).join()
+        repository.joinQueue(uuid(1), "Public", "spawn", 1_000, 60_000).join()
+        repository.joinQueue(tester, "Tester", "survival", 2_000, 60_000).join()
+        practice("spawn") shouldBe null
+        practice("survival")?.practice shouldBe true
+        repository.loadQueuedCount(3_001).join() shouldBe 1
+        repository.reserve(uuid(91), "parkour", 2, 4, 3_001, 60_000).join() shouldBe null
+        repository.releaseReservation(match).join()
+        val returning = repository.loadQueueEntry(tester).join()
+        returning?.state shouldBe QueueState.RETURN_PENDING
+        practice("survival") shouldBe null
+        repository.loadQueueEntry(tester).join() shouldBe returning
+    }
+
     "generic FIFO reserve refuses fishing mode" {
         val repository = RedisEventNetworkRepository(InMemoryRedis(ServerIdentity { "spawn" }))
         shouldThrow<IllegalArgumentException> {

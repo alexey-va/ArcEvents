@@ -291,18 +291,26 @@ class ZombiesAdventure(
             }
             if (state.status != ZombiesStatus.DOWNED) continue
             if (state.recoveryAt?.let { now >= it } == true) { revive(player); continue }
-            fun canRescue(helper: Player) = standing(helper) && helper.isSneaking &&
-                helper.location.distanceSquared(player.location) <= RESCUE_DISTANCE_SQUARED && helper.hasLineOfSight(player)
-            val helper = rescues[id]?.let { roster[it.rescuer] }?.takeIf(::canRescue)
-                ?: roster.values.firstOrNull(::canRescue)
+            val helper = rescues[id]?.let { roster[it.rescuer] }?.takeIf { canRescue(it, player) }
+                ?: roster.values.firstOrNull { canRescue(it, player) }
             if (helper == null) { rescues.remove(id); continue }
             val rescue = rescues[id]?.takeIf { it.rescuer == helper.uniqueId }
                 ?: Rescue(helper.uniqueId, now).also { rescues[id] = it }
-            val remaining = ceil((rescue.beganAt + 3000 - now).coerceAtLeast(0) / 1000.0).toInt()
-            helper.sendEventActionBar(locale.render("zombies.reviving", helper,
-                mapOf("player" to Component.text(player.name), "seconds" to locale.text(remaining))))
-            if (remaining == 0) revive(player)
+            if (now >= rescue.beganAt + RESCUE_TIME_MS) revive(player)
         }
+    }
+
+    private fun canRescue(helper: Player, target: Player): Boolean = standing(helper) && helper.isSneaking &&
+        helper.location.distanceSquared(target.location) <= RESCUE_DISTANCE_SQUARED && helper.hasLineOfSight(target)
+
+    internal fun rescueHint(helper: Player): Component? {
+        val (targetId, rescue) = rescues.entries.firstOrNull { it.value.rescuer == helper.uniqueId } ?: return null
+        val target = roster[targetId] ?: return null
+        if (director.players[targetId]?.status != ZombiesStatus.DOWNED || !belongsTo(target) || !canRescue(helper, target)) return null
+        val remaining = ceil((rescue.beganAt + RESCUE_TIME_MS - clock()) / 1000.0).toInt()
+        if (remaining <= 0) return null
+        return locale.render("zombies.card-revive", helper,
+            mapOf("player" to Component.text(target.name), "seconds" to locale.text(remaining)))
     }
 
     private fun revive(player: Player) {
@@ -545,5 +553,6 @@ class ZombiesAdventure(
     companion object {
         private const val TAG = "arcevents-zombies"
         private const val RESCUE_DISTANCE_SQUARED = 6.25
+        private const val RESCUE_TIME_MS = 3_000L
     }
 }

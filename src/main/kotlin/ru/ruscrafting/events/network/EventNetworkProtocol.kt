@@ -49,10 +49,23 @@ data class QueueEntry(
 
     fun queuedPlayer(): QueuedPlayer = QueuedPlayer(UUID.fromString(playerId), playerName, originServer, joinedAtMs)
 
+    val practice: Boolean get() = matchId?.let { isPracticeMatch(UUID.fromString(it)) } == true
+
     /** Only a queue place can disappear on expiry. A timed-out reservation still owes its player a return. */
     fun isExpiredQueuePlace(nowMs: Long): Boolean = state == QueueState.QUEUED && expiresAtMs < nowMs
 
     companion object {
+        // Deployed readers reject new queue fields. Public matches use random v4 IDs. Private
+        // matches use the application-defined v8 format so their return policy survives restarts.
+        private const val PRACTICE_VERSION = 8
+        fun isPracticeMatch(matchId: UUID): Boolean = matchId.version() == PRACTICE_VERSION
+
+        fun newPracticeMatchId(): UUID {
+            val random = UUID.randomUUID()
+            val bits = (random.mostSignificantBits and 0xf000L.inv()) or (PRACTICE_VERSION.toLong() shl 12)
+            return UUID(bits, random.leastSignificantBits)
+        }
+
         private const val MAX_QUEUE_MS = 60 * 60 * 1000L
         private const val MAX_RESERVATION_MS = 5 * 60 * 1000L
         private const val MAX_RESERVED_LIFETIME_MS = MAX_QUEUE_MS + MAX_RESERVATION_MS
@@ -123,6 +136,8 @@ data class EventNetworkMessage(
     val mode: String = EventMode.TTT.id,
     /** Omitted for ordinary starts so legacy closed wire readers remain compatible. */
     val requesterOnly: Boolean? = null,
+    /** Trusted origin supplies its online admin's name for a private start outside the public queue. */
+    val practicePlayerName: String? = null,
 ) {
     fun validated(): EventNetworkMessage = apply {
         require(UUID.fromString(eventId).toString() == eventId)
@@ -138,6 +153,10 @@ data class EventNetworkMessage(
         require(requesterOnly == null ||
             requesterOnly == true && signal == EventNetworkSignal.START_REQUEST &&
             mode == EventMode.ZOMBIES.id && requesterId != null) { "Invalid requester-only start" }
+        practicePlayerName?.let {
+            require(signal == EventNetworkSignal.START_REQUEST && adminBypass && requesterId != null && requesterOnly == null)
+            NetworkPlayerName.of(it)
+        }
         when (signal) {
             EventNetworkSignal.QUEUE_CHANGED -> require(queueSize != null)
             EventNetworkSignal.FIREARM_SOUND_CHANGED -> require(
@@ -181,6 +200,7 @@ data class EventNetworkMessage(
             adminBypass: Boolean = false,
             mode: String = EventMode.TTT.id,
             requesterOnly: Boolean = false,
+            practicePlayerName: String? = null,
         ): EventNetworkMessage = EventNetworkMessage(
             eventId = UUID.randomUUID().toString(),
             signal = signal,
@@ -198,6 +218,7 @@ data class EventNetworkMessage(
             adminBypass = adminBypass,
             mode = mode,
             requesterOnly = requesterOnly.takeIf { it },
+            practicePlayerName = practicePlayerName,
         ).validated()
 
         private val START_RESULTS = setOf(
@@ -231,6 +252,7 @@ data class ReservationBatch(
     val requesterId: UUID? = null,
     val preferredArenaId: String? = null,
     val mode: EventMode = EventMode.TTT,
+    val practice: Boolean = false,
 ) {
     init {
         require(entries.all { (it.mode ?: EventMode.TTT.id) == mode.id }) { "Reservation entries use mixed event modes" }

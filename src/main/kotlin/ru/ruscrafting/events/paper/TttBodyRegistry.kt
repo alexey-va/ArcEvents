@@ -71,6 +71,7 @@ data class BodyRecord(
     val headshot: Boolean,
     var discovered: Boolean = false,
     var detectiveCalled: Boolean = false,
+    val playerSkin: Boolean = true,
 )
 
 /** Owns native corpse evidence and cosmetic handles borrowed from the plugin display owner. */
@@ -113,14 +114,26 @@ class TttBodyRegistry(
         killerId: UUID?,
         lethal: CombatRecord?,
         despawnTicks: Long,
+        privateViewer: Player? = null,
+    ): BodyRecord = spawn(matchId, player.location, participant, killerId, lethal, despawnTicks, playerSkin = true, privateViewer = privateViewer)
+
+    internal fun spawn(
+        matchId: UUID,
+        location: Location,
+        participant: TttParticipant,
+        killerId: UUID?,
+        lethal: CombatRecord?,
+        despawnTicks: Long,
+        playerSkin: Boolean = false,
+        privateViewer: Player? = null,
     ): BodyRecord {
-        val location = player.location.clone()
         val bodyId = UUID.randomUUID()
         val anchor = location.world.spawn(location.clone().add(0.0, 0.05, 0.0), Interaction::class.java) { interaction ->
             interaction.interactionWidth = 1.25f
             interaction.interactionHeight = 0.75f
             interaction.isResponsive = true
             interaction.isPersistent = false
+            if (privateViewer != null) interaction.setVisibleByDefault(false)
             interaction.persistentDataContainer.set(bodyKey, PersistentDataType.STRING, bodyId.toString())
         }
         val visuals = arrayListOf<PacketDisplay>()
@@ -180,7 +193,15 @@ class TttBodyRegistry(
                 weaponKey = lethal?.weapon ?: "environment",
                 finalDamage = lethal?.finalDamage ?: 0.0,
                 headshot = lethal?.headshot == true,
+                playerSkin = playerSkin,
             )
+            if (privateViewer != null) {
+                privateViewer.showEntity(plugin, anchor)
+                for (visual in visuals) {
+                    visual.isVisibleByDefault = false
+                    visual.showTo(privateViewer)
+                }
+            }
             entityReferences[bodyId] = BodyEntities(anchor, label, requireNotNull(head), visuals)
             bodies[bodyId] = record
             despawnTasks[bodyId] = Tasks.scheduler.runLater(despawnTicks) {
@@ -207,7 +228,7 @@ class TttBodyRegistry(
         val entities = entityReferences[bodyId] ?: return
         entities.label.text(label)
         val head = ItemStack.of(Material.PLAYER_HEAD)
-        head.editMeta(SkullMeta::class.java) {
+        if (record.playerSkin) head.editMeta(SkullMeta::class.java) {
             it.owningPlayer = plugin.server.getOfflinePlayer(record.victimId)
         }
         entities.head.itemStack = head

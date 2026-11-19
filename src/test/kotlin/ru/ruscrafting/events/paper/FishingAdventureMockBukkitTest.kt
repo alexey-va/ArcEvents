@@ -256,6 +256,7 @@ class FishingAdventureMockBukkitTest : FunSpec({
             fun event(state: PlayerFishEvent.State) = PlayerFishEvent(player, null, hook, EquipmentSlot.HAND, state)
             fixture.paper.callEvent(event(PlayerFishEvent.State.FISHING))
             adventure.snapshot().phase shouldBe FishingPhase.BITE
+            adventure.actionHint() shouldBe null
             // The hook was discarded by Paper, so the next session tick releases the cast.
             fixture.advanceTime(1_000)
             adventure.snapshot().phase shouldBe FishingPhase.CASTING
@@ -263,6 +264,7 @@ class FishingAdventureMockBukkitTest : FunSpec({
             val outside = event(PlayerFishEvent.State.BITE)
             fixture.paper.callEvent(outside)
             outside.isCancelled shouldBe true
+            adventure.actionHint() shouldBe null
             adventure.snapshot().phase shouldBe FishingPhase.CASTING
             adventure.snapshot().totalCatches shouldBe 0
             fixture.paper.callEvent(event(PlayerFishEvent.State.FISHING))
@@ -272,6 +274,17 @@ class FishingAdventureMockBukkitTest : FunSpec({
             snag.isCancelled shouldBe true
             verify(exactly = 0) { floatingItem.remove() }
             adventure.snapshot().phase shouldBe FishingPhase.CASTING
+            val zone = FishingArenaGenerator.fishingZone(FishingArenaStage.CAMP)
+            val water = Location(player.world, zone.center.x, zone.waterSurfaceY.toDouble(), zone.center.z)
+            water.block.type = Material.WATER
+            every { hook.location } returns water
+            every { hook.isValid } returns true
+            fixture.paper.callEvent(event(PlayerFishEvent.State.FISHING))
+            adventure.actionHint() shouldBe null
+            fixture.paper.callEvent(event(PlayerFishEvent.State.BITE))
+            (adventure.actionHint() != null) shouldBe true
+            fixture.paper.callEvent(event(PlayerFishEvent.State.FAILED_ATTEMPT))
+            adventure.actionHint() shouldBe null
             castCatch(fixture, player, adventure)
         } }
     }
@@ -282,6 +295,11 @@ class FishingAdventureMockBukkitTest : FunSpec({
             val player = fixture.players.first() as PlayerMock
             val adventure = requireNotNull(fixture.service.fishingAdventure(player))
             castCatch(fixture, player, adventure)
+            val heldHint = requireNotNull(adventure.actionHint())
+            player.inventory.heldItemSlot = 1
+            adventure.actionHint() shouldBe null
+            player.inventory.heldItemSlot = 4
+            adventure.actionHint() shouldBe heldHint
             val held = adventure.snapshot()
             val health = player.health
             fixture.advanceTime(5_000)
@@ -304,6 +322,7 @@ class FishingAdventureMockBukkitTest : FunSpec({
             val staleClick = click()
             fixture.paper.callEvent(click()).isCancelled shouldBe true
             adventure.snapshot().phase shouldBe FishingPhase.CREATURE
+            adventure.actionHint() shouldBe null
             player.inventory.heldItemSlot shouldBe 1
             fixture.items.kind(player.inventory.getItem(4)) shouldBe null
             val creature = player.world.entities.filterIsInstance<Mob>().single { it !is Villager }

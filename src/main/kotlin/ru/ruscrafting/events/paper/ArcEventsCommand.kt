@@ -97,7 +97,7 @@ class ArcEventsCommand(
                     else -> listOf(EventMode.FISHING.id)
                 }
                 "admin" -> listOf("status", "player", "network", "arenas", "arena", "recovery", "start", "stop", "reload", "recover", "sound") +
-                    if (sender is Player) listOf("menu", "weapons", "gun") else emptyList()
+                    if (sender is Player) listOf("menu", "weapons", "gun", "solo") else emptyList()
                 "burst" -> if (sender is Player) listOf("1", "3", "6", "full", "default") else emptyList()
                 "qa" -> listOf("status", "player", "network", "arenas", "recovery")
                 "debug" -> if (settings().debugMutationsAllowed) DEBUG_ACTIONS else DEBUG_READ_ACTIONS
@@ -113,6 +113,7 @@ class ArcEventsCommand(
         val action = args.getOrNull(1)?.lowercase()
         if (args.size == 3 && root in setOf("qa", "admin") && action == "player") return servicePlayerNames()
         if (root == "admin") {
+            if (args.size == 3 && action == "solo" && sender is Player) return EventMode.entries.map(EventMode::id) + "apocalypse"
             if (args.size == 3 && action == "gun" && sender is Player) return listOf("default")
             if (args.size == 3 && action == "start") return EventMode.entries.map(EventMode::id)
             if (args.size == 4 && action == "start") return parseMode(args[2])?.let { arenaIds(it, includeAuto = true) }.orEmpty()
@@ -186,6 +187,19 @@ class ArcEventsCommand(
             "weapons" -> editWeaponPoints(sender, args.drop(1))
             "sound" -> selectFirearmSound(sender, args.drop(1))
             "recovery" -> sender.sendEventMessage(Component.text(service.qaRecovery()))
+            "solo" -> {
+                val tester = player(sender) ?: return
+                val id = args.getOrNull(1)
+                val mode = parseMode(id)
+                when {
+                    args.size != 2 -> sender.sendEventMessage(locale.render("admin.solo-usage", sender))
+                    id.equals("apocalypse", true) -> if (apocalypse != null) apocalypse.enter(tester)
+                        else sender.sendEventMessage(locale.render("apocalypse.unavailable", sender))
+                    mode != null -> sendStartResult(tester, StartMessageAudience.PLAYER, mode = mode,
+                        operation = service.startSoloTest(tester, mode))
+                    else -> sender.sendEventMessage(locale.render("admin.solo-usage", sender))
+                }
+            }
             "start" -> {
                 val mode = parseMode(args.getOrNull(1)) ?: EventMode.TTT.takeIf { args.getOrNull(1) == null }
                 if (mode == null) {
@@ -455,8 +469,9 @@ class ArcEventsCommand(
         audience: StartMessageAudience,
         preferredArenaId: String? = null,
         mode: EventMode = EventMode.TTT,
+        operation: java.util.concurrent.CompletableFuture<ReservationStartResult> = service.startFromQueue(sender as? Player, preferredArenaId, mode),
     ) {
-        service.startFromQueue(sender as? Player, preferredArenaId, mode).thenAccept { result ->
+        operation.thenAccept { result ->
             Tasks.scheduler.runSync {
                 if (sender is Player && !sender.isOnline) return@runSync
                 if (result == ReservationStartResult.STARTED && audience == StartMessageAudience.ADMIN) {

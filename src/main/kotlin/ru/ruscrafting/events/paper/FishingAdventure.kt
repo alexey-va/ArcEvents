@@ -14,6 +14,7 @@ import org.bukkit.entity.Cod
 import org.bukkit.entity.Drowned
 import org.bukkit.entity.ElderGuardian
 import org.bukkit.entity.Entity
+import org.bukkit.entity.FishHook
 import org.bukkit.entity.Guardian
 import org.bukkit.entity.Item
 import org.bukkit.entity.LivingEntity
@@ -102,6 +103,7 @@ class FishingAdventure(
     private var traderMarker: PacketTextDisplay? = null
     private var traderNpc: Villager? = null
     private var hookId: UUID? = null
+    private var bitingHook: FishHook? = null
     private var submergedSinceMs = 0L
     private var telegraph: Telegraph? = null
     private var combatTask: ScheduledTask? = null
@@ -171,6 +173,7 @@ class FishingAdventure(
         // Paper can discard a hook on a slot change without emitting a final fishing event.
         if (progress.phase == FishingPhase.BITE && hookId?.let(plugin.server::getEntity)?.isValid != true) {
             hookId = null
+            bitingHook = null
             progress = progress.reelIn()
         }
         showTraderNpc()
@@ -263,7 +266,7 @@ class FishingAdventure(
         when (event.state) {
             PlayerFishEvent.State.BITE -> {
                 if (inCurrentFishingWater(hook.location)) {
-                    sendActionBar("fishing.reel-now")
+                    bitingHook = hook
                 } else {
                     cancelFishEvent(event)
                     progress = progress.reelIn()
@@ -506,6 +509,29 @@ class FishingAdventure(
             }
         }
         return true
+    }
+
+    internal fun actionHint(): Component? {
+        if (!belongsTo(player) || transitioning) return null
+        fun issued(stack: ItemStack, kind: EventItemKind) =
+            items.kind(stack) == kind && items.belongsTo(stack, matchIdString)
+
+        return when (progress.phase) {
+            FishingPhase.BITE -> {
+                val hook = bitingHook ?: return null
+                if (hook.uniqueId != hookId || !hook.isValid ||
+                    !issued(player.inventory.itemInMainHand, EventItemKind.FISHING_ROD) &&
+                    !issued(player.inventory.itemInOffHand, EventItemKind.FISHING_ROD)) return null
+                localized("fishing.card-bite")
+            }
+            FishingPhase.CAUGHT -> {
+                if (player.inventory.heldItemSlot != 4 ||
+                    !issued(player.inventory.itemInMainHand, EventItemKind.FISHING_LIVE_CATCH)) return null
+                val species = progress.encounter?.species ?: return null
+                localized("fishing.card-release", mapOf("species" to localized("fishing.species.$species")))
+            }
+            else -> null
+        }
     }
 
     fun hud(): Component = localized(
@@ -1041,6 +1067,7 @@ class FishingAdventure(
             addAll(creatures.values)
         }
         hookId = null
+        bitingHook = null
         val cancelled = staleCleanupCancelled
         val cleaned = cleanupFishingEntities(world, ownerKey, ownerTag, matchKey, if (stale) null else matchIdString,
             stageKey, if (stale) null else progress.stage, direct, { stale && cancelled.get() }) { step ->
@@ -1091,6 +1118,9 @@ class FishingAdventure(
         // CAUGHT_FISH creates a vanilla reward; CAUGHT_ENTITY points at an existing world entity.
         if (event.state == PlayerFishEvent.State.CAUGHT_FISH) (event.caught as? Item)?.remove()
         event.hook.remove()
-        if (hookId == event.hook.uniqueId) hookId = null
+        if (hookId == event.hook.uniqueId) {
+            hookId = null
+            bitingHook = null
+        }
     }
 }

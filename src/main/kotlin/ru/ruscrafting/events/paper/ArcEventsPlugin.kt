@@ -158,7 +158,9 @@ open class ArcEventsPlugin : JavaPlugin() {
             it.init()
         }
         require(manager.healthCheck().get(5, java.util.concurrent.TimeUnit.SECONDS)) { "Redis connection is unavailable" }
-        val recovery = RecoveryBatchStore(root, Gson()).also { if (settings.playerStateMode == PlayerStateMode.PRESERVE) it.prepare() }
+        val recovery = RecoveryBatchStore(root, mode = settings.playerStateMode).also {
+            if (settings.nodeMode == NodeMode.HOST) it.prepare()
+        }
         val points = ArenaWeaponPointStore(root) { failure ->
             logger.log(Level.WARNING, "ArcEvents mandatory weapon points are unavailable; using random map points", failure)
         }.also { weaponPointStore = lifecycle.own(it) }
@@ -192,7 +194,7 @@ open class ArcEventsPlugin : JavaPlugin() {
         try {
             val debug = ArcEventsDebug({ settings.debugEnabled }, logger::info)
             val escrow = PlayerStateEscrow(recovery,
-                enabled = settings.playerStateMode == PlayerStateMode.PRESERVE, work = activeWork).also { this.escrow = it }
+                enabled = settings.nodeMode == NodeMode.HOST, work = activeWork).also { this.escrow = it }
             val items = TttItems(this, locale) { settings }
             val firearms = TttFirearms(this, locale) { settings }
             lateinit var activeService: ArcEventsService
@@ -291,7 +293,7 @@ open class ArcEventsPlugin : JavaPlugin() {
                 }
                 RuntimeHealthContribution(
                     state = if (dependencies.values.all { it }) RuntimeHealthState.UP else RuntimeHealthState.DEGRADED,
-                    recoveryBacklog = if (settings.playerStateMode == PlayerStateMode.DISPOSABLE) 0 else escrow.recoveryBacklog(),
+                    recoveryBacklog = escrow.recoveryBacklog(),
                     activeLeases = coordinator.activeLeaseCount(),
                     schemas = mapOf("player_recovery" to RecoveryBatch.FORMAT_VERSION),
                     dependencies = dependencies,
@@ -335,12 +337,16 @@ open class ArcEventsPlugin : JavaPlugin() {
             val ammoRecipe = lifecycle.own(FirearmAmmoRecipe(this, firearms))
             server.pluginManager.registerEvents(ammoRecipe, this)
             server.onlinePlayers.forEach(firearmItems::refreshLater)
-            val firearmHud = lifecycle.own(FirearmAmmoHud(packetDisplays, locale) { player ->
-                if (preparing || escrow.isLocked(player.uniqueId)) null
-                else activeService.ammoHudState(player) ?: worldFirearms.ammoHudState(player)
+            val actionHud = lifecycle.own(EventActionHud(packetDisplays) { player ->
+                if (preparing || escrow.isLocked(player.uniqueId)) return@EventActionHud null
+                val hint = activeService.fishingAdventure(player)?.actionHint()
+                    ?: activeService.zombiesAdventure(player)?.rescueHint(player)
+                if (hint != null) return@EventActionHud EventActionHudFrame(hint, scopeRuntime.projectedZoom(player.uniqueId) ?: 1f)
+                val ammo = activeService.ammoHudState(player) ?: worldFirearms.ammoHudState(player)
+                ammo?.hudFrame { key, values -> locale.render(key, player, values) }
             })
-            lifecycle.tasks.runTimer(1, 1) { firearmHud.tick(server.onlinePlayers) }
-            server.pluginManager.registerEvents(ArcEventsListener(activeService, menu, items, worldFirearms, firearmHud::clear), this)
+            lifecycle.tasks.runTimer(1, 1) { actionHud.tick(server.onlinePlayers) }
+            server.pluginManager.registerEvents(ArcEventsListener(activeService, menu, items, worldFirearms, actionHud::clear), this)
             apocalypseRuntime.start()
             coordinator.start()
             activeService.start()

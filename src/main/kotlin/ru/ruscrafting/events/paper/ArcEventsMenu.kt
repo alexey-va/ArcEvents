@@ -34,6 +34,7 @@ sealed interface EventsView {
     data object EventHelp : EventsView
     data object Ttt : EventsView
     data object Fishing : EventsView
+    data object Apocalypse : EventsView
     data class Arcade(val mode: EventMode) : EventsView
     data object Statistics : EventsView
     data object Admin : EventsView
@@ -93,6 +94,7 @@ class ArcEventsMenu(
         val frame: PaperMenuFrame,
         val arenaIds: List<String> = emptyList(),
         val centerClick: (() -> Unit)? = null,
+        val soloSlot: Int? = null,
     )
 
     /** Command/hotkey entry: discard an older dialog flow before rendering a root. */
@@ -156,6 +158,7 @@ class ArcEventsMenu(
             EventsView.Statistics -> openStatistics(player)
             EventsView.Ttt -> error("TTT is opened asynchronously")
             EventsView.Fishing -> error("Fishing is opened natively")
+            EventsView.Apocalypse -> apocEntry(player)
             EventsView.Admin -> openAdmin(player)
             EventsView.Arenas -> openArenas(player)
             EventsView.EventArenas -> openEventArenas(player)
@@ -172,7 +175,9 @@ class ArcEventsMenu(
         Tasks.scheduler.runLater(1L) {
             try {
                 if (!player.isOnline || activeFrames[player.uniqueId] !== active || menuRuntime.session(player) == null) return@runLater
-                if (active.centerClick != null && slot == element(active.view, "center")) {
+                if (slot == active.soloSlot) {
+                    dispatchClick(player, active.view, ADMIN_SOLO_SLOT)
+                } else if (active.centerClick != null && slot == element(active.view, "center")) {
                     active.centerClick()
                 } else if (active.view == EventsView.EventArenas) {
                     clickEventArenas(player, slot, active.arenaIds)
@@ -203,6 +208,11 @@ class ArcEventsMenu(
     }
 
     private fun dispatchClick(player: Player, view: EventsView, slot: Int, nativePresentation: Boolean = false) {
+        if (slot == ADMIN_SOLO_SLOT && !player.hasPermission("arcevents.admin")) {
+            player.sendEventMessage(locale.render("command.no-permission", player))
+            open(player, view)
+            return
+        }
         if (slot == LEAVE_QUEUE_SLOT) {
             if (service.isParticipant(player.uniqueId)) { open(player, view); return }
             selectedArenas.remove(player.uniqueId)
@@ -224,6 +234,10 @@ class ArcEventsMenu(
             EventsView.EventHelp -> if (slot == element(view, "back")) open(player, EventsView.Ttt)
             EventsView.Ttt -> clickTtt(player, slot, nativePresentation)
             EventsView.Fishing -> clickFishing(player, slot, nativePresentation)
+            EventsView.Apocalypse -> if (slot == 0 || slot == ADMIN_SOLO_SLOT) {
+                closeSurface(player, nativePresentation)
+                apocEntry(player)
+            }
             is EventsView.Arcade -> clickArcade(player, view.mode, slot, nativePresentation)
             EventsView.Statistics -> if (slot == element(view, "back")) open(player, EventsView.Main)
             EventsView.Admin -> clickAdmin(player, slot)
@@ -242,7 +256,7 @@ class ArcEventsMenu(
     }
 
     companion object {
-        val nativeDialogViews = setOf<EventsView>(EventsView.Main, EventsView.Help, EventsView.EventHelp, EventsView.Ttt, EventsView.Fishing, EventsView.Arcade(EventMode.ZOMBIES), EventsView.Arcade(EventMode.GUN_GAME), EventsView.Arcade(EventMode.DISASTERS), EventsView.Statistics, EventsView.Admin, EventsView.Report)
+        val nativeDialogViews = setOf<EventsView>(EventsView.Main, EventsView.Help, EventsView.EventHelp, EventsView.Ttt, EventsView.Fishing, EventsView.Apocalypse, EventsView.Arcade(EventMode.ZOMBIES), EventsView.Arcade(EventMode.GUN_GAME), EventsView.Arcade(EventMode.DISASTERS), EventsView.Statistics, EventsView.Admin, EventsView.Report)
 
         internal fun closeSurfaceForPresentation(
             player: Player,
@@ -289,8 +303,8 @@ class ArcEventsMenu(
             element(view, "disasters") -> open(player, EventsView.Arcade(EventMode.DISASTERS))
             element(view, "fishing") -> open(player, EventsView.Fishing)
             element(view, "zombies") -> open(player, EventsView.Arcade(EventMode.ZOMBIES))
-            element(view, "apocalypse") -> {
-                closeSurface(player, nativePresentation)
+            element(view, "apocalypse") -> if (nativePresentation) open(player, EventsView.Apocalypse) else {
+                player.closeInventory()
                 apocEntry(player)
             }
             element(view, "statistics") -> open(player, EventsView.Statistics)
@@ -368,7 +382,11 @@ class ArcEventsMenu(
                     values + ("queue_state" to statusText(player, entry, inArcadeMatch))))
                 inventory.setItem(element(view, "help"), item(Material.KNOWLEDGE_BOOK, player, "arcade.${mode.id}-guide-name", "arcade.${mode.id}-guide", values))
                 inventory.setItem(element(view, "back"), backItem(player))
-                show(player, view, inventory, centerClick = when {
+                val solo = entry.canStartSoloTest(inArcadeMatch) && player.hasPermission("arcevents.admin")
+                val soloSlot = if (solo) element(view, "evacuate") else null
+                if (soloSlot != null) inventory.setItem(soloSlot, item(Material.COMPARATOR, player, "menu.admin.solo-test-name",
+                    "menu.admin.solo-test-lore", locale.soloTestText(player, mode)))
+                show(player, view, inventory, soloSlot = soloSlot, centerClick = when {
                     inArcadeMatch -> { { dispatchClick(player, view, LEAVE_MATCH_SLOT) } }
                     entry.showCheck -> checkEntry
                     queued -> { { dispatchClick(player, view, LEAVE_QUEUE_SLOT) } }
@@ -398,7 +416,7 @@ class ArcEventsMenu(
     }
 
     private fun clickFishing(player: Player, slot: Int, nativePresentation: Boolean) {
-        if (slot != FISHING_PRIMARY_SLOT) return
+        if (slot != FISHING_PRIMARY_SLOT && slot != ADMIN_SOLO_SLOT) return
         if (service.isParticipant(player.uniqueId)) { openFishing(player); return }
         val token = UUID.randomUUID()
         pendingFishingActions[player.uniqueId] = token
@@ -415,7 +433,8 @@ class ArcEventsMenu(
             player.sendEventMessage(locale.render("arcade.fishing-dialog-unavailable", player))
             return
         }
-        service.startFishing(player).whenComplete { result, failure ->
+        val start = if (slot == ADMIN_SOLO_SLOT) service.startSoloTest(player, EventMode.FISHING) else service.startFishing(player)
+        start.whenComplete { result, failure ->
             Tasks.scheduler.runSync {
                 if (!player.isOnline || pendingFishingActions[player.uniqueId] != token) return@runSync
                 pendingFishingActions.remove(player.uniqueId, token)
@@ -432,7 +451,7 @@ class ArcEventsMenu(
         if (slot == element(view, "back")) { open(player, EventsView.Main); return }
         if (slot == element(view, "help")) { if (nativePresentation) dialogs.openRules(player, mode); return }
         if (pendingArcadeActions.containsKey(player.uniqueId)) return
-        if (slot !in setOf(element(view, "center"), element(view, "right"), ZOMBIES_SOLO_SLOT)) return
+        if (slot !in setOf(element(view, "center"), element(view, "right"), ZOMBIES_SOLO_SLOT, ADMIN_SOLO_SLOT)) return
         if (slot == ZOMBIES_SOLO_SLOT && mode != EventMode.ZOMBIES) return
         val token = UUID.randomUUID()
         pendingArcadeActions[player.uniqueId] = token
@@ -454,8 +473,9 @@ class ArcEventsMenu(
                 }
             }
         }
-        if (slot == ZOMBIES_SOLO_SLOT) {
-            service.startZombiesSolo(player).whenComplete(::completeStart)
+        if (slot == ZOMBIES_SOLO_SLOT || slot == ADMIN_SOLO_SLOT) {
+            val start = if (slot == ADMIN_SOLO_SLOT) service.startSoloTest(player, mode) else service.startZombiesSolo(player)
+            start.whenComplete(::completeStart)
             return
         }
         service.queueControl(player.uniqueId).whenComplete { control, failure ->
@@ -575,7 +595,10 @@ class ArcEventsMenu(
                 inventory.setItem(element(view, "help"), item(Material.KNOWLEDGE_BOOK, player, "menu.event.help-name", "menu.event.help-lore"))
                 inventory.setItem(element(view, "back"), backItem(player))
                 if (plan.showEvacuate) inventory.setItem(element(view, "evacuate"), item(Material.ENDER_PEARL, player, "menu.event.evacuate-name", "menu.event.evacuate-lore"))
-                show(player, view, inventory, centerClick = when {
+                val soloSlot = if (entry.canStartSoloTest(plan.showEvacuate) && player.hasPermission("arcevents.admin")) element(view, "evacuate") else null
+                if (soloSlot != null) inventory.setItem(soloSlot, item(Material.COMPARATOR, player, "menu.admin.solo-test-name",
+                    "menu.admin.solo-test-lore", locale.soloTestText(player, EventMode.TTT)))
+                show(player, view, inventory, soloSlot = soloSlot, centerClick = when {
                     plan.showLeave -> { { dispatchClick(player, view, LEAVE_QUEUE_SLOT) } }
                     entry.showCheck && !plan.showEvacuate -> checkEntry
                     else -> null
@@ -587,6 +610,7 @@ class ArcEventsMenu(
     private fun clickTtt(player: Player, slot: Int, nativePresentation: Boolean) {
         val view = EventsView.Ttt
         when (slot) {
+            ADMIN_SOLO_SLOT -> startFromEventMenu(player, nativePresentation, soloTest = true)
             element(view, "left") -> if (service.roster(player.uniqueId) != null) open(player, EventsView.Roster)
             element(view, "center") -> when {
                 shopAccessible(service.currentMatch(), service.participant(player.uniqueId)) -> open(player, EventsView.Shop)
@@ -645,7 +669,7 @@ class ArcEventsMenu(
         }
     }
 
-    private fun startFromEventMenu(player: Player, nativePresentation: Boolean) {
+    private fun startFromEventMenu(player: Player, nativePresentation: Boolean, soloTest: Boolean = false) {
         if (pendingArcadeActions.containsKey(player.uniqueId)) return
         val token = UUID.randomUUID()
         pendingArcadeActions[player.uniqueId] = token
@@ -653,7 +677,9 @@ class ArcEventsMenu(
             pendingArcadeActions.remove(player.uniqueId, token)
             openTtt(player)
         }) { pendingArcadeActions.remove(player.uniqueId, token) }
-        service.startFromQueue(player, selectedArenas[player.uniqueId]).whenComplete { result, failure ->
+        val start = if (soloTest) service.startSoloTest(player, EventMode.TTT)
+            else service.startFromQueue(player, selectedArenas[player.uniqueId])
+        start.whenComplete { result, failure ->
             Tasks.scheduler.runSync {
                 if (!player.isOnline || pendingArcadeActions[player.uniqueId] != token) return@runSync
                 pendingArcadeActions.remove(player.uniqueId, token)
@@ -1151,8 +1177,9 @@ class ArcEventsMenu(
         frame: PaperMenuFrame,
         arenaIds: List<String> = emptyList(),
         centerClick: (() -> Unit)? = null,
+        soloSlot: Int? = null,
     ) {
-        val active = ActiveFrame(view, frame, arenaIds.toList(), centerClick)
+        val active = ActiveFrame(view, frame, arenaIds.toList(), centerClick, soloSlot)
         activeFrames[player.uniqueId] = active
         menuRuntime.open(player, ArcEventsMenuLayouts.menu(view)) {
             val latest = activeFrames[player.uniqueId].takeIf { it === active } ?: active
@@ -1293,6 +1320,8 @@ internal data class EventEntryStatus(
     val hasRoute get() = queue != null && queue != QueueState.QUEUED
     val showCheck get() = !inOtherMode && (hasRoute || queue == null && !ready)
     val checkKey get() = if (hasRoute) "menu.event.check-route" else "menu.event.refresh"
+
+    fun canStartSoloTest(participating: Boolean) = ready && !hasRoute && !participating
 
     fun statusKeys(participating: Boolean): List<String> = buildList {
         if (participating) { add("menu.event.state.matched"); return@buildList }

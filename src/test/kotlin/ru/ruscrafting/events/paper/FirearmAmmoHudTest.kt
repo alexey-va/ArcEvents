@@ -23,12 +23,12 @@ import org.bukkit.World
 import org.bukkit.configuration.file.YamlConfiguration
 import org.bukkit.entity.Display
 import org.bukkit.entity.Player
+import org.bukkit.entity.TextDisplay
 import org.bukkit.util.RayTraceResult
 import org.bukkit.util.Transformation
 import org.bukkit.util.Vector
 import ru.arc.paper.display.PacketTextDisplay
 import ru.arc.paper.display.PaperPacketDisplays
-import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.domain.TttFirearmCatalog
 import java.io.InputStreamReader
 import java.nio.file.Files
@@ -56,7 +56,7 @@ class FirearmAmmoHudTest : StringSpec({
                 bars.count { it.color() == TextColor.color(0x526170) } shouldBe capacity - loaded
                 lines.last().contains("F") shouldBe true
                 text.decoration(TextDecoration.ITALIC) shouldBe TextDecoration.State.FALSE
-                val bounds = firearmAmmoHudBounds(text)
+                val bounds = eventActionHudBounds(text)
                 bounds.lineCount shouldBe 4
                 (bounds.pixelWidth <= 200) shouldBe true
             }
@@ -145,14 +145,39 @@ class FirearmAmmoHudTest : StringSpec({
         f.parts.size shouldBe 3
     }
 
+    "a timed action takes the existing owner's card and the current magazine returns on the same passenger" {
+        val f = AmmoHudFixture()
+        f.hud.use { hud ->
+            hud.refresh(f.player)
+            val part = f.parts.single()
+            val hint = ammoHudLocale("ru")("zombies.card-revive", mapOf(
+                "player" to Component.text("Aster"), "seconds" to Component.text(2)))
+            f.action = hint
+            repeat(2) { hud.refresh(f.player) }
+            verify(exactly = 1) { part.text(hint); part.alignment = TextDisplay.TextAlignment.CENTER }
+            f.action = null
+            f.state = f.state!!.copy(loaded = 17)
+            hud.refresh(f.player)
+            f.parts.size shouldBe 1
+            verify(exactly = 2) { part.alignment = TextDisplay.TextAlignment.LEFT }
+            verify(exactly = 1) { part.isVisibleByDefault = false; part.showTo(f.player); part.attachTo(f.player) }
+            verify(exactly = 1) { part.showTo(any<Player>()) }
+            verify(exactly = 1) { part.pauseWhenNotObserved = false }
+            verify(exactly = 0) { part.teleport(any()); part.remove() }
+            f.state = null
+            hud.refresh(f.player)
+        }
+        verify(exactly = 1) { f.parts.single().remove() }
+    }
+
     "CENTER transform separates world-vertical passenger correction from camera-local magazine placement" {
-        val bounds = FirearmAmmoHudBounds(184, 4)
+        val bounds = EventActionHudBounds(184, 4)
         for (yaw in listOf(0f, 43f, 180f)) for (pitch in listOf(-85f, -37f, 0f, 76f))
             for (gap in listOf(.18, .23, .05, .36)) for (zoom in listOf(1f, 1.15f, 1.35f, 3f, 5f)) {
                 val eye = Location(null, 13.0, 65.62, -21.0, yaw, pitch)
-                val pose = firearmAmmoHudPose(bounds, zoom, gap)
+                val pose = eventActionHudPose(bounds, zoom, gap)
                 for (fraction in listOf(1.0, .2)) {
-                    val transform = firearmAmmoHudTransformation(pose, bounds, eye, gap, fraction)
+                    val transform = eventActionHudTransformation(pose, bounds, eye, gap, fraction)
                     val forward = eye.direction.normalize()
                     val radians = Math.toRadians(yaw.toDouble())
                     val right = Vector(-cos(radians), 0.0, -sin(radians))
@@ -166,7 +191,7 @@ class FirearmAmmoHudTest : StringSpec({
                     fromEye.dot(forward) shouldBe (pose.forward * fraction plusOrMinus 1e-6)
                     (-pose.down - bounds.verticalRadius * pose.scale >= 2.5 * .14 * pose.scale / .28 - 1e-6) shouldBe true
                     pose.right shouldBe 0.0
-                    val base = firearmAmmoHudPose(bounds, 1f, gap)
+                    val base = eventActionHudPose(bounds, 1f, gap)
                     val perspective = tan(Math.toRadians(35.0)) / tan(Math.toRadians(35.0 / zoom))
                     (pose.down * perspective) shouldBe (base.down plusOrMinus 1e-6)
                     (pose.scale * perspective) shouldBe (base.scale.toDouble() plusOrMinus 1e-6)
@@ -179,8 +204,8 @@ class FirearmAmmoHudTest : StringSpec({
         val projection = 672.0 / (2 * tan(Math.toRadians(35.0)))
         for (language in listOf("ru", "en")) for (creative in listOf(false, true)) {
             val text = firearmAmmoHudText(FirearmAmmoHudState(64, 64, 2304, creative), ammoHudLocale(language))
-            val bounds = firearmAmmoHudBounds(text)
-            val pose = firearmAmmoHudPose(bounds)
+            val bounds = eventActionHudBounds(text)
+            val pose = eventActionHudPose(bounds)
             val pixelsPerFontPixel = .025 * pose.scale * projection / pose.forward
             (7 * pixelsPerFontPixel in 14.0..17.0) shouldBe true
             val halfHeight = bounds.verticalRadius * pose.scale
@@ -203,8 +228,8 @@ class FirearmAmmoHudTest : StringSpec({
             val nearer = f.transforms.last()
             (nearer.scale.x < original.scale.x) shouldBe true
             val gap = f.player.height - f.player.eyeHeight
-            val beforeDown = original.translation.y + gap + firearmAmmoHudBounds(f.texts.first()).originUp * original.scale.y
-            val afterDown = nearer.translation.y + gap + firearmAmmoHudBounds(f.texts.first()).originUp * nearer.scale.y
+            val beforeDown = original.translation.y + gap + eventActionHudBounds(f.texts.first()).originUp * original.scale.y
+            val afterDown = nearer.translation.y + gap + eventActionHudBounds(f.texts.first()).originUp * nearer.scale.y
             (afterDown / nearer.translation.z) shouldBe (beforeDown / original.translation.z plusOrMinus 1e-6)
             verify { f.parts.single().interpolationDuration = 0 }
             every { f.world.isChunkLoaded(any<Int>(), any<Int>()) } returns false
@@ -230,9 +255,9 @@ class FirearmAmmoHudTest : StringSpec({
             val local = ammoHudLocale(language)
             cases.map { (name, state) ->
                 val text = firearmAmmoHudText(state, local)
-                val bounds = firearmAmmoHudBounds(text)
-                val pose = firearmAmmoHudPose(bounds, state.zoom)
-                val transform = firearmAmmoHudTransformation(pose, bounds, Location(null, 0.0, 1.62, 0.0), .18)
+                val bounds = eventActionHudBounds(text)
+                val pose = eventActionHudPose(bounds, state.zoom)
+                val transform = eventActionHudTransformation(pose, bounds, Location(null, 0.0, 1.62, 0.0), .18)
                 mapOf("name" to name, "language" to language, "state" to state, "legacy" to legacy.serialize(text),
                     "bounds" to bounds, "pose" to pose,
                     "translation" to listOf(transform.translation.x, transform.translation.y, transform.translation.z))
@@ -247,6 +272,37 @@ class FirearmAmmoHudTest : StringSpec({
                 "assumptions" to "70 degree base vertical FOV with tangent-ratio scope compensation; native FOV smoothing and other client FOV settings are not simulated",
                 "samples" to samples,
             )))
+        }
+    }
+
+    "the mode action cards have two centered readable lines above the aim in both languages" {
+        val legacy = LegacyComponentSerializer.builder().hexColors().build()
+        val samples = listOf("ru", "en").flatMap { language ->
+            val local = ammoHudLocale(language)
+            val cases = mapOf(
+                "fishing.card-bite" to emptyMap(),
+                "fishing.card-release" to mapOf("species" to local("fishing.species.lava_salmon", emptyMap())),
+                "zombies.card-revive" to mapOf("player" to Component.text("GroundControl"), "seconds" to Component.text(2)),
+            )
+            cases.map { (key, values) ->
+                val text = local(key, values)
+                val bounds = eventActionHudBounds(text)
+                val pose = eventActionHudPose(bounds)
+                val transform = eventActionHudTransformation(pose, bounds, Location(null, 0.0, 1.62, 0.0), .18)
+                bounds.lineCount shouldBe 2
+                (bounds.pixelWidth <= 180) shouldBe true
+                val halfHeight = bounds.verticalRadius * pose.scale
+                ((-pose.down + halfHeight) / pose.forward < tan(Math.toRadians(35.0))) shouldBe true
+                ((-pose.down - halfHeight) / pose.forward > .35) shouldBe true
+                mapOf("key" to key, "language" to language, "legacy" to legacy.serialize(text),
+                    "bounds" to bounds, "pose" to pose, "background" to EVENT_ACTION_HUD_BACKGROUND.asARGB(),
+                    "translation" to listOf(transform.translation.x, transform.translation.y, transform.translation.z))
+            }
+        }
+        System.getenv("ARC_EVENTS_ACTION_HUD_PREVIEW")?.let { output ->
+            val path = Path.of(output)
+            path.parent?.let(Files::createDirectories)
+            Files.writeString(path, GsonBuilder().setPrettyPrinting().create().toJson(samples))
         }
     }
 })
@@ -298,8 +354,6 @@ private class AmmoHudFixture {
         }
     }
     private val local = ammoHudLocale("ru")
-    private val locale = mockk<ArcEventsLocale> {
-        every { render(any(), any(), any()) } answers { local(firstArg(), thirdArg()) }
-    }
-    val hud = FirearmAmmoHud(displays, locale) { state }
+    var action: Component? = null
+    val hud = EventActionHud(displays) { action?.let { EventActionHudFrame(it) } ?: state?.hudFrame(local) }
 }

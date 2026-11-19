@@ -114,10 +114,16 @@ class ZombiesAdventureTest : StringSpec({
         ZombieControllerFixture(multiplayer = true).use { f ->
             val teammate = requireNotNull(f.teammate)
             val teammateId = teammate.uniqueId
+            val patient = Component.text(teammate.name)
             f.game.start()
             f.game.down(teammate)
+            f.game.rescueHint(f.player) shouldBe null
             f.sneaking = true
             f.game.tick()
+            f.game.rescueHint(f.player) shouldBe Component.text("Test")
+            f.game.rescueHint(teammate) shouldBe null
+            verify { f.locale.render("zombies.card-revive", f.player,
+                mapOf("player" to patient, "seconds" to Component.text("3"))) }
 
             val service = mockk<ArcEventsGameplayBoundary>()
             every { service.zombiesAdventure(f.player) } returns f.game
@@ -125,13 +131,18 @@ class ZombiesAdventureTest : StringSpec({
             f.now = 2_000
             f.sneaking = false
             listener.onZombiesSneak(PlayerToggleSneakEvent(f.player, false))
+            f.game.rescueHint(f.player) shouldBe null
             f.sneaking = true
             f.now = 3_000
             f.game.tick()
             f.game.director.players.getValue(teammateId).status shouldBe ZombiesStatus.DOWNED
 
             f.now = 4_000
+            f.game.rescueHint(f.player) shouldBe Component.text("Test")
+            verify { f.locale.render("zombies.card-revive", f.player,
+                mapOf("player" to patient, "seconds" to Component.text("2"))) }
             f.game.handleMove(PlayerMoveEvent(f.player, f.at.clone(), f.at.clone().add(5.0, 0.0, 0.0))) shouldBe false
+            f.game.rescueHint(f.player) shouldBe null
             f.now = 6_000
             f.game.tick()
             f.game.director.players.getValue(teammateId).status shouldBe ZombiesStatus.DOWNED
@@ -139,6 +150,7 @@ class ZombiesAdventureTest : StringSpec({
             f.now = 9_000
             f.game.tick()
             f.game.director.players.getValue(teammateId).status shouldBe ZombiesStatus.ALIVE
+            f.game.rescueHint(f.player) shouldBe null
         }
     }
 
@@ -263,6 +275,7 @@ private class ZombieControllerFixture(multiplayer: Boolean = false) : AutoClosea
     val world = mockk<World>(relaxed = true)
     val player = mockk<Player>(relaxed = true)
     val teammate = if (multiplayer) mockk<Player>(relaxed = true) else null
+    val locale = mockk<ArcEventsLocale>(relaxed = true)
     val match = UUID.randomUUID()
     var at = Location(world, .5, 65.0, -18.5)
     var now = 0L
@@ -294,6 +307,7 @@ private class ZombieControllerFixture(multiplayer: Boolean = false) : AutoClosea
         every { player.isSneaking } answers { sneaking }
         every { player.hasLineOfSight(any<Entity>()) } returns true
         teammate?.let {
+            every { it.name } returns "Aster"
             every { it.uniqueId } returns UUID.randomUUID()
             every { it.isOnline } returns true
             every { it.world } returns world
@@ -321,7 +335,6 @@ private class ZombieControllerFixture(multiplayer: Boolean = false) : AutoClosea
             mobs += mob
             mob
         }
-        val locale = mockk<ArcEventsLocale>(relaxed = true)
         every { locale.render(any(), any(), any()) } returns Component.text("Test")
         every { locale.text(any()) } answers { Component.text(firstArg<Any>().toString()) }
         val firearms = mockk<TttFirearms>(relaxed = true)

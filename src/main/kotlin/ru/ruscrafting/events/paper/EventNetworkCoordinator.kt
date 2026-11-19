@@ -304,6 +304,37 @@ class EventNetworkCoordinator(
     fun reserveZombiesSolo(requester: Player): CompletableFuture<ReservationStartResult> =
         queueRequesterThenReserve(requester, "zombies", EventMode.ZOMBIES, requesterOnly = true)
 
+    fun reservePractice(requester: Player, mode: EventMode): CompletableFuture<ReservationStartResult> {
+        if (!requester.hasPermission(ArcEventsListener.ADMIN_BYPASS_PERMISSION))
+            return CompletableFuture.completedFuture(ReservationStartResult.NOT_OWNER)
+        val generation = eventChannel
+        if (!started || generation == null) return CompletableFuture.completedFuture(ReservationStartResult.NETWORK_FAILURE)
+        val result = CompletableFuture<ReservationStartResult>()
+        val playerId = requester.uniqueId
+        repository.loadQueueEntry(playerId).whenComplete { entry, error ->
+            Tasks.scheduler.runSync {
+                if (error != null) plugin.logger.log(Level.WARNING, "ArcEvents practice route lookup failed for $playerId", error)
+                if (!started || eventChannel !== generation || error != null || !requester.isOnline ||
+                    plugin.server.getPlayer(playerId) !== requester) {
+                    result.complete(ReservationStartResult.NETWORK_FAILURE)
+                } else if (!requester.hasPermission(ArcEventsListener.ADMIN_BYPASS_PERMISSION)) {
+                    result.complete(ReservationStartResult.NOT_OWNER)
+                } else if (entry != null && entry.state != QueueState.QUEUED) {
+                    result.complete(resumeExistingRoute(requester, entry, retryOnHost = entry.practice && !recoveryPending(playerId)))
+                } else {
+                    val current = settings()
+                    val start = if (current.nodeMode == NodeMode.HOST)
+                        reserveOnHost(playerId, true, requesterOrigin = current.serverId, mode = mode, practicePlayerName = requester.name)
+                    else requestHostStart(current, playerId, null, true, mode, practicePlayerName = requester.name)
+                    start.whenComplete { outcome, failure ->
+                        result.complete(if (failure == null && outcome != null) outcome else ReservationStartResult.NETWORK_FAILURE)
+                    }
+                }
+            }
+        }
+        return result
+    }
+
     private fun queueRequesterThenReserve(
         requester: Player,
         preferredArenaId: String?,
@@ -394,9 +425,11 @@ class EventNetworkCoordinator(
     internal fun resumeExistingRoute(player: Player, entry: QueueEntry, retryOnHost: Boolean = false): ReservationStartResult {
         if (!player.isOnline || entry.playerId != player.uniqueId.toString()) return ReservationStartResult.NETWORK_FAILURE
         val current = settings()
+        if (entry.practice && current.nodeMode == NodeMode.HOST && recoveryPending(player.uniqueId))
+            return ReservationStartResult.RECOVERY_PENDING
         when (entry.state) {
             QueueState.ARRIVED, QueueState.MATCHED -> {
-                if (disposableHost(current)) {
+                if (disposableHost(current) && !entry.practice) {
                     if (!activeMatchParticipant(entry)) preserveOrphanedRoute(player, entry)
                     return ReservationStartResult.RECOVERY_PENDING
                 }
@@ -433,7 +466,7 @@ class EventNetworkCoordinator(
             ))
             QueueState.RETURN_PENDING -> when {
                 entry.originServer == current.serverId -> finishPendingReturn(player, entry)
-                disposableHost(current) -> Unit
+                disposableHost(current) && !entry.practice -> Unit
                 retryOnHost && current.nodeMode == NodeMode.HOST && current.serverId == entry.destinationServer ->
                     finishPendingReturn(player, entry)
                 current.serverId != entry.destinationServer -> handleJoin(player)
@@ -450,6 +483,7 @@ class EventNetworkCoordinator(
         adminBypass: Boolean,
         mode: EventMode = EventMode.TTT,
         requesterOnly: Boolean = false,
+        practicePlayerName: String? = null,
     ): CompletableFuture<ReservationStartResult> {
         if (mode == EventMode.FISHING && requesterId == null) {
             return CompletableFuture.completedFuture(ReservationStartResult.NOT_OWNER)
@@ -463,6 +497,7 @@ class EventNetworkCoordinator(
             adminBypass = adminBypass,
             mode = mode.id,
             requesterOnly = requesterOnly,
+            practicePlayerName = practicePlayerName,
         )
         debug.event("start_requested", "origin" to current.serverId, "host" to current.hostServer, "request" to request.eventId)
         val channel = eventChannel ?: return CompletableFuture.completedFuture(ReservationStartResult.NETWORK_FAILURE)
@@ -496,13 +531,15 @@ class EventNetworkCoordinator(
         requesterOrigin: String? = null,
         mode: EventMode = EventMode.TTT,
         requesterOnly: Boolean = false,
+        practicePlayerName: String? = null,
     ): CompletableFuture<ReservationStartResult> {
         val current = settings()
         val generation = eventChannel
         if (!started || generation == null || current.nodeMode != NodeMode.HOST || requesterOnly && mode != EventMode.ZOMBIES) {
             return CompletableFuture.completedFuture(ReservationStartResult.NETWORK_FAILURE)
         }
-        val requesterBound = mode == EventMode.FISHING || requesterOnly
+        if (practicePlayerName != null && !bypassOwner) return CompletableFuture.completedFuture(ReservationStartResult.NOT_OWNER)
+        val requesterBound = mode == EventMode.FISHING || requesterOnly || practicePlayerName != null
         if (requesterBound && (requesterId == null || requesterOrigin == null)) {
             return CompletableFuture.completedFuture(ReservationStartResult.NOT_OWNER)
         }
@@ -537,6 +574,7 @@ class EventNetworkCoordinator(
                 effectivePreferredArena,
                 mode,
                 requesterOnly,
+                practicePlayerName,
             ).whenComplete { _, _ -> if (eventChannel === generation) startInFlight.set(false) }
         }
         if (requiredOwnerId != null) {
@@ -559,13 +597,19 @@ class EventNetworkCoordinator(
         preferredArenaId: String?,
         mode: EventMode = EventMode.TTT,
         requesterOnly: Boolean = false,
+        practicePlayerName: String? = null,
     ): CompletableFuture<ReservationStartResult> {
         val current = settings()
         val generation = eventChannel
         val result = CompletableFuture<ReservationStartResult>()
-        val matchId = UUID.randomUUID()
+        val matchId = if (practicePlayerName == null) UUID.randomUUID() else QueueEntry.newPracticeMatchId()
         val reservationFuture = runCatching {
-            if (mode == EventMode.FISHING || requesterOnly) {
+            if (practicePlayerName != null) {
+                repository.reservePractice(
+                    matchId, current.serverId, requireNotNull(requesterId), practicePlayerName,
+                    requireNotNull(requiredOwnerOrigin), mode, clock(), current.network.reservationSeconds * 1_000L,
+                )
+            } else if (mode == EventMode.FISHING || requesterOnly) {
                 repository.reserveForRequester(
                     matchId = matchId,
                     destinationServer = current.serverId,
@@ -604,7 +648,8 @@ class EventNetworkCoordinator(
                     return@runSync
                 }
                 if (batch == null) {
-                    result.complete(if (mode == EventMode.FISHING || requesterOnly) ReservationStartResult.NETWORK_FAILURE
+                    result.complete(if (practicePlayerName != null) ReservationStartResult.RECOVERY_PENDING
+                        else if (mode == EventMode.FISHING || requesterOnly) ReservationStartResult.NETWORK_FAILURE
                         else ReservationStartResult.INSUFFICIENT_PLAYERS)
                     return@runSync
                 }
@@ -651,6 +696,12 @@ class EventNetworkCoordinator(
                     plugin.logger.log(Level.WARNING, "ArcEvents reservation claim failed", failure)
                     return@runSync
                 }
+                if (current.nodeMode == NodeMode.RELAY && entry?.practice == true &&
+                    entry.originServer == current.serverId && entry.state in setOf(QueueState.ARRIVED, QueueState.MATCHED)) {
+                    // The host still owns this tester's local snapshot. It must finish restoration before the origin acknowledges.
+                    resumeExistingRoute(player, entry)
+                    return@runSync
+                }
                 when (entry?.state) {
                     QueueState.ARRIVED -> {
                         val arrival = if (current.nodeMode != NodeMode.HOST) CompletableFuture.completedFuture(false)
@@ -662,7 +713,7 @@ class EventNetworkCoordinator(
                                 if (isolationFailure != null) plugin.logger.log(Level.WARNING, "ArcEvents arrival isolation failed", isolationFailure)
                                 if (accepted != true && !recoveryPending(player.uniqueId) &&
                                     !(disposableHost(current) && activeMatchParticipant(entry))) {
-                                    if (disposableHost(current)) preserveOrphanedRoute(player, entry)
+                                    if (disposableHost(current) && !entry.practice) preserveOrphanedRoute(player, entry)
                                     else recoverOrphanedArrival(player, entry)
                                 }
                             }
@@ -670,12 +721,12 @@ class EventNetworkCoordinator(
                     }
                     QueueState.MATCHED -> when {
                         current.nodeMode == NodeMode.HOST && activeMatchParticipant(entry) -> Unit
-                        disposableHost(current) -> preserveOrphanedRoute(player, entry)
+                        disposableHost(current) && !entry.practice -> preserveOrphanedRoute(player, entry)
                         else -> recoverOrphanedArrival(player, entry)
                     }
                     QueueState.RETURN_PENDING -> when {
                         entry.originServer == current.serverId -> finishPendingReturn(player, entry)
-                        disposableHost(current) -> debug.event(
+                        disposableHost(current) && !entry.practice -> debug.event(
                             "stale_return_route_ignored",
                             "player" to player.uniqueId,
                             "match" to entry.matchId,
@@ -948,7 +999,7 @@ class EventNetworkCoordinator(
         val requesterId = message.requesterId?.let(UUID::fromString)
         val mode = EventMode.fromId(message.mode) ?: return
         if (mode.id !in supportedModes()) return
-        val bypass = current.eventControls.adminOverrideEnabled && message.adminBypass
+        val bypass = (message.practicePlayerName != null || current.eventControls.adminOverrideEnabled) && message.adminBypass
         reserveOnHost(
             requesterId,
             bypassOwner = bypass,
@@ -958,6 +1009,7 @@ class EventNetworkCoordinator(
             requesterOrigin = origin,
             mode = mode,
             requesterOnly = message.requesterOnly == true,
+            practicePlayerName = message.practicePlayerName,
         ).whenComplete { result, failure ->
             if (!started || eventChannel !== generation) return@whenComplete
             val outcome = if (failure == null && result != null) result else ReservationStartResult.NETWORK_FAILURE

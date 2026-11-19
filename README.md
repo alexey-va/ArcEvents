@@ -60,7 +60,7 @@ The source-loot increment and native substitutions are recorded in
 Player-state handling is selected per host with `player-state.mode`. `PRESERVE`
 is the default: arcade modes use durable player-state escrow and origin-server
 return routes. `DISPOSABLE` is for hosts whose inventory is independent of the
-origin backend: ArcEvents skips snapshots and restores, clears event loadout and
+origin backend: for public arcade matches ArcEvents skips snapshots and restores, clears event loadout and
 temporary gameplay state on exit, and keeps a local participant's pre-event
 location when it can return on the same backend. Configure this only on a
 `HOST`; changing the mode requires a restart.
@@ -74,6 +74,17 @@ recruits other queued players. The host still
 owns one active match at a time; the solo menu reports a busy host before entry.
 GunGame and Disasters require three
 players by default (configurable under `arcade`), while TTT keeps its own rules.
+
+Administrators can open a mode card and select the solo test, or run
+`/arcevents admin solo <ttt|gungame|disasters|fishing|zombies|apocalypse>`.
+For the five match modes this reserves one human on the event host without
+recruiting public queue members or recording public match statistics. TTT and
+Gun Game have practice opponents, Disasters has a rival, Fishing has a fellow
+angler, and Zombies uses its usual waves. Apocalypse opens the shared persistent
+world with the player's normal expedition save. Private matches journal the
+human participant's host inventory under `data/practice-recovery` on either
+host type and restore it before the return transfer, including after a restart.
+
 Arcade wins contribute to shared match/win statistics without changing TTT karma
 or role-specific wins. Old-round projectiles cannot affect a later match.
 
@@ -81,8 +92,8 @@ Fishing uses five harbours 384 blocks apart in the generated `fishing-v4` world.
 `arcade.fishing.arena.world`. It is excluded from public combat-map rotation.
 Its temporary rod, weapons, creatures and hooks leave no permanent item or XP
 reward; original player state is restored on success, defeat, evacuation and
-recovery in `PRESERVE` mode. `DISPOSABLE` clears the event state instead of
-restoring the original inventory. Gameplay tuning is under `arcade.fishing`:
+recovery in `PRESERVE` mode and in administrator practice. Public expeditions
+on a `DISPOSABLE` host clear the event state on exit. Gameplay tuning is under `arcade.fishing`:
 reload rules while idle; changing the generated world's identity requires a
 restart. No backend name is
 embedded in the fishing implementation.
