@@ -507,6 +507,8 @@ weapon:
     default-burst: '<white>Штатная очередь'
     default-tuning: '<white>Вернуть штатные значения'
     tune: '<#86dcf1>Урон и разброс ›'
+    main-menu: '<white>Главное меню ›'
+    main-menu-unavailable: '<prefix> <#ffb277>Главное меню сейчас недоступно. Попробуйте позже.'
     hold: '<prefix> <#e8dfd2>Возьмите доступное оружие в основную руку.'
     changed: '<prefix> <#ffb277>Предмет изменился. Откройте настройки заново.'
     burst-command: '<prefix> <#e8dfd2>Длина очереди от 1 до <capacity>.<newline>  <#92bed8>/arcevents burst число<newline>  <#e8dfd2>Весь магазин — <#92bed8>full<#e8dfd2>, штатная очередь — <#92bed8>default'

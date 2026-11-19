@@ -255,6 +255,41 @@ class SafetyContractTest : StringSpec({
         verify(exactly = 1) { service.reloadFirearm(player) }
     }
 
+    "state recovery consumes plain and shifted F before firearm input" {
+        MockBukkitTestRuntime.open().use { paper ->
+            val player = paper.addPlayer("firearm-state-lock")
+            val plugin = paper.createSimplePlugin("event-state-lock")
+            val service = mockk<ArcEventsGameplayBoundary> {
+                every { isParticipant(player.uniqueId) } returns true
+                every { phase() } returns MatchPhase.ACTIVE
+                every { reloadFirearm(player) } returns true
+            }
+            val menu = mockk<ArcEventsMenu> {
+                every { openFirearmSettings(player, quiet = true) } returns true
+            }
+            var locked = true
+            paper.server.pluginManager.registerEvents(ArcEventsListener(service, menu, mockk()), plugin)
+            paper.server.pluginManager.registerEvents(EventStateProtection { locked }, plugin)
+
+            fun swap(sneaking: Boolean) {
+                player.isSneaking = sneaking
+                paper.callEvent(PlayerSwapHandItemsEvent(player, player.inventory.itemInOffHand,
+                    player.inventory.itemInMainHand)).isCancelled shouldBe true
+            }
+
+            swap(false)
+            swap(true)
+            verify(exactly = 0) { service.reloadFirearm(player) }
+            verify(exactly = 0) { menu.openFirearmSettings(player, quiet = true) }
+
+            locked = false
+            swap(false)
+            swap(true)
+            verify(exactly = 1) { service.reloadFirearm(player) }
+            verify(exactly = 1) { menu.openFirearmSettings(player, quiet = true) }
+        }
+    }
+
     "fishing administrators cannot export or import expedition items even during restoration" {
         val service = mockk<ArcEventsGameplayBoundary>(relaxed = true)
         val player = mockk<Player>(relaxed = true)

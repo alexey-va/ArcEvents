@@ -41,7 +41,8 @@ internal class EventStateProtection(
     fun drop(event: PlayerDropItemEvent) { if (locked(event.player)) event.isCancelled = true }
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun pickup(event: EntityPickupItemEvent) { if ((event.entity as? Player)?.let(locked) == true) event.isCancelled = true }
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    // Swap is a firearm input at NORMAL. Protect a locked inventory before dispatching that input.
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
     fun swap(event: PlayerSwapHandItemsEvent) { if (locked(event.player)) event.isCancelled = true }
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun consume(event: PlayerItemConsumeEvent) { if (locked(event.player)) event.isCancelled = true }

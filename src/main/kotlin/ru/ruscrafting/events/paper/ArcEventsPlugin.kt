@@ -1,6 +1,7 @@
 package ru.ruscrafting.events.paper
 
 import com.google.gson.Gson
+import org.bukkit.entity.Player
 import org.bukkit.plugin.java.JavaPlugin
 import org.bukkit.generator.ChunkGenerator
 import net.luckperms.api.LuckPerms
@@ -78,6 +79,16 @@ open class ArcEventsPlugin : JavaPlugin() {
     private fun originalContent() = originalContent ?: ru.ruscrafting.events.paper.apocalypse.ApocalypseContent(dataFolder.toPath())
         .also { originalContent = it }
 
+    /** ARC calls this before resolving the personal Shift+F action. */
+    fun tryOpenFirearmSettings(player: Player): Boolean =
+        service != null && !isInventoryLocked(player) && menu.openFirearmSettings(player, quiet = true)
+
+    private fun isInventoryLocked(player: Player): Boolean {
+        val id = player.uniqueId
+        return preparing || apocalypse?.isBusy(id) == true || escrow?.isLocked(id) == true ||
+            (escrow?.pendingPlayers()?.contains(id) == true && service?.isParticipant(id) != true)
+    }
+
 
     /**
      * My_Worlds persists the owning plugin name for custom generators. Keep
@@ -140,10 +151,10 @@ open class ArcEventsPlugin : JavaPlugin() {
         val root = dataFolder.toPath()
         val redisService = requireNotNull(server.servicesManager.load(ArcRedisService::class.java)) { "ARC shared Redis service is unavailable" }
         val owner = name
-        server.pluginManager.registerEvents(EventStateProtection(locked = { player ->
-            preparing || apocalypse?.isBusy(player.uniqueId) == true || escrow?.isLocked(player.uniqueId) == true ||
-                (escrow?.pendingPlayers()?.contains(player.uniqueId) == true && service?.isParticipant(player.uniqueId) != true)
-        }, allowedCommand = { player, command -> apocalypse?.allowsRecoveryCommand(player, command) == true }), this)
+        server.pluginManager.registerEvents(EventStateProtection(
+            locked = ::isInventoryLocked,
+            allowedCommand = { player, command -> apocalypse?.allowsRecoveryCommand(player, command) == true },
+        ), this)
         saveDefaultConfig()
         listOf("lang/ru.yml", "lang/en.yml", "modules/redis.yml", "apocalypse.yml").forEach(::saveResourceIfMissing)
         settings = ArcEventsConfig.load(root)

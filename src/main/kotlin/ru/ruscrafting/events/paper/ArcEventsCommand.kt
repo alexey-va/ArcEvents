@@ -98,7 +98,7 @@ class ArcEventsCommand(
                 }
                 "admin" -> listOf("status", "player", "network", "arenas", "arena", "recovery", "start", "stop", "reload", "recover", "sound") +
                     if (sender is Player) listOf("menu", "weapons", "gun", "solo") else emptyList()
-                "burst" -> if (sender is Player) listOf("1", "3", "6", "full", "default") else emptyList()
+                "burst" -> if (sender is Player) listOf("1", "3", "6", "full", "default", "menu") else emptyList()
                 "qa" -> listOf("status", "player", "network", "arenas", "recovery")
                 "debug" -> if (settings().debugMutationsAllowed) DEBUG_ACTIONS else DEBUG_READ_ACTIONS
                 else -> emptyList()

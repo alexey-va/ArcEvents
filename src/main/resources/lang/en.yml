@@ -507,6 +507,8 @@ weapon:
     default-burst: '<white>Use default burst'
     default-tuning: '<white>Restore default values'
     tune: '<#86dcf1>Damage and spread ›'
+    main-menu: '<white>Main menu ›'
+    main-menu-unavailable: '<prefix> <#ffb277>The main menu is unavailable. Try again later.'
     hold: '<prefix> <#e8dfd2>Hold an available weapon in your main hand.'
     changed: '<prefix> <#ffb277>The item changed. Open its settings again.'
     burst-command: '<prefix> <#e8dfd2>Choose 1 to <capacity> rounds.<newline>  <#92bed8>/arcevents burst number<newline>  <#e8dfd2>Use <#92bed8>full <#e8dfd2>for the magazine or <#92bed8>default <#e8dfd2>for the stock burst.'

@@ -1,6 +1,7 @@
 package ru.ruscrafting.events.paper
 
 import net.kyori.adventure.text.Component
+import net.kyori.adventure.text.event.ClickEvent
 import org.bukkit.GameMode
 import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
@@ -35,6 +36,10 @@ internal class FirearmSettingsDialog(
             if (!quiet) tell(player, "hold")
             return !quiet
         }
+        if (!admin && args.singleOrNull().equals("menu", true)) {
+            openMainMenu(player)
+            return true
+        }
         cancelFire(player.uniqueId)
         val held = Held(player.inventory.itemInMainHand.clone(), player.inventory.heldItemSlot, player.world.uid, player.gameMode, base)
         if (args.isNotEmpty()) {
@@ -44,6 +49,8 @@ internal class FirearmSettingsDialog(
             show(player, held, admin)
         } else {
             tell(player, if (admin) "admin-command" else "burst-command", base)
+            player.sendEventMessage(locale.render("weapon.settings.main-menu", player)
+                .clickEvent(ClickEvent.runCommand("/arcevents burst menu")))
         }
         return true
     }
@@ -113,6 +120,9 @@ internal class FirearmSettingsDialog(
                 }
                 if (player.hasPermission("arcevents.admin")) add(button("tune", "tune", false) { show(it.player, held, true) })
             }
+            add(button("main_menu", "main-menu", false) {
+                if (!openMainMenu(it.player)) show(it.player, held, admin)
+            })
         }
         val description = if (admin) "tuning-help" else if (base.magazineSize == 1) "single-help" else "burst-help"
         runtime.open(player, PaperDialogScreen(
@@ -131,6 +141,13 @@ internal class FirearmSettingsDialog(
                 closeDialogBeforeAction = true, onClick = PaperDialogClickHandler {}),
             id = if (admin) "events.weapon.tune" else "events.weapon.burst",
         ), reopen = { show(player, held, admin) }, onDismiss = {}, closeOnEscape = escapeCloses(player))
+    }
+
+    private fun openMainMenu(player: Player): Boolean {
+        val command = player.server.getPluginCommand("arc:menu")
+        if (command != null && command.plugin.isEnabled && command.execute(player, command.name, emptyArray())) return true
+        tell(player, "main-menu-unavailable")
+        return false
     }
 
     private fun tell(player: Player, key: String, base: FirearmSpec? = null, values: Map<String, Component> = emptyMap()) {

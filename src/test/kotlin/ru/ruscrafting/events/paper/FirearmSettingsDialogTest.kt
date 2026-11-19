@@ -4,7 +4,10 @@ import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
+import net.kyori.adventure.text.event.ClickEvent
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
 import org.bukkit.Material
+import org.bukkit.command.PluginCommandUtils
 import org.bukkit.inventory.ItemStack
 import ru.arc.config.ConfigManager
 import ru.arc.paper.menu.*
@@ -15,7 +18,7 @@ import ru.ruscrafting.events.domain.FirearmId
 import java.nio.file.Files
 
 class FirearmSettingsDialogTest : StringSpec({
-    "player burst and admin tuning are separate and the captured item and permission are rechecked on save" {
+    "both weapon forms open the server menu and recheck the captured item and permissions on save" {
         MockBukkitTestRuntime.open().use { paper ->
             val data = Files.createTempDirectory("arcevents-fire-settings-")
             try {
@@ -27,6 +30,13 @@ class FirearmSettingsDialogTest : StringSpec({
                 }
                 val plugin = paper.createSimplePlugin("WeaponSettings")
                 val player = paper.addPlayer("Gunner")
+                var mainMenuOpens = 0
+                val menuCommand = PluginCommandUtils.createPluginCommand("menu", paper.createSimplePlugin("ARC"))
+                menuCommand.setExecutor { sender, _, _, _ ->
+                    sender shouldBe player
+                    mainMenuOpens++
+                    true
+                }
                 val grant = player.addAttachment(plugin, "arcevents.admin", false)
                 val config = ArcEventsConfig.load(data)
                 val locale = ArcEventsLocale(data) { config }
@@ -38,7 +48,8 @@ class FirearmSettingsDialogTest : StringSpec({
                 lateinit var screen: PaperDialogScreen
                 every { runtime.open(player, any(), any(), any(), any()) } answers { screen = secondArg() }
                 var allowed = true
-                val settings = FirearmSettingsDialog(runtime, locale, guns, { base.takeIf { allowed } }, {}, { true }, { false })
+                var native = true
+                val settings = FirearmSettingsDialog(runtime, locale, guns, { base.takeIf { allowed } }, {}, { native }, { false })
                 val click = mockk<PaperDialogClickContext>()
                 every { click.player } returns player
                 every { click.number(PaperDialogInputId.of("rounds")) } returns 12f
@@ -48,8 +59,32 @@ class FirearmSettingsDialogTest : StringSpec({
                 fun held() = player.inventory.itemInMainHand
 
                 settings.open(player, false, emptyList(), false) shouldBe true
-                screen.buttons.map { it.id.value } shouldBe listOf("save", "full")
+                screen.buttons.map { it.id.value } shouldBe listOf("save", "full", "main_menu")
                 screen.numberInputs.single().end shouldBe 48f
+                val mainMenu = screen.buttons.last()
+                PlainTextComponentSerializer.plainText().serialize(mainMenu.label) shouldBe "Главное меню ›"
+                mainMenu.closeDialogBeforeAction shouldBe false
+                val initialScreen = screen
+                press("main_menu")
+                (screen !== initialScreen) shouldBe true
+                screen.id shouldBe "events.weapon.burst"
+                paper.server.commandMap.register("arc", menuCommand)
+                press("main_menu")
+                mainMenuOpens shouldBe 1
+                held() shouldBe original
+
+                native = false
+                for (admin in listOf(false, true)) {
+                    grant.setPermission("arcevents.admin", admin)
+                    settings.open(player, admin, emptyList(), true) shouldBe true
+                    generateSequence(player::nextComponentMessage).last().clickEvent() shouldBe ClickEvent.runCommand("/arcevents burst menu")
+                }
+                grant.setPermission("arcevents.admin", false)
+                settings.open(player, false, listOf("menu"), false)
+                mainMenuOpens shouldBe 2
+                held() shouldBe original
+                native = true
+                settings.open(player, false, emptyList(), false)
                 press("save")
                 guns.selectedBurst(held(), base) shouldBe 12
                 guns.tunedSpec(held(), base) shouldBe base
@@ -60,12 +95,18 @@ class FirearmSettingsDialogTest : StringSpec({
                 settings.open(player, false, emptyList(), false)
                 press("tune")
                 screen.inputs.map { it.id.value } shouldBe listOf("damage", "spread")
+                screen.buttons.map { it.id.value } shouldBe listOf("save", "reset", "main_menu")
+                press("main_menu")
+                mainMenuOpens shouldBe 3
+                settings.open(player, true, emptyList(), false)
                 grant.setPermission("arcevents.admin", false)
                 press("save")
                 guns.tunedSpec(held(), base) shouldBe base
                 grant.setPermission("arcevents.admin", true)
                 settings.open(player, true, emptyList(), false)
                 allowed = false
+                settings.open(player, false, listOf("menu"), false)
+                mainMenuOpens shouldBe 3
                 press("save")
                 guns.tunedSpec(held(), base) shouldBe base
                 allowed = true

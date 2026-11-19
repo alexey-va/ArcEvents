@@ -154,8 +154,8 @@ class ArcEventsLocale(
             "fishing.phase.boss", "fishing.phase.complete", "fishing.phase.closed",
         ) + EventMode.entries.flatMap { mode -> listOf("practice.${mode.id}.action", "practice.${mode.id}.roster") } +
             listOf("burst-title", "tuning-title", "held", "burst-help", "single-help", "tuning-help", "count", "damage", "spread",
-            "save", "full", "default-burst", "default-tuning", "tune", "hold", "changed", "burst-command", "admin-command",
-            "burst-saved", "tuning-saved", "hud-count").map { "weapon.settings.$it" } +
+            "save", "full", "default-burst", "default-tuning", "tune", "main-menu", "main-menu-unavailable", "hold",
+            "changed", "burst-command", "admin-command", "burst-saved", "tuning-saved", "hud-count").map { "weapon.settings.$it" } +
             listOf("ready", "wave-title", "wave-subtitle", "brute-warning", "brute-name", "wave-cleared", "self-revive",
             "downed", "teammate-downed", "reviving", "revived", "waiting", "weapon-received", "hud-wave", "hud-intermission",
             "hud-self-revive", "hud-downed", "hud-waiting", "result-success", "result-defeat", "result-timeout", "supply-nearby", "supply-balance",
