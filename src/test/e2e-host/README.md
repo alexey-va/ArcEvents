@@ -15,6 +15,8 @@ the `arenas` mapping as JSON and select `TEST_FILES=authored-maps.spec.js`
 with `TEST_TIMEOUT=180000` to allow a fresh paste before the first match.
 These cases check public queue start, distinct safe spawns, walking out of the
 spawn and exact restoration of the roster.
+Add `solo-practice.spec.js` to `TEST_FILES` and select `Admin solo TTT` and
+`Admin solo Gun Game` in `TEST_NAMES` to exercise the same arenas in practice.
 
 The Fishing case starts a solo expedition from the public menu. It walks to the
 quay, casts into the generated water, reels in a native bite, then evacuates and

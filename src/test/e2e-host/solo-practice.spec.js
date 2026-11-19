@@ -6,6 +6,12 @@ const idle = { phase: 'idle', participants: 0, queue: 0 };
 const statsButton = 'action_menu_main_stats_name';
 const tttButton = 'action_menu_main_ttt_name';
 const practiceButton = 'action_menu_admin_solo_test_name';
+const authored = JSON.parse(process.env.ARC_EVENTS_E2E_AUTHORED_ARENAS ?? '{}');
+
+function combatArena(id) {
+  return authored[id] ? { arena: id, world: authored[id].world, readyTimeout: 150000 }
+    : { arena: 'default', world: 'arcevents_e2e' };
+}
 
 async function statistics(player, observed) {
   const since = observed.screens.length;
@@ -31,7 +37,7 @@ async function openCard(player, observed, modeButton, cardButton) {
 const fighter = (entity) => entity.name === 'pillager' && /Bot_/.test(JSON.stringify(entity.metadata[2]));
 const companion = (entity) => entity.type === 'player' && /^rc_[0-9a-f]{8}$/.test(entity.username);
 
-async function movingRivals(player, count, { matches = fighter, lure = false } = {}) {
+async function movingRivals(player, count, { matches = fighter, lure } = {}) {
   const rivals = () => Object.values(player.bot.entities).filter(matches);
   const actors = await until(() => {
     const nearby = rivals();
@@ -39,9 +45,8 @@ async function movingRivals(player, count, { matches = fighter, lure = false } =
   }, `The practice arena did not spawn ${count} visible rivals`);
   const positions = new Map(actors.map((actor) => [actor.id, actor.position.clone()]));
   if (lure) {
-    // The open Citadel hallway runs south from this spawn. The stairs block a straight retreat.
     const { bot } = player;
-    await bot.lookAt(bot.entity.position.offset(0, bot.entity.eyeHeight, 8), true);
+    await bot.lookAt(bot.entity.position.offset(lure[0], bot.entity.eyeHeight, lure[1]), true);
     bot.setControlState('forward', true);
   }
   try {
@@ -84,8 +89,8 @@ function hasIssuedItem(player, id) {
     item.name === id || JSON.stringify(item.components ?? []).toLowerCase().includes(id));
 }
 
-async function withPractice({ player, createPlayer }, mode, { world, participants, enter, arena = mode }, exercise) {
-  await ready(arena);
+async function withPractice({ player, createPlayer }, mode, { world, participants, enter, arena = mode, readyTimeout }, exercise) {
+  await ready(arena, readyTimeout);
   const admin = await createPlayer();
   await admin.makeOp();
   const observed = observe(player);
@@ -99,7 +104,9 @@ async function withPractice({ player, createPlayer }, mode, { world, participant
     await waitForQa(admin, 'status', idle);
     if (enter) await enter(player, observed);
     else player.chat(`/arcevents admin solo ${mode}`);
-    const state = participants && await waitForQa(admin, 'status', { game: mode, phase: 'active', participants, queue: 0 });
+    const state = participants && await waitForQa(admin, 'status', {
+      game: mode, phase: 'active', arena_id: arena, participants, queue: 0, practice: true,
+    });
     if (state) {
       await waitForQa(admin, `player ${player.username}`, { match: state.match, status: 'alive' });
       assert.equal((await readQa(admin, `player ${admin.username}`)).status, 'none');
@@ -154,7 +161,7 @@ test('Ordinary players cannot start admin practice or skip the public TTT minimu
 
 test('Admin solo TTT starts from a native button, accepts real combat and finishes without public stats', async (fixture) => {
   await withPractice(fixture, 'ttt', {
-    world: 'arcevents_e2e', participants: 4, arena: 'default',
+    ...combatArena('riot-in-prison'), participants: 4,
     enter: async (player, observed) => {
       click(player, await openCard(player, observed, tttButton, practiceButton), practiceButton);
     },
@@ -176,9 +183,10 @@ test('Admin solo TTT starts from a native button, accepts real combat and finish
 });
 
 test('Admin solo Gun Game advances after a real shot against a moving rival and restores the player', async (fixture) => {
-  await withPractice(fixture, 'gungame', { world: 'arcevents_e2e', participants: 2, arena: 'default' }, async (player, admin) => {
+  await withPractice(fixture, 'gungame', { ...combatArena('deadwood'), participants: 2 }, async (player, admin) => {
     await until(() => hasIssuedItem(player, 'flintlock'), 'Gun Game did not issue the Flintlock');
-    await movingRivals(player, 1, { lure: true });
+    // The open lane leads west in Deadwood and south in Citadel.
+    await movingRivals(player, 1, { lure: authored.deadwood ? [-8, 0] : [0, 8] });
     await until(() => player.bot.health < 20, 'The Gun Game rival did not damage the tester', 15000);
     await attackRival(player, () => hasIssuedItem(player, 'revolver'));
     await waitForQa(admin, `player ${player.username}`, { kills: 1, firearm: 'revolver' });

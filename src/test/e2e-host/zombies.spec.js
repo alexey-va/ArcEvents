@@ -11,6 +11,14 @@ const itemState = (player) => JSON.stringify(player.bot.inventory.slots.map((ite
   name: item.name, count: item.count, nbt: item.nbt, components: item.components,
 }));
 const enemies = (player) => Object.values(player.bot.entities).filter((entity) => /^(zombie|husk)$/.test(entity.name));
+const windows = [
+  { x: -23, z: -19, dx: 1, dz: 0 }, { x: 23, z: -19, dx: -1, dz: 0 },
+  { x: -23, z: -4, dx: 1, dz: 0 }, { x: 23, z: -4, dx: -1, dz: 0 },
+  { x: -4, z: 9, dx: 0, dz: -1 }, { x: 5, z: 9, dx: 0, dz: -1 },
+];
+const windowFor = ({ position }) => windows.find(({ x, z }) => Math.hypot(position.x - x - .5, position.z - z - .5) < 3);
+const inward = (window, position) => (position.x - window.x - .5) * window.dx + (position.z - window.z - .5) * window.dz;
+const inside = (window, distance) => new Vec3(window.x + .5 + window.dx * distance, 65, window.z + .5 + window.dz * distance);
 
 async function until(probe, message, timeout = 10000) {
   const deadline = Date.now() + timeout;
@@ -79,6 +87,13 @@ async function solo(player, admin, observed) {
 async function teleport(admin, player, position) {
   admin.chat(`/execute at ${player.username} run tp ${player.username} ${position.x} ${position.y} ${position.z}`);
   await until(() => player.bot.entity.position.distanceTo(position) < .75, `${player.username} did not reach the fixture position`);
+}
+
+async function waitForBreach(player, enemy, window) {
+  await until(() => {
+    const actor = player.bot.entities[enemy.id];
+    return actor && inward(window, actor.position) >= 1.1;
+  }, 'The native zombie did not cross its fully breached window', 12000);
 }
 
 async function shootEnemy(admin, player, enemy, reposition = true) {
@@ -181,7 +196,11 @@ test('Zombies Play solo starts directly and leaves an unrelated squad member que
 
     const enemy = await until(() => enemies(player)[0], 'No native owned zombie appeared during the first wave', 30000);
     assert.ok(player.bot.health > 0, 'The solo player died before the first encounter');
-    await shootEnemy(admin, player, enemy);
+    const window = windowFor(enemy);
+    assert.ok(window, 'The owned zombie did not spawn at a store window');
+    await teleport(admin, player, inside(window, 4));
+    await waitForBreach(player, enemy, window);
+    await shootEnemy(admin, player, enemy, false);
     await waitForQa(admin, `player ${player.username}`, { zombies_points: 600 });
     await leave(player, original, admin);
     await idle(admin);
@@ -231,12 +250,6 @@ test('Zombies native window breach and Shift repair lead to one paid physical bo
   await pause(150);
   const original = itemState(player);
   const observed = watchDialogs(player);
-  const windows = [
-    { x: -23, z: -19, dx: 1, dz: 0 }, { x: 23, z: -19, dx: -1, dz: 0 },
-    { x: -23, z: -4, dx: 1, dz: 0 }, { x: 23, z: -4, dx: -1, dz: 0 },
-    { x: -4, z: 9, dx: 0, dz: -1 }, { x: 5, z: 9, dx: 0, dz: -1 },
-  ];
-  const inward = (window, position) => (position.x - window.x - .5) * window.dx + (position.z - window.z - .5) * window.dz;
   const lids = new Map();
   const frames = new Map();
   const lidUpdate = (packet) => {
@@ -252,9 +265,9 @@ test('Zombies native window breach and Shift repair lead to one paid physical bo
     await solo(player, admin, observed);
     await waitForQa(admin, 'status', { zombies_boards: '3,3,3,3,3,3', zombies_box: 'idle' });
     const enemy = await until(() => enemies(player)[0], 'No native actor reached an authored window', 30000);
-    const windowIndex = windows.findIndex((window) => Math.hypot(enemy.position.x - window.x - .5, enemy.position.z - window.z - .5) < 3);
-    assert.ok(windowIndex >= 0, 'The owned zombie did not spawn at a store window');
-    const window = windows[windowIndex];
+    const window = windowFor(enemy);
+    assert.ok(window, 'The owned zombie did not spawn at a store window');
+    const windowIndex = windows.indexOf(window);
     const center = new Vec3(window.x + .5, 66.2, window.z + .5);
     const gateCells = [-1, 0, 1].map((offset) => new Vec3(window.x + window.dz * offset, 65, window.z - window.dx * offset));
     const nativeBoards = () => Object.values(player.bot.entities).filter((entity) => entity.name === 'block_display' && entity.position.distanceTo(center) < 2.5).length;
@@ -263,7 +276,7 @@ test('Zombies native window breach and Shift repair lead to one paid physical bo
       const state = await readQa(admin);
       return state.zombies_boards?.split(',')[windowIndex] === String(count);
     }, `Window did not reach ${count}/3 boards`, 6000);
-    await teleport(admin, player, new Vec3(center.x + window.dx * 4, 65, center.z + window.dz * 4));
+    await teleport(admin, player, inside(window, 4));
     await until(() => nativeBoards() === 3 && collisionIs('spruce_fence'), 'Initial three boards or native window collision are missing');
     assert.ok(inward(window, player.bot.entities[enemy.id].position) < .25, 'The zombie bypassed the intact window');
     for (const count of [2, 1, 0]) {
@@ -271,10 +284,7 @@ test('Zombies native window breach and Shift repair lead to one paid physical bo
       await until(() => nativeBoards() === count, `Native window display count did not reach ${count}`);
       await until(() => collisionIs(count === 0 ? 'air' : 'spruce_fence'), `Native window collision disagrees with ${count}/3 boards`);
     }
-    await until(() => {
-      const actor = player.bot.entities[enemy.id];
-      return actor && inward(window, actor.position) >= 1.1;
-    }, 'The native zombie did not cross its fully breached window');
+    await waitForBreach(player, enemy, window);
     await shootEnemy(admin, player, enemy, false);
     await waitForQa(admin, `player ${player.username}`, { zombies_points: 600 });
     const second = await until(() => enemies(player)[0], 'The first wave did not expose a second owned zombie');
@@ -290,7 +300,7 @@ test('Zombies native window breach and Shift repair lead to one paid physical bo
     await waitForQa(admin, 'status', { zombies_phase: 'intermission', zombies_alive: 0, zombies_pending: 0 });
     await waitForQa(admin, `player ${player.username}`, { zombies_points: 875 });
 
-    await teleport(admin, player, new Vec3(center.x + window.dx * 2, 65, center.z + window.dz * 2));
+    await teleport(admin, player, inside(window, 2));
     await player.bot.lookAt(center, true);
     player.bot.setControlState('sneak', true);
     await pause(600);

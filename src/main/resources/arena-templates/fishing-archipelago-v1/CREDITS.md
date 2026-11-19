@@ -19,9 +19,9 @@ Input selection `(-47, 0, -19)` through `(78, 47, 82)`. Output SHA-256 `0402864f
 
 ## Reef — Coral Reef
 
-Coral Reef by GoldenOre. The colourful marine sculptures and sandbank form the coral garden. The giant whale was removed at the crop boundary. [Original world and license](https://github.com/OvercastCommunity/PublicMaps/tree/1e8cf8b79218ee13f82a172ee6193ffca6834040/dtcm/coral_reef)
+Coral Reef by GoldenOre. The colourful marine sculptures and sandbank form the coral garden. The giant whale and its remaining gravel and quartz fin fragment were removed at the crop boundary. [Original world and license](https://github.com/OvercastCommunity/PublicMaps/tree/1e8cf8b79218ee13f82a172ee6193ffca6834040/dtcm/coral_reef)
 
-Input selection `(342, 1, -599)` through `(458, 55, -515)`. Output SHA-256 `61ee2f028242233797fa9a7d29aeea62fdb20d90198deb8f5e036c79c245c7de`.
+Input selection `(342, 1, -599)` through `(458, 55, -515)`. Output SHA-256 `76b226013716a14ef9455030dfc864a7aace21471a195bd3e430b990f59cb723`.
 
 | Original Anvil region | SHA-256 |
 | --- | --- |
@@ -42,9 +42,9 @@ Input selection `(-156, 6, 27)` through `(-92, 81, 100)`. Output SHA-256 `4007d1
 
 ## Cliffs — Isle
 
-Isle by Theta_ (XML contribution by Timothee38). The pine headlands and offshore islets retain their original shapes, with stone infill at exposed cuts. PvP monuments were removed. [Original world and license](https://github.com/OvercastCommunity/PublicMaps/tree/1e8cf8b79218ee13f82a172ee6193ffca6834040/dtcm/isle)
+Isle by Theta_ (XML contribution by Timothee38). The pine headlands and offshore islets were taken from the original world. The two rock faces beside the fishing lane were terraced down to pebble beaches, with low shelves at the waterline. PvP monuments were removed. [Original world and license](https://github.com/OvercastCommunity/PublicMaps/tree/1e8cf8b79218ee13f82a172ee6193ffca6834040/dtcm/isle)
 
-Input selection `(150, 18, 604)` through `(250, 99, 677)`. Output SHA-256 `29ae29f565587c2b94c8ff40aca872119d05cf0e48b39d7a98704b28f0531b93`.
+Input selection `(150, 18, 604)` through `(250, 99, 677)`. Output SHA-256 `41ba8e48913aebc775309f0b917289fba14afdb80e1819ede1edd9151a8227f2`.
 
 | Original Anvil region | SHA-256 |
 | --- | --- |
