@@ -19,9 +19,9 @@ Input selection `(-47, 0, -19)` through `(78, 47, 82)`. Output SHA-256 `0402864f
 
 ## Reef — Coral Reef
 
-Coral Reef by GoldenOre. The colourful marine sculptures and sandbank form the coral garden. The giant whale and its remaining gravel and quartz fin fragment were removed at the crop boundary. [Original world and license](https://github.com/OvercastCommunity/PublicMaps/tree/1e8cf8b79218ee13f82a172ee6193ffca6834040/dtcm/coral_reef)
+Coral Reef by GoldenOre. The colourful marine sculptures and sandbank form the coral garden. The giant whale, its gravel and quartz fin fragment, and a detached blue coral tip were removed at the crop boundary. [Original world and license](https://github.com/OvercastCommunity/PublicMaps/tree/1e8cf8b79218ee13f82a172ee6193ffca6834040/dtcm/coral_reef)
 
-Input selection `(342, 1, -599)` through `(458, 55, -515)`. Output SHA-256 `76b226013716a14ef9455030dfc864a7aace21471a195bd3e430b990f59cb723`.
+Input selection `(342, 1, -599)` through `(458, 55, -515)`. Output SHA-256 `5cb9eda2578873548a0699f6e6c5ae5a4f4f15d0a844729df48f3e9b4bad4f26`.
 
 | Original Anvil region | SHA-256 |
 | --- | --- |
