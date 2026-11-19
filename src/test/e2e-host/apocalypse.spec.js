@@ -192,6 +192,21 @@ async function sourceContainer(admin,player,marker) {
   await until(()=>['chest','barrel','trapped_chest'].includes(player.bot.blockAt(at)?.name),'Source loot container block did not arrive');
   return player.bot.openContainer(player.bot.blockAt(at));
 }
+async function openAfterSourceCheckpoint(player,block) {
+  const {bot}=player;
+  let since=player.getMessageBufferIndex();
+  // Keep one native window listener and its timeout across explicit server requests to wait.
+  const opening=bot.openContainer(block);
+  while(true) {
+    const window=await Promise.race([opening,pause(250)]);
+    if(window)return window;
+    if(!bot.currentWindow&&player.messageBuffer.slice(since).some(line=>line.includes('Your transfer is in progress.'))) {
+      since=player.getMessageBufferIndex();
+      console.log('[Apocalypse native] Retrying source chest after pending checkpoint');
+      await bot.activateBlock(block);
+    }
+  }
+}
 async function withdrawSourceStack(player,container) {
   await player.bot._syncWindow(container);
   assert.equal(container.selectedItem,null,'Source crate transfer started with a non-empty native cursor');
@@ -327,7 +342,7 @@ test('Apocalypse admits source loot from a player-added west double-chest half a
     await pause(250);
     const added=new Vec3(marker.x-1,marker.y,marker.z);
     await until(()=>player.bot.blockAt(added)?.name==='chest','Player-added half did not arrive in native chunk packets',30000);
-    const box=await player.bot.openContainer(player.bot.blockAt(added));
+    const box=await openAfterSourceCheckpoint(player,player.bot.blockAt(added));
     assert.equal(box.inventoryStart,54,'Native fixture did not form a double chest');
     assert.ok(box.containerItems().some(i=>i.name==='diamond'&&i.count===2),'Source admission overwrote the player half');
     const claimed=admin.getMessageBufferIndex();

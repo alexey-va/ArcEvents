@@ -43,7 +43,7 @@ class ArenaWorldProvisioner(private val plugin: Plugin,
     private var stageWorld: World? = null
     private val readiness = mutableMapOf<String, MutableMap<Pair<Int, Int>, ru.arc.paper.chunk.PaperChunkTicketLease>>()
     private var initialPoints: Map<String, List<ru.ruscrafting.events.config.EventLocation>> = emptyMap()
-    private var closed = false
+    @Volatile private var closed = false
 
     private data class PreparedArena(
         val arena: ArenaSettings, val folder: Path, val existed: Boolean, val existingWorldId: UUID?,
@@ -238,12 +238,15 @@ class ArenaWorldProvisioner(private val plugin: Plugin,
         return ready.thenCompose { work.compute { staging.create(arena.world, arena.template) } }.thenCompose { stage ->
         val owned = mutableListOf<ru.arc.paper.chunk.PaperChunkTicketLease>()
         var unloaded = false
+        var finalizing = false
         work.callNative {
-            check(!closed)
+            check(!closed && plugin.server.getWorld(stage.fileName.toString()) == null) {
+                "Cannot create arena stage ${stage.fileName} after retirement or over a loaded world"
+            }
             requireNotNull(WorldCreator.name(stage.fileName.toString()).environment(World.Environment.NORMAL)
                 .generateStructures(false).keepSpawnLoaded(TriState.FALSE).generator(EmptyArenaChunkGenerator()).createWorld()) {
                 "Could not create isolated arena staging world"
-            }.also { world -> stageWorld = world; configure(world, arena, settings) }
+            }.also { world -> registerStageWorld(stage, world); configure(world, arena, settings) }
         }.thenCompose { world ->
             val content = if (template.format == PackagedArenaFormat.ANVIL_WORLD) java.util.concurrent.CompletableFuture.completedFuture(Unit)
                 else preparedSchematic(template, prepared.files, work).thenCompose { (snapshot, anchor) ->
@@ -258,27 +261,29 @@ class ArenaWorldProvisioner(private val plugin: Plugin,
                 }
             content.thenCompose { if (template.format == PackagedArenaFormat.ANVIL_WORLD) java.util.concurrent.CompletableFuture.completedFuture(Unit)
                 else sanitizeAndValidate(world, arena, settings, false, prepared.chunks, work) }
-                .thenCompose { releaseChunkLeases(owned, work) }.thenCompose { work.callNative {
-                    check(!closed)
-                    world.save()
-                    check(plugin.server.unloadWorld(world, true)) { "Could not unload isolated arena staging world" }
-                    stageWorld = null
-                    unloaded = true
-                } }
+                .thenCompose { releaseChunkLeases(owned, work) }.thenCompose {
+                    finalizing = true
+                    unloadPreparedStage(stage, world, work)
+                }
         }.thenCompose { work.compute {
             if (template.format == PackagedArenaFormat.ANVIL_WORLD) {
                 clearGeneratedChunkStorage(stage)
                 prepared.files.forEach { (file, bytes) -> writeNew(stage, file.destination, bytes) }
             }
             writeOwnership(stage, arena, template, prepared.files)
+            check(!closed && work.isCurrent()) { "Arena stage ${stage.fileName} retired before publication" }
             Files.move(stage, prepared.folder, StandardCopyOption.ATOMIC_MOVE)
             Files.deleteIfExists(prepared.folder.resolve(ArenaStagingFiles.INTENT))
             Unit
         } }.handle { _, failure -> failure }.thenCompose { failure ->
-            if (failure == null) java.util.concurrent.CompletableFuture.completedFuture(Unit) else {
+            if (failure == null) CompletableFuture.completedFuture(Unit)
+            // A veto, retirement or uncertain publication keeps the marked stage for recovery.
+            else if (finalizing) CompletableFuture.failedFuture(failure)
+            else {
                 releaseChunkLeases(owned, work).handle { _, releaseFailure -> releaseFailure?.let(failure::addSuppressed); Unit }
                     .thenCompose { work.callNative {
                         stageWorld?.let { world -> if (world.name == stage.fileName.toString()) {
+                            requireIsolatedStage(stage, world)
                             unloaded = plugin.server.unloadWorld(world, false)
                             if (unloaded) stageWorld = null
                             else throw IllegalStateException("Could not unload failed arena staging world")
@@ -293,6 +298,39 @@ class ArenaWorldProvisioner(private val plugin: Plugin,
             }
         }
         }
+    }
+
+    internal fun registerStageWorld(stage: Path, world: World) {
+        check(!closed && stageWorld == null)
+        requireIsolatedStage(stage, world)
+        stageWorld = world
+    }
+
+    private fun requireIsolatedStage(stage: Path, world: World) {
+        check(stage.parent == container && stage.fileName.toString().startsWith(ArenaStagingFiles.PREFIX) &&
+            world.name == stage.fileName.toString() && world.worldFolder.toPath().toAbsolutePath().normalize() == stage &&
+            plugin.server.getWorld(world.uid) === world && plugin.server.getWorld(world.name) === world) {
+            "Arena stage ${stage.fileName} changed identity; its folder is retained"
+        }
+        check(world.players.isEmpty()) { "Arena stage ${stage.fileName} contains players; its folder is retained" }
+    }
+
+    internal fun unloadPreparedStage(stage: Path, world: World, work: EventWork): CompletableFuture<Unit> {
+        fun attempt(number: Int): CompletableFuture<Unit> = work.callNative {
+            check(!closed && work.isCurrent() && stageWorld === world) { "Arena stage ${stage.fileName} is no longer owned" }
+            requireIsolatedStage(stage, world)
+            if (number == 1) world.save()
+            val unloaded = plugin.server.unloadWorld(world, true)
+            if (unloaded) stageWorld = null
+            else check(number < MAX_STAGE_UNLOAD_ATTEMPTS) {
+                "Paper refused to unload arena stage ${stage.fileName} after $number attempts; its folder is retained"
+            }
+            unloaded
+        }.thenCompose { unloaded ->
+            // Each call is separately scheduled on the native queue, giving unload listeners later ticks to finish.
+            if (unloaded) CompletableFuture.completedFuture(Unit) else attempt(number + 1)
+        }
+        return attempt(1)
     }
 
     private fun preparedSchematic(template: PackagedArenaTemplate, files: Map<PackagedArenaFile, ByteArray>, work: EventWork): java.util.concurrent.CompletableFuture<Pair<ru.arc.paper.api.ArcSchematicSnapshot, ru.arc.paper.api.ArcSchematicPoint>> {
@@ -411,9 +449,11 @@ class ArenaWorldProvisioner(private val plugin: Plugin,
                 iterator.remove()
             } else if (!stageReleased) {
                 stageReleased = true
-                attempt { check(server.unloadWorld(requireNotNull(detachedStage), false)) {
-                    "Owned arena stage remains loaded; its folder is retained"
-                } }
+                attempt {
+                    val world = requireNotNull(detachedStage)
+                    requireIsolatedStage(container.resolve(world.name), world)
+                    check(server.unloadWorld(world, false)) { "Owned arena stage remains loaded; its folder is retained" }
+                }
             }
             if (!iterator.hasNext() && stageReleased) {
                 failure?.let { throw it }
@@ -729,6 +769,7 @@ class ArenaWorldProvisioner(private val plugin: Plugin,
         private const val MAX_WORLD_FILES = 20_000
         private const val MAX_WORLD_BYTES = 2_147_483_648L
         private const val MAX_ARENA_CHUNKS = 1_024L
+        private const val MAX_STAGE_UNLOAD_ATTEMPTS = 40
         private val GENERATED_CHUNK_DIRECTORIES = setOf("region", "entities", "poi")
         private val EXECUTABLE_NBT = Regex("(?i)(run_command|suggest_command|minecraft:(?:command_block|chain_command_block|repeating_command_block)|(?:^|[,{ ])command[=:])")
         private val COMMAND_BLOCK_IDS = setOf(
