@@ -15,6 +15,7 @@ import ru.ruscrafting.events.domain.FirearmRarity
 import ru.ruscrafting.events.domain.FirearmSpec
 import ru.ruscrafting.events.domain.FirearmSoundPreset
 import ru.ruscrafting.events.domain.TttFirearmCatalog
+import ru.ruscrafting.events.paper.DisasterArenaGenerator
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.math.floor
@@ -74,20 +75,28 @@ data class ArenaSettings(
     val lootSpawns: List<EventLocation>,
     val weaponCount: Int = 0,
 ) {
-    val playerSpawn: EventLocation get() = spawns.single()
+    val playerSpawn: EventLocation get() = spawns.first()
+
+    fun spawnFor(slot: Int, rosterSize: Int): EventLocation {
+        val index = if (rosterSize < spawns.size) slot * spawns.size / rosterSize else slot % spawns.size
+        return spawns[index]
+    }
 
     fun operational(@Suppress("UNUSED_PARAMETER") maximumPlayers: Int): Boolean = runCatching {
         require(enabled)
         requireNotNull(lobby).validated()
         requireNotNull(spectator).validated()
         requireNotNull(bounds).validated()
-        require(spawns.size == 1)
+        require(spawns.isNotEmpty() && spawns.hasDistinctBlocks())
         require(bounds.contains(lobby) && bounds.contains(spectator))
         require(spawns.all { bounds.contains(it.validated()) })
-        require(lootSpawns.distinctBy { Triple(floor(it.x), floor(it.y), floor(it.z)) }.size == lootSpawns.size)
+        require(lootSpawns.hasDistinctBlocks())
         require(lootSpawns.all { bounds.contains(it.validated()) })
         require(weaponCount in 0..lootSpawns.size)
     }.isSuccess
+
+    private fun List<EventLocation>.hasDistinctBlocks(): Boolean =
+        distinctBy { Triple(floor(it.x), floor(it.y), floor(it.z)) }.size == size
 }
 
 data class NetworkSettings(
@@ -519,34 +528,40 @@ class ArcEventsConfig(private val config: Config) {
             }
 
     private fun zombiesArena(): ArenaSettings {
-        val world = when (val configured = config.string("arcade.zombies.arena.world", "arcevents_zombies_zero_v3")) {
-            "arcevents_zombies_zero", "arcevents_zombies_zero_v2" -> "arcevents_zombies_zero_v3"
+        val world = when (val configured = config.string("arcade.zombies.arena.world", "arcevents_zombies_store")) {
+            "arcevents_zombies_zero", "arcevents_zombies_zero_v2", "arcevents_zombies_zero_v3" -> "arcevents_zombies_store"
             else -> configured
         }
         val spawn = EventLocation(world, .5, 65.0, -18.5)
-        return ArenaSettings("zombies", true, world, "zombies-zero-v3", spawn, spawn,
-            EventBounds(EventLocation(world, -28.0, 59.0, -28.0), EventLocation(world, 29.0, 91.0, 29.0)),
+        return ArenaSettings("zombies", true, world, "zombies-store-v1", spawn, spawn,
+            EventBounds(EventLocation(world, -28.0, 59.0, -33.0), EventLocation(world, 29.0, 90.0, 15.0)),
             listOf(spawn), emptyList())
     }
 
     private fun fishingArena(): ArenaSettings {
-        val world = when (val configured = config.string("arcade.fishing.arena.world", "arcevents_fishing_v4")) {
-            "arcevents_fishing", "arcevents_fishing_v2", "arcevents_fishing_v3" -> "arcevents_fishing_v4"
-            "arcevents_lab_fishing_v3" -> "arcevents_lab_fishing_v4"
+        val world = when (val configured = config.string("arcade.fishing.arena.world", "arcevents_fishing_archipelago")) {
+            "arcevents_fishing", "arcevents_fishing_v2", "arcevents_fishing_v3", "arcevents_fishing_v4" -> "arcevents_fishing_archipelago"
+            "arcevents_lab_fishing_v3", "arcevents_lab_fishing_v4" -> "arcevents_lab_archipelago"
             else -> configured
         }
         val spawn = EventLocation(world, 0.5, 65.0, 0.5)
-        return ArenaSettings("fishing", true, world, "fishing-v4", spawn, spawn,
-            EventBounds(EventLocation(world, -320.0, 54.0, -40.0), EventLocation(world, 1857.0, 100.0, 48.0)),
+        return ArenaSettings("fishing", true, world, "fishing-archipelago-v1", spawn, spawn,
+            EventBounds(EventLocation(world, -320.0, 53.0, -70.0), EventLocation(world, 1857.0, 130.0, 96.0)),
             listOf(spawn), emptyList())
     }
 
     private fun disasterArena(): ArenaSettings {
-        val world = config.string("arcade.disasters.arena.world", "arcevents_disasters")
-        val spawn = EventLocation(world, 0.5, 65.0, 0.5)
-        return ArenaSettings("disasters", true, world, "disasters-v1", spawn, spawn,
-            EventBounds(EventLocation(world, -24.0, 59.0, -24.0), EventLocation(world, 25.0, 91.0, 25.0)),
-            listOf(spawn), emptyList())
+        val world = when (val configured = config.string("arcade.disasters.arena.world", "arcevents_disasters_coast")) {
+            "arcevents_disasters" -> "arcevents_disasters_coast"
+            else -> configured
+        }
+        val spawn = EventLocation(world, 0.5, 65.0, 0.5, DisasterArenaGenerator.SPAWN_YAW, DisasterArenaGenerator.SPAWN_PITCH)
+        val minimum = EventLocation(world, DisasterArenaGenerator.MIN_X.toDouble(), DisasterArenaGenerator.MIN_Y.toDouble(),
+            DisasterArenaGenerator.MIN_Z.toDouble())
+        val maximum = EventLocation(world, DisasterArenaGenerator.MAX_X.toDouble(), DisasterArenaGenerator.MAX_Y.toDouble(),
+            DisasterArenaGenerator.MAX_Z.toDouble())
+        return ArenaSettings("disasters", true, world, DisasterArenaGenerator.TEMPLATE, spawn, spawn,
+            EventBounds(minimum, maximum), listOf(spawn), emptyList())
     }
 
     val defaultArenaId: String get() = config.string("default-arena", "").trim().lowercase()
@@ -733,9 +748,10 @@ class ArcEventsConfig(private val config: Config) {
             if (arena.enabled) require(arena.operational(ttt.maximumPlayers)) {
                 "Enabled arena ${arena.id} is incomplete or contains an unsafe location"
             }
-            require(arena.spawns.size <= 1) { "Arena ${arena.id} must use one common player spawn" }
+            require(arena.spawns.size <= 32) { "Arena ${arena.id} has too many player spawns" }
             require(arena.lootSpawns.size <= 128) { "Arena ${arena.id} has too many loot spawns" }
-            if (arena.enabled && weapons.enabled && arena.template !in setOf("", "citadel-v1", "disasters-v1", "fishing-v4", "zombies-zero-v3")) {
+            if (arena.enabled && weapons.enabled && EventMode.TTT.acceptsArena(arena.id) &&
+                arena.template !in setOf("", "citadel-v1")) {
                 require(arena.lootSpawns.size >= ttt.maximumPlayers) {
                     "Imported arena ${arena.id} requires at least ${ttt.maximumPlayers} loot spawns"
                 }
@@ -756,13 +772,15 @@ class ArcEventsConfig(private val config: Config) {
         private val SUPPORTED_TEMPLATES = setOf(
             "",
             "citadel-v1",
-            "disasters-v1",
-            "fishing-v4",
-            "zombies-zero-v3",
+            "disasters-coast-v1",
+            "fishing-archipelago-v1",
+            "zombies-store-v1",
             "ttt-minecraft-b5-v1",
             "cs2-inferno-v1",
             "cs2-mirage-v1",
             "cs2-nuke-v1",
+            "deadwood-v1",
+            "riot-in-prison-v1",
         )
         private val PROTECTED_WORLDS = setOf("world", "world_nether", "world_the_end", "pvp", "parkour1")
 

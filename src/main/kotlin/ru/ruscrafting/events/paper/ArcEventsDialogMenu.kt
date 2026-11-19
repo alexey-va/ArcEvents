@@ -246,6 +246,7 @@ internal class ArcEventsDialogMenu(
         val summary = values + ("minutes" to locale.text(((if (participant) state.secondsRemaining else settings().arcade.fishing.roundSeconds.toLong()) + 59) / 60))
         return screen(player, CatalogMode.FISHING.nameKey, listOfNotNull(panel(player, buildList {
             add("dialog.fishing-overview")
+            add("dialog.map")
             add(if (participant) "dialog.fishing-active" else "dialog.fishing-facts")
             if (!participant) addAll(entry.statusKeys(false))
         }, summary, CatalogMode.FISHING.skin), feedback?.let { feedbackPanel(player, it) }), actions, 2, FISHING_DIALOG_ID)
@@ -273,13 +274,13 @@ internal class ArcEventsDialogMenu(
     private fun soloButton(player: Player, view: EventsView, mode: EventMode) =
         button(player, "menu.admin.solo-test-name", "menu.admin.solo-test-lore", view, ADMIN_SOLO_SLOT, locale.soloTestText(player, mode))
 
-    fun openArcade(player: Player, mode: EventMode, entry: EventEntryStatus, canStart: Boolean, participating: Boolean,
+    fun openArcade(player: Player, mode: EventMode, entry: EventEntryStatus, canStart: Boolean, participating: Boolean, arena: Component,
                    joinSlot: Int, startSlot: Int, reopen: () -> Unit, feedback: String? = null, queueSize: Int = 0,
                    checkEntry: () -> Unit = reopen): Boolean {
         val view = EventsView.Arcade(mode)
         val catalog = CatalogMode.of(mode)
         if (!settings().ui.dialogsEnabled || !dialogFrontendSupported(true, protocols.resolve(player), view)) return false
-        val values = ruleValues(mode) + mapOf("queue" to locale.text(queueSize),
+        val values = ruleValues(mode) + mapOf("queue" to locale.text(queueSize), "arena" to arena,
             "mode" to locale.render("arcade.${mode.id}-name", player))
         val queued = entry.queue == QueueState.QUEUED
         val actions = buildList {
@@ -297,6 +298,7 @@ internal class ArcEventsDialogMenu(
         }
         val content = buildList {
             add("dialog.${mode.id}-overview")
+            if (entry.ready || participating || !mode.usesSharedArenas) add("dialog.map")
             if (!participating) add("dialog.queue-facts")
             addAll(entry.statusKeys(participating))
         }
@@ -319,9 +321,9 @@ internal class ArcEventsDialogMenu(
             "maximum" to locale.text(settings().ttt.maximumPlayers), "selected_arena" to selectedArena)
         val bodies = listOfNotNull(panel(player, buildList {
             add("dialog.ttt-overview")
+            if (entry.ready || plan.showEvacuate || plan.showArenaSelection) add("dialog.ttt-map")
             if (!plan.showRoster) add("dialog.queue-facts")
             addAll(entry.statusKeys(plan.showEvacuate))
-            if (plan.showArenaSelection) add("dialog.ttt-map")
         }, values, CatalogMode.TTT.skin), feedback?.let { feedbackPanel(player, it) })
         val actions = buildList {
             when { plan.showJoin -> add(button(player, "menu.event.join-name", "menu.event.join-lore", EventsView.Ttt, 22))

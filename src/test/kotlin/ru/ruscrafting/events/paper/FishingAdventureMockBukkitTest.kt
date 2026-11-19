@@ -36,7 +36,7 @@ import java.util.concurrent.CompletableFuture
 import java.util.function.Consumer
 
 internal class FishingTestWorld(private val server: org.mockbukkit.mockbukkit.ServerMock) : org.mockbukkit.mockbukkit.world.WorldMock() {
-    init { name = "arcevents_fishing_v4" }
+    init { name = "arcevents_fishing_archipelago" }
 
     var passageReady: CompletableFuture<Unit> = CompletableFuture.completedFuture(Unit)
 

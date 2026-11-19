@@ -370,7 +370,7 @@ private class ZombieControllerFixture(multiplayer: Boolean = false) : AutoClosea
     }
     fun block(x: Int, y: Int, z: Int): Block = blocks.getOrPut(Triple(x, y, z)) {
         var type = ZombiesArenaGenerator.materialAt(x, y, z) ?: Material.AIR
-        var data = if (type == Material.SPRUCE_FENCE) ZombiesArenaGenerator.fenceData(x, z) else type.createBlockData()
+        var data = type.createBlockData()
         mockk<Block>(relaxed = true).also { block ->
             every { block.type } answers { type }
             every { block.blockData } answers { data.clone() }

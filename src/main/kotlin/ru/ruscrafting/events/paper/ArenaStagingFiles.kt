@@ -84,7 +84,8 @@ internal class ArenaStagingFiles(private val container: Path) {
         val intent = gson.fromJson(Files.readString(marker), Intent::class.java)
         require(intent.format == 1 && intent.stage == stage.name && intent.world.isNotBlank() &&
             container.resolve(intent.world).normalize().parent == container &&
-            (PackagedArenaTemplates.find(intent.template) != null || isGeneratedArenaTemplate(intent.template))) {
+            (PackagedArenaTemplates.find(intent.template) != null || isGeneratedArenaTemplate(intent.template) ||
+                intent.template in retiredArenaTemplates)) {
             "Arena staging ownership does not match its path"
         }
     }
@@ -94,6 +95,9 @@ internal class ArenaStagingFiles(private val container: Path) {
         const val INTENT = ".arcevents-staging.json"
     }
 }
+
+internal val retiredArenaTemplates = setOf("fishing-v1", "fishing-v2", "fishing-v3", "fishing-v4",
+    "zombies-zero-v1", "zombies-zero-v2", "zombies-zero-v3", "disasters-v1")
 
 internal fun isGeneratedArenaTemplate(template: String): Boolean = template == TttCitadelBlueprint.TEMPLATE ||
     template == DisasterArenaGenerator.TEMPLATE || template == FishingArenaGenerator.TEMPLATE ||

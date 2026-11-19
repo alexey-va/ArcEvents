@@ -5,6 +5,7 @@ import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
 import org.bukkit.Material
 import org.bukkit.event.inventory.ClickType
 import org.bukkit.event.inventory.InventoryAction
@@ -99,6 +100,7 @@ class ArcEventsMenuMockBukkitTest : FunSpec({
                 val settings = ArcEventsConfig.load(root); val locale = ArcEventsLocale(root) { settings }; val layouts = ArcEventsMenuLayouts(root)
                 val service = mockk<ArcEventsService> {
                     every { snapshot() } returns testSnapshot(0)
+                    every { defaultArenaId(EventMode.GUN_GAME) } returns "deadwood"
                     every { isParticipant(any()) } returns false
                     every { modeAvailable(any()) } returns true
                     every { modeUnavailable(any()) } returns null
@@ -163,6 +165,43 @@ class ArcEventsMenuMockBukkitTest : FunSpec({
         } }
     }
 
+    test("TTT arena picker highlights the ready default and respects a creator's explicit selection") {
+        failOnUnsupportedMockBukkitOperation { MockBukkitTestRuntime.open().use { paper ->
+            val plugin = paper.createSimplePlugin("ArcEventsMapMenuTest")
+            PaperArcRuntime.installScheduling(plugin)
+            val player = paper.addPlayer("MapQA")
+            val root = Files.createTempDirectory("arcevents-map-menu-")
+            try {
+                val settings = ArcEventsConfig.load(root)
+                val locale = ArcEventsLocale(root) { settings }
+                val layouts = ArcEventsMenuLayouts(root)
+                val service = mockk<ArcEventsService> {
+                    every { queueControl(player.uniqueId) } returns CompletableFuture.completedFuture(
+                        QueueControlSnapshot(QueueState.QUEUED, player.uniqueId))
+                    every { selectableArenaIds() } returns listOf("inferno", "riot-in-prison", "custom-quarry")
+                    every { defaultArenaId(EventMode.TTT) } returns "riot-in-prison"
+                }
+                ArcEventsMenu(plugin, service, mockk<TttItems>(), locale, { settings },
+                    { CompletableFuture.completedFuture(Result.success(Unit)) }, layouts).use { menu ->
+                    val view = EventsView.EventArenas
+                    val (inferno, prison, custom) = layouts.region(view, "arenas")
+                    menu.open(player, view)
+                    paper.performTicks(2)
+                    val initial = player.openInventory.topInventory
+                    initial.getItem(prison)?.type shouldBe Material.LIME_CONCRETE
+                    val plain = PlainTextComponentSerializer.plainText()
+                    plain.serialize(initial.getItem(prison)!!.itemMeta.displayName()!!) shouldBe "Riot in Prison"
+                    plain.serialize(initial.getItem(custom)!!.itemMeta.displayName()!!) shouldBe "custom-quarry"
+                    paper.callEvent(InventoryClickEvent(player.openInventory, InventoryType.SlotType.CONTAINER,
+                        inferno, ClickType.LEFT, InventoryAction.PICKUP_ALL))
+                    paper.performTicks(3)
+                    player.openInventory.topInventory.getItem(inferno)?.type shouldBe Material.LIME_CONCRETE
+                    player.openInventory.topInventory.getItem(prison)?.type shouldBe Material.FILLED_MAP
+                }
+            } finally { Tasks.reset(); root.toFile().deleteRecursively() }
+        } }
+    }
+
     test("deferred queue control enables the owner to start Gun Game") {
         failOnUnsupportedMockBukkitOperation { MockBukkitTestRuntime.open().use { paper ->
             val plugin = paper.createSimplePlugin("ArcEventsOwnerMenuTest"); PaperArcRuntime.installScheduling(plugin)
@@ -172,6 +211,7 @@ class ArcEventsMenuMockBukkitTest : FunSpec({
                 val settings = ArcEventsConfig.load(root); val locale = ArcEventsLocale(root) { settings }; val layouts = ArcEventsMenuLayouts(root); val deferred = CompletableFuture<QueueControlSnapshot>()
                 val service = mockk<ArcEventsService> {
                     every { snapshot() } returns testSnapshot(3)
+                    every { defaultArenaId(EventMode.GUN_GAME) } returns "deadwood"
                     every { modeAvailable(any()) } returns true
                     every { modeUnavailable(any()) } returns null
                     every { isParticipant(any()) } returns false

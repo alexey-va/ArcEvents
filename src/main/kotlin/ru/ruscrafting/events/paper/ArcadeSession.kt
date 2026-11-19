@@ -4,6 +4,7 @@ import net.kyori.adventure.bossbar.BossBar
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.title.Title
 import org.bukkit.GameMode
+import org.bukkit.HeightMap
 import org.bukkit.Location
 import org.bukkit.Particle
 import org.bukkit.Sound
@@ -20,6 +21,7 @@ import ru.arc.core.Tasks
 import ru.arc.paper.display.PaperPacketDisplays
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
+import ru.ruscrafting.events.config.ArenaSettings
 import ru.ruscrafting.events.config.EventLocation
 import ru.ruscrafting.events.config.PlayerStateMode
 import ru.ruscrafting.events.domain.*
@@ -49,6 +51,7 @@ class ArcadeSession(
     private val packetDisplays: PaperPacketDisplays,
     private val clock: () -> Long,
     private val work: EventWork? = null,
+    private val practiceOpponentLocation: (UUID) -> Location? = { null },
 ) {
     val runtime = ArcadeMatchRuntime(clock)
     val current: ArcadeMatch? get() = runtime.current
@@ -74,6 +77,7 @@ class ArcadeSession(
         require(players.distinctBy { it.uniqueId }.size == players.size)
         require(entries.all { it.mode == mode.id })
         check(players.none { escrow.pendingAnotherMatch(it.uniqueId, matchId) }) { "Player still has recovery from another match" }
+        val arena = requireNotNull(arenaPool.active())
         resultShown = false
         rosterCommitted = false
         require(practice == null || practice.matchId == matchId && players.singleOrNull()?.uniqueId == practice.ownerId)
@@ -82,13 +86,13 @@ class ArcadeSession(
         var mutationAttempted = false
         val preservePlayerState = practice != null || settings().playerStateMode == PlayerStateMode.PRESERVE
         fun current() = current?.matchId == matchId && current?.phase == MatchPhase.PREPARING && players.all(Player::isOnline)
-        val applyPlayer: (Player) -> Unit = { player ->
+        val applyPlayer: (IndexedValue<Player>) -> Unit = { (slot, player) ->
             mutationAttempted = true
             resetPlayer(player)
             player.inventory.clear()
             player.inventory.armorContents = arrayOfNulls(4)
             player.inventory.setItemInOffHand(null)
-            teleport(player, requireNotNull(arenaPool.active()).playerSpawn)
+            teleport(player, arena.spawnFor(slot, players.size))
             val guideValues = if (mode == EventMode.FISHING) mapOf(
                 "phase" to locale.render("phase.${match.phase.name.lowercase()}", player),
                 "seconds" to locale.text(secondsRemaining()),
@@ -104,10 +108,10 @@ class ArcadeSession(
         }
         val mutatePlayers: () -> CompletableFuture<Unit> = {
             if (work == null) {
-                players.forEach(applyPlayer)
+                players.withIndex().forEach(applyPlayer)
                 CompletableFuture.completedFuture(Unit)
             } else {
-                val iterator = players.iterator()
+                val iterator = players.withIndex().iterator()
                 work.capture(::current) {
                     if (iterator.hasNext()) applyPlayer(iterator.next())
                     !iterator.hasNext()
@@ -170,9 +174,10 @@ class ArcadeSession(
                 MatchPhase.COUNTDOWN -> broadcast("arcade.countdown", mapOf("seconds" to locale.text(secondsRemaining())))
                 MatchPhase.ACTIVE -> {
                     val roster = online()
-                    roster.forEach { player ->
+                    val arena = requireNotNull(arenaPool.active())
+                    roster.forEachIndexed { slot, player ->
                         resetPlayer(player)
-                        spawn(player)
+                        spawn(player, arena, arena.spawnFor(slot, roster.size))
                         giveLoadout(player)
                         if (match.mode != EventMode.ZOMBIES) {
                             player.sendEventMessage(locale.render("arcade.started", player, mapOf("mode" to modeName(player))))
@@ -401,20 +406,31 @@ class ArcadeSession(
         player.inventory.heldItemSlot = 0
     }
 
-    private fun spawn(player: Player) {
-        val arena = requireNotNull(arenaPool.active())
-        if (current?.mode in setOf(EventMode.DISASTERS, EventMode.FISHING, EventMode.ZOMBIES)) { teleport(player, arena.playerSpawn); return }
-        val candidates = (arena.lootSpawns + arena.playerSpawn).filter { point ->
-            val world = plugin.server.getWorld(point.world) ?: return@filter false
+    private fun spawn(player: Player, arena: ArenaSettings = requireNotNull(arenaPool.active()), initial: EventLocation? = null) {
+        if (current?.mode != EventMode.GUN_GAME) { teleport(player, arena.playerSpawn); return }
+        val world = requireNotNull(plugin.server.getWorld(arena.world))
+        val distributedSpawns = arena.spawns.size > 1
+        fun safe(point: EventLocation): Boolean {
             val location = Location(world, point.x, point.y, point.z)
-            location.block.isPassable && location.block.getRelative(0, 1, 0).isPassable && location.block.getRelative(0, -1, 0).type.isSolid
+            return (!distributedSpawns || world.isChunkLoaded(location.blockX shr 4, location.blockZ shr 4)) && location.hasArenaFooting()
         }
-        val opponents = online().filter { it.uniqueId != player.uniqueId && isAlive(it.uniqueId) }
-        val chosen = candidates.maxByOrNull { point ->
-            opponents.minOfOrNull { other ->
-                val at = other.location
-                (at.x - point.x) * (at.x - point.x) + (at.z - point.z) * (at.z - point.z)
+        if (distributedSpawns && initial != null && safe(initial)) {
+            teleport(player, initial)
+            return
+        }
+        val points = if (distributedSpawns) arena.spawns else arena.lootSpawns + arena.spawns
+        val humans = online().filter { it.uniqueId != player.uniqueId && isAlive(it.uniqueId) }.map(Player::getLocation)
+        val bots = practiceRoster?.bots.orEmpty().filter { isAlive(it.playerId) }.mapNotNull { practiceOpponentLocation(it.playerId) }
+        val opponents = (humans + bots).filter { it.world === world }
+        val solo = distributedSpawns && humans.isEmpty() && bots.isNotEmpty()
+        val chosen = points.asSequence().filter(::safe).maxByOrNull { point ->
+            val distanceSquared = opponents.minOfOrNull { at ->
+                val dx = at.x - point.x
+                val dz = at.z - point.z
+                dx * dx + dz * dz
             } ?: 0.0
+            // A distant spawn can leave the only opponent outside the solo player's simulation area.
+            if (solo && distanceSquared > 26.0 * 26.0) -distanceSquared else distanceSquared
         } ?: error("No safe arcade spawn remains")
         teleport(player, chosen)
     }
@@ -500,13 +516,13 @@ class ArcadeSession(
             }
             "lightning" -> if (now / 2000L != lastHazardPulse) {
                 lastHazardPulse = now / 2000L
-                locations.filterValues { at -> (at.blockY + 2..72).none { y -> at.world.getBlockAt(at.blockX, y, at.blockZ).type.isSolid } }
+                locations.filterValues { at -> at.world.getHighestBlockYAt(at.blockX, at.blockZ, HeightMap.OCEAN_FLOOR) < at.blockY + 2 }
                     .forEach { (id, at) ->
                         at.world.strikeLightningEffect(at)
                         hurtParticipant(id, 6.0)
                     }
             }
-            "fog" -> locations.filterValues { it.y < 68.0 }.keys.forEach { id ->
+            "fog" -> locations.filterValues { it.y < DisasterArenaGenerator.FOG_SAFE_Y }.keys.forEach { id ->
                 alive[id]?.addPotionEffect(PotionEffect(PotionEffectType.DARKNESS, 30, 0, false, false))
                 hurtParticipant(id, 3.0)
             }

@@ -187,7 +187,7 @@ test('Admin solo Gun Game advances after a real shot against a moving rival and 
 });
 
 test('Admin solo Disasters runs a real hazard round with a moving rival and skips public stats', async (fixture) => {
-  await withPractice(fixture, 'disasters', { world: 'arcevents_disasters', participants: 2 }, async (player) => {
+  await withPractice(fixture, 'disasters', { world: 'arcevents_disasters_coast', participants: 2 }, async (player) => {
     await expect(player).toHaveReceivedMessage(/Meteors in \d+s/);
     await movingRivals(player, 1, { matches: companion });
     await expect(player).toHaveReceivedMessage(/Winners:/, { timeout: 25000 });
@@ -195,7 +195,7 @@ test('Admin solo Disasters runs a real hazard round with a moving rival and skip
 });
 
 test('Admin solo Fishing issues its rod alongside a practice fisherman and restores the player', async (fixture) => {
-  await withPractice(fixture, 'fishing', { world: 'arcevents_fishing_v4', participants: 1 }, async (player) => {
+  await withPractice(fixture, 'fishing', { world: 'arcevents_fishing_archipelago', participants: 1 }, async (player) => {
     await until(() => hasIssuedItem(player, 'fishing_rod'), 'Fishing did not issue its rod');
     const angler = await until(() => player.bot.nearestEntity((entity) => companion(entity) && entity.heldItem?.name === 'fishing_rod'),
       'The practice fisherman was not visible with a rod');
@@ -212,7 +212,7 @@ test('Admin solo Fishing issues its rod alongside a practice fisherman and resto
 });
 
 test('Admin solo Zombies starts a real hostile encounter and restores the player', async (fixture) => {
-  await withPractice(fixture, 'zombies', { world: 'arcevents_zombies_zero_v3', participants: 1 }, async (player) => {
+  await withPractice(fixture, 'zombies', { world: 'arcevents_zombies_store', participants: 1 }, async (player) => {
     await until(() => hasIssuedItem(player, 'five_seven'), 'Zombies did not issue its starting firearm');
     await until(() => player.bot.nearestEntity((entity) => /^(zombie|husk)$/.test(entity.name)),
       'The first wave did not spawn a native enemy', 30000);

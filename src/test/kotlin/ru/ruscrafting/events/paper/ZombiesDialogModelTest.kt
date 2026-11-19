@@ -34,7 +34,8 @@ class ZombiesDialogModelTest : StringSpec({
             val plain = PlainTextComponentSerializer.plainText()
             for (language in listOf(Locale.forLanguageTag("ru"), Locale.US)) {
                 every { player.locale() } returns language
-                menu.openArcade(player, EventMode.ZOMBIES, EventEntryStatus(null), false, false, 22, 24, {}) shouldBe true
+                val arena = locale.render("arena.zombies.name", player)
+                menu.openArcade(player, EventMode.ZOMBIES, EventEntryStatus(null), false, false, arena, 22, 24, {}) shouldBe true
                 val entry = displayed.last()
                 entry.id shouldBe "events.zombies"
                 entry.buttons.map { it.id.value } shouldBe listOf("action_arcade_zombies_solo_name", "action_arcade_zombies_team_name", "rules_zombies")
@@ -42,11 +43,11 @@ class ZombiesDialogModelTest : StringSpec({
                 listOf("<waves>", "<minimum>", "<maximum>", "<queue_state>", "arcade.zombies").any(text::contains) shouldBe false
                 text.contains("10") shouldBe true
                 text.contains("1–4") shouldBe true
-                menu.openArcade(player, EventMode.ZOMBIES, EventEntryStatus(QueueState.QUEUED), true, false, 22, 24, {}) shouldBe true
+                menu.openArcade(player, EventMode.ZOMBIES, EventEntryStatus(QueueState.QUEUED), true, false, arena, 22, 24, {}) shouldBe true
                 displayed.last().buttons.map { it.id.value } shouldBe listOf("action_arcade_start_name", "action_arcade_leave_name", "rules_zombies")
-                menu.openArcade(player, EventMode.ZOMBIES, EventEntryStatus(null), false, true, 22, 24, {}) shouldBe true
+                menu.openArcade(player, EventMode.ZOMBIES, EventEntryStatus(null), false, true, arena, 22, 24, {}) shouldBe true
                 displayed.last().buttons.map { it.id.value } shouldBe listOf("action_menu_event_evacuate_name", "rules_zombies")
-                menu.openArcade(player, EventMode.ZOMBIES, EventEntryStatus(null, readFailed = true), false, false, 22, 24, {}) shouldBe true
+                menu.openArcade(player, EventMode.ZOMBIES, EventEntryStatus(null, readFailed = true), false, false, arena, 22, 24, {}) shouldBe true
                 displayed.last().buttons.map { it.id.value } shouldBe listOf("action_menu_event_refresh_name", "rules_zombies")
             }
             dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL - 1, EventsView.Arcade(EventMode.ZOMBIES)) shouldBe false

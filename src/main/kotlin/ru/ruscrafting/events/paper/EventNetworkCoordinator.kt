@@ -544,12 +544,7 @@ class EventNetworkCoordinator(
             return CompletableFuture.completedFuture(ReservationStartResult.NOT_OWNER)
         }
         startUnavailable(mode)?.let { return CompletableFuture.completedFuture(it) }
-        val effectivePreferredArena = when (mode) {
-            EventMode.DISASTERS -> "disasters"
-            EventMode.FISHING -> "fishing"
-            EventMode.ZOMBIES -> "zombies"
-            else -> preferredArenaId
-        }
+        val effectivePreferredArena = if (mode.usesSharedArenas) preferredArenaId?.lowercase() else mode.primaryArenaId
         val explicitArena = effectivePreferredArena?.takeUnless { it == "auto" }
         if (explicitArena != null && explicitArena !in selectableArenaIds(mode)) {
             return CompletableFuture.completedFuture(ReservationStartResult.ARENA_UNAVAILABLE)
@@ -764,8 +759,10 @@ class EventNetworkCoordinator(
         val current = settings()
         val ids = if (current.nodeMode == NodeMode.HOST) readyArenaIds()
             else nodes.firstOrNull { it.serverId == current.hostServer && it.supports(mode) }?.arenaIds.orEmpty()
-        return modeArenaIds(ids, mode)
+        return ids.filter(mode::acceptsArena)
     }
+
+    fun defaultArenaId(mode: EventMode): String? = mode.defaultArenaId(selectableArenaIds(mode), settings().defaultArenaId)
 
     fun advertisedArenaReady(): Boolean {
         val current = settings()
@@ -857,14 +854,7 @@ class EventNetworkCoordinator(
             clock() - it.heartbeatAtMs in -FUTURE_SKEW_MS..current.network.heartbeatStaleSeconds * 1_000L &&
             it.supports(mode) } ?: return ReservationStartResult.ARENA_UNAVAILABLE
         if (node.matchId != null) return ReservationStartResult.BUSY
-        return if (node.available && modeArenaIds(node.arenaIds, mode).isNotEmpty()) null else ReservationStartResult.ARENA_UNAVAILABLE
-    }
-
-    private fun modeArenaIds(ids: List<String>, mode: EventMode): List<String> = when (mode) {
-        EventMode.DISASTERS -> ids.filter { it == "disasters" }
-        EventMode.FISHING -> ids.filter { it == "fishing" }
-        EventMode.ZOMBIES -> ids.filter { it == "zombies" }
-        else -> ids.filter { it != "disasters" && it != "fishing" && it != "zombies" }
+        return if (node.available && node.arenaIds.any(mode::acceptsArena)) null else ReservationStartResult.ARENA_UNAVAILABLE
     }
 
     fun nodeSnapshot(): List<HostNode> = nodes

@@ -48,6 +48,7 @@ menu:
     overview-name: <#c4abff>Найдите предателей
     overview-lore:
     - <#e8dfd2>Мирные и детективы против скрытых предателей.
+    - '<#e8dfd2>Карта · <selected_arena>'
     queue-name: <#86dcf1>Ваш статус
     queue-lore:
     - <#e8dfd2><queue_state>
@@ -315,8 +316,14 @@ menu:
       - '<#f2f0e6>Открыть общий результат раунда.'
 
 arena:
+  riot-in-prison:
+    name: '<#c4abff>Riot in Prison'
+  deadwood:
+    name: '<#f4c575>Deadwood'
+  disasters:
+    name: '<#9fc6ff>Pirate Cove'
   zombies:
-    name: '<#ffb277>Нулевой сектор'
+    name: '<#ff9c82>Infection: Store'
   auto:
     name: '<#e3b341>автоматическая ротация'
   citadel:
@@ -330,7 +337,7 @@ arena:
   nuke:
     name: '<#e3b341>Nuke'
   fishing:
-    name: '<#67d7ff>Острова глубин'
+    name: '<#74ded2>Архипелаг пяти островов'
   state:
     ready: '<#7bd88f>готова'
     active: '<#d6a8ff>идёт текущий матч'
@@ -725,6 +732,7 @@ arcade:
   - <#e8dfd2>Завершите гонку ударом ножа.
   gungame-guide-name: '<#f4c575><bold>Правила гонки вооружений'
   gungame-guide:
+  - '<#e8dfd2>Карта · <selected_arena>'
   - <#f4c575>Цель
   - <#e8dfd2>Устраните игрока каждым оружием, затем ножом.
   - ''
@@ -740,13 +748,14 @@ arcade:
   - <#e8dfd2>Следите за предупреждениями об ударах.
   disasters-guide-name: '<#9fc6ff><bold>Правила катастроф'
   disasters-guide:
+  - '<#e8dfd2>Карта · <selected_arena>'
   - <#9fc6ff>Цель
   - <#e8dfd2>Переживите <rounds> раундов. Очки получают выжившие.
   - ''
   - <#9fc6ff>Укрытия
   - '<#e8dfd2>Метеоры: уходите от кругов на земле.'
-  - '<#e8dfd2>Молнии: укройтесь под медным навесом.'
-  - '<#e8dfd2>Туман: поднимитесь на каменную террасу.'
+  - '<#e8dfd2>От молний укроет медная крыша у причала.'
+  - '<#e8dfd2>При тумане поднимитесь на смотровую площадку.'
   fishing-title: '<#20252b>Острова глубин'
   fishing-name: '<#74ded2><bold>Острова глубин'
   fishing-lore:
@@ -788,8 +797,8 @@ arcade:
   hazard-lightning: 'Молнии'
   hazard-fog: 'Туман'
   hazard-meteors-guide: 'Уклоняйтесь от отмеченных кругов.'
-  hazard-lightning-guide: 'Ищите укрытие под медными навесами.'
-  hazard-fog-guide: 'Поднимайтесь на каменные террасы.'
+  hazard-lightning-guide: 'Укройтесь под медной крышей у причала.'
+  hazard-fog-guide: 'Поднимитесь по лестнице на смотровую площадку.'
   round-complete: '<#7bd88f>Раунд <round> из <total> завершён.'
   knife-name: '<#d84a4a><bold>Финальный нож'
   knife-lore:
@@ -1106,7 +1115,8 @@ dialog:
   queue-facts: <#e8dfd2>В очереди <#ffffff><queue><#e8dfd2> · Для старта <#ffffff><minimum>–<maximum>
   queue-status: <#e8dfd2><queue_state>
   ttt-overview: '<#c4abff>Осматривайте тела, чтобы вычислить предателей.'
-  ttt-map: '<#e8dfd2>Карта: <#ffffff><selected_arena>'
+  ttt-map: '<#e8dfd2>Карта · <#ffffff><selected_arena>'
+  map: '<#e8dfd2>Карта · <#ffffff><arena>'
   gungame-overview: '<#f4c575>Каждое устранение даёт новое оружие. Победите ножом.'
   disasters-overview: '<#9fc6ff>Ищите укрытие. Переживите <rounds> раундов катастроф.'
   zombies-overview: '<#ff9c82>Чините баррикады и отбейте <waves> волн зомби.'
@@ -1166,8 +1176,8 @@ dialog:
   - ''
   - <#9fc6ff>Укрытия
   - '<#e8dfd2>Метеоры: уходите от кругов на земле.'
-  - '<#e8dfd2>Молнии: укройтесь под медным навесом.'
-  - '<#e8dfd2>Туман: поднимитесь на каменную террасу.'
+  - '<#e8dfd2>От молний укроет медная крыша у причала.'
+  - '<#e8dfd2>При тумане поднимитесь на смотровую площадку.'
   rules-fishing-0:
   - <#74ded2>Рыбачьте → сражайтесь → улучшайте снаряжение
   - <#e8dfd2>Забросьте у причала. С уловом в руке нажмите ПКМ по земле.

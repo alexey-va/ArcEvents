@@ -175,7 +175,7 @@ internal class ArcadePracticeCompanions(
         val runner = runner ?: return
         if (hazard.isEmpty() || !runner.alive) return
         val next = runner.step(hazard) ?: return
-        npc.pose = if (hazard == "lightning" && kotlin.math.abs(next.x) >= 10.0) PacketNpcPose.CROUCHING else PacketNpcPose.STANDING
+        npc.pose = if (hazard == "lightning" && next.x < -8.0) PacketNpcPose.CROUCHING else PacketNpcPose.STANDING
         npc.teleport(next.toLocation(world, runner.yaw, 0f))
         npc.headYaw = runner.yaw
     }
@@ -244,7 +244,7 @@ internal object PracticeHarbourCast {
     }
 }
 
-/** Fixed routes use the generated arena's walkable aisles, shelter floors and one-block terraces. */
+/** The rival dodges on the wharf, shelters in the boat shed, and climbs the headland steps. */
 internal class PracticeDisasterRunner(private val random: Random) {
     private val side = if (random.nextBoolean()) 1 else -1
     private var waypoint = 0
@@ -280,12 +280,12 @@ internal class PracticeDisasterRunner(private val random: Random) {
         if (!alive) return null
         if (waitTicks > 0) { waitTicks -= 2; return null }
         val target = when (hazard) {
-            "meteors" -> meteorCorners[waypoint % meteorCorners.size]
-            "lightning" -> 13 to if (waypoint % 2 == 0) 0 else 2
-            "fog" -> if (waypoint % 2 == 0) 11 to 10 else 14 to 14
+            "meteors" -> meteorCorners[waypoint % meteorCorners.size].let { (x, z) -> side * x to z }
+            "lightning" -> if (waypoint % 2 == 0) -12 to 0 else -16 to side
+            "fog" -> if (waypoint % 2 == 0) 18 to 0 else 20 to side
             else -> return null
         }
-        val dx = side * target.first + .5 - position.x
+        val dx = target.first + .5 - position.x
         val dz = target.second + .5 - position.z
         val distance = hypot(dx, dz)
         if (distance < .01) {
@@ -296,8 +296,14 @@ internal class PracticeDisasterRunner(private val random: Random) {
         val stride = minOf(1.0, .46 / distance)
         val x = position.x + dx * stride
         val z = position.z + dz * stride
-        val groundY = (67 downTo 64).first { DisasterArenaGenerator.materialAt(floor(x).toInt(), it, floor(z).toInt()) != null }
-        position = Vector(x, groundY + 1.0, z)
+        val blockX = floor(x).toInt()
+        val blockZ = floor(z).toInt()
+        // The marked lane runs from the wharf at 64 to the lookout at 69, beneath the shed roof.
+        val highestFloor = if (blockX >= 8) 69 else 64
+        val groundY = (highestFloor downTo 64).first { DisasterArenaGenerator.materialAt(blockX, it, blockZ) != null }
+        val stair = DisasterArenaGenerator.materialAt(blockX, groundY, blockZ) == Material.SMOOTH_SANDSTONE_STAIRS
+        val feetY = groundY + if (stair && x - blockX < .5) .5 else 1.0
+        position = Vector(x, feetY, z)
         yaw = Math.toDegrees(atan2(-dx, dz)).toFloat()
         return position
     }

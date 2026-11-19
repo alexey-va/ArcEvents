@@ -63,11 +63,6 @@ class ArenaWorldProvisioner(private val plugin: Plugin,
         initialPoints = enabled.associate { it.id to mandatoryPoints(it) }
         val existing = enabled.associate { it.world to plugin.server.getWorld(it.world)?.uid }
         val loadedWorldNames = plugin.server.worlds.mapTo(hashSetOf()) { it.name }
-        if (enabled.any { PackagedArenaTemplates.find(it.template)?.format != PackagedArenaFormat.ANVIL_WORLD && PackagedArenaTemplates.find(it.template) != null }) {
-            library = requireNotNull(plugin.server.servicesManager.load(ru.arc.paper.api.ArcSchematicService::class.java)) {
-                "ARC shared schematic service is required to provision packaged schematic arenas"
-            }.open(plugin.name, libraryRoot)
-        }
         return work.compute {
             val recovery = staging.recover(loadedWorldNames)
             if (recovery.removed > 0) plugin.logger.info("Removed ${recovery.removed} interrupted owned arena stages")
@@ -143,8 +138,8 @@ class ArenaWorldProvisioner(private val plugin: Plugin,
                 .thenCompose { sanitizeAndValidate(world, arena, settings, prepared.packaged != null || prepared.imported != null, prepared.chunks, work) }
                 .thenCompose { work.onMain {
                     check(!closed && plugin.server.getWorld(world.uid) === world)
-                    // Keep only the small set used by synchronous readiness checks. Loot acquires its own chunks asynchronously.
-                    val keep = (listOfNotNull(arena.lobby, arena.spectator, arena.playerSpawn) + initialPoints[arena.id].orEmpty()).mapTo(mutableSetOf()) { (floor(it.x).toInt() shr 4) to (floor(it.z).toInt() shr 4) }
+                    // Arena spawn chunks stay pinned. Loot acquires its own chunks asynchronously.
+                    val keep = readinessChunks(arena, initialPoints[arena.id].orEmpty())
                     val retained = readiness.getOrPut(arena.id) { mutableMapOf() }
                     owned.filter { (it.key.x to it.key.z) in keep }.forEach { lease ->
                         retained[lease.key.x to lease.key.z] = lease
@@ -164,8 +159,7 @@ class ArenaWorldProvisioner(private val plugin: Plugin,
     fun refreshReadinessAsync(arena: ArenaSettings, points: List<ru.ruscrafting.events.config.EventLocation>): java.util.concurrent.CompletableFuture<Unit> {
         val work = requireNotNull(work)
         val world = requireNotNull(plugin.server.getWorld(arena.world))
-        val keep = (listOfNotNull(arena.lobby, arena.spectator, arena.playerSpawn) + points)
-            .mapTo(linkedSetOf()) { (floor(it.x).toInt() shr 4) to (floor(it.z).toInt() shr 4) }
+        val keep = readinessChunks(arena, points)
         val retained = readiness.getOrPut(arena.id) { mutableMapOf() }
         val acquired = mutableListOf<ru.arc.paper.chunk.PaperChunkTicketLease>()
         return loadChunks(world, keep.filterNot(retained::containsKey), false, acquired, work).thenCompose { work.onMain {
@@ -175,6 +169,10 @@ class ArenaWorldProvisioner(private val plugin: Plugin,
             obsolete.forEach { acquired += requireNotNull(retained.remove(it)) }
         } }.thenCompose { releaseChunkLeases(acquired, work) }
     }
+
+    private fun readinessChunks(arena: ArenaSettings, points: List<ru.ruscrafting.events.config.EventLocation>): Set<Pair<Int, Int>> =
+        (listOfNotNull(arena.lobby, arena.spectator) + arena.spawns + points)
+            .mapTo(linkedSetOf()) { (floor(it.x).toInt() shr 4) to (floor(it.z).toInt() shr 4) }
 
     internal fun loadChunks(world: World, chunks: List<Pair<Int, Int>>, generate: Boolean,
         owned: MutableList<ru.arc.paper.chunk.PaperChunkTicketLease>, work: EventWork): java.util.concurrent.CompletableFuture<Unit> {
@@ -229,7 +227,15 @@ class ArenaWorldProvisioner(private val plugin: Plugin,
     private fun provisionAsync(settings: ArcEventsConfig, prepared: PreparedArena, work: EventWork): java.util.concurrent.CompletableFuture<Unit> {
         val arena = prepared.arena
         val template = requireNotNull(prepared.packaged)
-        return work.compute { staging.create(arena.world, arena.template) }.thenCompose { stage ->
+        // Already prepared worlds and the generated minigames also work on hosts without a schematic service.
+        val ready = if (template.format == PackagedArenaFormat.ANVIL_WORLD || library != null)
+            CompletableFuture.completedFuture(Unit) else work.onMain {
+                check(!closed)
+                library = requireNotNull(plugin.server.servicesManager.load(ru.arc.paper.api.ArcSchematicService::class.java)) {
+                    "ARC shared schematic service is required for the first import of ${arena.id}"
+                }.open(plugin.name, libraryRoot)
+            }
+        return ready.thenCompose { work.compute { staging.create(arena.world, arena.template) } }.thenCompose { stage ->
         val owned = mutableListOf<ru.arc.paper.chunk.PaperChunkTicketLease>()
         var unloaded = false
         work.callNative {

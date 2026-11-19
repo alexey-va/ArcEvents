@@ -6,104 +6,87 @@ import io.kotest.matchers.shouldBe
 import org.bukkit.Material
 import java.nio.file.Files
 import java.nio.file.Path
-import kotlin.math.abs
-import ru.arc.paper.testing.MockBukkitTestRuntime
 
 class ZombiesArenaGeneratorTest : StringSpec({
     fun solid(x: Int, y: Int, z: Int) = ZombiesArenaGenerator.materialAt(x, y, z)?.isSolid == true
-    fun walkable(x: Int, z: Int) = solid(x, 64, z) && !solid(x, 65, z) && !solid(x, 66, z)
 
-    "intact windows seal every spawn alcove and breached windows connect to the contained player circuit" {
+    fun walkableFromSpawn(breached: Set<Pair<Int, Int>> = emptySet(), blocked: Set<Pair<Int, Int>> = emptySet()): Set<Pair<Int, Int>> {
         val start = 0 to -19
-        walkable(start.first, start.second) shouldBe true
         val reached = mutableSetOf(start)
-        val pending = ArrayDeque(listOf(start))
-        while (pending.isNotEmpty()) {
-            val (x, z) = pending.removeFirst()
+        val queue = ArrayDeque(listOf(start))
+        while (queue.isNotEmpty()) {
+            val (x, z) = queue.removeFirst()
             for ((dx, dz) in listOf(1 to 0, -1 to 0, 0 to 1, 0 to -1)) {
                 val next = x + dx to z + dz
-                if (walkable(next.first, next.second) && reached.add(next)) pending.addLast(next)
+                if (next in reached || next in blocked) continue
+                if (solid(next.first, 64, next.second) && !solid(next.first, 66, next.second) &&
+                    (!solid(next.first, 65, next.second) || next in breached)) {
+                    reached.add(next)
+                    queue.addLast(next)
+                }
             }
         }
-        ZombiesArenaGenerator.SPAWNS.forEach { (it in reached) shouldBe false }
-        ZombiesArenaGenerator.WINDOWS.forEach { window ->
-            ((window.x + window.inwardX * 2 to window.z + window.inwardZ * 2) in reached) shouldBe true
-        }
-        ZombiesArenaGenerator.STATIONS.values.forEach { ((it to -21) in reached) shouldBe true }
-        for (point in listOf(0 to 7, 0 to -7, 7 to 0, -7 to 0, 24 to 0, -24 to 0)) (point in reached) shouldBe true
-        reached.none { abs(it.first) >= 28 || abs(it.second) >= 28 } shouldBe true
-        for (edge in -28..28) for (height in 65..73) {
-            solid(edge, height, -28) shouldBe true
-            solid(edge, height, 28) shouldBe true
-            solid(-28, height, edge) shouldBe true
-            solid(28, height, edge) shouldBe true
-        }
-        val gates = ZombiesArenaGenerator.WINDOWS.flatMap { it.gateCells() }.mapTo(mutableSetOf()) { it.first to it.third }
-        val breached = mutableSetOf(start)
-        pending.addLast(start)
-        while (pending.isNotEmpty()) {
-            val (x, z) = pending.removeFirst()
-            for ((dx, dz) in listOf(1 to 0, -1 to 0, 0 to 1, 0 to -1)) {
-                val next = x + dx to z + dz
-                if ((walkable(next.first, next.second) || next in gates) && breached.add(next)) pending.addLast(next)
-            }
-        }
-        ZombiesArenaGenerator.SPAWNS.forEach { (it in breached) shouldBe true }
+        return reached
     }
 
-    "station contracts and cargo geometry stay fixed for the owned interaction and pathfinding" {
-        ZombiesArenaGenerator.STATIONS.values.map { ZombiesArenaGenerator.materialAt(it, 65, -22) } shouldBe
+    "the supermarket's six windows connect only their own spawn pocket after a breach" {
+        val closed = walkableFromSpawn()
+        ZombiesArenaGenerator.WINDOWS.forEachIndexed { index, window ->
+            val cells = window.gateCells()
+            cells.forEach { (x, y, z) ->
+                ZombiesArenaGenerator.materialAt(x, y, z) shouldBe Material.SPRUCE_FENCE
+                solid(x, 68, z) shouldBe true // the lintel also closes the route over the intact fence
+            }
+            ((window.x + window.inwardX * 2 to window.z + window.inwardZ * 2) in closed) shouldBe true
+            val open = walkableFromSpawn(cells.mapTo(mutableSetOf()) { it.first to it.third })
+            ZombiesArenaGenerator.SPAWNS.forEachIndexed { other, point ->
+                (point in closed) shouldBe false
+                (point in open) shouldBe (other == index)
+            }
+            open.all { (x, z) -> x in -25..25 && z in -30..11 } shouldBe true
+        }
+    }
+
+    "the supply counter and the original checkout lanes remain connected on both sides of the aisles" {
+        val material = ZombiesArenaGenerator.Companion::materialAt
+        material(0, 64, -19)?.isSolid shouldBe true
+        material(0, 65, -19) shouldBe null
+        material(0, 66, -19) shouldBe null
+        ZombiesArenaGenerator.STATIONS.values.map { material(it, 65, -22) } shouldBe
             listOf(Material.BARREL, Material.CHEST, Material.SMITHING_TABLE, Material.BREWING_STAND)
-        for (x in listOf(-15, 15)) for (z in listOf(-9, 9)) {
-            (65..68).all { solid(x, it, z) } shouldBe true
-            ZombiesArenaGenerator.materialAt(x, 69, z) shouldBe null
+        ZombiesArenaGenerator.MYSTERY_CHEST_X.map { x -> ZombiesArenaGenerator.stateAt(x, 65, -22) } shouldBe listOf(
+            "minecraft:chest[facing=south,type=right,waterlogged=false]",
+            "minecraft:chest[facing=south,type=left,waterlogged=false]",
+        )
+        // Occlude each half of the shelf aisles in turn. Both paths still reach the front entrance.
+        for (half in listOf(-24..0, 0..24)) {
+            val reachable = walkableFromSpawn(blocked = half.mapTo(mutableSetOf()) { it to -13 })
+            ZombiesArenaGenerator.STATIONS.values.all { (it to -21) in reachable } shouldBe true
+            listOf(-16 to 5, 0 to 8, 16 to 5).all { it in reachable } shouldBe true
         }
-        ZombiesArenaGenerator.materialAt(0, 70, 0) shouldBe Material.SEA_LANTERN
-        ZombiesArenaGenerator.materialAt(4, 70, 0) shouldBe Material.CYAN_STAINED_GLASS
-        ZombiesArenaGenerator.materialAt(29, 64, 0) shouldBe null
+        material(0, 64, -19) shouldBe Material.SNOW_BLOCK // the original tiled checkout floor and parking lot
+        material(0, 64, 24) shouldBe Material.SMOOTH_STONE
     }
 
-    "night landmarks identify the boiler house, switch room and all four supply bays from the floor" {
-        ZombiesArenaGenerator.materialAt(-24, 89, 17) shouldBe Material.POLISHED_BLACKSTONE
-        ZombiesArenaGenerator.materialAt(-21, 84, 23) shouldBe Material.POLISHED_BLACKSTONE
-        ZombiesArenaGenerator.materialAt(25, 84, 22) shouldBe Material.OCHRE_FROGLIGHT
-        ZombiesArenaGenerator.materialAt(20, 75, 18) shouldBe Material.LIGHT_BLUE_STAINED_GLASS
-        ZombiesArenaGenerator.materialAt(12, 78, 1) shouldBe Material.POLISHED_DEEPSLATE
-        ZombiesArenaGenerator.materialAt(7, 63, -12) shouldBe Material.OCHRE_FROGLIGHT
-        ZombiesArenaGenerator.materialAt(7, 64, -12) shouldBe Material.WAXED_OXIDIZED_COPPER_GRATE
-        val signs = ZombiesArenaGenerator.STATIONS.values.map { x ->
-            (74 downTo 70).flatMap { y -> (x - 2..x + 2).map { ZombiesArenaGenerator.materialAt(it, y, -22) } }
-        }
-        signs.all { Material.OCHRE_FROGLIGHT in it } shouldBe true
-        val inks = setOf(Material.OCHRE_FROGLIGHT, Material.SMOOTH_QUARTZ)
-        signs.map { sign -> sign.filterNot { it in inks }.distinct().single() }.distinct().size shouldBe 4
-    }
-
-    "export the exact generator block volume for the existing atelier renderer when requested" {
+    "export the exact authored arena and its interactions to the existing atelier renderer when requested" {
         val directory = System.getenv("ARC_EVENTS_ZOMBIES_ARENA_PREVIEW")?.let(Path::of)
         if (directory != null) {
             Files.createDirectories(directory)
+            val volume = ZombiesArenaGenerator.store
             val palette = linkedMapOf("minecraft:air" to 0)
             val blocks = mutableListOf<List<Int>>()
-            MockBukkitTestRuntime.open().use {
-                for (y in 60..ZombiesArenaGenerator.MAX_Y) for (z in -28..28) for (x in -28..28) {
-                    val material = ZombiesArenaGenerator.materialAt(x, y, z) ?: continue
-                    val name = when (material) {
-                        Material.CHEST -> ZombiesArenaGenerator.chestData(x).asString
-                        Material.SPRUCE_FENCE -> ZombiesArenaGenerator.fenceData(x, z).asString
-                        else -> "minecraft:${material.name.lowercase()}"
-                    }
-                    val index = palette.getOrPut(name) { palette.size }
-                    blocks += listOf(x + 28, y - 60, z + 28, index)
-                }
+            for (y in 0 until volume.height) for (z in 0 until volume.length) for (x in 0 until volume.width) {
+                val state = volume.stateAt(x, y, z) ?: continue
+                blocks += listOf(x, y, z, palette.getOrPut(state) { palette.size })
             }
-            val data = mapOf("version" to 1, "size" to listOf(57, ZombiesArenaGenerator.MAX_Y - 59, 57), "origin" to listOf(28, 5, 9),
+            val data = mapOf("version" to 1, "size" to listOf(volume.width, volume.height, volume.length),
+                "worldMin" to listOf(ZombiesArenaGenerator.MIN_X, ZombiesArenaGenerator.MIN_Y, ZombiesArenaGenerator.MIN_Z),
+                "origin" to listOf(-ZombiesArenaGenerator.MIN_X, 65 - ZombiesArenaGenerator.MIN_Y, -19 - ZombiesArenaGenerator.MIN_Z),
                 "materials" to palette.keys.map { mapOf("block" to it, "color" to "#808080", "name" to it) }, "blocks" to blocks)
             Files.writeString(directory.resolve("scene.blocks.json"), GsonBuilder().create().toJson(data))
             val window = ZombiesArenaGenerator.WINDOWS.first()
             Files.writeString(directory.resolve("interactions.json"), GsonBuilder().setPrettyPrinting().create().toJson(mapOf(
-                "source" to "ZombiesArenaGenerator v3; ZombiesBarricades.board; ZombiesMysteryBox.CARD_TIMES",
-                "window" to window,
+                "source" to ZombiesArenaGenerator.TEMPLATE, "window" to window,
                 "boards" to (0 until ZombiesBarricades.MAX_BOARDS).map { ZombiesBarricades.board(window, it) },
                 "case" to mapOf("x" to -4.0, "y" to 67.0, "z" to -21.2, "scale" to .6, "context" to "fixed"),
                 "cardsMs" to ZombiesMysteryBox.CARD_TIMES, "rollMs" to ZombiesMysteryBox.ROLL_MS,

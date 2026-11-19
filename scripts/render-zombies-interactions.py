@@ -32,11 +32,32 @@ def main() -> None:
     volume = json.loads((args.export / 'scene.blocks.json').read_text())
     timing = json.loads((args.export / 'interactions.json').read_text())
     names = [entry['block'] for entry in volume['materials']]
-    blocks = [(x - 28, y + 60, z - 28, names[material]) for x, y, z, material in volume['blocks']]
+    min_x, min_y, min_z = volume.get('worldMin', (-28, 60, -28))
+    blocks = [(x + min_x, y + min_y, z + min_z, names[material]) for x, y, z, material in volume['blocks']]
+    window = timing['window']
+    case_bounds = ((-7, 0), (64, 69), (-25, -18))
+    window_bounds = ((window['x'] - 4, window['x'] + 4), (64, 69), (window['z'] - 4, window['z'] + 4))
+    gate_cells = {(window['x'] + offset * window['inwardZ'], 65, window['z'] - offset * window['inwardX'])
+                  for offset in (-1, 0, 1)}
+
+    def within(point, bounds):
+        return all(lo <= coordinate <= hi for coordinate, (lo, hi) in zip(point, bounds))
+
+    # Only these two neighborhoods enter the interaction preview of the complete world.
+    blocks = [(x, y, z, name) for x, y, z, name in blocks
+              if within((x, y, z), case_bounds) or within((x, y, z), window_bounds)]
     palette_names = {name for *_, name in blocks}
     # Atelier explicitly supports a static single-chest approximation, not native double lids.
     chest = 'minecraft:chest[facing=south,type=single,waterlogged=false]'
-    palette_names = {chest if name.startswith('minecraft:chest[') else name for name in palette_names}
+
+    def preview_state(name):
+        if name.startswith('minecraft:chest['):
+            return chest
+        if name.startswith(('minecraft:note_block[', 'minecraft:jukebox[')):
+            return name.split('[')[0]  # Sound and inserted records do not change the static block model.
+        return name
+
+    palette_names = {preview_state(name) for name in palette_names}
     palette_names.add('minecraft:spruce_planks')
     palette_input = args.output / 'palette-input.json'
     palette_input.write_text(json.dumps({'palette': {str(i): name for i, name in enumerate(sorted(palette_names))}}))
@@ -72,17 +93,15 @@ def main() -> None:
     def surroundings(origin, bounds, open_gate=False):
         result = []
         for x, y, z, name in blocks:
-            if not (bounds[0][0] <= x <= bounds[0][1] and bounds[1][0] <= y <= bounds[1][1] and bounds[2][0] <= z <= bounds[2][1]):
+            if not within((x, y, z), bounds):
                 continue
-            if open_gate and name.startswith('minecraft:spruce_fence'):
+            if open_gate and (x, y, z) in gate_cells:
                 continue
-            if name.startswith('minecraft:chest['):
-                name = chest
-            result.append(piece(f'world-{x}-{y}-{z}', name, x+.5-origin[0], y+.5-origin[1], z+.5-origin[2]))
+            result.append(piece(f'world-{x}-{y}-{z}', preview_state(name), x+.5-origin[0], y+.5-origin[1], z+.5-origin[2]))
         return result
 
     box_origin = (-4, 65, -21.5)
-    box_base = surroundings(box_origin, ((-7, 0), (64, 69), (-25, -18)))
+    box_base = surroundings(box_origin, case_bounds)
     box_camera = {'position': [0, 1.62, 3.5], 'target': [0, 1.7, .1], 'fovDegrees': 70}
     states = []
     phases = [0, *timing['cardsMs'], timing['rollMs'], timing['rollMs'] + timing['claimMs']]
@@ -96,12 +115,11 @@ def main() -> None:
             'Точные IA-модели, позы и интервалы. Двойной сундук показан статическим приближением; нативная крышка и звук не симулируются.',
             'pieces': pieces, 'camera': box_camera, 'durationMs': phases[index+1]-ms if index+1 < len(phases) else 1000})
 
-    window = timing['window']
     window_origin = (window['x'] + .5, 65, window['z'] + .5)
     window_camera = {'position': [window['inwardX']*3.3, 1.62, window['inwardZ']*3.3],
                      'target': [0, 1.2, 0], 'fovDegrees': 70}
     for index, count in enumerate([3, 2, 1, 0, 1, 2, 3]):
-        base = surroundings(window_origin, ((-28, -20), (64, 69), (-19, -10)), open_gate=count == 0)
+        base = surroundings(window_origin, window_bounds, open_gate=count == 0)
         for board_index, board in enumerate(timing['boards'][:count]):
             base.append(piece(f'board-{board_index}', 'minecraft:spruce_planks',
                 board['x']+board['width']/2-window_origin[0], board['y']+board['height']/2-window_origin[1],

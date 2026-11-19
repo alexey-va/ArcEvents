@@ -4,9 +4,9 @@ import com.google.gson.GsonBuilder
 import com.google.gson.JsonParser
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 import io.mockk.every
 import io.mockk.mockk
-import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.serializer.gson.GsonComponentSerializer
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
@@ -93,10 +93,11 @@ class ArcEventsNativePreviewTest : StringSpec({
             val legacy = LegacyComponentSerializer.builder().character('&').hexColors().build()
             val gson = GsonComponentSerializer.gson()
             val plain = PlainTextComponentSerializer.plainText()
+            fun primaryArena(mode: EventMode) = locale.render("arena.${mode.primaryArenaId}.name", player)
             fun save(id: String) {
                 val screen = requireNotNull(last)
                 val components = listOf(screen.title) + screen.body.map { it.text } + screen.buttons.flatMap { listOf(it.label, it.tooltip) }
-                components.map(plain::serialize).none { Regex("<(?:queue|waves|minimum|maximum|mode|minutes|rounds|availability|action|roster)>").containsMatchIn(it) } shouldBe true
+                components.map(plain::serialize).none { Regex("<(?:queue|waves|minimum|maximum|mode|minutes|rounds|availability|action|roster|arena|selected_arena)>").containsMatchIn(it) } shouldBe true
                 exports[id] = mapOf(
                     "title" to legacy.serialize(screen.title), "columns" to screen.columns,
                     "body" to screen.body.map { mapOf("text" to legacy.serialize(it.text), "width" to it.width) },
@@ -138,16 +139,16 @@ class ArcEventsNativePreviewTest : StringSpec({
                 menu.openFishing(player, EventEntryStatus(QueueState.RESERVED, ReservationStartResult.BUSY), {}); save("$language-fishing-transfer")
                 menu.openFishing(player, EventEntryStatus(null, ReservationStartResult.ARENA_UNAVAILABLE), {}); save("$language-fishing-unavailable")
                 for (mode in listOf(EventMode.ZOMBIES, EventMode.GUN_GAME, EventMode.DISASTERS)) {
-                    menu.openArcade(player, mode, EventEntryStatus(null), false, false, 22, 24, {}, queueSize = 1)
+                    menu.openArcade(player, mode, EventEntryStatus(null), false, false, primaryArena(mode), 22, 24, {}, queueSize = 1)
                     save("$language-${mode.id}")
                     last!!.buttons.any { it.id.value == "rules_${mode.id}" } shouldBe true
-                    menu.openArcade(player, mode, EventEntryStatus(QueueState.QUEUED), true, false, 22, 24, {}, queueSize = 1)
+                    menu.openArcade(player, mode, EventEntryStatus(QueueState.QUEUED), true, false, primaryArena(mode), 22, 24, {}, queueSize = 1)
                     save("$language-${mode.id}-queued")
                 }
                 menu.openArcadeLoading(player, EventMode.ZOMBIES, {}, {}); save("$language-zombies-loading")
-                menu.openArcade(player, EventMode.ZOMBIES, EventEntryStatus(QueueState.QUEUED), true, false, 22, 24, {}, "queue.start-network-failed", 1)
+                menu.openArcade(player, EventMode.ZOMBIES, EventEntryStatus(QueueState.QUEUED), true, false, primaryArena(EventMode.ZOMBIES), 22, 24, {}, "queue.start-network-failed", 1)
                 save("$language-zombies-error")
-                menu.openTtt(player, EventEntryStatus(null), eventMenuPlan(null, true, true, false, false, false, false, false, false), Component.text("Inferno"))
+                menu.openTtt(player, EventEntryStatus(null), eventMenuPlan(null, true, true, false, false, false, false, false, false), primaryArena(EventMode.TTT))
                 save("$language-ttt")
                 last!!.buttons.any { it.id.value == "rules_ttt" } shouldBe true
                 last = trader.model(player, FishingProgress().copy(coins = 300), false) {}; save("$language-trader")
@@ -178,10 +179,18 @@ class ArcEventsNativePreviewTest : StringSpec({
                 val ready = EventEntryStatus(null)
                 for (mode in EventMode.entries) {
                     when (mode) {
-                        EventMode.TTT -> menu.openTtt(player, ready, eventMenuPlan(null, true, true, false, false, false, false, false, false), Component.text("Inferno"))
+                        EventMode.TTT -> menu.openTtt(player, ready, eventMenuPlan(null, true, true, false, false, false, false, false, false), primaryArena(mode))
                         EventMode.FISHING -> menu.openFishing(player, ready, {})
-                        else -> menu.openArcade(player, mode, ready, false, false, 22, 24, {})
+                        else -> menu.openArcade(player, mode, ready, false, false, primaryArena(mode), 22, 24, {})
                     }
+                    val name = when (mode) {
+                        EventMode.TTT -> "Riot in Prison"
+                        EventMode.GUN_GAME -> "Deadwood"
+                        EventMode.DISASTERS -> "Pirate Cove"
+                        EventMode.FISHING -> if (language == "ru") "Архипелаг пяти островов" else "Five Isles"
+                        EventMode.ZOMBIES -> "Infection: Store"
+                    }
+                    plain.serialize(last!!.body.first().text) shouldContain name
                     last!!.buttons.count { it.id.value == "action_menu_admin_solo_test_name" } shouldBe 1
                     save("$language-${mode.id}-admin")
                 }

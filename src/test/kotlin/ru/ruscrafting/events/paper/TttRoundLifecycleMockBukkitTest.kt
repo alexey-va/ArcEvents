@@ -64,6 +64,16 @@ import java.util.concurrent.TimeUnit
  * [ArcEventsPlugin.onEnable] bootstrap are outside this host-local test and do not currently have MockBukkit coverage.
  */
 class TttRoundLifecycleMockBukkitTest : FunSpec({
+    test("TTT preparation distributes the roster over the configured spawns") {
+        failOnUnsupportedMockBukkitOperation {
+            val spawns = (0..7).map { 8 * it + 0.5 }
+            TttRoundFixture(spawnXs = spawns).use { fixture ->
+                fixture.startPreparingRound().join() shouldBe DebugMutationResult.APPLIED
+                fixture.players.map { it.location.x } shouldBe listOf(0.5, 16.5, 32.5, 48.5)
+            }
+        }
+    }
+
     test("weapon preparation accepts equal arena settings returned as distinct objects") {
         TttRoundFixture().use { fixture ->
             fixture.reloadRuntime { it.replace("weapons:\n  enabled: false", "weapons:\n  enabled: true") }
@@ -553,6 +563,7 @@ internal class TttRoundFixture(
     private val scopes: TttScopes? = null,
     private val scopePreviewItemId: (ItemStack) -> String? = { null },
     private val shots: FirearmShots? = null,
+    spawnXs: List<Double> = listOf(0.5),
 ) : AutoCloseable {
     var rejectRecovery = false
     var clientProtocolVersion = MIN_DIALOG_PROTOCOL
@@ -560,7 +571,7 @@ internal class TttRoundFixture(
     private val plugin = paper.createSimplePlugin("ArcEventsTttRoundTest")
     private val dataRoot = Files.createTempDirectory("arcevents-ttt-round-")
     private val world = paper.addSimpleWorld("ttt_arena")
-    private val disastersWorld = paper.addSimpleWorld("arcevents_disasters")
+    private val disastersWorld = paper.addSimpleWorld("arcevents_disasters_coast")
     private val fishingWorld = FishingTestWorld(paper.server).also(paper.server::addWorld)
     private var nowMs = 1_787_730_000_000L
     private var started = false
@@ -595,9 +606,14 @@ internal class TttRoundFixture(
 
     init {
         PaperArcRuntime.installScheduling(plugin)
-        writeFixtureFiles(dataRoot)
+        writeFixtureFiles(dataRoot, spawnXs)
         for (x in -2..2) for (z in -2..2) {
             world.getBlockAt(x, 63, z).type = Material.STONE
+        }
+        if (spawnXs.size > 1) spawnXs.forEach { spawnX ->
+            val x = spawnX.toInt()
+            world.loadChunk(x shr 4, 0)
+            world.getBlockAt(x, 63, 0).type = Material.STONE
         }
         for (x in -24..24) for (z in -24..24) {
             disastersWorld.getBlockAt(x, 63, z).type = Material.STONE
@@ -615,6 +631,7 @@ internal class TttRoundFixture(
             ))
         }
         settings = ArcEventsConfig.load(dataRoot)
+        settings.arena.spawns.map { it.x } shouldBe spawnXs
         locale = ArcEventsLocale(dataRoot) { settings }
         items = TttItems(plugin, locale) { settings }
         escrow = openEscrow()
@@ -948,8 +965,8 @@ private data class OriginalPlayerState(
     val mainHand: ItemStack,
 )
 
-private fun writeFixtureFiles(dataRoot: Path) {
-    Files.writeString(dataRoot.resolve("config.yml"), TTT_FIXTURE_CONFIG)
+private fun writeFixtureFiles(dataRoot: Path, spawnXs: List<Double>) {
+    Files.writeString(dataRoot.resolve("config.yml"), tttFixtureConfig(spawnXs))
     listOf("lang/ru.yml", "lang/en.yml").forEach { resource ->
         val destination = dataRoot.resolve(resource)
         Files.createDirectories(destination.parent)
@@ -959,7 +976,7 @@ private fun writeFixtureFiles(dataRoot: Path) {
     }
 }
 
-private val TTT_FIXTURE_CONFIG = """
+private fun tttFixtureConfig(spawnXs: List<Double>): String = """
     enabled: true
     server-id: parkour
     node-mode: HOST
@@ -1037,7 +1054,7 @@ private val TTT_FIXTURE_CONFIG = """
         minimum: '-20.0,50.0,-20.0'
         maximum: '60.0,100.0,60.0'
         spawns:
-          - '0.5,64.0,0.5'
+${spawnXs.joinToString("\n") { "          - '$it,64.0,0.5'" }}
         loot-spawns: []
         weapon-count: 0
 """.trimIndent() + "\n"

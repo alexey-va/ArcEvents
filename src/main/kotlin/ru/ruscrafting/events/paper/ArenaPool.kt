@@ -76,7 +76,7 @@ class ArenaPool(
             return true
         }
         val arena = configured(id) ?: return false
-        if (arena.id in setOf("disasters", "fishing", "zombies")) return false
+        if (!EventMode.TTT.acceptsArena(arena.id) && !EventMode.GUN_GAME.acceptsArena(arena.id)) return false
         if (!ready(arena, settings().ttt.maximumPlayers)) return false
         nextArenaId = arena.id
         nextArenaAutomatic = false
@@ -97,21 +97,18 @@ class ArenaPool(
     @Synchronized
     fun reserve(matchId: UUID, preferredId: String? = null, mode: EventMode = EventMode.TTT): ArenaSettings? {
         if (activeMatchId != null) return null
-        val dedicated = when (mode) {
-            EventMode.DISASTERS -> "disasters"
-            EventMode.FISHING -> "fishing"
-            EventMode.ZOMBIES -> "zombies"
-            else -> null
-        }
-        val ready = readyArenas().filter { if (dedicated != null) it.id == dedicated else it.id !in setOf("disasters", "fishing", "zombies") }
+        val ready = readyArenas().filter { mode.acceptsArena(it.id) }
         if (ready.isEmpty()) return null
         val normalizedPreferred = preferredId?.lowercase()
         val automatic = normalizedPreferred == "auto" || (normalizedPreferred == null && nextArenaAutomatic)
-        val explicit = normalizedPreferred?.takeUnless { it == "auto" } ?: dedicated ?: nextArenaId
+        val explicit = normalizedPreferred?.takeUnless { it == "auto" } ?: nextArenaId?.takeIf(mode::acceptsArena)
         val chosen = when {
             automatic -> automaticArena(matchId, ready)
             explicit != null -> ready.firstOrNull { it.id == explicit } ?: return null
-            else -> ready.firstOrNull { it.id == settings().defaultArenaId } ?: automaticArena(matchId, ready)
+            else -> {
+                val defaultId = mode.defaultArenaId(ready.map(ArenaSettings::id), settings().defaultArenaId)
+                ready.firstOrNull { it.id == defaultId } ?: automaticArena(matchId, ready)
+            }
         }
         activeMatchId = matchId
         activeArenaId = chosen.id

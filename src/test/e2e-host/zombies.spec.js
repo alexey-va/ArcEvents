@@ -6,6 +6,7 @@ import { Vec3 } from 'vec3';
 import { readQa, waitForQa } from './qa.js';
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const zombiesWorld = 'minecraft:arcevents_zombies_store';
 const itemState = (player) => JSON.stringify(player.bot.inventory.slots.map((item) => item && {
   name: item.name, count: item.count, nbt: item.nbt, components: item.components,
 }));
@@ -22,14 +23,17 @@ async function until(probe, message, timeout = 10000) {
 }
 
 function watchDialogs(player) {
-  const observed = { screens: [], clears: 0 };
+  const observed = { screens: [], clears: 0, world: player.bot._getDimensionName() };
   const show = ({ dialog }) => observed.screens.push(dialog.data ? nbt.simplify(dialog.data) : { registry: dialog });
   const clear = () => { observed.clears += 1; };
+  const respawn = ({ worldState }) => { observed.world = worldState.name; };
   player.bot._client.on('show_dialog', show);
   player.bot._client.on('clear_dialog', clear);
+  player.bot._client.on('respawn', respawn);
   observed.stop = () => {
     player.bot._client.removeListener('show_dialog', show);
     player.bot._client.removeListener('clear_dialog', clear);
+    player.bot._client.removeListener('respawn', respawn);
   };
   return observed;
 }
@@ -68,6 +72,7 @@ async function solo(player, admin, observed) {
   click(player, screen, 'action_arcade_zombies_solo_name', 'Play solo');
   // No queue command or second dialog open is needed after this actual button click.
   await waitForQa(admin, 'status', { game: 'zombies', phase: 'active', participants: 1 }, 30000);
+  await until(() => observed.world === zombiesWorld, 'Solo did not reach the authored store');
   await until(() => /FIVE_SEVEN/i.test(JSON.stringify(player.bot.inventory.slots[36])), 'Solo did not issue its starting firearm');
 }
 
@@ -227,9 +232,9 @@ test('Zombies native window breach and Shift repair lead to one paid physical bo
   const original = itemState(player);
   const observed = watchDialogs(player);
   const windows = [
-    { x: -25, z: -15, dx: 1, dz: 0 }, { x: 25, z: -15, dx: -1, dz: 0 },
-    { x: -25, z: 5, dx: 1, dz: 0 }, { x: 25, z: 5, dx: -1, dz: 0 },
-    { x: -7, z: 25, dx: 0, dz: -1 }, { x: 7, z: 25, dx: 0, dz: -1 },
+    { x: -23, z: -19, dx: 1, dz: 0 }, { x: 23, z: -19, dx: -1, dz: 0 },
+    { x: -23, z: -4, dx: 1, dz: 0 }, { x: 23, z: -4, dx: -1, dz: 0 },
+    { x: -4, z: 9, dx: 0, dz: -1 }, { x: 5, z: 9, dx: 0, dz: -1 },
   ];
   const inward = (window, position) => (position.x - window.x - .5) * window.dx + (position.z - window.z - .5) * window.dz;
   const lids = new Map();
@@ -248,7 +253,7 @@ test('Zombies native window breach and Shift repair lead to one paid physical bo
     await waitForQa(admin, 'status', { zombies_boards: '3,3,3,3,3,3', zombies_box: 'idle' });
     const enemy = await until(() => enemies(player)[0], 'No native actor reached an authored window', 30000);
     const windowIndex = windows.findIndex((window) => Math.hypot(enemy.position.x - window.x - .5, enemy.position.z - window.z - .5) < 3);
-    assert.ok(windowIndex >= 0, 'The owned zombie did not spawn at a v2 window');
+    assert.ok(windowIndex >= 0, 'The owned zombie did not spawn at a store window');
     const window = windows[windowIndex];
     const center = new Vec3(window.x + .5, 66.2, window.z + .5);
     const gateCells = [-1, 0, 1].map((offset) => new Vec3(window.x + window.dz * offset, 65, window.z - window.dx * offset));
@@ -258,7 +263,7 @@ test('Zombies native window breach and Shift repair lead to one paid physical bo
       const state = await readQa(admin);
       return state.zombies_boards?.split(',')[windowIndex] === String(count);
     }, `Window did not reach ${count}/3 boards`, 6000);
-    await teleport(admin, player, new Vec3(center.x + window.dx * 6, 65, center.z + window.dz * 6));
+    await teleport(admin, player, new Vec3(center.x + window.dx * 4, 65, center.z + window.dz * 4));
     await until(() => nativeBoards() === 3 && collisionIs('spruce_fence'), 'Initial three boards or native window collision are missing');
     assert.ok(inward(window, player.bot.entities[enemy.id].position) < .25, 'The zombie bypassed the intact window');
     for (const count of [2, 1, 0]) {
@@ -280,7 +285,7 @@ test('Zombies native window breach and Shift repair lead to one paid physical bo
     // Select only this fixture world's owned actors, then exercise the controller's
     // foreign-world cleanup without native damage cancellation or extra kill awards.
     const cleanupMarker = admin.getMessageBufferIndex();
-    admin.chat('/execute in minecraft:arcevents_zombies_zero_v3 as @e[type=minecraft:zombie,tag=arcevents-zombies] in minecraft:overworld run tp @s 0 -60 0');
+    admin.chat(`/execute in ${zombiesWorld} as @e[type=minecraft:zombie,tag=arcevents-zombies] in minecraft:overworld run tp @s 0 -60 0`);
     await expect(admin).toHaveReceivedMessage(/Teleported/, { since: cleanupMarker, timeout: 5000 });
     await waitForQa(admin, 'status', { zombies_phase: 'intermission', zombies_alive: 0, zombies_pending: 0 });
     await waitForQa(admin, `player ${player.username}`, { zombies_points: 875 });

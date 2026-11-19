@@ -15,7 +15,19 @@ export async function until(probe, message, timeout = 10000) {
   assert.fail(message);
 }
 
-export async function ready(arena) {
+export async function walkTo(player, point, stopped = () => false) {
+  const { bot } = player;
+  await bot.lookAt(point.offset(0, bot.entity.eyeHeight, 0), true);
+  bot.setControlState('forward', true);
+  try {
+    await until(() => stopped() || bot.entity.position.distanceTo(point) < 0.45,
+      `${player.username} did not walk to ${point}`, 8000);
+  } finally {
+    bot.setControlState('forward', false);
+  }
+}
+
+export async function ready(arena, timeout = 60000) {
   const logPath = new URL('../../../build/plugwright-host/logs/latest.log', import.meta.url);
   await until(async () => {
     const log = await readFile(logPath, 'utf8');
@@ -23,7 +35,7 @@ export async function ready(arena) {
     return arena === 'apocalypse'
       ? /ArcEvents Apocalypse ready world=\S+ generator=apocalypse-original-v1/.test(log)
       : log.includes(`ArcEvents arena ready id=${arena} world=`);
-  }, `ArcEvents did not publish its ready ${arena} world`, 60000);
+  }, `ArcEvents did not publish its ready ${arena} world`, timeout);
 }
 
 export function observe(player) {

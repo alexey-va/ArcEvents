@@ -352,7 +352,10 @@ class ArcEventsMenu(
                 val canStart = queueState == QueueState.QUEUED && (adminOverride || creator ||
                     (!controls.creatorControlsEnabled && player.hasPermission("arcevents.start"))) &&
                     entry.ready && state.matchId == null && (control?.queueSize ?: 0) >= rules.minimumPlayers
-                if (dialogs.openArcade(player, mode, entry, canStart, inArcadeMatch,
+                val arenaId = state.arenaId?.takeIf { inArcadeMatch }
+                    ?: if (mode.usesSharedArenas) service.defaultArenaId(mode) ?: "auto" else mode.primaryArenaId
+                val arena = arenaName(arenaId, player)
+                if (dialogs.openArcade(player, mode, entry, canStart, inArcadeMatch, arena,
                         element(view, "center"), element(view, "right"), { openArcade(player, mode) }, feedback, control?.queueSize ?: 0, checkEntry)) return@runSync
                 if (mode == EventMode.ZOMBIES) {
                     player.sendEventMessage(locale.render("arcade.zombies-dialog-unavailable", player))
@@ -364,6 +367,7 @@ class ArcEventsMenu(
                     "minimum" to locale.text(rules.minimumPlayers),
                     "rounds" to locale.text(rules.disasterRounds),
                     "mode" to locale.render("arcade.${mode.id}-name", player),
+                    "selected_arena" to arena,
                 )
                 val inventory = inventory(player, view, "arcade.${mode.id}-title", values)
                 inventory.setItem(element(view, "overview"), item(Material.IRON_SWORD.takeIf { mode == EventMode.GUN_GAME } ?: Material.LIGHTNING_ROD, player, "arcade.${mode.id}-name", "arcade.${mode.id}-guide", values))
@@ -553,7 +557,7 @@ class ArcEventsMenu(
                     canStart = canControl && entry.ready,
                     canSelectArena = canControl && (controls.creatorArenaSelectionEnabled || adminOverride),
                 )
-                val selectedArena = arenaName(selectedArenaId(player.uniqueId), player)
+                val selectedArena = arenaName(state.arenaId?.takeIf { plan.showEvacuate } ?: selectedArenaId(player.uniqueId), player)
                 if (dialogLoading && dialogs.openTtt(player, entry, plan, selectedArena, { openTtt(player) }, {
                     pendingDialogLoads.remove(player.uniqueId, loadToken)
                 }, queueControl?.queueSize ?: 0, feedback, checkEntry)) return@runSync
@@ -910,7 +914,7 @@ class ArcEventsMenu(
     }
 
     private fun selectedArenaId(playerId: UUID): String = selectedArenas[playerId]
-        ?: settings().defaultArenaId.takeIf(String::isNotEmpty)
+        ?: service.defaultArenaId()
         ?: "auto"
 
     private fun canStartQueue(player: Player, control: QueueControlSnapshot): Boolean {
@@ -1241,10 +1245,11 @@ class ArcEventsMenu(
 
     private fun weaponName(key: String, player: Player): Component = locale.render("weapon.kind.${key.replace('.', '-')}", player)
 
-    private fun arenaName(id: String, player: Player): Component = locale.render(
-        "arena.${if (id.equals("default", true)) "citadel" else id.lowercase()}.name",
-        player,
-    )
+    private fun arenaName(id: String, player: Player): Component {
+        val key = "arena.${if (id.equals("default", true)) "citadel" else id.lowercase()}.name"
+        val label = locale.render(key, player)
+        return if (label == Component.text(key)) locale.text(id) else label
+    }
 
     private fun formatDuration(seconds: Long): String = "%d:%02d".format(seconds / 60, seconds % 60)
 

@@ -5,14 +5,22 @@ import ru.arc.network.BackendServerId
 import ru.arc.network.NetworkPlayerName
 import kotlin.math.ceil
 
-enum class EventMode(val id: String) {
-    TTT("ttt"),
-    GUN_GAME("gungame"),
-    DISASTERS("disasters"),
-    FISHING("fishing"),
-    ZOMBIES("zombies");
+enum class EventMode(val id: String, val primaryArenaId: String, val usesSharedArenas: Boolean = false) {
+    TTT("ttt", "riot-in-prison", usesSharedArenas = true),
+    GUN_GAME("gungame", "deadwood", usesSharedArenas = true),
+    DISASTERS("disasters", "disasters"),
+    FISHING("fishing", "fishing"),
+    ZOMBIES("zombies", "zombies");
+
+    fun acceptsArena(arenaId: String): Boolean = arenaId == primaryArenaId ||
+        (usesSharedArenas && arenaId !in primaryArenaIds)
+
+    fun defaultArenaId(readyIds: Collection<String>, configuredId: String): String? =
+        primaryArenaId.takeIf(readyIds::contains) ?: configuredId.takeIf { acceptsArena(it) && it in readyIds }
 
     companion object {
+        private val primaryArenaIds = entries.mapTo(hashSetOf(), EventMode::primaryArenaId)
+
         fun fromId(id: String): EventMode? = entries.firstOrNull { it.id == id.lowercase() }
     }
 }

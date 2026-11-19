@@ -6,19 +6,21 @@ import org.bukkit.World
 import org.bukkit.generator.ChunkGenerator
 import org.bukkit.generator.WorldInfo
 import java.util.Random
-import kotlin.math.abs
-import kotlin.math.max
-import kotlin.math.min
 
-/** A bounded arena with climbable terraces and shelters; hazards never modify its blocks. */
+/** GoldenOre's Pirate Cove, adapted with a storm wharf, an open lookout and a boarding ramp. */
 class DisasterArenaGenerator : ChunkGenerator() {
     override fun generateSurface(worldInfo: WorldInfo, random: Random, chunkX: Int, chunkZ: Int, chunkData: ChunkData) {
-        for (x in 0..15) for (z in 0..15) for (y in 60..72) {
-            materialAt(chunkX * 16 + x, y, chunkZ * 16 + z)?.let { chunkData.setBlock(x, y, z, it) }
+        for (x in 0..15) for (z in 0..15) {
+            if (insideScene(chunkX * 16 + x, chunkZ * 16 + z)) continue
+            // Continue the sea past the painted shore so players see an ocean horizon from the wharf.
+            chunkData.setBlock(x, SCENE_Y, z, Material.SANDSTONE)
+            chunkData.setBlock(x, SCENE_Y + 1, z, Material.SAND)
+            chunkData.setRegion(x, SCENE_Y + 2, z, x + 1, SEA_SURFACE + 1, z + 1, Material.WATER)
         }
+        scene.paint(chunkData, chunkX, chunkZ, SCENE_X, SCENE_Y, SCENE_Z)
     }
 
-    override fun getFixedSpawnLocation(world: World, random: Random) = Location(world, 0.5, 65.0, 0.5)
+    override fun getFixedSpawnLocation(world: World, random: Random) = Location(world, 0.5, 65.0, 0.5, SPAWN_YAW, SPAWN_PITCH)
     override fun shouldGenerateNoise() = false
     override fun shouldGenerateSurface() = false
     override fun shouldGenerateCaves() = false
@@ -27,21 +29,31 @@ class DisasterArenaGenerator : ChunkGenerator() {
     override fun shouldGenerateStructures() = false
 
     companion object {
-        const val TEMPLATE = "disasters-v1"
+        const val TEMPLATE = "disasters-coast-v1"
+        const val SPAWN_YAW = 128f
+        const val SPAWN_PITCH = -5f
+        const val MIN_X = -59
+        const val MIN_Y = 51
+        const val MIN_Z = -49
+        const val MAX_X = 39
+        const val MAX_Y = 130
+        const val MAX_Z = 46
+        const val FOG_SAFE_Y = 68.0
+        private const val SCENE_X = -71
+        private const val SCENE_Y = 50
+        private const val SCENE_Z = -61
+        private const val SEA_SURFACE = 63
+        private val scene by lazy { AuthoredArenaVolume.load("/arena-templates/$TEMPLATE/scene.schem") }
 
-        fun materialAt(x: Int, y: Int, z: Int): Material? {
-            if (abs(x) > 24 || abs(z) > 24 || y !in 60..72) return null
-            if (y < 64) return Material.STONE
-            if (y == 64) return if (abs(x) <= 2 || abs(z) <= 2) Material.POLISHED_ANDESITE else Material.MOSS_BLOCK
-            if ((abs(x) == 24 || abs(z) == 24) && y <= 67) return Material.STONE_BRICKS
-            val terraceDistance = max(abs(abs(x) - 13), abs(abs(z) - 13))
-            if (terraceDistance <= 6 && y <= 64 + min(3, 7 - terraceDistance)) return Material.SMOOTH_STONE
-            // Two open shelters beside the central crossroads; roof height leaves five blocks of headroom.
-            if (abs(abs(x) - 13) <= 4 && abs(z) <= 3) {
-                if (y == 70) return Material.WAXED_CUT_COPPER
-                if (abs(abs(x) - 13) == 4 && abs(z) == 3 && y < 70) return Material.STONE_BRICKS
-            }
-            return null
+        private fun insideScene(x: Int, z: Int) = x - SCENE_X in 0 until scene.width && z - SCENE_Z in 0 until scene.length
+
+        fun materialAt(x: Int, y: Int, z: Int): Material? = if (insideScene(x, z)) {
+            scene.materialAt(x - SCENE_X, y - SCENE_Y, z - SCENE_Z)
+        } else when (y) {
+            SCENE_Y -> Material.SANDSTONE
+            SCENE_Y + 1 -> Material.SAND
+            in SCENE_Y + 2..SEA_SURFACE -> Material.WATER
+            else -> null
         }
     }
 }

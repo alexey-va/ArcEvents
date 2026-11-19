@@ -26,7 +26,7 @@ class ArcadePracticeCompanionsTest : StringSpec({
         }
     }
 
-    "the rival can walk under a real roof or up a real fog terrace from either side" {
+    "the rival crosses the wharf and takes the boathouse or the headland stairs from either side" {
         fun blockAt(x: Int, y: Int, z: Int) = DisasterArenaGenerator.materialAt(x, y, z)
         for (seed in 1..8) for (hazard in listOf("lightning", "fog")) {
             val runner = PracticeDisasterRunner(Random(seed))
@@ -36,13 +36,16 @@ class ArcadePracticeCompanionsTest : StringSpec({
                 runner.step(hazard)
                 val p = runner.position
                 (kotlin.math.abs(previous.y - p.y) <= 1.0) shouldBe true
-                blockAt(p.blockX, p.blockY, p.blockZ) shouldBe null
+                val onHalfStep = p.y % 1.0 == .5
+                blockAt(p.blockX, p.blockY, p.blockZ) shouldBe if (onHalfStep) Material.SMOOTH_SANDSTONE_STAIRS else null
                 blockAt(p.blockX, p.blockY + 1, p.blockZ) shouldBe null
                 (blockAt(p.blockX, p.blockY - 1, p.blockZ) != null) shouldBe true
             }
             val p = runner.position
-            if (hazard == "fog") (p.y >= 68.0) shouldBe true
-            else blockAt(p.blockX, 70, p.blockZ) shouldBe Material.WAXED_CUT_COPPER
+            if (hazard == "fog") (p.y >= DisasterArenaGenerator.FOG_SAFE_Y) shouldBe true
+            else (p.blockY + 2..DisasterArenaGenerator.MAX_Y).any {
+                blockAt(p.blockX, it, p.blockZ) == Material.WAXED_WEATHERED_CUT_COPPER
+            } shouldBe true
         }
     }
 

@@ -979,7 +979,13 @@ class FishingAdventure(
         }
 
     private fun enforceStageBounds() {
-        if (!inStageBounds(player.location)) {
+        val location = player.location
+        val inside = if (progress.phase == FishingPhase.CREATURE || progress.phase == FishingPhase.BOSS) {
+            inStageBounds(location)
+        } else {
+            location.world.uid == world.uid && stage().containsShore(location.x, location.y, location.z)
+        }
+        if (!inside) {
             submergedSinceMs = 0L
             teleportTo(stage())
             return

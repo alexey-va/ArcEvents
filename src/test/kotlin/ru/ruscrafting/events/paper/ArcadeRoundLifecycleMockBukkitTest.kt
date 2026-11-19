@@ -17,6 +17,25 @@ import ru.ruscrafting.events.network.QueueEntry
 import java.util.UUID
 
 class ArcadeRoundLifecycleMockBukkitTest : FunSpec({
+    test("Gun Game starts on distinct configured spawns and respawns away from the living roster") {
+        failOnUnsupportedMockBukkitOperation {
+            val spawns = (0..7).map { 8 * it + 0.5 }
+            TttRoundFixture(spawnXs = spawns).use { fixture ->
+                fixture.startActiveArcade(EventMode.GUN_GAME)
+                fixture.players.map { it.location.x } shouldBe listOf(0.5, 16.5, 32.5, 48.5)
+                fixture.advanceTime(2_000)
+
+                val victim = fixture.players.last()
+                fixture.service.eliminate(victim)
+                fixture.service.arcadeSnapshot()?.participants?.get(victim.uniqueId)?.status shouldBe ParticipantStatus.DEAD
+                fixture.advanceTime(3_000)
+
+                fixture.service.arcadeSnapshot()?.participants?.get(victim.uniqueId)?.status shouldBe ParticipantStatus.ALIVE
+                victim.location.x shouldBe 56.5
+            }
+        }
+    }
+
     test("delayed final recovery releases the completed arcade arena and admits the next match") {
         failOnUnsupportedMockBukkitOperation {
             TttRoundFixture().use { fixture ->

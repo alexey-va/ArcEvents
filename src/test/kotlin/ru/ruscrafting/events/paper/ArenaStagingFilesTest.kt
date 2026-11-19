@@ -37,6 +37,15 @@ class ArenaStagingFilesTest : FunSpec({
         Files.exists(legacy) shouldBe true
     }
 
+    test("an owned temporary stage from before the map upgrade can still be recovered") {
+        val container = Files.createTempDirectory("arena-stage-retired")
+        val store = ArenaStagingFiles(container)
+        val stage = store.create("arcevents_fishing_v4", "fishing-v4")
+        store.recover(emptySet()).removed shouldBe 1
+        Files.exists(stage) shouldBe false
+        shouldThrow<IllegalArgumentException> { store.createGeneratedWorld("another_fishing", "fishing-v4") }
+    }
+
     test("recovery never removes a loaded staging world") {
         val container = Files.createTempDirectory("arena-stage-loaded")
         val store = ArenaStagingFiles(container)

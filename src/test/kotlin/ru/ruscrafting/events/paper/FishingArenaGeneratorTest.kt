@@ -9,18 +9,18 @@ class FishingArenaGeneratorTest : StringSpec({
         FishingArenaGenerator.materialAt(stage.centerX + x, y, z)
 
     "each island sits beyond the maximum view distance and has ocean to the horizon" {
-        FishingArenaGenerator.TEMPLATE shouldBe "fishing-v4"
+        FishingArenaGenerator.TEMPLATE shouldBe "fishing-archipelago-v1"
         val stages = FishingArenaStage.entries
         stages.map { it.centerX } shouldBe listOf(0, 384, 768, 1152, 1536)
         stages.zipWithNext().forEach { (first, second) ->
             // Include the player's stage bounds and the complete footprint of the next island.
-            (second.centerX - 40 - (first.centerX + 29) > (16 + 1) * 16) shouldBe true
+            (second.centerX - FishingArenaGenerator.HARBOUR_HALF_WIDTH - (first.centerX + 40) > (16 + 1) * 16) shouldBe true
             val gap = (first.centerX + second.centerX) / 2
             FishingArenaGenerator.materialAt(gap, 63, 0) shouldBe Material.WATER
             FishingArenaGenerator.materialAt(gap, 64, 0) shouldBe null
         }
         for (stage in stages) {
-            for (z in listOf(-259, 80, 259)) {
+            for (z in listOf(-259, 130, 259)) {
                 block(stage, 0, 63, z) shouldBe Material.WATER
                 block(stage, 0, 64, z) shouldBe null
             }
@@ -73,14 +73,17 @@ class FishingArenaGeneratorTest : StringSpec({
         }
     }
 
-    "the starting view frames a functioning lighthouse, reef, tide ring, sea arch or crater" {
-        block(FishingArenaStage.CAMP, -16, 82, 33) shouldBe Material.OCHRE_FROGLIGHT
-        block(FishingArenaStage.CAMP, 16, 72, 24) shouldBe Material.STRIPPED_SPRUCE_LOG
-        block(FishingArenaStage.REEF, -19, 73, 26) shouldBe Material.CALCITE
-        block(FishingArenaStage.SHRINE, -17, 75, 29) shouldBe null
-        block(FishingArenaStage.SHRINE, -17, 80, 29) shouldBe Material.AMETHYST_BLOCK
-        block(FishingArenaStage.CLIFFS, -20, 69, 25) shouldBe null
-        block(FishingArenaStage.CLIFFS, -20, 75, 25) shouldBe Material.CALCITE
-        (70..82).any { y -> block(FishingArenaStage.VOLCANO, -23, y, 32) == Material.MAGMA_BLOCK } shouldBe true
+    "each source harbour has a distinct landmark beyond the casting water" {
+        block(FishingArenaStage.CAMP, -2, 72, 37) shouldBe Material.SPRUCE_STAIRS
+        block(FishingArenaStage.REEF, -20, 67, 35) shouldBe Material.PRISMARINE_BRICKS
+        block(FishingArenaStage.SHRINE, -15, 90, 34) shouldBe Material.JUNGLE_SLAB
+        block(FishingArenaStage.VOLCANO, -11, 79, 40) shouldBe Material.MAGMA_BLOCK
+        (-60..38).any { x -> (16..55).any { z ->
+            (69..94).any { y -> block(FishingArenaStage.CLIFFS, x, y, z) == Material.SPRUCE_LOG }
+        } } shouldBe true
+        FishingArenaStage.entries.forEach { stage ->
+            stage.containsShore(stage.centerX - 27.5, 85.0, 45.0) shouldBe true
+            stage.containsShore(stage.centerX + 41.0, 65.0, 45.0) shouldBe false
+        }
     }
 })

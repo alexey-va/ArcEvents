@@ -28,8 +28,8 @@ event-controls:
   creator-arena-selection-enabled: true
   admin-override-enabled: true
 
-# Used when the event creator starts a round without choosing a map.
-# Leave empty to keep deterministic automatic rotation.
+# Fallback when a combat mode's own map is unavailable and the creator has not selected a map.
+# An empty fallback rotates the remaining ready maps.
 default-arena: ''
 
 # Safe live gameplay tuning. In-progress timers keep their captured deadline;
@@ -352,7 +352,7 @@ arcade:
     intermission-seconds: 15
     maximum-alive: 28
     arena:
-      world: arcevents_zombies_zero_v3
+      world: arcevents_zombies_store
   fishing:
     # One personal expedition. Existing public modes keep their own player limits.
     minimum-players: 1
@@ -393,7 +393,7 @@ arcade:
       rod-two: 120
     arena:
       # Dedicated generated world; changing its identity requires a restart.
-      world: arcevents_fishing_v4
+      world: arcevents_fishing_archipelago
   gungame:
     minimum-players: 3
     maximum-players: 12
@@ -417,7 +417,7 @@ arcade:
     disaster-rounds: 6
     arena:
       enabled: true
-      world: arcevents_disasters
+      world: arcevents_disasters_coast
 
 weapons:
   enabled: true

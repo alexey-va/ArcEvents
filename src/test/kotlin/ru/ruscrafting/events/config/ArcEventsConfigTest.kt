@@ -89,8 +89,8 @@ class ArcEventsConfigTest : StringSpec({
             Files.writeString(file, original)
             val host = ArcEventsConfig.inspect(root)
             host.arenas.single { it.id == "zombies" }.let {
-                it.world shouldBe "arcevents_zombies_zero_v3"
-                it.template shouldBe "zombies-zero-v3"
+                it.world shouldBe "arcevents_zombies_store"
+                it.template shouldBe "zombies-store-v1"
                 it.operational(4) shouldBe true
             }
             Files.writeString(file, original.replace("waves: 10", "waves: 12"))
@@ -108,12 +108,14 @@ class ArcEventsConfigTest : StringSpec({
             ArcEventsConfig.load(root)
             val file = root.resolve("config.yml")
             val host = Files.readString(file).replace("node-mode: RELAY", "node-mode: HOST")
-            Files.writeString(file, host.replace("arcevents_fishing_v4", "arcevents_fishing_v3")
-                .replace("arcevents_zombies_zero_v3", "arcevents_zombies_zero_v2"))
+            Files.writeString(file, host.replace("arcevents_fishing_archipelago", "arcevents_fishing_v4")
+                .replace("arcevents_zombies_store", "arcevents_zombies_zero_v3")
+                .replace("arcevents_disasters_coast", "arcevents_disasters"))
             val arenas = ArcEventsConfig.inspect(root).arenas.associateBy { it.id }
-            arenas.getValue("fishing").world shouldBe "arcevents_fishing_v4"
-            arenas.getValue("zombies").world shouldBe "arcevents_zombies_zero_v3"
-            Files.writeString(file, host.replace("arcevents_fishing_v4", "local_archipelago"))
+            arenas.getValue("disasters").world shouldBe "arcevents_disasters_coast"
+            arenas.getValue("fishing").world shouldBe "arcevents_fishing_archipelago"
+            arenas.getValue("zombies").world shouldBe "arcevents_zombies_store"
+            Files.writeString(file, host.replace("arcevents_fishing_archipelago", "local_archipelago"))
             ArcEventsConfig.inspect(root).arenas.single { it.id == "fishing" }.world shouldBe "local_archipelago"
         } finally { root.toFile().deleteRecursively() }
     }
@@ -133,8 +135,8 @@ class ArcEventsConfigTest : StringSpec({
             Files.writeString(root.resolve("config.yml"), original.replace("node-mode: RELAY", "node-mode: HOST"))
             val host = ArcEventsConfig.inspect(root)
             host.arenas.single { it.id == "fishing" }.let { arena ->
-                arena.world shouldBe "arcevents_fishing_v4"
-                arena.template shouldBe "fishing-v4"
+                arena.world shouldBe "arcevents_fishing_archipelago"
+                arena.template shouldBe "fishing-archipelago-v1"
                 arena.operational(1) shouldBe true
             }
             current.arenas.none { it.id == "fishing" } shouldBe true
@@ -433,7 +435,7 @@ class ArcEventsConfigTest : StringSpec({
         }
     }
 
-    "enabled host arena requires one common bounded player spawn" {
+    "enabled host arenas support distinct bounded player spawns and retain the common return point" {
         val root = Files.createTempDirectory("arcevents-arena-")
         try {
             Files.writeString(root.resolve("config.yml"), validHostConfig(spawnCount = 0))
@@ -441,6 +443,17 @@ class ArcEventsConfigTest : StringSpec({
             Files.writeString(root.resolve("config.yml"), validHostConfig(spawnCount = 1))
             ArcEventsConfig.inspect(root).arena.operational(16) shouldBe true
             ArcEventsConfig.inspect(root).arena.playerSpawn shouldBe ArcEventsConfig.inspect(root).arena.spawns.single()
+            val distributed = validHostConfig(spawnCount = 4)
+            Files.writeString(root.resolve("config.yml"), distributed)
+            val arena = ArcEventsConfig.inspect(root).arena
+            arena.spawns.size shouldBe 4
+            arena.spawnFor(1, 2).x shouldBe 5.0
+            arena.spawnFor(4, 5) shouldBe arena.playerSpawn
+
+            Files.writeString(root.resolve("config.yml"), distributed.replace("'4,65,4,0,0'", "'3.5,65,3.5,0,0'"))
+            shouldThrow<IllegalArgumentException> { ArcEventsConfig.inspect(root) }
+            Files.writeString(root.resolve("config.yml"), distributed.replace("'4,65,4,0,0'", "'400,65,4,0,0'"))
+            shouldThrow<IllegalArgumentException> { ArcEventsConfig.inspect(root) }
         } finally {
             root.toFile().deleteRecursively()
         }
@@ -464,14 +477,16 @@ class ArcEventsConfigTest : StringSpec({
         arena.operational(16) shouldBe false
     }
 
-    "reviewed parkour profile exposes four combat maps and three dedicated arcade arenas" {
+    "reviewed Parkour host offers the six combat maps and all three dedicated arcade arenas" {
         val repository = opsRoot()
         val config = ArcEventsConfig.inspect(repository.resolve("parkour/plugins/ArcEvents"))
 
         config.arenas.map(ArenaSettings::id) shouldBe listOf(
+            "deadwood",
             "inferno",
             "mirage",
             "nuke",
+            "riot-in-prison",
             "ttt-minecraft-b5",
             "disasters",
             "fishing",
@@ -479,10 +494,16 @@ class ArcEventsConfigTest : StringSpec({
         )
         config.defaultArenaId shouldBe "inferno"
         config.arenas.all { it.operational(config.ttt.maximumPlayers) } shouldBe true
-        val importedArenas = config.arenas.filter { it.id !in setOf("disasters", "fishing", "zombies") && it.template.endsWith("-v1") }
-        importedArenas.all { it.spawns.size == 1 } shouldBe true
-        importedArenas.all { it.lootSpawns.size >= 32 } shouldBe true
-        importedArenas.all { it.weaponCount == 30 } shouldBe true
+        val classicMaps = config.arenas.filter { it.id in setOf("inferno", "mirage", "nuke", "ttt-minecraft-b5") }
+        classicMaps.all { it.spawns.size == 1 && it.lootSpawns.size >= 32 && it.weaponCount == 30 } shouldBe true
+        val prison = config.arenas.single { it.id == "riot-in-prison" }
+        prison.spawns.size shouldBe 16
+        prison.lootSpawns.size shouldBe 40
+        prison.weaponCount shouldBe 30
+        val deadwood = config.arenas.single { it.id == "deadwood" }
+        deadwood.spawns.size shouldBe 16
+        deadwood.lootSpawns.isEmpty() shouldBe true
+        deadwood.weaponCount shouldBe 0
         config.weapons.visuals.mapValues { (_, visual) -> visual.customModelData } shouldBe mapOf(
             FirearmId.FLINTLOCK to 2100101,
             FirearmId.REVOLVER to 2100102,

@@ -48,6 +48,7 @@ menu:
     overview-name: <#c4abff>Find the traitors
     overview-lore:
     - <#e8dfd2>Innocents and detectives face hidden traitors.
+    - '<#e8dfd2>Map · <selected_arena>'
     queue-name: <#86dcf1>Your status
     queue-lore:
     - <#e8dfd2><queue_state>
@@ -315,8 +316,14 @@ menu:
       - '<#f2f0e6>Open the round summary.'
 
 arena:
+  riot-in-prison:
+    name: '<#c4abff>Riot in Prison'
+  deadwood:
+    name: '<#f4c575>Deadwood'
+  disasters:
+    name: '<#9fc6ff>Pirate Cove'
   zombies:
-    name: '<#ffb277>Sector Zero'
+    name: '<#ff9c82>Infection: Store'
   auto:
     name: '<#e3b341>automatic rotation'
   citadel:
@@ -330,7 +337,7 @@ arena:
   nuke:
     name: '<#e3b341>Nuke'
   fishing:
-    name: '<#67d7ff>Islands of the Deep'
+    name: '<#74ded2>Five Isles'
   state:
     ready: '<#7bd88f>ready'
     active: '<#d6a8ff>hosting the current match'
@@ -725,6 +732,7 @@ arcade:
   - <#e8dfd2>Finish the race with a knife kill.
   gungame-guide-name: '<#f4c575><bold>Gun Game rules'
   gungame-guide:
+  - '<#e8dfd2>Map · <selected_arena>'
   - <#f4c575>Goal
   - <#e8dfd2>Eliminate a player with each weapon, then with the knife.
   - ''
@@ -740,13 +748,14 @@ arcade:
   - <#e8dfd2>Watch for warnings before each strike.
   disasters-guide-name: '<#9fc6ff><bold>Disasters rules'
   disasters-guide:
+  - '<#e8dfd2>Map · <selected_arena>'
   - <#9fc6ff>Goal
   - <#e8dfd2>Survive <rounds> rounds. Survivors earn points.
   - ''
   - <#9fc6ff>Shelter
   - '<#e8dfd2>Meteors: move out of the marked circles.'
-  - '<#e8dfd2>Lightning: shelter under a copper canopy.'
-  - '<#e8dfd2>Fog: climb onto a stone terrace.'
+  - '<#e8dfd2>The copper roof by the wharf shelters you from lightning.'
+  - '<#e8dfd2>In fog, take the stairs to the lookout.'
   fishing-title: '<#20252b>Islands of the Deep'
   fishing-name: '<#74ded2><bold>Islands of the Deep'
   fishing-lore:
@@ -788,8 +797,8 @@ arcade:
   hazard-lightning: 'Lightning'
   hazard-fog: 'Fog'
   hazard-meteors-guide: 'Dodge the marked circles.'
-  hazard-lightning-guide: 'Move under the copper shelters.'
-  hazard-fog-guide: 'Climb the stone terraces.'
+  hazard-lightning-guide: 'Get under the copper roof by the wharf.'
+  hazard-fog-guide: 'Take the stairs to the lookout.'
   round-complete: '<#7bd88f>Round <round> of <total> complete.'
   knife-name: '<#d84a4a><bold>Final knife'
   knife-lore:
@@ -1106,7 +1115,8 @@ dialog:
   queue-facts: <#e8dfd2>Queued <#ffffff><queue><#e8dfd2> · To start <#ffffff><minimum>–<maximum>
   queue-status: <#e8dfd2><queue_state>
   ttt-overview: '<#c4abff>Inspect the bodies to find the traitors.'
-  ttt-map: '<#e8dfd2>Map: <#ffffff><selected_arena>'
+  ttt-map: '<#e8dfd2>Map · <#ffffff><selected_arena>'
+  map: '<#e8dfd2>Map · <#ffffff><arena>'
   gungame-overview: '<#f4c575>Get a new weapon with each kill. Win with the knife.'
   disasters-overview: '<#9fc6ff>Find shelter and survive <rounds> rounds of disasters.'
   zombies-overview: '<#ff9c82>Repair the barricades and fend off <waves> waves of zombies.'
@@ -1166,8 +1176,8 @@ dialog:
   - ''
   - <#9fc6ff>Shelter
   - '<#e8dfd2>Meteors: move out of the marked circles.'
-  - '<#e8dfd2>Lightning: shelter under a copper canopy.'
-  - '<#e8dfd2>Fog: climb onto a stone terrace.'
+  - '<#e8dfd2>The copper roof by the wharf shelters you from lightning.'
+  - '<#e8dfd2>In fog, take the stairs to the lookout.'
   rules-fishing-0:
   - <#74ded2>Fish → fight → upgrade
   - <#e8dfd2>Cast by the pier. Hold your catch and RMB the ground.

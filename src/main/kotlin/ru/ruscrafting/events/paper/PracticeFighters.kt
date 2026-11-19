@@ -38,23 +38,29 @@ internal class PracticeFighters(
     private var step = 0
     private var lastMeleeAt = Long.MIN_VALUE
 
-    // Prefer arena points near the action. Imported loot coordinates can be inside furniture.
-    private val waypoints = run {
-        val start = arena.playerSpawn
-        val origin = owner.location.takeIf { it.world === world && contains(it) } ?: Location(world, start.x, start.y, start.z)
+    private val authoredSpawns = arena.spawns.map { Location(world, it.x, it.y, it.z, it.yaw, it.pitch) }
+    private val waypoints = nearbyWaypoints(practiceOrigin()).ifEmpty { authoredSpawns }
+
+    private fun practiceOrigin(): Location =
+        owner.location.takeIf { it.world === world && contains(it) } ?: authoredSpawns.first()
+
+    private fun nearbyWaypoints(origin: Location): List<Location> {
         val nearby = listOf(5.0, 9.0, 2.0).flatMap { distance ->
             (0..7).map { i -> origin.clone().add(cos(i * Math.PI / 4) * distance, 0.0, sin(i * Math.PI / 4) * distance) }
         }
         val points = arena.lootSpawns.asSequence().map { Location(world, it.x, it.y, it.z) }
             .filter { it.distanceSquared(origin) <= 32.0 * 32.0 }.take(48).toList()
-        (nearby + points + origin).mapNotNull { point ->
-            if (!world.isChunkLoaded(point.blockX shr 4, point.blockZ shr 4)) return@mapNotNull null
+        val authored = authoredSpawns.filter { it.distanceSquared(origin) in 16.0..576.0 }
+        return (authored + nearby + points).mapNotNull { point ->
             listOf(0, 1, -1).firstNotNullOfOrNull { dy ->
                 val at = Location(world, point.blockX + .5, (point.blockY + dy).toDouble(), point.blockZ + .5)
-                at.takeIf { contains(at) && at.block.isPassable && at.block.getRelative(0, 1, 0).isPassable && at.block.getRelative(0, -1, 0).type.isSolid }
+                at.takeIf(::safeSpawn)
             }
-        }.distinct().ifEmpty { listOf(origin) }
+        }.distinct()
     }
+
+    private fun safeSpawn(at: Location): Boolean = contains(at) &&
+        world.isChunkLoaded(at.blockX shr 4, at.blockZ shr 4) && at.hasArenaFooting()
 
     val count: Int get() = fighters.size
     fun actor(id: UUID): LivingEntity? = if (id == owner.uniqueId) owner else fighters[id]?.mob
@@ -80,7 +86,7 @@ internal class PracticeFighters(
         for ((index, bot) in roster.bots.withIndex()) {
             if (!alive(bot.playerId)) { remove(bot.playerId); continue }
             val selected = weapon(bot.playerId)
-            val fighter = fighters[bot.playerId] ?: spawn(bot, index, selected, now)
+            val fighter = fighters[bot.playerId] ?: spawn(bot, index, selected, now) ?: continue
             if (!fighter.mob.isValid || !contains(fighter.mob.location)) {
                 remove(bot.playerId)
                 continue
@@ -93,7 +99,8 @@ internal class PracticeFighters(
             val target = targetId?.let(::actor)
             if (target == null) {
                 if (now >= fighter.investigationUntil && (step + index) % 4 == 0) {
-                    fighter.mob.pathfinder.moveTo(waypoints[(step / 4 + index) % waypoints.size], .85)
+                    val targetPoint = waypoints[(step / 4 + index) % waypoints.size]
+                    if (safeSpawn(targetPoint)) fighter.mob.pathfinder.moveTo(targetPoint, .85)
                 }
                 continue
             }
@@ -124,8 +131,16 @@ internal class PracticeFighters(
         return false
     }
 
-    private fun spawn(bot: QueuedPlayer, index: Int, selected: FirearmId?, now: Long): Fighter {
-        val point = waypoints[(index * 3 + step / 2) % waypoints.size]
+    private fun spawn(bot: QueuedPlayer, index: Int, selected: FirearmId?, now: Long): Fighter? {
+        val origin = practiceOrigin()
+        val candidates = if (authoredSpawns.size > 1) nearbyWaypoints(origin) else waypoints
+        val occupied = fighters.values.map { it.mob.location }.filter { it.world === world } + origin
+        fun unoccupied(at: Location): Boolean =
+            safeSpawn(at) && occupied.none { it.distanceSquared(at) < 2.25 }
+        val available = candidates.filter(::unoccupied).ifEmpty { authoredSpawns.filter(::unoccupied) }
+            .ifEmpty { authoredSpawns.filter(::safeSpawn) }
+        if (available.isEmpty()) return null
+        val point = available[(index * 3 + step / 2) % available.size]
         val mob = world.spawn(point, Pillager::class.java) {
             it.isPersistent = false
             it.removeWhenFarAway = false

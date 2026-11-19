@@ -147,7 +147,7 @@ class ArcEventsService(
         get() = runtime.current
     private val arcade = ArcadeSession(plugin, settings, locale, items, firearms, arenaPool, network, escrow,
         ::teleport, ::recoverPlayer, { player, recovery -> completeRecovery(player, recovery) }, ::clearWeaponState,
-        packetDisplays, clock, work)
+        packetDisplays, clock, work, practiceOpponentLocation = { practiceFighters?.actor(it)?.location })
     private var arcadeRules: ArcadeRules? = null
     private var reservation: ReservationBatch? = null
     private var practice: PracticeRoster? = null
@@ -253,6 +253,7 @@ class ArcEventsService(
         } }
     fun selectableArenaIds(): List<String> = network.selectableArenaIds()
     fun selectableArenaIds(mode: EventMode): List<String> = network.selectableArenaIds(mode)
+    fun defaultArenaId(mode: EventMode = EventMode.TTT): String? = network.defaultArenaId(mode)
     fun report(): RoundReportView? = roundReport
     fun bodyId(entityId: UUID): UUID? = bodyRegistry.bodyId(entityId)
     override fun isParticipant(playerId: UUID): Boolean =
@@ -333,12 +334,8 @@ class ArcEventsService(
             return false
         }
         if (batch.practice && (batch.requesterId == null || batch.entries.singleOrNull()?.playerId != batch.requesterId.toString())) return false
-        if (arenaPool.reserve(batch.matchId, when (batch.mode) {
-                EventMode.DISASTERS -> "disasters"
-                EventMode.FISHING -> "fishing"
-            EventMode.ZOMBIES -> "zombies"
-                else -> batch.preferredArenaId
-            }, batch.mode) == null) return false
+        val preferred = if (batch.mode.usesSharedArenas) batch.preferredArenaId else batch.mode.primaryArenaId
+        if (arenaPool.reserve(batch.matchId, preferred, batch.mode) == null) return false
         matchSettings = settings().ttt.let { if (batch.practice && batch.mode == EventMode.TTT) it.copy(minimumPlayers = 4) else it }
         val ttt = activeTtt()
         practice = if (batch.practice) PracticeRoster.create(batch.matchId, batch.entries.single().queuedPlayer(), batch.mode,
@@ -1842,12 +1839,8 @@ class ArcEventsService(
         if (online.any { hasPendingRecovery(it.uniqueId) }) return done(DebugMutationResult.PRECONDITION_FAILED)
         if (mode in setOf(EventMode.FISHING, EventMode.ZOMBIES) && online.any { !supportsAdventureClient(it) }) return done(DebugMutationResult.PRECONDITION_FAILED)
         val id = UUID.randomUUID()
-        val arena = arenaPool.reserve(id, when (mode) {
-            EventMode.DISASTERS -> "disasters"
-            EventMode.FISHING -> "fishing"
-            EventMode.ZOMBIES -> "zombies"
-            else -> arenaId
-        }, mode) ?: return done(DebugMutationResult.ARENA_UNAVAILABLE)
+        val preferred = if (mode.usesSharedArenas) arenaId else mode.primaryArenaId
+        val arena = arenaPool.reserve(id, preferred, mode) ?: return done(DebugMutationResult.ARENA_UNAVAILABLE)
         val entries = online.map { QueueEntry(it.uniqueId.toString(), it.name, config.serverId, mode.id,
             joinedAtMs = clock(), expiresAtMs = clock() + 60_000L) }
         online.forEach { rememberDisposableOrigin(it, config.serverId, id) }
@@ -1986,8 +1979,8 @@ class ArcEventsService(
 
     private fun applyEventStateAsync(players: List<Player>, current: TttMatch): CompletableFuture<Unit> {
         val arena = requireNotNull(arenaPool.active()) { "Match ${current.matchId} has no arena lease" }
-        val pending = players.iterator()
-        val applyPlayer: (Player) -> Unit = { player ->
+        val pending = players.withIndex().iterator()
+        val applyPlayer: (IndexedValue<Player>) -> Unit = { (slot, player) ->
             if (disposablePlayerState(current.matchId)) resetDisposablePlayer(player)
             player.closeInventory()
             player.activePotionEffects.forEach { player.removePotionEffect(it.type) }
@@ -2006,7 +1999,7 @@ class ArcEventsService(
             player.level = 0
             player.exp = 0f
             items.givePreparationLoadout(player, current.matchId.toString())
-            teleport(player, arena.playerSpawn)
+            teleport(player, arena.spawnFor(slot, players.size))
             player.showTitle(Title.title(
                 locale.render("match.preparing-title", player),
                 locale.render("match.preparing-subtitle", player),
@@ -2019,7 +2012,7 @@ class ArcEventsService(
             if (!disposablePlayerState(current.matchId)) player.saveData()
         }
         val applied = if (work == null) {
-            players.forEach(applyPlayer)
+            players.withIndex().forEach(applyPlayer)
             CompletableFuture.completedFuture(Unit)
         } else work.capture({ started && match?.matchId == current.matchId && match?.phase == MatchPhase.PREPARING && players.all(Player::isOnline) }) {
             if (pending.hasNext()) applyPlayer(pending.next())

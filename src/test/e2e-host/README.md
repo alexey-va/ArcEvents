@@ -1,11 +1,20 @@
 # ArcEvents host E2E
 
 This suite starts the real Paper plugin as a HOST with the bundled `citadel-v1`
-arena. The fixture shortens match timers and makes the firearm catalog
-one-shot for a bounded real combat run. Ordinary entry uses native player
-actions; permission-gated QA reads and scoped administrator setup establish
-test preconditions without granting ordinary players that authority. The
-relay suite remains under `src/test/e2e` and runs separately.
+arena for the standard combat scenarios. The fixture shortens match timers and
+makes the firearm catalog one-shot for a bounded real combat run. Ordinary entry
+uses native player actions. A separate administrator account sets up fixtures
+and reads permission-gated QA fields. The relay suite under `src/test/e2e`
+runs separately.
+
+For the authored combat maps, replace `arena` in the staged isolated HOST
+configuration with `arenas.deadwood` and `arenas.riot-in-prison` from the
+Parkour profile. The isolated host needs WorldEdit for ArcCore's schematic
+service and `enable-command-block=false`. Give `ARC_EVENTS_E2E_AUTHORED_ARENAS`
+the `arenas` mapping as JSON and select `TEST_FILES=authored-maps.spec.js`
+with `TEST_TIMEOUT=180000` to allow a fresh paste before the first match.
+These cases check public queue start, distinct safe spawns, walking out of the
+spawn and exact restoration of the roster.
 
 The Fishing case starts a solo expedition from the public menu. It walks to the
 quay, casts into the generated water, reels in a native bite, then evacuates and

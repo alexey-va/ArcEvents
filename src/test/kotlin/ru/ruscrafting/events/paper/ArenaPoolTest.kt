@@ -3,10 +3,39 @@ package ru.ruscrafting.events.paper
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import ru.ruscrafting.events.config.ArcEventsConfig
+import ru.ruscrafting.events.domain.EventMode
 import java.nio.file.Files
 import java.util.UUID
 
 class ArenaPoolTest : StringSpec({
+    "mode maps are ready defaults and stay inside their own explicit and auto choices" {
+        val root = Files.createTempDirectory("arcevents-combat-pool-")
+        try {
+            val ready = mutableSetOf("alpha", "beta", "deadwood", "riot-in-prison")
+            Files.writeString(root.resolve("config.yml"), hostConfig("beta", ready))
+            val config = ArcEventsConfig.inspect(root)
+            val pool = ArenaPool({ config }) { arena, _ -> arena.id in ready }
+            val id = UUID(0L, 0L)
+
+            pool.reserve(id, mode = EventMode.TTT)?.id shouldBe "riot-in-prison"
+            pool.release(id)
+            pool.reserve(id, mode = EventMode.GUN_GAME)?.id shouldBe "deadwood"
+            pool.release(id)
+            pool.reserve(id, "deadwood", EventMode.TTT) shouldBe null
+            pool.reserve(id, "riot-in-prison", EventMode.GUN_GAME) shouldBe null
+            pool.reserve(id, "alpha", EventMode.GUN_GAME)?.id shouldBe "alpha"
+            pool.release(id)
+            pool.reserve(id, "auto", EventMode.GUN_GAME)?.id shouldBe "alpha"
+            pool.release(id)
+            pool.reserve(UUID(0L, 2L), "auto", EventMode.TTT)?.id shouldBe "riot-in-prison"
+            pool.clear()
+
+            ready.remove("deadwood")
+            pool.reserve(id, "deadwood", EventMode.GUN_GAME) shouldBe null
+            pool.reserve(id, mode = EventMode.GUN_GAME)?.id shouldBe "beta"
+        } finally { root.toFile().deleteRecursively() }
+    }
+
     "zombies own a dedicated lease and cannot enter the ordinary combat rotation" {
         val root = Files.createTempDirectory("arcevents-zombies-pool-")
         try {
@@ -209,7 +238,7 @@ class ArenaPoolTest : StringSpec({
     }
 }) {
     companion object {
-        private fun hostConfig(defaultArena: String = ""): String {
+        private fun hostConfig(defaultArena: String = "", arenaIds: Set<String> = setOf("alpha", "beta")): String {
             val spawns = "      - '3,65,3,0,0'"
             fun arena(world: String) = """
                 |    enabled: true
@@ -223,6 +252,7 @@ class ArenaPoolTest : StringSpec({
                 |$spawns
                 |    loot-spawns: []
             """.trimMargin()
+            val arenas = arenaIds.joinToString("\n") { id -> "  $id:\n${arena("arena_$id")}" }
             return """
                 |enabled: true
                 |server-id: parkour
@@ -240,10 +270,7 @@ class ArenaPoolTest : StringSpec({
                 |  return-to-origin: true
                 |ttt: {minimum-players: 4, maximum-players: 16, preparation-seconds: 30, countdown-seconds: 8, round-seconds: 600, post-round-seconds: 12, traitor-player-ratio: 4, detective-minimum-players: 6, traitor-credits: 2, detective-credits: 1, body-despawn-seconds: 600}
                 |arenas:
-                |  alpha:
-                |${arena("arena_alpha")}
-                |  beta:
-                |${arena("arena_beta")}
+                |$arenas
             """.trimMargin() + "\n"
         }
     }

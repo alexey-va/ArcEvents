@@ -595,7 +595,7 @@ class EventNetworkCoordinatorMockBukkitTest : FunSpec({
 
     test("host availability follows the selected mode arena") {
         failOnUnsupportedMockBukkitOperation {
-            EventNetworkCoordinatorFixture(includeCombatArena = false).use { fixture ->
+            EventNetworkCoordinatorFixture(combatArenas = emptyList()).use { fixture ->
                 fixture.start()
 
                 fixture.coordinator.hostAvailable(EventMode.TTT) shouldBe false
@@ -604,6 +604,38 @@ class EventNetworkCoordinatorMockBukkitTest : FunSpec({
                 val player = fixture.addPlayer("UnavailableQueue")
                 fixture.await(fixture.coordinator.join(player)) shouldBe false
                 fixture.queueEntry(player) shouldBe null
+            }
+        }
+    }
+
+    test("host and relay offer the same mode maps and the host rejects a cross-mode remote request") {
+        failOnUnsupportedMockBukkitOperation {
+            val maps = listOf("deadwood", "inferno", "riot-in-prison", "ttt-minecraft-b5")
+            for (relay in listOf(false, true)) {
+                EventNetworkCoordinatorFixture(combatArenas = maps, relay = relay, advertisedModes = EventMode.entries).use { fixture ->
+                    fixture.start()
+                    fixture.coordinator.selectableArenaIds(EventMode.TTT) shouldBe listOf("inferno", "riot-in-prison", "ttt-minecraft-b5")
+                    fixture.coordinator.selectableArenaIds(EventMode.GUN_GAME) shouldBe listOf("deadwood", "inferno", "ttt-minecraft-b5")
+                    fixture.coordinator.defaultArenaId(EventMode.TTT) shouldBe "riot-in-prison"
+                    fixture.coordinator.defaultArenaId(EventMode.GUN_GAME) shouldBe "deadwood"
+                }
+            }
+            EventNetworkCoordinatorFixture(combatArenas = maps).use { fixture ->
+                fixture.start()
+                fixture.queueFourPlayers()
+                fixture.await(fixture.coordinator.reserveNow(preferredArenaId = "riot-in-prison", mode = EventMode.GUN_GAME)) shouldBe
+                    ReservationStartResult.ARENA_UNAVAILABLE
+
+                val incompatible = EventNetworkMessage.create(EventNetworkSignal.START_REQUEST, fixture.now(),
+                    destinationServer = "parkour", preferredArenaId = "riot-in-prison", mode = EventMode.GUN_GAME.id, adminBypass = true)
+                fixture.publishMessage(incompatible, "spawn")
+                fixture.startResult(incompatible) shouldBe ReservationStartResult.ARENA_UNAVAILABLE.name
+                fixture.reservations shouldBe emptyList()
+
+                val compatible = incompatible.copy(eventId = UUID.randomUUID().toString(), preferredArenaId = "deadwood")
+                fixture.publishMessage(compatible, "spawn")
+                fixture.startResult(compatible) shouldBe ReservationStartResult.STARTED.name
+                fixture.reservations.single().preferredArenaId shouldBe "deadwood"
             }
         }
     }
@@ -854,8 +886,9 @@ class EventNetworkCoordinatorMockBukkitTest : FunSpec({
 })
 
 private class EventNetworkCoordinatorFixture(
-    private val includeCombatArena: Boolean = true,
+    private val combatArenas: List<String> = listOf("test"),
     private val relay: Boolean = false,
+    private val advertisedModes: List<EventMode> = listOf(EventMode.FISHING),
     private val disposable: Boolean = false,
     private val onArrival: (QueueEntry) -> Boolean = { true },
     private val activeMatchParticipant: (QueueEntry) -> Boolean = { false },
@@ -895,14 +928,7 @@ private class EventNetworkCoordinatorFixture(
             debug = ArcEventsDebug({ true }) {},
             matchState = { null to null },
             arenaReady = { true },
-            readyArenaIds = {
-                buildList {
-                    if (includeCombatArena) add("test")
-                    add("fishing")
-                    add("zombies")
-                    add("disasters")
-                }
-            },
+            readyArenaIds = { combatArenas + listOf("fishing", "zombies", "disasters") },
             onReservation = { batch -> reservations += batch; true },
             onArrival = onArrival,
             activeMatchParticipant = activeMatchParticipant,
@@ -914,7 +940,7 @@ private class EventNetworkCoordinatorFixture(
         if (relay) {
             repository.openNodes({ true }, { true }, 60_000L, { nowMs }).use { presence ->
                 presence.publish(HostNode("parkour", "HOST", true, true, null, null, 0, 16, nowMs,
-                    listOf("fishing"), listOf(EventMode.FISHING.id))).join()
+                    combatArenas + "fishing", advertisedModes.map(EventMode::id))).join()
             }
         }
         coordinator.start()
@@ -936,6 +962,16 @@ private class EventNetworkCoordinatorFixture(
 
     fun publishMessage(message: EventNetworkMessage, origin: String) {
         redisStore.simulateExternalMessage(RedisEventNetworkRepository.EVENT_CHANNEL, Gson().toJson(message), origin)
+    }
+
+    fun startResult(request: EventNetworkMessage): String? {
+        repeat(100) {
+            val reply = redisStore.getPublishedMessages().asSequence().map { Gson().fromJson(it.message, EventNetworkMessage::class.java) }
+                .firstOrNull { it.signal == EventNetworkSignal.START_RESULT && it.replyTo == request.eventId }
+            if (reply != null) return reply.startResult
+            tick(1)
+        }
+        error("Timed out waiting for host start reply")
     }
 
     fun tick(count: Int) {

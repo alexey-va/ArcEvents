@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { expect, test } from '@drownek/plugwright';
 import { Vec3 } from 'vec3';
-import { click, nextScreen, observe, ready, restoreObserved, seed, until, waitForQa } from './qa.js';
+import { click, nextScreen, observe, ready, restoreObserved, seed, until, waitForQa, walkTo } from './qa.js';
 
 const mainMenu = '/arcevents menu';
 const idle = { phase: 'idle', participants: 0, queue: 0 };
-const dock = new Vec3(0.5, 65, 16.5);
-const castTarget = new Vec3(0.5, 63.7, 24.5);
+const dock = new Vec3(0.5, 65, 15.5);
+const castTarget = new Vec3(0.5, 63.7, 25.5);
 const landing = new Vec3(0.5, 65, 10.5);
 
 async function openMode(player, observed, mode, actionId) {
@@ -17,18 +17,6 @@ async function openMode(player, observed, mode, actionId) {
   const modeSince = observed.screens.length;
   click(player, main, mainId);
   return nextScreen(observed, modeSince, actionId);
-}
-
-async function walkTo(player, point, stopped = () => false) {
-  const { bot } = player;
-  await bot.lookAt(point.offset(0, bot.entity.eyeHeight, 0), true);
-  bot.setControlState('forward', true);
-  try {
-    await until(() => stopped() || bot.entity.position.distanceTo(point) < 0.45,
-      `${player.username} did not walk to ${point}`, 8000);
-  } finally {
-    bot.setControlState('forward', false);
-  }
 }
 
 const tagged = (item, kind, match) => {
@@ -61,12 +49,13 @@ test('Fishing enters through the public menu, lands a native bite, releases the 
     const startId = 'action_arcade_fishing_start_name';
     click(player, await openMode(player, observed, 'fishing', startId), startId);
     const { match } = await waitForQa(admin, 'status', { game: 'fishing', phase: 'active', arena_id: 'fishing', participants: 1 }, 20000);
-    await until(() => observed.world === 'minecraft:arcevents_fishing_v4' && bot.heldItem?.name === 'fishing_rod' &&
+    await until(() => observed.world === 'minecraft:arcevents_fishing_archipelago' && bot.heldItem?.name === 'fishing_rod' &&
       tagged(bot.heldItem, 'FISHING_ROD', match), 'The dedicated fishing world or its selected expedition rod did not arrive');
     assert.equal(bot.inventory.slots[40], null, 'Origin hotbar remained exposed inside Fishing');
 
     await walkTo(player, dock);
-    await until(() => bot.blockAt(castTarget)?.name === 'water', 'Generated casting water did not arrive');
+    await until(() => bot.blockAt(castTarget)?.name === 'water' &&
+      bot.blockAt(new Vec3(-2, 72, 37))?.name === 'spruce_stairs', 'The authored harbour or its casting water did not arrive');
     await bot.lookAt(castTarget, true);
     const catchSince = player.getMessageBufferIndex();
     bot.on('entityUpdate', handleHint);
@@ -126,9 +115,12 @@ test('Disasters starts from the public queue, awards the meteor survivor, and re
     click(player, await openMode(player, observed, 'disasters', startId), startId);
     const { match } = await waitForQa(admin, 'status', { game: 'disasters', phase: 'active', arena_id: 'disasters', participants: 2 }, 20000);
     await expect(player).toHaveReceivedMessage(/Meteors in \d+s/, { since, timeout: 5000 });
-    await until(() => observed.world === 'minecraft:arcevents_disasters' && peerObserved.world === observed.world &&
+    await until(() => observed.world === 'minecraft:arcevents_disasters_coast' && peerObserved.world === observed.world &&
       [player, peer].every((entry) => entry.bot.game.gameMode === 'adventure' && entry.bot.inventory.items().length === 0),
       'The roster did not enter the dedicated arena with its survival loadout');
+    await until(() => player.bot.blockAt(new Vec3(-14, 72, 0))?.name === 'waxed_weathered_cut_copper' &&
+      player.bot.blockAt(new Vec3(19, 69, 0))?.name === 'smooth_sandstone',
+      'The coastal arena shelter and elevated platform did not arrive');
 
     // Keep moving across the open center while the peer stays in the marked circles.
     const result = () => player.messageBuffer.slice(since).some((line) => line.includes('Winners:'));

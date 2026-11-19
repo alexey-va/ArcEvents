@@ -39,6 +39,8 @@ data class PackagedArenaTemplate(
 data class TemplateBlockPoint(val x: Int, val y: Int, val z: Int)
 
 object PackagedArenaTemplates {
+    private const val OVERCAST_REVISION = "44406f03ed32e547137285bb556e68cc87294db6"
+
     private val templates = listOf(
         PackagedArenaTemplate(
             id = "ttt-minecraft-b5-v1",
@@ -63,7 +65,43 @@ object PackagedArenaTemplates {
             cropMaximum = TemplateBlockPoint(127, 80, 127),
             assetSource = PackagedArenaSource.DATA_FOLDER,
         ),
+        overcastMap(
+            id = "deadwood-v1",
+            title = "Deadwood",
+            upstreamDirectory = "ffa/deadwood",
+            author = "zzuf and Metacognitive",
+            sourceArchiveSha256 = "09737c3afdd03757048ec6d69b9e1783200f612cd1e30d0c03d6b3e6003cfc3d",
+            schematicSha256 = "89ef35ad7f0e97863ecc88aad0cb355f6c335eb772b16d8c3b96a7e58c4fc9d8",
+            width = 88, height = 36, length = 87,
+        ),
+        overcastMap(
+            id = "riot-in-prison-v1",
+            title = "Infection: Riot in Prison",
+            upstreamDirectory = "arcade/infection/infection_riot_in_prison",
+            author = "Put0veda, with map additions by Shimane",
+            sourceArchiveSha256 = "39902ff5b225966668862228ff0be5e49bffde9654697462630aad81d4e4a310",
+            schematicSha256 = "db93042bd04a406cab4c9c8e020cce997e4d2f03de9288c99e0fec2bb7ffadbc",
+            width = 139, height = 41, length = 122,
+        ),
     ).associateBy(PackagedArenaTemplate::id)
+
+    private fun overcastMap(
+        id: String, title: String, upstreamDirectory: String, author: String,
+        sourceArchiveSha256: String, schematicSha256: String, width: Int, height: Int, length: Int,
+    ) = PackagedArenaTemplate(
+        id = id,
+        format = PackagedArenaFormat.SPONGE_V2_SCHEMATIC,
+        title = title,
+        source = "https://github.com/OvercastCommunity/CommunityMaps/tree/$OVERCAST_REVISION/$upstreamDirectory",
+        sourceArchiveSha256 = sourceArchiveSha256,
+        author = author,
+        license = "CC BY-SA 4.0",
+        licenseUrl = "https://creativecommons.org/licenses/by-sa/4.0/",
+        files = listOf(PackagedArenaFile("arena-templates/$id/map.schem", "map.schem", schematicSha256)),
+        width = width, height = height, length = length,
+        cropMinimum = TemplateBlockPoint(0, 0, 0),
+        cropMaximum = TemplateBlockPoint(width - 1, height - 1, length - 1),
+    )
 
     val ids: Set<String> get() = templates.keys
 

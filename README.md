@@ -8,7 +8,7 @@ ArcEvents is the network event engine for RusCrafting. Its arcade modes are:
   two seconds of protection. The six-minute limit ranks progress, then kills.
 - **Disasters** (`disasters`): six survival waves alternate meteors, lightning
   and low fog. Survivors earn one point per wave; everyone returns for the next
-  wave. The dedicated generated arena provides roofs and climbable terraces.
+  wave. The dedicated Pirate Cove arena provides shelter and high ground.
 - **Islands of the Deep** (`fishing`): a solo fishing expedition across a camp,
   reef ruins and an underwater shrine. Reel in dangerous creatures, defeat them,
   unlock the next island and defeat the final boss. The native menu offers
@@ -88,7 +88,7 @@ host type and restore it before the return transfer, including after a restart.
 Arcade wins contribute to shared match/win statistics without changing TTT karma
 or role-specific wins. Old-round projectiles cannot affect a later match.
 
-Fishing uses five harbours 384 blocks apart in the generated `fishing-v4` world. The host prepares the starting quay at startup and the next island before ferry travel. Configure the world through
+Fishing places five authored harbours 384 blocks apart in the `fishing-archipelago-v1` world. The stages draw on Tahiti, Coral Reef, Temple Valley, Isle and Pompeii. The host prepares the starting quay at startup and the next island before ferry travel. Configure the world through
 `arcade.fishing.arena.world`. It is excluded from public combat-map rotation.
 Its temporary rod, weapons, creatures and hooks leave no permanent item or XP
 reward; original player state is restored on success, defeat, evacuation and
@@ -180,32 +180,18 @@ Cancelled arrivals remain protected and retry restoration before returning home.
 Configured enabled arena bounds remain protected between rounds.
 See [the 2026-09-22 review](docs/review-20260922.md) for coverage and remaining limits.
 
-Production rotates between three lightweight packaged arenas:
-[Japanese Lobby](https://www.planetminecraft.com/project/japanese-lobby-6691829/)
-by CedricD0812,
-[Edged Mansion](https://www.planetminecraft.com/project/edged-mansion/)
-by kostahansen, and
-[Practice Map Build](https://www.planetminecraft.com/project/pratice-map-build/)
-by Zyumie.
-Each is used under CC BY 4.0 with its author and source URL embedded in an
-immutable manifest. The exact reviewed artifact is bundled with a SHA-256
-checksum; schematic builds are cropped before an entity-free WorldEdit paste.
-For the Anvil build, ArcEvents creates a clean Paper `level.dat` and transplants
-only the reviewed region file; downloaded world metadata is never packaged or loaded.
-All three passed license, archive, command-content, datapack and performance
-gates. One arena is leased
-when a reservation is accepted and released only after player restoration
-finishes. The queue creator or a global administrator may choose the next ready
-arena once or return to deterministic automatic rotation. Imported
-worlds require exact ownership/source markers and source checksums, no
-datapacks, function files or symlinks, and a startup scan that rejects
-command-block tile entities, removes imported
-non-player entities, and clears standing and wall banners before a round can
-use the world. Command blocks are also
-disabled globally in `server.properties` and again by world gamerule. Every participant uses the same configured map
-spawn. Dedicated arena worlds cap view distance at six chunks and simulation
-distance at four. Runtime readiness requires solid footing, two passable
-blocks, and WorldGuard/Paper PvP permission at every player-facing point.
+The Parkour host offers **Riot in Prison** for TTT and **Deadwood** for Gun Game.
+Both come from Overcast Community's map collection. The plugin ships reviewed,
+block-only adaptations with the source revision, authors and CC BY-SA 4.0 attribution.
+The four existing combat arenas remain available: Inferno, Mirage, Nuke and TTT Minecraft B5.
+Explicit arena choices and automatic rotation use the ready maps for the selected mode.
+Older hosts without the new maps continue to use their configured pool.
+
+The host leases one arena when it accepts a reservation and releases it after
+player restoration. Imported worlds require ownership markers and matching
+source checksums. ArcEvents creates a clean staging world and validates the
+playable spawns before admitting players. Runtime worlds disable command blocks
+and cap the view and simulation distances at the configured values.
 
 The recovery, exact-destination teleport authorization, generic GUI background,
 and post-match return contracts intentionally follow the proven ArcDuels
@@ -546,7 +532,7 @@ living participant inside it, including the thrower.
 `/arcevents zombies` opens a compact native menu. **Play solo** reserves and starts
 only the requester with one action. **Form a squad** joins the shared queue and
 keeps the dialog open with its current roster state and creator start action.
-The host generates the Sector Zero switchyard in `arcevents_zombies_zero_v3` with the `zombies-zero-v3` template. Paths around the reactor connect four distinct industrial buildings, three supply bays, a weapon chest and six repairable windows. Earlier worlds retain their existing chunks. Upgrades redirect the previous bundled arena names to the new worlds. For a custom world carrying an older generator marker, configure a fresh dedicated name before upgrading.
+The host places **Infection: Store** in `arcevents_zombies_store` using the `zombies-store-v1` template. The supermarket houses four supply stations including the mystery chest and six repairable entrances. Earlier worlds retain their existing chunks. Upgrades redirect the previous bundled arena names to the new worlds. For a custom world carrying an older generator marker, configure a fresh dedicated name before upgrading.
 The mode requires a Java client with native dialog support (1.21.6 or newer).
 
 Survive ten escalating waves. Runners join from wave three; waves five and ten

@@ -28,22 +28,23 @@ class ArenaRuntimeInspector(private val plugin: Plugin) {
         val spectator = arena.spectator ?: return false
         val world = plugin.server.getWorld(arena.world) ?: return false
         if (world.getGameRuleValue(GameRules.PVP) != true) return false
-        if (!ready(lobby) || !ready(spectator)) return false
-        return ready(arena.playerSpawn)
+        return ready(lobby) && ready(spectator) && arena.spawns.all(::ready)
     }
 
     private fun ready(point: EventLocation): Boolean {
         val location = point.bukkitLocation() ?: return false
         if (!location.world.isChunkLoaded(location.blockX shr 4, location.blockZ shr 4)) return false
-        val feet = location.block
-        val head = feet.getRelative(0, 1, 0)
-        val floor = feet.getRelative(0, -1, 0)
-        return feet.isPassable && head.isPassable && floor.type.isSolid && worldGuard?.allowed(location) != false
+        return location.hasArenaFooting() && worldGuard?.allowed(location) != false
     }
 
     private fun EventLocation.bukkitLocation(): Location? = plugin.server.getWorld(world)?.let { loaded ->
         Location(loaded, x, y, z, yaw, pitch)
     }
+}
+
+internal fun Location.hasArenaFooting(): Boolean {
+    val feet = block
+    return feet.isPassable && feet.getRelative(0, 1, 0).isPassable && feet.getRelative(0, -1, 0).type.isSolid
 }
 
 private class WorldGuardPvpFlagInspector : PvpFlagInspector {
