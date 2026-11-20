@@ -4,6 +4,8 @@ import io.papermc.paper.event.player.PrePlayerAttackEntityEvent
 import org.bukkit.GameMode
 import org.bukkit.Material
 import org.bukkit.NamespacedKey
+import org.bukkit.Sound
+import org.bukkit.SoundCategory
 import org.bukkit.entity.Entity
 import org.bukkit.entity.LivingEntity
 import org.bukkit.entity.Player
@@ -162,10 +164,13 @@ class WorldFirearms(
                 (entity !is Player || (entity.isOnline && entity.gameMode != GameMode.SPECTATOR))
         }
         return controls.fire(player, spec, firearms.selectedBurst(held, spec), state.loaded,
-            scopes.isAiming(playerId), valid, target,
+            { scopes.isAiming(playerId) }, valid, target,
             withLoaded = { item, rounds -> withLoaded(item, state.id, rounds, player) },
             hasReserve = { reserve(player.inventory.storageContents) > 0 },
-            reload = { reload(player) }, empty = { feedback(player, "world-empty-actionbar") },
+            reload = { reload(player) }, empty = {
+                feedback(player, "world-empty-actionbar")
+                if (reloadSounds()) player.playSound(player.location, Sound.BLOCK_LEVER_CLICK, SoundCategory.PLAYERS, .7f, 1.7f)
+            },
             busy = { feedback(player, "world-busy-actionbar") }) { entity, _, amount ->
             if (amount.isFinite() && amount > 0.0 && valid() && target(entity) &&
                 (entity !is Player || entity.world.pvp) && canTarget(player, entity)
@@ -199,7 +204,6 @@ class WorldFirearms(
             feedback(player, "reloading-actionbar")
             return false
         }
-        scopes.clear(player.uniqueId)
         val spec = spec(player.inventory.itemInMainHand)
         if (state.loaded >= spec.magazineSize) {
             feedback(player, "magazine-full-actionbar")
@@ -209,6 +213,7 @@ class WorldFirearms(
             feedback(player, "world-no-ammo-actionbar")
             return false
         }
+        scopes.clear(player.uniqueId)
         val pending = Reload(player.world.uid, player.inventory.heldItemSlot,
             player.inventory.itemInMainHand.clone(), state)
         reloads[player.uniqueId] = pending

@@ -1100,7 +1100,7 @@ class ArcEventsService(
         val spec = firearms.tunedSpec(held, firearms.spec(state.id))
         val worldId = player.world.uid
         return firearmControls.fire(player, spec, firearms.selectedBurst(held, spec), state.loaded,
-            scopes?.isAiming(player.uniqueId) == true,
+            { scopes?.isAiming(player.uniqueId) == true },
             valid = { settings().weapons.enabled && player.isOnline && !player.isDead && player.world.uid == worldId &&
                 activeMatchId() == matchId && phase() == MatchPhase.ACTIVE && isAlive(player.uniqueId) &&
                 hasSelectedFishingFirearm(player, state.id, matchId) },
@@ -1137,7 +1137,6 @@ class ArcEventsService(
             return true
         }
         if (reloadTasks.containsKey(player.uniqueId)) return false
-        clearFirearmScope(player.uniqueId)
         val matchId = state.matchId
         val spec = firearms.spec(state.id)
         if (state.loaded >= spec.magazineSize) {
@@ -1148,6 +1147,7 @@ class ArcEventsService(
             player.sendEventActionBar(locale.render("weapon.no-ammo-actionbar", player))
             return false
         }
+        clearFirearmScope(player.uniqueId)
         player.sendEventActionBar(locale.render("weapon.reloading-actionbar", player))
         val snapshot = player.inventory.itemInMainHand.clone()
         val slot = player.inventory.heldItemSlot

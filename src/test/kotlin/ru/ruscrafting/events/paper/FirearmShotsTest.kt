@@ -3,6 +3,9 @@ package ru.ruscrafting.events.paper
 import com.github.retrooper.packetevents.PacketEvents
 import com.github.retrooper.packetevents.PacketEventsAPI
 import com.github.retrooper.packetevents.manager.server.ServerManager
+import com.github.retrooper.packetevents.protocol.player.ClientVersion
+import com.github.retrooper.packetevents.protocol.player.User
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerPlayerRotation
 import com.github.retrooper.packetevents.manager.server.ServerVersion
 import com.google.gson.GsonBuilder
 import io.kotest.core.spec.style.StringSpec
@@ -22,6 +25,7 @@ import org.bukkit.Sound
 import org.bukkit.SoundCategory
 import org.bukkit.World
 import org.bukkit.block.Block
+import org.bukkit.block.BlockFace
 import org.bukkit.block.data.BlockData
 import org.bukkit.entity.Entity
 import org.bukkit.entity.Player
@@ -54,8 +58,8 @@ class FirearmShotsTest : StringSpec({
             val burst = FirearmBurst(48, 2, 0) {
                 if (releases.size >= stopAfter) false else { releases += f.tick; true }
             }
-            f.shots.fireBurst(f.player, spec, false, { true }, { false }, 1.0, burst, completed::add) { _, _, _ -> } shouldBe true
-            releases shouldBe emptyList()
+            f.shots.fireBurst(f.player, spec, { false }, { true }, { false }, 1.0, burst, completed::add) { _, _, _ -> } shouldBe true
+            releases shouldBe listOf(0)
             f.until(180) { completed.isNotEmpty() }
             releases.size shouldBe stopAfter
             releases.zipWithNext().all { (a, b) -> b - a >= 2 } shouldBe true
@@ -121,7 +125,7 @@ class FirearmShotsTest : StringSpec({
             every { f.world.getNearbyEntities(any<Location>(), any<Double>(), any<Double>(), any<Double>()) } returns List(4) { f.target }
             every { f.world.rayTraceBlocks(any(), any(), any(), FluidCollisionMode.NEVER, true) } returns null
             f.ray = { origin, direction, _ ->
-                if (f.rays.size < 39) null else {
+                if (f.rays.size < 40) null else {
                     contact = origin.toVector().add(direction.clone())
                     RayTraceResult(contact.clone(), mockk<Block>(relaxed = true), null)
                 }
@@ -242,7 +246,7 @@ class FirearmShotsTest : StringSpec({
             abort(f)
             f.scheduler.tick(50)
             completed shouldBe listOf(false)
-            f.births.size shouldBe 0
+            f.births.size shouldBe 1 // The accepted input already launched its first muzzle.
         }
         withShotFixture { f ->
             f.enableVisuals()
@@ -258,13 +262,40 @@ class FirearmShotsTest : StringSpec({
 
     "short tracer is centered behind its collision point in vertical backward and diagonal directions" {
         for (direction in listOf(Vector(0, 0, 1), Vector(0, 0, -1), Vector(0, 1, 0), Vector(-3, 4, -7).normalize())) {
-            val transform = firearmBulletTransform(direction)
+            val transform = firearmBulletTransform(direction, 1.35f, .056f)
             val tip = Vector3f(.5f, .5f, 1f).mul(transform.scale).rotate(transform.leftRotation).add(transform.translation)
             tip.length().toDouble() shouldBe (0.0 plusOrMinus 1e-6)
             val tail = Vector3f(.5f, .5f, 0f).mul(transform.scale).rotate(transform.leftRotation).add(transform.translation)
-            tail.length().toDouble() shouldBe (.65 plusOrMinus 1e-6)
-            transform.scale.x shouldBe .024f
-            transform.scale.y shouldBe .024f
+            tail.length().toDouble() shouldBe (1.35 plusOrMinus 1e-6)
+            transform.scale.x shouldBe .056f
+            transform.scale.y shouldBe .056f
+        }
+    }
+
+    "the tracer grows from the actual muzzle and clips its last visible frame to close or distant contact" {
+        for (wallZ in listOf(.20, 38.0)) withShotFixture { f ->
+            f.enableVisuals()
+            val rifle = TttFirearmCatalog.specs.getValue(FirearmId.G36).copy(pellets = 1, roundsPerShot = 1, spreadDegrees = 0.0)
+            val wall = mockk<Block>(relaxed = true)
+            val contact = Vector(0.0, f.eye.y, wallZ)
+            f.aimHit = RayTraceResult(contact, wall, BlockFace.NORTH)
+            f.ray = { origin, direction, _ ->
+                RayTraceResult(origin.toVector().add(direction.clone().multiply((wallZ - origin.z) / direction.z)), wall, BlockFace.NORTH)
+            }
+            f.fire(rifle) shouldBe true
+            f.until { f.frames.size == 2 }
+            val (birth, hit) = f.frames
+            birth.transform.scale.z shouldBe .032f
+            birth.transformTicks shouldBe 0
+            hit.position.toVector().distance(contact) shouldBe (0.0 plusOrMinus 1e-8)
+            hit.transform.scale.z.toDouble() shouldBe (minOf(1.35, hit.position.distance(birth.position)) plusOrMinus 1e-6)
+            val duration = if (wallZ < 1) 0 else 1
+            hit.teleportTicks shouldBe duration
+            hit.transformTicks shouldBe duration
+            if (wallZ < 1) (hit.transform.scale.x <= wallZ * .024 + 1e-7) shouldBe true
+            else hit.transform.scale.x shouldBe .056f
+            f.until { f.removals.isNotEmpty() }
+            f.removals.single() - f.rays.single().tick shouldBe 2
         }
     }
 
@@ -278,6 +309,29 @@ class FirearmShotsTest : StringSpec({
             velocity.length() shouldBe (1.0 plusOrMinus 1e-8)
             (velocity.dot(direction) > 0.0) shouldBe true
         }
+    }
+
+    "a close shot emits at input and sweeps on the next flight tick" {
+        withShotFixture { f ->
+            f.enableVisuals()
+            f.soundsEnabled = true
+            f.ray = { origin, direction, _ -> RayTraceResult(origin.toVector().add(direction.clone()), f.target) }
+            f.fire() shouldBe true
+            f.births.single().first shouldBe 0
+            verify(exactly = 1) { f.world.playSound(any<Location>(), "arc:weapon_vss_fire", SoundCategory.PLAYERS, 4f, 1f) }
+            f.hits.size shouldBe 0
+            f.until { f.hits.isNotEmpty() }
+            f.rays.single().tick shouldBe 1
+        }
+    }
+
+    "aim narrows single bullet spread while a shotgun keeps its pattern" {
+        val rifle = TttFirearmCatalog.specs.getValue(FirearmId.G36)
+        firearmSpreadDegrees(rifle, false) shouldBe rifle.spreadDegrees
+        firearmSpreadDegrees(rifle, true) shouldBe rifle.spreadDegrees * .65
+        val shotgun = TttFirearmCatalog.specs.getValue(FirearmId.VEPR_12)
+        firearmSpreadDegrees(shotgun, true) shouldBe shotgun.spreadDegrees
+        firearmSpreadDegrees(rifle.copy(spreadDegrees = 0.0), true) shouldBe 0.0
     }
 
     "closest points use the complete swept segment including zero length and the near miss boundary" {
@@ -302,15 +356,34 @@ class FirearmShotsTest : StringSpec({
             kick.isRelativePitch shouldBe true
             var currentPitch = 10f + kick.pitch
             currentPitch += 7f // a real mouse movement after the kick
-            var debt = -kick.pitch * .8f
+            var debt = -kick.pitch
             repeat(30) {
                 val recovered = firearmRecoilRecovery(debt)
                 currentPitch += recovered
                 debt -= recovered
             }
-            currentPitch.toDouble() shouldBe (16.6 plusOrMinus 1e-5)
+            currentPitch.toDouble() shouldBe (17.0 plusOrMinus 1e-5)
             debt shouldBe 0f
             f.scheduler.timerCount() shouldBe 0
+        }
+    }
+
+    "a burst sends distinct kicks and returns its entire relative camera offset after the last round" {
+        withShotFixture { f ->
+            val deltas = f.observeRecoil()
+            val rifle = TttFirearmCatalog.specs.getValue(FirearmId.G36)
+            f.shots.fireBurst(f.player, rifle, { f.zoom != null }, { true }, { false }, 1.0,
+                FirearmBurst(3, 2, null) { true }, {}) { _, _, _ -> } shouldBe true
+            f.zoom = 1.15f // Raise the sight after the first muzzle, before the two queued rounds.
+            f.until { f.scheduler.timerCount() == 0 }
+            val kicks = deltas.filter { it.second.pitch < 0f }
+            kicks.size shouldBe 3
+            kicks.first().first shouldBe 0
+            (-kicks[1].second.pitch < -kicks[0].second.pitch) shouldBe true
+            deltas.filter { it.second.pitch > 0f }.all { it.first >= kicks.last().first + 2 } shouldBe true
+            deltas.all { it.second.isRelativePitch && it.second.isRelativeYaw } shouldBe true
+            deltas.sumOf { it.second.pitch.toDouble() } shouldBe (0.0 plusOrMinus 1e-5)
+            deltas.sumOf { it.second.yaw.toDouble() } shouldBe (0.0 plusOrMinus 1e-5)
         }
     }
 
@@ -320,6 +393,23 @@ class FirearmShotsTest : StringSpec({
         firearmRecoilKick(89f, 3f, 0f) shouldBe -3f
         firearmRecoilKick(0f, 3f, 8.5f) shouldBe -.5f
         firearmRecoilKick(0f, 3f, 10f) shouldBe 0f
+    }
+
+    "a held magazine keeps a kick on every round inside the camera limit" {
+        withShotFixture { f ->
+            val deltas = f.observeRecoil()
+            val gun = TttFirearmCatalog.specs.getValue(FirearmId.RPL_20)
+            f.shots.fireBurst(f.player, gun, { false }, { true }, { false }, 1.0,
+                FirearmBurst(20, 2, null) { true }, {}) { _, _, _ -> } shouldBe true
+            f.until(100) { f.scheduler.timerCount() == 0 }
+            deltas.count { it.second.pitch < 0f } shouldBe 20
+            var offset = 0.0
+            for ((_, rotation) in deltas) {
+                offset += rotation.pitch
+                (offset in -9.00001..0.00001) shouldBe true
+            }
+            offset shouldBe (0.0 plusOrMinus 1e-5)
+        }
     }
 
     "admission reserves the whole trigger and a full engine or invalid shooter has no partial shot" {
@@ -333,11 +423,11 @@ class FirearmShotsTest : StringSpec({
             var rejectedCompletions = 0
             f.fire(scatter, afterFiring = { rejectedCompletions++ }) shouldBe false
             rejectedCompletions shouldBe 0
-            f.rays.isEmpty() shouldBe true
             f.hits.isEmpty() shouldBe true
+            val queriesBeforeClose = f.rays.size
             f.shots.close()
             f.scheduler.tick(3)
-            f.rays.isEmpty() shouldBe true
+            f.rays.size shouldBe queriesBeforeClose
             f.scheduler.timerCount() shouldBe 0
             f.fire() shouldBe false
             rejectedCompletions shouldBe 0
@@ -401,6 +491,21 @@ class FirearmShotsTest : StringSpec({
                 val heading = frame.transform.leftRotation.transform(Vector3f(0f, 0f, 1f))
                 heading.distance(ray.direction.toVector3f()).toDouble() shouldBe (0.0 plusOrMinus 1e-6)
             }
+        }
+    }
+
+    "a scattered volley draws three actual trajectories while every pellet still reaches its target" {
+        withShotFixture { f ->
+            f.enableVisuals()
+            val shotgun = TttFirearmCatalog.specs.getValue(FirearmId.DOUBLE_BARREL)
+            f.ray = { origin, direction, _ -> RayTraceResult(origin.toVector().add(direction.clone().multiply(8.0)), f.target) }
+            f.fire(shotgun) shouldBe true
+            f.until { f.hits.isNotEmpty() }
+            f.births.size shouldBe 3
+            f.rays.size shouldBe shotgun.pellets
+            f.hits.single().second shouldBe (shotgun.damagePerPellet * shotgun.pellets plusOrMinus 1e-8)
+            val selected = f.frames.take(3).map { it.transform.leftRotation.transform(Vector3f(0f, 0f, 1f)) }
+            selected.forEach { heading -> f.rays.any { it.direction.toVector3f().distance(heading) < 1e-5 } shouldBe true }
         }
     }
 
@@ -624,7 +729,7 @@ class FirearmShotsTest : StringSpec({
                 f.preset = preset
                 var completed = 0
                 f.fire(afterFiring = { if (it) completed++ }) shouldBe true
-                f.shots.fire(other, f.spec, false, { true }, { false },
+                f.shots.fire(other, f.spec, { false }, { true }, { false },
                     afterFiring = { if (it) completed++ }) { _, _, _ -> } shouldBe true
                 f.until { completed == 2 }
                 verify(exactly = 2) {
@@ -781,20 +886,33 @@ class FirearmShotsTest : StringSpec({
         }
     }
 
-    "shotgun pellets share one physical wall impact sound and retain its material layer" {
+    "undrawn pellets can sound one flyby per volley and grazing wall chips emerge from the exposed face" {
         withShotFixture { f ->
             f.enableVisuals()
             f.soundsEnabled = true
             val shotgun = TttFirearmCatalog.specs.getValue(FirearmId.DOUBLE_BARREL).copy(spreadDegrees = 0.0)
             val wall = mockk<Block>(relaxed = true)
             every { wall.blockData.soundGroup.hitSound } returns Sound.BLOCK_STONE_HIT
-            f.ray = { origin, direction, _ -> RayTraceResult(origin.toVector().add(direction.clone().multiply(8.0)), wall, null) }
+            val listener = f.listener(Location(f.world, 0.0, f.eye.y, 7.0))
+            var queries = 0
+            every { f.world.getNearbyPlayers(any<Location>(), any<Double>(), any<Double>(), any<Double>()) } answers {
+                if (queries++ == 0) emptyList() else listOf(listener)
+            }
+            var contact = Vector()
+            f.ray = { origin, direction, _ ->
+                contact = origin.toVector().add(direction.clone().multiply(8.0))
+                RayTraceResult(contact, wall, BlockFace.WEST)
+            }
             f.fire(shotgun) shouldBe true
             f.until { f.rays.size == shotgun.pellets }
+            f.births.size shouldBe 1
+            verify(exactly = 1) { listener.playSound(any<Location>(), "arc:bullet_flyby", SoundCategory.PLAYERS, .8f, 1f) }
             verify(exactly = 1) { f.world.playSound(any<Location>(), "arc:bullet_impact", SoundCategory.PLAYERS, 1f, 1f) }
             verify(exactly = 1) { f.world.playSound(any<Location>(), Sound.BLOCK_STONE_HIT, SoundCategory.PLAYERS, .65f, 1f) }
+            val surface = contact.clone().add(BlockFace.WEST.direction.multiply(.075))
             verify(exactly = 1) {
-                f.world.spawnParticle(Particle.BLOCK, any<Location>(), 8, .06, .06, .06, .12, wall.blockData)
+                f.world.spawnParticle(Particle.BLOCK, match<Location> { it.toVector().distance(surface) < 1e-8 },
+                    6, match<Double> { kotlin.math.abs(it - .01) < 1e-8 }, .06, .06, .10, wall.blockData)
             }
             f.hits.isEmpty() shouldBe true
         }
@@ -843,16 +961,16 @@ class FirearmShotsTest : StringSpec({
             f.fire(f.spec.copy(range = 76.0)) shouldBe true
             f.until { f.scheduler.timerCount() == 0 }
             f.rays.size shouldBe 6
-            f.births.first().first shouldBe 1
-            f.rays.first().tick shouldBe 2
+            f.births.first().first shouldBe 0
+            f.rays.first().tick shouldBe 1
             f.rays.sumOf { it.distance } shouldBe (76.0 plusOrMinus 1e-7)
             System.getenv("ARC_EVENTS_FIREARM_PREVIEW")?.let { output ->
-                val transform = firearmBulletTransform(Vector(0, 0, 1))
+                val transform = f.frames[1].transform
                 val export = mapOf(
                     "evidence" to "Production engine ray calls with a no-hit World double; not a native Minecraft capture",
                     "weapon" to "VSS_VINTOREZ", "tickMilliseconds" to 50,
                     "birth" to f.births.first().let { (tick, location) -> mapOf("tick" to tick, "position" to listOf(location.x, location.y, location.z)) },
-                    "timing" to "Launch/muzzle birth at tick 1; first swept physics at tick 2; six flight steps end at tick 7",
+                    "timing" to "Muzzle at input tick 0, six swept flight steps starting at tick 1",
                     "tracer" to mapOf("scale" to listOf(transform.scale.x, transform.scale.y, transform.scale.z), "material" to "YELLOW_CONCRETE"),
                     "frames" to f.rays.map { ray -> mapOf("tick" to ray.tick,
                         "start" to listOf(ray.origin.x, ray.origin.y, ray.origin.z),
@@ -899,8 +1017,9 @@ private class ShotFixture(val scheduler: TestTaskScheduler) : AutoCloseable {
     data class Ray(val tick: Int, val origin: Location, val direction: Vector, val distance: Double)
     val rays = mutableListOf<Ray>()
     val births = mutableListOf<Pair<Int, Location>>()
-    data class Frame(val position: Location, val transform: Transformation)
+    data class Frame(val position: Location, val transform: Transformation, val teleportTicks: Int, val transformTicks: Int)
     val frames = mutableListOf<Frame>()
+    val removals = mutableListOf<Int>()
     data class ParticleBirth(val particle: Particle, val at: Location, val count: Int, val offsets: Vector, val extra: Double)
     val particleBirths = mutableListOf<ParticleBirth>()
     val filters = mutableListOf<java.util.function.Predicate<Entity>>()
@@ -955,6 +1074,17 @@ private class ShotFixture(val scheduler: TestTaskScheduler) : AutoCloseable {
         nearbyPlayers += listener
     }
 
+    fun observeRecoil(): List<Pair<Int, WrapperPlayServerPlayerRotation>> {
+        val user = mockk<User>(relaxed = true)
+        every { PacketEvents.getAPI().playerManager.getUser(player) } returns user
+        every { user.clientVersion } returns ClientVersion.V_1_21_11
+        val packets = mutableListOf<Pair<Int, WrapperPlayServerPlayerRotation>>()
+        every { user.sendPacketSilently(any<WrapperPlayServerPlayerRotation>()) } answers {
+            packets += tick to firstArg<WrapperPlayServerPlayerRotation>()
+        }
+        return packets
+    }
+
     fun enableVisuals() {
         mockkStatic(Bukkit::class)
         mockedBukkit = true
@@ -965,10 +1095,15 @@ private class ShotFixture(val scheduler: TestTaskScheduler) : AutoCloseable {
         }
         every { displays.spawnBlock(any(), any()) } answers {
             var position = firstArg<Location>().clone()
+            var teleportTicks = 0
+            var transformTicks = 0
             births += tick to position.clone()
             mockk<PacketBlockDisplay>(relaxed = true).also { display ->
+                every { display.teleportDuration = any() } answers { teleportTicks = firstArg() }
+                every { display.interpolationDuration = any() } answers { transformTicks = firstArg() }
                 every { display.teleport(any()) } answers { position = firstArg<Location>().clone() }
-                every { display.transformation = any() } answers { frames += Frame(position.clone(), firstArg()) }
+                every { display.transformation = any() } answers { frames += Frame(position.clone(), firstArg(), teleportTicks, transformTicks) }
+                every { display.remove() } answers { removals += tick }
             }
         }
         particlesEnabled = true
@@ -976,7 +1111,7 @@ private class ShotFixture(val scheduler: TestTaskScheduler) : AutoCloseable {
 
     fun fire(spec: FirearmSpec = this.spec, headshotMultiplier: Double = 1.0, aiming: Boolean = false,
              afterFiring: (Boolean) -> Unit = {}): Boolean =
-        shots.fire(player, spec, aiming, { valid }, { it === target }, headshotMultiplier, afterFiring) { _, details, damage ->
+        shots.fire(player, spec, { aiming && zoom != null }, { valid }, { it === target }, headshotMultiplier, afterFiring) { _, details, damage ->
         hits += details.position.clone() to damage
         hitDetails += details
     }

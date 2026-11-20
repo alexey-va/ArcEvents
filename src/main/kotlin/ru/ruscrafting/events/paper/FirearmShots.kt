@@ -53,7 +53,7 @@ class FirearmShots(
     private class Shot(
         val shooter: Player,
         val spec: FirearmSpec,
-        val aiming: Boolean,
+        val aiming: () -> Boolean,
         val soundKey: String,
         val valid: () -> Boolean,
         val target: (Entity) -> Boolean,
@@ -81,11 +81,12 @@ class FirearmShots(
         var blastReservations = 0
         val impacts = linkedMapOf<UUID, Impact>()
         val contacts = mutableListOf<Vector>()
+        val heardFlyby = mutableSetOf<UUID>()
     }
     private class Bullet(val round: Round, val position: Vector, val velocity: Vector, val born: Long) {
         var remaining = round.shot.spec.range
+        var showTracer = true
         var display: PacketBlockDisplay? = null
-        val heardFlyby = mutableSetOf<UUID>()
     }
     private data class Impact(val shot: Shot, val entity: Entity, val position: Vector, var headshot: Boolean, var damage: Double)
     private data class Retired(val display: PacketBlockDisplay, val due: Long)
@@ -93,9 +94,11 @@ class FirearmShots(
     private class Recoil(val player: Player, val worldId: UUID, val entityId: Int) {
         var pitch = 0f
         var yaw = 0f
+        var lastKick = 0L
     }
 
     private val rounds = ArrayDeque<Round>()
+    private val inputCompletions = ArrayDeque<Shot>()
     private val bullets = ArrayDeque<Bullet>()
     private val blasts = ArrayDeque<Blast>()
     private val retired = ArrayDeque<Retired>()
@@ -104,6 +107,7 @@ class FirearmShots(
     private var reserved = 0
     private var tick = 0L
     private var soundWork = 0
+    private var inputWorkNanos = 0L
     private var task: ScheduledTask? = null
     private var closed = false
     private val logger = Logger.getLogger("Minecraft")
@@ -115,7 +119,7 @@ class FirearmShots(
     fun fire(
         shooter: Player,
         spec: FirearmSpec,
-        aiming: Boolean,
+        aiming: () -> Boolean,
         valid: () -> Boolean,
         target: (Entity) -> Boolean,
         headshotMultiplier: Double = 1.0,
@@ -124,13 +128,13 @@ class FirearmShots(
     ): Boolean = submit(shooter, spec, aiming, valid, target, headshotMultiplier, null, afterFiring, hit)
 
     internal fun fireBurst(
-        shooter: Player, spec: FirearmSpec, aiming: Boolean, valid: () -> Boolean, target: (Entity) -> Boolean,
+        shooter: Player, spec: FirearmSpec, aiming: () -> Boolean, valid: () -> Boolean, target: (Entity) -> Boolean,
         headshotMultiplier: Double, burst: FirearmBurst, afterFiring: (Boolean) -> Unit,
         hit: (Entity, FirearmHit, Double) -> Unit,
     ): Boolean = submit(shooter, spec, aiming, valid, target, headshotMultiplier, burst, afterFiring, hit)
 
     private fun submit(
-        shooter: Player, spec: FirearmSpec, aiming: Boolean, valid: () -> Boolean, target: (Entity) -> Boolean,
+        shooter: Player, spec: FirearmSpec, aiming: () -> Boolean, valid: () -> Boolean, target: (Entity) -> Boolean,
         headshotMultiplier: Double, burst: FirearmBurst?, afterFiring: (Boolean) -> Unit,
         hit: (Entity, FirearmHit, Double) -> Unit,
     ): Boolean {
@@ -148,9 +152,24 @@ class FirearmShots(
             tick + MAX_LIFETIME_TICKS + (burst?.let { (it.size - 1) * it.intervalTicks } ?: 0), burst)
         // Start the scheduler before accepting anything, so a scheduling failure cannot debit ammo.
         if (task == null) task = Tasks.scheduler.runTimer(1L, 1L) { advance() }
-        if (burst == null) pattern.forEachIndexed { index, pellets -> rounds += Round(shot, pellets, tick + 1L + index) }
-        else rounds += Round(shot, count, tick + 1L)
+        // Give clicks the first half of the existing tick budget. Excess input uses the normal queue.
+        val immediate = inputWorkNanos < TICK_BUDGET_NANOS / 2
+        val firstDue = if (immediate) tick else tick + 1
+        val first = Round(shot, pattern.first(), firstDue)
         reserved += count
+        if (immediate) {
+            val start = System.nanoTime()
+            val launched = tryLaunch(first)
+            inputWorkNanos += System.nanoTime() - start
+            if (!launched) {
+                reserved -= count - first.pellets
+                return false
+            }
+            finishMuzzle(first, launched = true, duringInput = true)
+        } else rounds += first
+        if (burst == null) {
+            for (index in 1 until pattern.size) rounds += Round(shot, pattern[index], firstDue + index, index)
+        }
         return true
     }
 
@@ -165,8 +184,10 @@ class FirearmShots(
         tick++
         soundWork = 0
         while (retired.firstOrNull()?.due?.let { it <= tick } == true) retired.removeFirst().display.remove()
-        recoverRecoil()
-        val deadline = System.nanoTime() + TICK_BUDGET_NANOS
+        // A single-shot owner debits after admission returns. Its completion may start the reload.
+        while (inputCompletions.isNotEmpty()) resolveRound(inputCompletions.removeFirst(), true)
+        val deadline = System.nanoTime() + TICK_BUDGET_NANOS - minOf(inputWorkNanos, TICK_BUDGET_NANOS / 2)
+        inputWorkNanos = 0L
         var work = 0
         repeat(rounds.size) {
             val round = rounds.removeFirst()
@@ -174,25 +195,7 @@ class FirearmShots(
                 rounds += round
             } else {
                 work++
-                var launched = false
-                try {
-                    if (live(round.shot)) launched = launch(round) else reserved -= round.pellets
-                } catch (failure: Exception) {
-                    reserved -= round.pellets
-                    fail(round.shot, "launch", failure)
-                } finally {
-                    val shot = round.shot
-                    val burst = shot.burst
-                    val next = round.index + 1
-                    if (launched && burst != null && next < burst.size) {
-                        val pattern = firearmRoundPellets(shot.spec)
-                        val pellets = pattern[next % pattern.size]
-                        if (reserved + pellets <= MAX_BULLETS) {
-                            rounds += Round(shot, pellets, tick + burst.intervalTicks, next)
-                            reserved += pellets
-                        } else resolveRound(shot, false)
-                    } else resolveRound(shot, launched)
-                }
+                finishMuzzle(round, tryLaunch(round))
             }
         }
         while (blasts.isNotEmpty() && work < MAX_STEPS_PER_TICK && System.nanoTime() < deadline) {
@@ -238,10 +241,37 @@ class FirearmShots(
                 }
             } catch (failure: Exception) { fail(impact.shot, "impact", failure) }
         }
-        if (rounds.isEmpty() && bullets.isEmpty() && blasts.isEmpty() && completed.isEmpty() && retired.isEmpty() && recoils.isEmpty()) {
+        recoverRecoil()
+        if (inputCompletions.isEmpty() && rounds.isEmpty() && bullets.isEmpty() && blasts.isEmpty() && completed.isEmpty() && retired.isEmpty() && recoils.isEmpty()) {
             task?.cancel()
             task = null
         }
+    }
+
+    private fun tryLaunch(round: Round): Boolean {
+        val launched = try {
+            live(round.shot) && launch(round)
+        } catch (failure: Exception) {
+            fail(round.shot, "launch", failure)
+            false
+        }
+        if (!launched) reserved -= round.pellets
+        return launched
+    }
+
+    private fun finishMuzzle(round: Round, launched: Boolean, duringInput: Boolean = false) {
+        val shot = round.shot
+        val burst = shot.burst
+        val next = round.index + 1
+        if (launched && burst != null && next < burst.size) {
+            val pattern = firearmRoundPellets(shot.spec)
+            val pellets = pattern[next % pattern.size]
+            if (reserved + pellets <= MAX_BULLETS) {
+                reserved += pellets
+                rounds += Round(shot, pellets, tick + burst.intervalTicks, next)
+            } else resolveRound(shot, false)
+        } else if (duringInput) inputCompletions += shot
+        else resolveRound(shot, launched)
     }
 
     private fun resolveRound(shot: Shot, launched: Boolean) {
@@ -255,10 +285,7 @@ class FirearmShots(
     private fun launch(round: Round): Boolean {
         val shot = round.shot
         val eye = shot.shooter.eyeLocation.clone()
-        if (!shot.world.isChunkLoaded(eye.blockX shr 4, eye.blockZ shr 4)) {
-            reserved -= round.pellets
-            return false
-        }
+        if (!shot.world.isChunkLoaded(eye.blockX shr 4, eye.blockZ shr 4)) return false
         val eyeDirection = eye.direction.normalize()
         val aimRange = firearmLoadedRange(eye.toVector(), eyeDirection, shot.spec.range, shot.world::isChunkLoaded)
         val aim = if (aimRange > .001) trace(shot, eye, eyeDirection, aimRange) else null
@@ -267,21 +294,22 @@ class FirearmShots(
         val muzzle = muzzleLocation(shot, eye, eyeDirection, eye.toVector().distance(aimPoint))
         val direction = firearmZeroingDirection(muzzle.toVector(), aimPoint, eyeDirection)
         // Build the entire round before publishing it to the active queue.
+        val aiming = shot.aiming()
+        val spreadDegrees = firearmSpreadDegrees(shot.spec, aiming)
+        val barrel = ShotDirection(direction.x, direction.y, direction.z)
         val created = List(round.pellets) {
-            val spread = FirearmSpread.apply(ShotDirection(direction.x, direction.y, direction.z),
-                Random.nextDouble(-1.0, 1.0) * shot.spec.spreadDegrees,
-                Random.nextDouble(-1.0, 1.0) * shot.spec.spreadDegrees)
+            val spread = FirearmSpread.sample(barrel, spreadDegrees)
             Bullet(round, muzzle.toVector(), Vector(spread.x, spread.y, spread.z).multiply(shot.profile.speed), tick)
         }
-        if (shot.burst?.takeRound?.invoke() == false) {
-            reserved -= round.pellets
-            return false
-        }
+        if (shot.burst?.takeRound?.invoke() == false) return false
         bullets.addAll(created)
         // Publish a birth frame before the first swept step; otherwise the first display would appear 15–45 m away.
-        cosmetic(shot, "tracer") { created.forEach { presentBullet(it, it.velocity.clone().normalize(), false) } }
+        cosmetic(shot, "tracer") {
+            selectTracers(created, direction)
+            created.forEach { presentBullet(it, it.velocity.clone().normalize(), false, .032) }
+        }
         cosmetic(shot, "muzzle") { muzzle(shot, muzzle, direction) }
-        cosmetic(shot, "recoil") { kick(shot) }
+        cosmetic(shot, "recoil") { kick(shot, aiming) }
         return true
     }
 
@@ -298,7 +326,8 @@ class FirearmShots(
         val result = trace(shot, origin, direction, loaded)
         val end = result?.hitPosition ?: bullet.position.clone().add(direction.clone().multiply(loaded))
         cosmetic(shot, "flyby") { flyby(bullet, end, direction) }
-        bullet.remaining -= bullet.position.distance(end)
+        val travel = bullet.position.distance(end)
+        bullet.remaining -= travel
         bullet.position.copy(end)
         // Gravity is in blocks/tick²; retain the same swept segment at every speed, never point-test a bullet.
         velocity.y -= when (shot.spec.projectile) {
@@ -306,7 +335,7 @@ class FirearmShots(
             FirearmProjectile.GRENADE -> .045
             FirearmProjectile.ROCKET -> 0.0
         }
-        cosmetic(shot, "tracer") { presentBullet(bullet, direction, result != null) }
+        cosmetic(shot, "tracer") { presentBullet(bullet, direction, result != null, travel) }
         if (result != null) {
             cosmetic(shot, "contact") { contact(bullet.round, result, direction) }
             if (shot.spec.projectile != FirearmProjectile.BULLET) {
@@ -374,8 +403,21 @@ class FirearmShots(
                 (entity is LivingEntity || shot.target(entity))
         }
 
-    private fun presentBullet(bullet: Bullet, direction: Vector, contact: Boolean) {
-        if (!particles()) { bullet.display?.remove(); bullet.display = null; return }
+    private fun selectTracers(pellets: List<Bullet>, direction: Vector) {
+        if (pellets.size <= 3) return
+        // Show the center and two distinct outer paths of the actual spread, including vertical fans.
+        pellets.forEach { it.showTracer = false }
+        val center = pellets.maxBy { it.velocity.dot(direction) }
+        val edge = pellets.maxBy { it.velocity.distanceSquared(center.velocity) }
+        val third = pellets.maxBy { minOf(it.velocity.distanceSquared(center.velocity), it.velocity.distanceSquared(edge.velocity)) }
+        center.showTracer = true
+        edge.showTracer = true
+        third.showTracer = true
+    }
+
+    private fun presentBullet(bullet: Bullet, direction: Vector, contact: Boolean, travel: Double) {
+        if (!bullet.showTracer) return
+        if (!particles() || travel <= 0.0) { bullet.display?.remove(); bullet.display = null; return }
         val shot = bullet.round.shot
         // The quaternion below already contains the world heading: root yaw/pitch must stay zero.
         val position = bullet.position.toLocation(shot.world)
@@ -386,12 +428,18 @@ class FirearmShots(
             it.shadowRadius = 0f
             it.shadowStrength = 0f
             it.pauseWhenNotObserved = false
-            it.interpolationDuration = 0
         }
-        // A short moving fleck, never a muzzle-to-target beam. Snap the last frame onto actual contact.
-        display.teleportDuration = if (contact) 0 else 1
+        // Interpolate to the swept hit, including a rifle shot that reaches cover in its first step.
+        // Grow the same fleck during that move; at point blank the whole short step can snap.
+        val duration = if (contact && travel < .25) 0 else 1
+        display.teleportDuration = duration
+        display.interpolationDuration = if (bullet.born == tick) 0 else duration
         display.teleport(position)
-        display.transformation = firearmBulletTransform(direction)
+        val length = min(travel, 1.35).toFloat()
+        // Bound the apparent width when a nearby obstacle has pushed the barrel close to the eye.
+        val nearWidth = .024 * position.distance(shot.shooter.eyeLocation) / (scopeZoom(shot.shooter.uniqueId) ?: 1f)
+        val width = minOf(.056f, length, nearWidth.toFloat())
+        display.transformation = firearmBulletTransform(direction, length, width)
     }
 
     private fun muzzleLocation(shot: Shot, eye: Location, direction: Vector, contactDistance: Double): Location {
@@ -452,14 +500,14 @@ class FirearmShots(
             abs(delta.y) * .5 + FLYBY_RADIUS, abs(delta.z) * .5 + FLYBY_RADIUS)) {
             if (!claimSoundWork()) break
             val id = listener.uniqueId
-            if (id == shot.shooter.uniqueId || id in bullet.heardFlyby || !listener.isOnline || !listener.isValid ||
+            if (id == shot.shooter.uniqueId || id in bullet.round.heardFlyby || !listener.isOnline || !listener.isValid ||
                 listener.isDead || listener.world.uid != shot.world.uid) continue
             val eye = listener.eyeLocation.toVector()
             val closest = firearmClosestPointOnSegment(eye, start, end)
             if (eye.distanceSquared(closest) > FLYBY_RADIUS * FLYBY_RADIUS) continue
             if (!claimSoundWork()) break
             listener.playSound(closest.toLocation(shot.world), "arc:bullet_flyby", SoundCategory.PLAYERS, .8f, 1f)
-            bullet.heardFlyby += id
+            bullet.round.heardFlyby += id
         }
     }
 
@@ -470,10 +518,13 @@ class FirearmShots(
         if (round.contacts.any { it.distanceSquared(contact) < IMPACT_SPACING * IMPACT_SPACING }) return
         round.contacts += contact.clone()
         val blockData = block?.takeIf { particles() || sounds() }?.blockData
-        val point = contact.clone().subtract(direction.clone().multiply(.025)).toLocation(shot.world)
+        val normal = result.hitBlockFace?.takeIf { blockData != null && it.isCartesian }?.direction
+            ?: direction.clone().multiply(-1.0)
+        val point = contact.clone().add(normal.clone().multiply(if (blockData != null) .075 else .025)).toLocation(shot.world)
         if (particles()) {
-            // One contact burst per nearby pellet cluster, not ten overlapping shotgun clouds.
-            if (blockData != null) shot.world.spawnParticle(Particle.BLOCK, point, 8, .06, .06, .06, .12, blockData)
+            // A shallow patch of material chips stays on the exposed face, even on a grazing hit.
+            if (blockData != null) shot.world.spawnParticle(Particle.BLOCK, point, 6,
+                .06 - .05 * abs(normal.x), .06 - .05 * abs(normal.y), .06 - .05 * abs(normal.z), .10, blockData)
             else shot.world.spawnParticle(Particle.CRIT, point, 3, .045, .045, .045, .10)
         }
         if (!sounds() || !claimSoundWork()) return
@@ -489,21 +540,21 @@ class FirearmShots(
         return true
     }
 
-    private fun kick(shot: Shot) {
+    private fun kick(shot: Shot, aiming: Boolean) {
         val user = PacketEvents.getAPI()?.playerManager?.getUser(shot.shooter) ?: return
         // Relative yaw/pitch arrived in 1.21.9. Never overwrite an older client's current mouse aim.
         if (user.clientVersion.protocolVersion < ClientVersion.V_1_21_9.protocolVersion) return
         val recoil = recoils[shot.shooter.uniqueId]?.takeIf { it.worldId == shot.world.uid && it.entityId == shot.entityId }
             ?: Recoil(shot.shooter, shot.world.uid, shot.entityId).also { recoils[shot.shooter.uniqueId] = it }
-        val pitch = firearmRecoilKick(shot.shooter.eyeLocation.pitch,
-            shot.profile.recoil * if (shot.aiming) .65f else 1f, recoil.pitch)
+        recoil.lastKick = tick
+        val scale = if (aiming) .8f / firearmScopeZoom(shot.spec.id) else 1f
+        val pitch = firearmRecoilKick(shot.shooter.eyeLocation.pitch, shot.profile.recoil * scale, recoil.pitch)
         if (pitch == 0f) return
         // Weight comes from a stronger vertical impulse, not extra sideways camera shake.
         val yaw = Random.nextDouble(-.07, .07).toFloat() * abs(pitch)
         user.sendPacketSilently(firearmRecoilPacket(yaw, pitch))
-        // Return 80% gently; a small remaining rise makes repeated fire require actual aim correction.
-        recoil.pitch -= pitch * .8f
-        recoil.yaw -= yaw * .8f
+        recoil.pitch -= pitch
+        recoil.yaw -= yaw
     }
 
     private fun recoverRecoil() {
@@ -514,8 +565,13 @@ class FirearmShots(
                 iterator.remove()
                 continue
             }
-            val yaw = firearmRecoilRecovery(recoil.yaw)
-            val pitch = firearmRecoilRecovery(recoil.pitch)
+            val age = tick - recoil.lastKick
+            if (age == 0L) continue
+            // A short burst holds its peak. A long burst sheds excess rise between muzzles,
+            // leaving room for the next visible kick without exceeding the camera limit.
+            val pitch = if (age == 1L) (recoil.pitch - 4.5f).coerceAtLeast(0f) * .4f else firearmRecoilRecovery(recoil.pitch)
+            if (age == 1L && pitch == 0f) continue
+            val yaw = if (age == 1L) recoil.yaw * (pitch / recoil.pitch) else firearmRecoilRecovery(recoil.yaw)
             try {
                 PacketEvents.getAPI()?.playerManager?.getUser(recoil.player)?.sendPacketSilently(firearmRecoilPacket(yaw, pitch))
             } catch (failure: Exception) {
@@ -531,7 +587,8 @@ class FirearmShots(
 
     private fun retire(bullet: Bullet) {
         reserved--
-        bullet.display?.let { retired += Retired(it, tick + 1) }
+        // Core captures the terminal frame on its own sweep; allow one client tick of motion before removal.
+        bullet.display?.let { retired += Retired(it, tick + 2) }
         bullet.display = null
         if (--bullet.round.remaining == 0) completed += bullet.round
     }
@@ -559,6 +616,8 @@ class FirearmShots(
         retired.forEach { it.display.remove() }
         bullets.clear()
         blasts.clear()
+        inputCompletions.forEach { resolveRound(it, false) }
+        inputCompletions.clear()
         rounds.forEach { resolveRound(it.shot, false) }
         rounds.clear()
         retired.clear()
@@ -627,13 +686,19 @@ internal fun firearmTriggerSpec(spec: FirearmSpec, availableRounds: Int): Firear
 internal fun firearmRecoilPacket(yaw: Float, pitch: Float) = WrapperPlayServerPlayerRotation(yaw, true, pitch, true)
 internal fun firearmBlastDamage(base: Double, distance: Double, radius: Double): Double =
     if (!distance.isFinite() || distance < 0.0 || distance >= radius) 0.0 else base * (1.0 - .75 * distance / radius)
-internal fun firearmRecoilRecovery(remaining: Float): Float = if (abs(remaining) < .04f) remaining else remaining * .38f
+internal fun firearmSpreadDegrees(spec: FirearmSpec, aiming: Boolean): Double {
+    val precise = aiming && spec.projectile == FirearmProjectile.BULLET && spec.pellets <= spec.roundsPerShot
+    return spec.spreadDegrees * if (precise) .65 else 1.0
+}
+
+internal fun firearmRecoilRecovery(remaining: Float): Float = if (abs(remaining) < .08f) remaining else remaining * .42f
 internal fun firearmRecoilKick(currentPitch: Float, strength: Float, recoveryDebt: Float): Float =
     -minOf(strength.coerceAtLeast(0f), (currentPitch + 90f).coerceAtLeast(0f), (9f - recoveryDebt).coerceAtLeast(0f))
 
-internal fun firearmBulletTransform(direction: Vector): Transformation {
+internal fun firearmBulletTransform(direction: Vector, length: Float, width: Float): Transformation {
     val rotation = Quaternionf().rotationTo(Vector3f(0f, 0f, 1f), direction.toVector3f().normalize())
-    return Transformation(rotation.transform(Vector3f(-.012f, -.012f, -.65f)), rotation, Vector3f(.024f, .024f, .65f), Quaternionf())
+    return Transformation(rotation.transform(Vector3f(-width / 2f, -width / 2f, -length)),
+        rotation, Vector3f(width, width, length), Quaternionf())
 }
 
 internal fun firearmClosestPointOnSegment(point: Vector, start: Vector, end: Vector): Vector {

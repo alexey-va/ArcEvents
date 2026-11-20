@@ -28,6 +28,7 @@ import io.github.retrooper.packetevents.util.SpigotConversionUtil
 import org.bukkit.Bukkit
 import org.bukkit.GameMode
 import org.bukkit.Material
+import org.bukkit.Sound
 import org.bukkit.SoundCategory
 import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
@@ -271,6 +272,9 @@ class TttScopes internal constructor(
                     }
                 }
                 sendObserverEquipment(scope, held)
+            }
+            if (reload.sounds && reload.elapsed == 0 && reload.durationTicks > 1) {
+                scope.player.playSound(scope.player.location, Sound.ITEM_ARMOR_EQUIP_LEATHER, SoundCategory.PLAYERS, .22f, 1.25f)
             }
             val progress = if (reload.durationTicks == 1) 1.0 else reload.elapsed.toDouble() / (reload.durationTicks - 1)
             while (reload.nextCue < reload.cues.size && reload.cues[reload.nextCue].progress <= progress) {

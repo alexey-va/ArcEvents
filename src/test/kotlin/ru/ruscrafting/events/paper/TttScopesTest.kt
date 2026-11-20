@@ -35,6 +35,9 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import org.bukkit.GameMode
+import org.bukkit.Location
+import org.bukkit.Sound
+import org.bukkit.SoundCategory
 import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
 import org.bukkit.inventory.PlayerInventory
@@ -67,6 +70,20 @@ class TttScopesTest : StringSpec({
                 handle.close()
                 f.real shouldBe authoritativeBefore
                 f.scopes.clear(f.playerId)
+            }
+        }
+    }
+
+    "an accepted reload plays one quiet handling cue with its first frame" {
+        ScopeFixture().use { f ->
+            f.real = gunPacketItem()
+            every { f.player.location } returns Location(f.player.world, 0.0, 64.0, 0.0)
+            every { f.player.playSound(any<Location>(), any<Sound>(), any<SoundCategory>(), any<Float>(), any<Float>()) } returns Unit
+            f.scopes.animateReload(f.player, f.target, 42, sounds = true) { true }
+            f.models().single() shouldBe "arc:event_sights/vss_vintorez_reload_00"
+            f.tick(4)
+            verify(exactly = 1) {
+                f.player.playSound(any<Location>(), Sound.ITEM_ARMOR_EQUIP_LEATHER, SoundCategory.PLAYERS, .22f, 1.25f)
             }
         }
     }

@@ -2,8 +2,11 @@ package ru.ruscrafting.events.domain
 
 import ru.arc.network.NetworkPlayerName
 import java.util.UUID
+import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlin.math.sqrt
+import kotlin.random.Random
 
 enum class FirearmId {
     FLINTLOCK,
@@ -95,20 +98,23 @@ data class ShotDirection(val x: Double, val y: Double, val z: Double) {
 }
 
 object FirearmSpread {
-    fun apply(base: ShotDirection, yawOffsetDegrees: Double, pitchOffsetDegrees: Double): ShotDirection {
-        val direction = base.normalized()
-        val yaw = Math.toRadians(yawOffsetDegrees)
-        val pitch = Math.toRadians(pitchOffsetDegrees)
-        val yawedX = direction.x * cos(yaw) - direction.z * sin(yaw)
-        val yawedZ = direction.x * sin(yaw) + direction.z * cos(yaw)
-        val horizontal = kotlin.math.sqrt(yawedX * yawedX + yawedZ * yawedZ)
-        val basePitch = kotlin.math.atan2(direction.y, horizontal) + pitch
-        // Vertical rays have no azimuth; use the yaw offset as their horizontal reference.
+    /** Uniform solid angle around the actual sight line, including straight up and down. */
+    fun sample(base: ShotDirection, degrees: Double, random: Random = Random.Default): ShotDirection {
+        val forward = base.normalized()
+        if (degrees == 0.0) return forward
+        val axial = 1.0 - random.nextDouble() * (1.0 - cos(Math.toRadians(degrees)))
+        val radial = sqrt((1.0 - axial * axial).coerceAtLeast(0.0))
+        val angle = random.nextDouble(2.0 * PI)
+        val across = radial * cos(angle)
+        val up = radial * sin(angle)
+        val horizontal = kotlin.math.hypot(forward.x, forward.z)
+        val rightX = if (horizontal > 0.0) forward.z / horizontal else 1.0
+        val rightZ = if (horizontal > 0.0) -forward.x / horizontal else 0.0
         return ShotDirection(
-            (if (horizontal > 0.0) yawedX / horizontal else cos(yaw)) * cos(basePitch),
-            sin(basePitch),
-            (if (horizontal > 0.0) yawedZ / horizontal else sin(yaw)) * cos(basePitch),
-        ).normalized()
+            forward.x * axial + rightX * across + forward.y * rightZ * up,
+            forward.y * axial + horizontal * up,
+            forward.z * axial + rightZ * across - forward.y * rightX * up,
+        )
     }
 }
 

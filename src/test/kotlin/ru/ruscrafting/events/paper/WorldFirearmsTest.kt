@@ -68,6 +68,40 @@ class WorldFirearmsTest : FunSpec({
         }
     }
 
+    test("a quick second click leaves the stock G36 burst running at its catalog cadence") {
+        WorldFirearmFixture().use { f ->
+            val gun = FirearmId.G36
+            val spec = f.firearms.spec(gun)
+            f.player.inventory.setItemInMainHand(f.firearms.worldFirearmItem(gun, f.player, 6))
+            f.click()
+            val (_, burst, complete) = f.bursts.single()
+            burst.intervalTicks shouldBe 2
+            burst.takeRound() shouldBe true
+            f.advance(1)
+            f.click()
+            f.advance(1)
+            burst.takeRound() shouldBe true
+            f.advance(2)
+            burst.takeRound() shouldBe true
+            complete(true)
+            f.runtime.state(f.player.inventory.itemInMainHand)?.loaded shouldBe 3
+            f.advance((spec.cooldownTicks - 4).toLong())
+            f.click()
+            f.bursts.size shouldBe 2
+        }
+    }
+
+    test("a refused reload preserves the sight when the magazine is full or reserve is empty") {
+        WorldFirearmFixture().use { f ->
+            for (loaded in listOf(6, 1)) {
+                f.player.inventory.setItemInMainHand(f.gun(loaded = loaded))
+                f.reload()
+            }
+            verify(exactly = 0) { f.scopes.clear(f.player.uniqueId) }
+            verify(exactly = 0) { f.scopes.animateReload(any(), any(), any(), any(), any()) }
+        }
+    }
+
     test("selected Creative burst is magazine-bounded and never spends ammunition") {
         WorldFirearmFixture().use { f ->
             val base = f.firearms.spec(FirearmId.RPL_20)
@@ -165,7 +199,7 @@ class WorldFirearmsTest : FunSpec({
                     f.click() shouldBe true
                     f.accepted.size shouldBe before + 1
                     f.bursts.last().second.size shouldBe loaded
-                    f.bursts.last().second.intervalTicks shouldBe 1
+                    f.bursts.last().second.intervalTicks shouldBe if (id == FirearmId.G36) 2 else 1
                     f.runtime.state(f.player.inventory.itemInMainHand)?.loaded shouldBe loaded
                     repeat(loaded) { f.bursts.last().second.takeRound() shouldBe true }
                     f.runtime.state(f.player.inventory.itemInMainHand)?.loaded shouldBe 0

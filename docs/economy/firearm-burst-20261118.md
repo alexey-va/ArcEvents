@@ -1,5 +1,9 @@
 # ArcEvents firearm bursts and per-item tuning, 2026-11-18
 
+### Handling update, 2026-11-20
+
+At 20 TPS the stock G36 now releases its three rounds at ticks 0, 2 and 4. Its six-tick trigger cooldown still permits up to 600 loaded rounds per minute. Three rounds cost three cartridges. Each cartridge still takes one iron nugget to craft. Direct Vault and token issuance and destruction remain zero per shot. For the G36, the largest horizontal-shot deviation changes from roughly 4.24° at a corner of the old spread to 3° from the hip and 1.95° through the sight. The higher hit probability can affect ordinary mob kills per cartridge. Its effect on loot and job income has not been measured.
+
 The stock trigger retains its existing profile. The optional queued trigger starts up to the number of rounds selected on the held item, bounded by its magazine capacity and available loaded rounds. Each actual round consumes one paid magazine round in Survival or Adventure. A canceled future round consumes zero. The existing 1:1 iron nugget recipe, reload time and capacity apply. Creative preserves its loaded and reserve quantities, including on return to Survival. Match ammunition requires the match ID and world guns accept only ordinary ammunition. [Ordinary ammunition baseline](firearms-zombies-20261104.md)
 
 | Bundled profile | Magazine | Reload, ticks | Stock rounds per trigger / cooldown, ticks | Selected burst interval, ticks | Loaded cadence before → selected burst, rounds/min |

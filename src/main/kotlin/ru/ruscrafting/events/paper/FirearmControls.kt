@@ -11,7 +11,7 @@ import java.util.UUID
 internal class FirearmBurst(
     val size: Int,
     val intervalTicks: Int,
-    val canStopAt: Long,
+    val canStopAt: Long?,
     val takeRound: () -> Boolean,
 )
 
@@ -38,7 +38,7 @@ internal class FirearmControls(private val shots: FirearmShots, private val cloc
     }
 
     fun fire(
-        player: Player, spec: FirearmSpec, selected: Int?, loaded: Int, aiming: Boolean,
+        player: Player, spec: FirearmSpec, selected: Int?, loaded: Int, aiming: () -> Boolean,
         valid: () -> Boolean, target: (Entity) -> Boolean, headshotMultiplier: Double = 1.0,
         withLoaded: (ItemStack, Int) -> ItemStack, hasReserve: () -> Boolean, reload: () -> Boolean,
         empty: () -> Unit, busy: () -> Unit,
@@ -49,7 +49,7 @@ internal class FirearmControls(private val shots: FirearmShots, private val cloc
         val creative = player.gameMode == GameMode.CREATIVE
         // Two input packets can describe the same physical attack. Debounce the stop gesture for one tick.
         active[id]?.let { running ->
-            if (now < running.canStopAt) return false
+            if (running.canStopAt == null || now < running.canStopAt) return false
             cancel(id)
             return true
         }
@@ -77,11 +77,12 @@ internal class FirearmControls(private val shots: FirearmShots, private val cloc
         if (selected != null || spec.roundsPerShot > 1) {
             val count = minOf(selected ?: spec.roundsPerShot, if (creative) spec.magazineSize else loaded)
             val perTrigger = firearmRoundPellets(spec).size
-            val interval = if (selected == null) 1 else (spec.cooldownTicks + perTrigger - 1) / perTrigger
+            val interval = if (selected == null) maxOf(1, spec.cooldownTicks / perTrigger)
+                else (spec.cooldownTicks + perTrigger - 1) / perTrigger
             val costs = firearmBurstCosts(count, spec.roundsPerShot, perTrigger)
             var muzzle = 0
             lateinit var burst: FirearmBurst
-            burst = FirearmBurst(costs.size, interval, now + 50L) {
+            burst = FirearmBurst(costs.size, interval, if (selected != null) now + 50L else null) {
                 if (active[id] !== burst || muzzle >= costs.size || !stillHeld()) false else {
                     debit(costs[muzzle++])
                     cooldownUntil[id] = maxOf(cooldownUntil[id] ?: 0L, clock() + interval * 50L)
