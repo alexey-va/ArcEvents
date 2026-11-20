@@ -14,6 +14,7 @@ import org.bukkit.Material
 import org.bukkit.NamespacedKey
 import org.bukkit.block.BlockFace
 import org.bukkit.entity.Entity
+import org.bukkit.entity.LivingEntity
 import org.bukkit.entity.Player
 import org.bukkit.event.Event
 import org.bukkit.event.block.Action
@@ -612,6 +613,32 @@ class WorldFirearmsTest : FunSpec({
             shot.valid() shouldBe false
             shot.hit(victim, impact, 8.0)
             verify(exactly = 1) { victim.damage(any<Double>(), any<Entity>()) }
+        }
+    }
+
+    test("the distant shooter hears a hit only after the target loses health") {
+        WorldFirearmFixture().use { f ->
+            f.player.inventory.setItemInMainHand(f.gun(loaded = 6))
+            f.click()
+            val shot = f.accepted.single()
+            val target = mockk<LivingEntity>(relaxed = true)
+            var health = 20.0
+            every { target.uniqueId } returns UUID.randomUUID()
+            every { target.world } returns f.world
+            every { target.isValid } returns true
+            every { target.health } answers { health }
+            val near = FirearmHit(f.player.eyeLocation.toVector().add(Vector(0, 0, 5)), false)
+            val far = FirearmHit(f.player.eyeLocation.toVector().add(Vector(0, 0, 35)), false)
+            val heard = f.player.heardSounds.size
+
+            shot.hit(target, far, 2.0)
+            f.player.heardSounds.size shouldBe heard
+            every { target.damage(2.0, f.player) } answers { health -= 2.0 }
+            shot.hit(target, near, 2.0)
+            f.player.heardSounds.size shouldBe heard
+            shot.hit(target, far, 2.0)
+            f.player.heardSounds.size shouldBe heard + 1
+            f.player.heardSounds.last().volume shouldBe .32f
         }
     }
 

@@ -299,12 +299,14 @@ after saving the shared Redis setting; the choice survives players leaving and
 server restarts. Pub/sub applies changes promptly and the regular heartbeat
 reconciles missed notifications. No restart is needed to switch presets once
 the matching code and all three additional pack events have been activated.
-All firearms also use the pack's `arc:bullet_flyby` for a close swept pass by a
-listener and `arc:bullet_impact` at physical contact. A flyby is private to a
-nearby listener, excludes the shooter, and plays once per muzzle round and listener, including for a shotgun volley.
-Collision clips the audible path; impact cues are coalesced for nearby shotgun
-pellets. These cues describe physical travel/contact and do not confirm damage
-or bypass native PvP/region protection. Existing block material detail remains.
+All firearms use the pack's `arc:bullet_flyby` when a round passes close to a
+listener. Each listener hears one pass per muzzle round, including for a
+shotgun volley. The shooter hears the muzzle. Wood splinters, stone chips,
+metal rings and glass cracks at the contact point. Other surfaces use their
+block sound. Nearby pellet contacts share a single impact cue. A living target
+responds through its own damage and protection rules. Beyond 16 blocks an
+ordinary-world shooter hears a short private tick when the target actually
+loses health or absorption, or dies. This applies in Apocalypse too.
 A private magazine hologram displays one vertical cartridge mark per round,
 the exact count labelled in rounds, reserve and these controls. Bright marks
 are loaded rounds; dim marks are empty magazine positions. The marks have no
@@ -373,8 +375,11 @@ ticks. Stock bursts space rounds within the existing trigger cooldown and contin
 through an early second click. A selected burst can still be stopped with LMB.
 Spread is a circular cone around the current barrel heading. Raised sights
 tighten single-bullet spread to 65% of the hip angle. Shotguns retain their
-pellet cone. Short brass tracers and material chips mark the swept path and
-its contact. Each real muzzle plays the selected recording. Minecraft 1.21.9+
+pellet cone. A brass tracer follows each displayed path. Short warm streaks
+fade along the parts of the path the round has already crossed. A G36 round
+aimed at a target 38 blocks away takes two flight ticks. Chips appear on the
+struck face. On bare solid blocks a small impact mark stays for 12 seconds.
+Each real muzzle plays the selected recording. Minecraft 1.21.9+
 relative rotation packets hold the kick through the muzzle beat and return
 the full added offset on release, preserving independent mouse movement.
 Older clients omit camera recoil. Native armour and hurt immunity remain.

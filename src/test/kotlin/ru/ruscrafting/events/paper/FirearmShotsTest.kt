@@ -277,25 +277,81 @@ class FirearmShotsTest : StringSpec({
             f.enableVisuals()
             val rifle = TttFirearmCatalog.specs.getValue(FirearmId.G36).copy(pellets = 1, roundsPerShot = 1, spreadDegrees = 0.0)
             val wall = mockk<Block>(relaxed = true)
+            every { wall.type } returns Material.GLASS
             val contact = Vector(0.0, f.eye.y, wallZ)
             f.aimHit = RayTraceResult(contact, wall, BlockFace.NORTH)
-            f.ray = { origin, direction, _ ->
-                RayTraceResult(origin.toVector().add(direction.clone().multiply((wallZ - origin.z) / direction.z)), wall, BlockFace.NORTH)
+            var sweptContact: Vector? = null
+            f.ray = { origin, direction, distance ->
+                val toWall = (wallZ - origin.z) / direction.z
+                if (toWall in 0.0..distance) {
+                    val at = origin.toVector().add(direction.clone().multiply(toWall))
+                    sweptContact = at
+                    RayTraceResult(at, wall, BlockFace.NORTH)
+                } else null
             }
             f.fire(rifle) shouldBe true
-            f.until { f.frames.size == 2 }
-            val (birth, hit) = f.frames
+            f.until { f.removals.isNotEmpty() }
+            val birth = f.frames.first()
+            val hit = f.frames.last()
             birth.transform.scale.z shouldBe .032f
             birth.transformTicks shouldBe 0
-            hit.position.toVector().distance(contact) shouldBe (0.0 plusOrMinus 1e-8)
-            hit.transform.scale.z.toDouble() shouldBe (minOf(1.35, hit.position.distance(birth.position)) plusOrMinus 1e-6)
+            hit.position.toVector().distance(requireNotNull(sweptContact)) shouldBe (0.0 plusOrMinus 1e-8)
+            hit.position.z shouldBe (wallZ plusOrMinus 1e-8)
+            hit.transform.scale.z.toDouble() shouldBe (minOf(2.1, hit.position.distance(f.frames[f.frames.lastIndex - 1].position)) plusOrMinus 1e-6)
             val duration = if (wallZ < 1) 0 else 1
             hit.teleportTicks shouldBe duration
             hit.transformTicks shouldBe duration
             if (wallZ < 1) (hit.transform.scale.x <= wallZ * .024 + 1e-7) shouldBe true
-            else hit.transform.scale.x shouldBe .056f
-            f.until { f.removals.isNotEmpty() }
-            f.removals.single() - f.rays.single().tick shouldBe 2
+            else {
+                f.frames.size shouldBe 3
+                f.frames[1].position.distance(birth.position) shouldBe (26.0 plusOrMinus 1e-6)
+                (hit.position.y < contact.y) shouldBe true
+                hit.transform.scale.x shouldBe .10f
+            }
+            f.removals.single() - f.rays.last().tick shouldBe 2
+        }
+    }
+
+    "the fading trail starts after each real sweep and clips before near cover or switched-off particles" {
+        for ((enabled, wallZ) in listOf(true to 38.0, true to .20, false to 38.0)) withShotFixture { f ->
+            f.enableVisuals()
+            f.particlesEnabled = enabled
+            val rifle = TttFirearmCatalog.specs.getValue(FirearmId.G36).copy(pellets = 1, roundsPerShot = 1, spreadDegrees = 0.0)
+            val wall = mockk<Block>(relaxed = true)
+            f.aimHit = RayTraceResult(Vector(0.0, f.eye.y, wallZ), wall, BlockFace.NORTH)
+            var contact: Vector? = null
+            f.ray = { origin, direction, length ->
+                val distance = (wallZ - origin.z) / direction.z
+                if (distance in 0.0..length) {
+                    contact = origin.toVector().add(direction.clone().multiply(distance))
+                    RayTraceResult(requireNotNull(contact), wall, BlockFace.NORTH)
+                } else null
+            }
+            val trail = mutableListOf<Pair<Int, Vector>>()
+            every { f.world.getNearbyPlayers(any<Location>(), 64.0) } returns listOf(f.player)
+            every { f.world.spawnParticle(Particle.DUST_COLOR_TRANSITION, listOf(f.player), f.player,
+                any<Double>(), any<Double>(), any<Double>(), 1, 0.0, 0.0, 0.0, 0.0, any<Particle.DustTransition>(), true) } answers {
+                trail += f.tick to Vector(arg<Double>(3), arg<Double>(4), arg<Double>(5))
+            }
+            f.fire(rifle) shouldBe true
+            trail.isEmpty() shouldBe true
+            f.until { contact != null }
+            if (enabled && wallZ > 1.0) {
+                val groups = trail.groupBy { it.first }
+                groups.keys shouldBe f.rays.map { it.tick }.toSet()
+                for (ray in f.rays) {
+                    val along = groups.getValue(ray.tick).map { (_, point) ->
+                        val delta = point.clone().subtract(ray.origin.toVector())
+                        val distance = delta.dot(ray.direction)
+                        delta.distance(ray.direction.clone().multiply(distance)) shouldBe (0.0 plusOrMinus 1e-7)
+                        distance
+                    }
+                    val end = minOf(ray.distance, (wallZ - ray.origin.z) / ray.direction.z)
+                    along.first() shouldBe (1.5 plusOrMinus 1e-7)
+                    (along.size in 2..8 && along.zipWithNext().all { (a, b) -> a < b }) shouldBe true
+                    along.last() shouldBe (end - 1.0 plusOrMinus 1e-7)
+                }
+            } else trail.isEmpty() shouldBe true
         }
     }
 
@@ -618,8 +674,9 @@ class FirearmShotsTest : StringSpec({
             f.scheduler.tick(4)
             f.rays.size shouldBe 1
             f.hits.isEmpty() shouldBe true
-            verify(exactly = 1) {
+            verify(exactly = 0) {
                 f.world.playSound(any<Location>(), "arc:bullet_impact", SoundCategory.PLAYERS, 1f, 1f)
+                f.world.playSound(any<Location>(), any<Sound>(), any<SoundCategory>(), any<Float>(), any<Float>())
             }
         }
     }
@@ -634,7 +691,7 @@ class FirearmShotsTest : StringSpec({
             f.rays.size shouldBe shotgun.pellets
             f.hits.size shouldBe 1
             f.hits.single().second shouldBe ((shotgun.pellets * shotgun.damagePerPellet) plusOrMinus 1e-8)
-            verify(exactly = 1) {
+            verify(exactly = 0) {
                 f.world.playSound(any<Location>(), "arc:bullet_impact", SoundCategory.PLAYERS, 1f, 1f)
             }
         }
@@ -779,11 +836,19 @@ class FirearmShotsTest : StringSpec({
             f.ray = { origin, direction, _ -> RayTraceResult(origin.toVector().add(direction.clone()), wall, null) }
             f.fire() shouldBe true
             f.until { f.rays.isNotEmpty() }
-            verify(exactly = 1) { f.world.playSound(any<Location>(), "arc:bullet_impact", SoundCategory.PLAYERS, 1f, 1f) }
-            verify(exactly = 1) { f.world.playSound(any<Location>(), Sound.BLOCK_STONE_HIT, SoundCategory.PLAYERS, .65f, 1f) }
+            verify(exactly = 0) { f.world.playSound(any<Location>(), "arc:bullet_impact", any(), any(), any()) }
+            verify(exactly = 1) { f.world.playSound(any<Location>(), Sound.BLOCK_DRIPSTONE_BLOCK_BREAK, SoundCategory.PLAYERS, .55f, 1.40f) }
             verify(exactly = 0) { f.world.spawnParticle(any<Particle>(), any<Location>(), any<Int>(), any<Double>(), any<Double>(), any<Double>(), any<Double>()) }
             verify(exactly = 0) { f.world.spawnParticle(any<Particle>(), any<Location>(), any<Int>(), any<Double>(), any<Double>(), any<Double>(), any<Double>(), any<BlockData>()) }
         }
+    }
+
+    "wood stone metal and glass give different audible impacts while softer surfaces keep their own texture" {
+        firearmSurfaceSound(Sound.BLOCK_WOOD_HIT).sound shouldBe Sound.BLOCK_BAMBOO_BREAK
+        firearmSurfaceSound(Sound.BLOCK_POLISHED_DEEPSLATE_HIT).sound shouldBe Sound.BLOCK_DRIPSTONE_BLOCK_BREAK
+        firearmSurfaceSound(Sound.BLOCK_METAL_HIT).sound shouldBe Sound.BLOCK_CHAIN_HIT
+        firearmSurfaceSound(Sound.BLOCK_GLASS_HIT).sound shouldBe Sound.BLOCK_GLASS_BREAK
+        firearmSurfaceSound(Sound.BLOCK_SAND_HIT).sound shouldBe Sound.BLOCK_SAND_HIT
     }
 
     "empty air flybys reach only nearby eligible eyes and each projectile plays once per listener" {
@@ -844,10 +909,8 @@ class FirearmShotsTest : StringSpec({
             for (listener in listOf(atMuzzle, beyondWall)) verify(exactly = 0) {
                 listener.playSound(any<Location>(), any<String>(), any<SoundCategory>(), any<Float>(), any<Float>())
             }
-            verify(exactly = 1) {
-                f.world.playSound(match<Location> { it.toVector().distanceSquared(contact) < 1e-8 },
-                    "arc:bullet_impact", SoundCategory.PLAYERS, 1f, 1f)
-            }
+            verify(exactly = 1) { f.world.playSound(match<Location> { it.toVector().distanceSquared(contact) < 1e-8 },
+                any<Sound>(), SoundCategory.PLAYERS, any<Float>(), any<Float>()) }
             f.hits.isEmpty() shouldBe true
         }
     }
@@ -907,8 +970,7 @@ class FirearmShotsTest : StringSpec({
             f.until { f.rays.size == shotgun.pellets }
             f.births.size shouldBe 1
             verify(exactly = 1) { listener.playSound(any<Location>(), "arc:bullet_flyby", SoundCategory.PLAYERS, .8f, 1f) }
-            verify(exactly = 1) { f.world.playSound(any<Location>(), "arc:bullet_impact", SoundCategory.PLAYERS, 1f, 1f) }
-            verify(exactly = 1) { f.world.playSound(any<Location>(), Sound.BLOCK_STONE_HIT, SoundCategory.PLAYERS, .65f, 1f) }
+            verify(exactly = 1) { f.world.playSound(any<Location>(), Sound.BLOCK_DRIPSTONE_BLOCK_BREAK, SoundCategory.PLAYERS, .55f, 1.40f) }
             val surface = contact.clone().add(BlockFace.WEST.direction.multiply(.075))
             verify(exactly = 1) {
                 f.world.spawnParticle(Particle.BLOCK, match<Location> { it.toVector().distance(surface) < 1e-8 },

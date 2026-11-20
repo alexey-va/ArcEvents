@@ -3,6 +3,7 @@ package ru.ruscrafting.events.paper
 import com.github.retrooper.packetevents.PacketEvents
 import com.github.retrooper.packetevents.protocol.player.ClientVersion
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerPlayerRotation
+import org.bukkit.Color
 import org.bukkit.FluidCollisionMode
 import org.bukkit.GameMode
 import org.bukkit.Location
@@ -86,6 +87,7 @@ class FirearmShots(
     private class Bullet(val round: Round, val position: Vector, val velocity: Vector, val born: Long) {
         var remaining = round.shot.spec.range
         var showTracer = true
+        var showTrail = round.pellets == 1
         var display: PacketBlockDisplay? = null
     }
     private data class Impact(val shot: Shot, val entity: Entity, val position: Vector, var headshot: Boolean, var damage: Double)
@@ -102,11 +104,13 @@ class FirearmShots(
     private val bullets = ArrayDeque<Bullet>()
     private val blasts = ArrayDeque<Blast>()
     private val retired = ArrayDeque<Retired>()
+    private val impactMarks = FirearmImpactMarks(displays, particles)
     private val completed = ArrayDeque<Round>()
     private val recoils = linkedMapOf<UUID, Recoil>()
     private var reserved = 0
     private var tick = 0L
     private var soundWork = 0
+    private var trailParticles = 0
     private var inputWorkNanos = 0L
     private var task: ScheduledTask? = null
     private var closed = false
@@ -183,6 +187,7 @@ class FirearmShots(
         if (closed) return
         tick++
         soundWork = 0
+        trailParticles = 0
         while (retired.firstOrNull()?.due?.let { it <= tick } == true) retired.removeFirst().display.remove()
         // A single-shot owner debits after admission returns. Its completion may start the reload.
         while (inputCompletions.isNotEmpty()) resolveRound(inputCompletions.removeFirst(), true)
@@ -242,7 +247,8 @@ class FirearmShots(
             } catch (failure: Exception) { fail(impact.shot, "impact", failure) }
         }
         recoverRecoil()
-        if (inputCompletions.isEmpty() && rounds.isEmpty() && bullets.isEmpty() && blasts.isEmpty() && completed.isEmpty() && retired.isEmpty() && recoils.isEmpty()) {
+        val marksAlive = impactMarks.advance(tick)
+        if (!marksAlive && inputCompletions.isEmpty() && rounds.isEmpty() && bullets.isEmpty() && blasts.isEmpty() && completed.isEmpty() && retired.isEmpty() && recoils.isEmpty()) {
             task?.cancel()
             task = null
         }
@@ -327,6 +333,9 @@ class FirearmShots(
         val end = result?.hitPosition ?: bullet.position.clone().add(direction.clone().multiply(loaded))
         cosmetic(shot, "flyby") { flyby(bullet, end, direction) }
         val travel = bullet.position.distance(end)
+        if (bullet.showTrail && shot.spec.projectile == FirearmProjectile.BULLET && travel >= 3.0) {
+            cosmetic(shot, "flight-trail") { flightTrail(shot, origin, direction, travel) }
+        }
         bullet.remaining -= travel
         bullet.position.copy(end)
         // Gravity is in blocks/tick²; retain the same swept segment at every speed, never point-test a bullet.
@@ -337,6 +346,9 @@ class FirearmShots(
         }
         cosmetic(shot, "tracer") { presentBullet(bullet, direction, result != null, travel) }
         if (result != null) {
+            if (shot.spec.projectile == FirearmProjectile.BULLET && result.hitBlock != null) {
+                cosmetic(shot, "impact-mark") { impactMarks.mark(result, tick) }
+            }
             cosmetic(shot, "contact") { contact(bullet.round, result, direction) }
             if (shot.spec.projectile != FirearmProjectile.BULLET) {
                 detonate(bullet.round, end.clone().subtract(direction.clone().multiply(.06)))
@@ -404,10 +416,12 @@ class FirearmShots(
         }
 
     private fun selectTracers(pellets: List<Bullet>, direction: Vector) {
+        if (pellets.size == 1) return
+        val center = pellets.maxBy { it.velocity.dot(direction) }
+        center.showTrail = true
         if (pellets.size <= 3) return
         // Show the center and two distinct outer paths of the actual spread, including vertical fans.
         pellets.forEach { it.showTracer = false }
-        val center = pellets.maxBy { it.velocity.dot(direction) }
         val edge = pellets.maxBy { it.velocity.distanceSquared(center.velocity) }
         val third = pellets.maxBy { minOf(it.velocity.distanceSquared(center.velocity), it.velocity.distanceSquared(edge.velocity)) }
         center.showTracer = true
@@ -435,11 +449,31 @@ class FirearmShots(
         display.teleportDuration = duration
         display.interpolationDuration = if (bullet.born == tick) 0 else duration
         display.teleport(position)
-        val length = min(travel, 1.35).toFloat()
+        val length = min(travel, 2.1).toFloat()
         // Bound the apparent width when a nearby obstacle has pushed the barrel close to the eye.
         val nearWidth = .024 * position.distance(shot.shooter.eyeLocation) / (scopeZoom(shot.shooter.uniqueId) ?: 1f)
-        val width = minOf(.056f, length, nearWidth.toFloat())
+        val width = minOf(.10f, length, nearWidth.toFloat())
         display.transformation = firearmBulletTransform(direction, length, width)
+    }
+
+    private fun flightTrail(shot: Shot, start: Location, direction: Vector, travel: Double) {
+        if (!particles() || trailParticles >= MAX_TRAIL_PARTICLES_PER_TICK) return
+        val middle = start.clone().add(direction.clone().multiply(travel * .5))
+        val viewers = shot.world.getNearbyPlayers(middle, 64.0).toList()
+        if (viewers.isEmpty()) return
+        // Each separated dash has a dim tail and a wider, pale tip. Leave space before contact debris.
+        val gaps = (travel / 8.0).toInt().coerceAtMost(3)
+        val spacing = (travel - 3.35) / gaps.coerceAtLeast(1)
+        for (dash in 0..gaps) {
+            for ((offset, dust) in TRAIL_DASH) {
+                val distance = 1.5 + dash * spacing + offset
+                if (distance >= travel - .65 || trailParticles >= MAX_TRAIL_PARTICLES_PER_TICK) return
+                trailParticles++
+                shot.world.spawnParticle(Particle.DUST_COLOR_TRANSITION, viewers, shot.shooter,
+                    start.x + direction.x * distance, start.y + direction.y * distance, start.z + direction.z * distance,
+                    1, 0.0, 0.0, 0.0, 0.0, dust, true)
+            }
+        }
     }
 
     private fun muzzleLocation(shot: Shot, eye: Location, direction: Vector, contactDistance: Double): Location {
@@ -527,11 +561,10 @@ class FirearmShots(
                 .06 - .05 * abs(normal.x), .06 - .05 * abs(normal.y), .06 - .05 * abs(normal.z), .10, blockData)
             else shot.world.spawnParticle(Particle.CRIT, point, 3, .045, .045, .045, .10)
         }
-        if (!sounds() || !claimSoundWork()) return
-        // Physical contact is audible even when native protection later rejects damage.
-        shot.world.playSound(contact.toLocation(shot.world), "arc:bullet_impact", SoundCategory.PLAYERS, 1f, 1f)
-        if (blockData != null && claimSoundWork()) shot.world.playSound(point, blockData.soundGroup.hitSound,
-            SoundCategory.PLAYERS, .65f, 1f)
+        // Living targets play their own hurt response if the damage route accepts the hit.
+        if (blockData == null || !sounds() || !claimSoundWork()) return
+        val cue = firearmSurfaceSound(blockData.soundGroup.hitSound)
+        shot.world.playSound(contact.toLocation(shot.world), cue.sound, SoundCategory.PLAYERS, cue.volume, cue.pitch)
     }
 
     private fun claimSoundWork(): Boolean {
@@ -612,6 +645,7 @@ class FirearmShots(
         closed = true
         task?.cancel()
         task = null
+        impactMarks.close()
         bullets.forEach { it.display?.remove() }
         retired.forEach { it.display.remove() }
         bullets.clear()
@@ -635,6 +669,11 @@ class FirearmShots(
         private const val MAX_BULLETS = 192
         private const val MAX_STEPS_PER_TICK = 96
         private const val MAX_SOUND_WORK_PER_TICK = MAX_STEPS_PER_TICK / 3
+        private const val MAX_TRAIL_PARTICLES_PER_TICK = 48
+        private val TRAIL_DASH = listOf(
+            0.0 to Particle.DustTransition(Color.fromRGB(213, 160, 94), Color.fromRGB(69, 62, 56), .90f),
+            .85 to Particle.DustTransition(Color.fromRGB(255, 231, 165), Color.fromRGB(99, 85, 68), 1.45f),
+        )
         private const val TICK_BUDGET_NANOS = 2_000_000L
         private const val MAX_LIFETIME_TICKS = 40L
         private const val BULLET_GRAVITY = .025
@@ -645,6 +684,19 @@ class FirearmShots(
 }
 
 internal enum class FirearmMuzzleStyle { COMPACT, RIFLE, BLAST, BLACK_POWDER, SUPPRESSED }
+
+internal data class FirearmSurfaceSound(val sound: Sound, val volume: Float, val pitch: Float)
+
+internal fun firearmSurfaceSound(hit: Sound): FirearmSurfaceSound = when (hit) {
+    Sound.BLOCK_WOOD_HIT, Sound.BLOCK_CHERRY_WOOD_HIT, Sound.BLOCK_NETHER_WOOD_HIT,
+    Sound.BLOCK_BAMBOO_WOOD_HIT -> FirearmSurfaceSound(Sound.BLOCK_BAMBOO_BREAK, .60f, 1.35f)
+    Sound.BLOCK_STONE_HIT, Sound.BLOCK_DEEPSLATE_HIT, Sound.BLOCK_POLISHED_DEEPSLATE_HIT,
+    Sound.BLOCK_DEEPSLATE_BRICKS_HIT, Sound.BLOCK_DEEPSLATE_TILES_HIT ->
+        FirearmSurfaceSound(Sound.BLOCK_DRIPSTONE_BLOCK_BREAK, .55f, 1.40f)
+    Sound.BLOCK_METAL_HIT -> FirearmSurfaceSound(Sound.BLOCK_CHAIN_HIT, .50f, 1.35f)
+    Sound.BLOCK_GLASS_HIT -> FirearmSurfaceSound(Sound.BLOCK_GLASS_BREAK, .34f, 1.55f)
+    else -> FirearmSurfaceSound(hit, .45f, 1.20f)
+}
 
 internal data class FirearmFlightProfile(
     val speed: Double,
@@ -659,14 +711,14 @@ internal fun firearmFlightProfile(id: FirearmId): FirearmFlightProfile = when (i
     FirearmId.REVOLVER -> FirearmFlightProfile(22.0, 3.1f, 2.4f, .92f, FirearmMuzzleStyle.COMPACT)
     FirearmId.HAND_CANNON -> FirearmFlightProfile(12.0, 5.4f, 4f, .82f, FirearmMuzzleStyle.BLAST)
     FirearmId.DOUBLE_BARREL -> FirearmFlightProfile(24.0, 4.5f, 3.6f, .88f, FirearmMuzzleStyle.BLAST)
-    FirearmId.FIVE_SEVEN -> FirearmFlightProfile(30.0, 1.7f, 1.8f, 1f, FirearmMuzzleStyle.COMPACT)
-    FirearmId.G36 -> FirearmFlightProfile(43.0, 1.25f, 2.7f, .96f, FirearmMuzzleStyle.RIFLE)
-    FirearmId.AEK_971 -> FirearmFlightProfile(44.0, 1.4f, 3f, .92f, FirearmMuzzleStyle.RIFLE)
-    FirearmId.RPL_20 -> FirearmFlightProfile(41.0, 1.7f, 3.4f, .88f, FirearmMuzzleStyle.RIFLE)
+    FirearmId.FIVE_SEVEN -> FirearmFlightProfile(22.0, 1.7f, 1.8f, 1f, FirearmMuzzleStyle.COMPACT)
+    FirearmId.G36 -> FirearmFlightProfile(26.0, 1.25f, 2.7f, .96f, FirearmMuzzleStyle.RIFLE)
+    FirearmId.AEK_971 -> FirearmFlightProfile(27.0, 1.4f, 3f, .92f, FirearmMuzzleStyle.RIFLE)
+    FirearmId.RPL_20 -> FirearmFlightProfile(25.0, 1.7f, 3.4f, .88f, FirearmMuzzleStyle.RIFLE)
     FirearmId.VEPR_12 -> FirearmFlightProfile(24.0, 3.6f, 3.3f, .90f, FirearmMuzzleStyle.BLAST)
-    FirearmId.M1_GARAND -> FirearmFlightProfile(43.0, 3.3f, 3.5f, .90f, FirearmMuzzleStyle.RIFLE)
+    FirearmId.M1_GARAND -> FirearmFlightProfile(28.0, 3.3f, 3.5f, .90f, FirearmMuzzleStyle.RIFLE)
     FirearmId.VSS_VINTOREZ -> FirearmFlightProfile(15.0, 1.15f, 4f, 1f, FirearmMuzzleStyle.SUPPRESSED)
-    FirearmId.MCMILLAN -> FirearmFlightProfile(45.0, 4.8f, 4f, .86f, FirearmMuzzleStyle.RIFLE)
+    FirearmId.MCMILLAN -> FirearmFlightProfile(32.0, 4.8f, 4f, .86f, FirearmMuzzleStyle.RIFLE)
 }
 
 /** Preserve configured pellet count/damage, separating multiple consumed rounds into successive ticks. */
