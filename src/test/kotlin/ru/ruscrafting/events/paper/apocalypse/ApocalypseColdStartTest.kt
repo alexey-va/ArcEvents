@@ -6,8 +6,15 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import net.kyori.adventure.text.Component
+import org.bukkit.GameMode
 import org.bukkit.Material
+import org.bukkit.World
+import org.bukkit.event.EventPriority
+import org.bukkit.event.Listener
+import org.bukkit.event.block.BlockBreakEvent
 import org.bukkit.event.player.PlayerCommandPreprocessEvent
+import org.bukkit.event.player.PlayerTeleportEvent
+import org.bukkit.event.player.PlayerTeleportEvent.TeleportCause
 import org.bukkit.NamespacedKey
 import org.bukkit.inventory.ItemStack
 import org.bukkit.persistence.PersistentDataType
@@ -16,6 +23,7 @@ import ru.arc.core.PaperArcRuntime
 import ru.arc.core.Tasks
 import ru.arc.paper.playerstate.PaperPlayerStateCodec
 import ru.arc.paper.playerstate.PaperPlayerStateService
+import ru.arc.paper.teleport.ScopedTeleportAuthorizer
 import ru.arc.paper.testing.MockBukkitTestRuntime
 import ru.arc.redis.InMemoryRedis
 import ru.ruscrafting.events.config.ArcEventsConfig
@@ -23,6 +31,7 @@ import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.config.NetworkSettings
 import ru.ruscrafting.events.config.NodeMode
 import ru.ruscrafting.events.domain.apocalypse.ApocalypseLayout
+import ru.ruscrafting.events.domain.apocalypse.ApocalypsePoint
 import ru.ruscrafting.events.domain.apocalypse.ApocalypseWorldLayout
 import ru.ruscrafting.events.paper.EventWork
 import java.nio.file.Files
@@ -30,6 +39,162 @@ import java.util.UUID
 import java.util.concurrent.CompletableFuture
 
 class ApocalypseColdStartTest : FunSpec({
+    test("staff may visit the expedition with their own inventory and a later login still reconciles real escrow") {
+        MockBukkitTestRuntime.open().use { paper ->
+            val plugin = paper.createSimplePlugin("ExpeditionVisit")
+            val home = paper.addSimpleWorld("world")
+            val expedition = paper.addSimpleWorld("arcevents_apocalypse_v2")
+            PaperArcRuntime.installScheduling(plugin)
+            val work = ColdStartWork()
+            try {
+                val visitor = paper.addPlayer("Visitor")
+                visitor.addAttachment(plugin, "arcevents.admin", true)
+                visitor.gameMode = GameMode.CREATIVE
+                val veteran = paper.addPlayer("Veteran")
+                veteran.addAttachment(plugin, "arcevents.admin", true)
+                val ordinary = paper.addPlayer("Ordinary")
+                val occupied = paper.addPlayer("InOtherEvent")
+                occupied.addAttachment(plugin, "arcevents.admin", true)
+                val journal = ApocalypseStorage(plugin.dataFolder.toPath())
+                val session = UUID.randomUUID().toString()
+                veteran.inventory.setItem(0, ItemStack.of(Material.DIAMOND, 4))
+                val previousOrigin = PaperPlayerStateService().captureEnvelope(veteran, 1)
+                val receipt = ApocalypsePlayerRecord(veteran.uniqueId.toString(), "parkour", ApocalypsePlayerPhase.PARKED,
+                    previousOrigin, null, nativeSession = session)
+                journal.save(receipt)
+                veteran.inventory.setItem(0, ItemStack.of(Material.EMERALD, 9))
+                val marker = NamespacedKey(plugin, "apocalypse_admin_visit")
+                val native = NamespacedKey(plugin, "apocalypse_session")
+                val arcadeTeleport = ScopedTeleportAuthorizer()
+                val settings = coldSettings(NodeMode.HOST)
+                ApocalypseRuntime(plugin, { settings }, coldLocale(), mockk(), work, InMemoryRedis(), mockk(),
+                    occupied = { it == occupied.uniqueId }, queued = { CompletableFuture.completedFuture(null) },
+                    returnToOrigin = { _, _ -> false }, sourceLayout = testLayout(), chunkTickets = mockk(),
+                    internalTeleport = arcadeTeleport::isAuthorized).use { runtime ->
+                    runtime.start()
+                    runtime.useTestWorld(expedition)
+                    paper.awaitHostJoins(runtime)
+                    ordinary.teleport(expedition.spawnLocation, TeleportCause.COMMAND) shouldBe false
+                    occupied.teleport(expedition.spawnLocation, TeleportCause.COMMAND) shouldBe false
+                    val captured = expedition.spawnLocation
+                    arcadeTeleport.authorize(ordinary.uniqueId, captured) { ordinary.teleport(captured) } shouldBe false
+                    arcadeTeleport.authorize(occupied.uniqueId, captured) {
+                        occupied.persistentDataContainer.set(native, PersistentDataType.STRING, session)
+                        occupied.teleport(captured) shouldBe false
+                        occupied.persistentDataContainer.remove(native)
+                        occupied.teleport(captured.clone().apply { yaw += 18f }) shouldBe false
+                        occupied.persistentDataContainer.has(marker) shouldBe false
+                        occupied.teleport(captured)
+                    } shouldBe true
+                    occupied.persistentDataContainer.get(marker, PersistentDataType.STRING) shouldBe expedition.uid.toString()
+                    var veto = true
+                    plugin.server.pluginManager.registerEvent(PlayerTeleportEvent::class.java, object : Listener {}, EventPriority.HIGHEST,
+                        { _, event ->
+                            val teleport = event as PlayerTeleportEvent
+                            if (veto && teleport.player == visitor) teleport.isCancelled = true
+                        }, plugin)
+                    visitor.teleport(expedition.spawnLocation, TeleportCause.COMMAND) shouldBe false
+                    visitor.persistentDataContainer.has(marker) shouldBe false
+                    veto = false
+                    visitor.teleport(expedition.spawnLocation, TeleportCause.COMMAND) shouldBe true
+                    visitor.persistentDataContainer.get(marker, PersistentDataType.STRING) shouldBe expedition.uid.toString()
+                    visitor.gameMode shouldBe GameMode.CREATIVE
+                    runtime.isPlaying(visitor.uniqueId) shouldBe false
+                    journal.load(visitor.uniqueId) shouldBe null
+                    paper.callEvent(BlockBreakEvent(expedition.getBlockAt(0, 64, 0), visitor)).isCancelled shouldBe false
+                    veteran.teleport(visitor, TeleportCause.COMMAND) shouldBe true
+                    visitor.teleport(home.spawnLocation, TeleportCause.COMMAND) shouldBe true
+                    visitor.persistentDataContainer.has(marker) shouldBe false
+                    veteran.disconnect() shouldBe true
+                    veteran.recalculatePermissions()
+                    veteran.reconnect() shouldBe true
+                    runtime.isBusy(veteran.uniqueId) shouldBe false
+                    paper.awaitHostJoins(runtime)
+                    veteran.world shouldBe expedition
+                    veteran.inventory.getItem(0) shouldBe ItemStack.of(Material.EMERALD, 9)
+                    journal.load(veteran.uniqueId) shouldBe receipt
+                    veteran.persistentDataContainer.set(native, PersistentDataType.STRING, session)
+                    veteran.disconnect() shouldBe true
+                    veteran.recalculatePermissions()
+                    veteran.reconnect() shouldBe true
+                    runtime.isBusy(veteran.uniqueId) shouldBe true
+                    paper.advanceUntil("native expedition inventory restored despite the visit marker") { !runtime.isBusy(veteran.uniqueId) }
+                    veteran.world shouldBe home
+                    veteran.inventory.getItem(0) shouldBe ItemStack.of(Material.DIAMOND, 4)
+                    veteran.persistentDataContainer.has(marker) shouldBe false
+                    veteran.persistentDataContainer.has(native) shouldBe false
+                }
+            } finally { work.close(); Tasks.reset() }
+        }
+    }
+
+    test("an active admin teleport restores the origin before moving to the requested player and skips the proxy return") {
+        MockBukkitTestRuntime.open().use { paper ->
+            val plugin = paper.createSimplePlugin("ExpeditionAdminExit")
+            paper.addSimpleWorld("world")
+            val expedition = paper.addSimpleWorld("arcevents_apocalypse_v2")
+            val destination = paper.addSimpleWorld("staff_destination")
+            PaperArcRuntime.installScheduling(plugin)
+            val work = ColdStartWork()
+            try {
+                val admin = paper.addPlayer("Staff")
+                val permission = requireNotNull(admin.addAttachment(plugin, "arcevents.admin", true))
+                val target = paper.addPlayer("Target")
+                target.teleport(destination.spawnLocation.clone().add(9.0, 2.0, 3.0).apply { yaw = 34f; pitch = -12f }) shouldBe true
+                val journal = ApocalypseStorage(plugin.dataFolder.toPath())
+                admin.inventory.setItem(0, ItemStack.of(Material.DIAMOND, 3))
+                val origin = PaperPlayerStateService().captureEnvelope(admin, 1)
+                val session = UUID.randomUUID().toString()
+                journal.save(ApocalypsePlayerRecord(admin.uniqueId.toString(), "spawn", ApocalypsePlayerPhase.ACTIVE,
+                    origin, null, nativeSession = session))
+                admin.teleport(expedition.spawnLocation) shouldBe true
+                admin.inventory.setItem(0, ItemStack.of(Material.IRON_AXE))
+                val native = NamespacedKey(plugin, "apocalypse_session")
+                val visit = NamespacedKey(plugin, "apocalypse_admin_visit")
+                admin.persistentDataContainer.set(native, PersistentDataType.STRING, session)
+                admin.persistentDataContainer.set(visit, PersistentDataType.STRING, expedition.uid.toString())
+                val settings = coldSettings(NodeMode.HOST)
+                val transfers = mutableListOf<String>()
+                ApocalypseRuntime(plugin, { settings }, coldLocale(), mockk(relaxed = true), work, InMemoryRedis(), mockk(),
+                    occupied = { false }, queued = { CompletableFuture.completedFuture(null) },
+                    returnToOrigin = { _, server -> transfers.add(server) },
+                    sourceLayout = testLayout(), chunkTickets = mockk()).use { runtime ->
+                    runtime.start()
+                    runtime.useTestWorld(expedition)
+                    admin.teleport(target, TeleportCause.COMMAND) shouldBe false
+                    paper.advanceUntil("existing expedition resumed") { runtime.isPlaying(admin.uniqueId) }
+                    admin.persistentDataContainer.has(visit) shouldBe false
+                    permission.setPermission("arcevents.admin", false)
+                    admin.teleport(target, TeleportCause.COMMAND) shouldBe false
+                    runtime.isBusy(admin.uniqueId) shouldBe false
+                    permission.setPermission("arcevents.admin", true)
+                    val visitor = paper.addPlayer("Supervisor")
+                    visitor.addAttachment(plugin, "arcevents.admin", true)
+                    paper.awaitHostJoins(runtime)
+                    visitor.hasPermission("arcevents.admin") shouldBe true
+                    runtime.isBusy(visitor.uniqueId) shouldBe false
+                    visitor.teleport(admin, TeleportCause.COMMAND) shouldBe true
+                    visitor.location shouldBe admin.location
+                    admin.teleport(target, TeleportCause.COMMAND) shouldBe false
+                    runtime.isBusy(admin.uniqueId) shouldBe true
+                    admin.inventory.getItem(0)?.type shouldBe Material.IRON_AXE
+                    paper.advanceUntil("expedition parked and requested teleport completed") { admin.location == target.location }
+                    admin.teleportCause shouldBe TeleportCause.COMMAND
+                    admin.inventory.getItem(0) shouldBe ItemStack.of(Material.DIAMOND, 3)
+                    admin.persistentDataContainer.has(native) shouldBe false
+                    runtime.isPlaying(admin.uniqueId) shouldBe false
+                    runtime.isBusy(admin.uniqueId) shouldBe false
+                    val parked = requireNotNull(journal.load(admin.uniqueId))
+                    parked.phase shouldBe ApocalypsePlayerPhase.PARKED
+                    parked.origin shouldBe origin
+                    PaperPlayerStateCodec().decode(requireNotNull(parked.expedition)).storage[0]?.type shouldBe Material.IRON_AXE
+                    parked.returnPending shouldBe false
+                    transfers shouldBe emptyList()
+                }
+            } finally { work.close(); Tasks.reset() }
+        }
+    }
+
     test("active administrators retain all native commands and staff routing while recovery stays locked") {
         MockBukkitTestRuntime.open().use { paper ->
             val plugin = paper.createSimplePlugin("ExpeditionCommands")
@@ -132,6 +297,11 @@ class ApocalypseColdStartTest : FunSpec({
                         runtime.allowsRecoveryCommand(survivor, "/arcevents apocalypse recover")
                     }
                     runtime.ready shouldBe false
+                    runtime.allowsRecoveryCommand(survivor, "/events leave") shouldBe true
+                    runtime.allowsRecoveryCommand(survivor, "/arcevents:events apocalypse recover") shouldBe true
+                    runtime.allowsRecoveryCommand(survivor, "/events menu") shouldBe false
+                    runtime.allowsRecoveryCommand(survivor, "/other:events leave") shouldBe false
+                    runtime.tryOpenMenu(survivor) shouldBe false
                     runtime.command(ordinary, listOf("fishing")) shouldBe false
                     runtime.enter(ordinary)
                     redis.loadMapEntries("arc:events:apocalypse:host:v1", "parkour").join().single() shouldBe "0"
@@ -194,6 +364,25 @@ class ApocalypseColdStartTest : FunSpec({
         }
     }
 })
+
+// MockBukkit supplies the loaded world; generator preparation is independent of the registered event and journal paths.
+private fun testLayout() = CompletableFuture.completedFuture(mockk<ApocalypseLayout>(relaxed = true) {
+    every { spawn } returns ApocalypsePoint(0, 64, 0)
+    every { sitesNear(any(), any()) } returns emptyList()
+    every { markers(any()) } returns emptyList()
+    every { markersInChunk(any(), any()) } returns emptyList()
+})
+
+private fun ApocalypseRuntime.useTestWorld(world: World) {
+    javaClass.getDeclaredField("openingWorld").also { it.isAccessible = true; it.setBoolean(this, false) }
+    javaClass.getDeclaredField("world").also { it.isAccessible = true; it.set(this, world) }
+}
+
+private fun MockBukkitTestRuntime.awaitHostJoins(runtime: ApocalypseRuntime) {
+    // InMemoryRedis completes arrival reads on a worker; advancing a fixed number of native ticks can outrun it.
+    val pending = runtime.javaClass.getDeclaredField("joining").also { it.isAccessible = true }.get(runtime) as Set<*>
+    advanceUntil("the host reconciles joining players") { pending.isEmpty() }
+}
 
 private fun coldSettings(mode: NodeMode) = mockk<ArcEventsConfig> {
     every { nodeMode } returns mode

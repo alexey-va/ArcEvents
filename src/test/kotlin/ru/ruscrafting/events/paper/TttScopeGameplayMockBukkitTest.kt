@@ -548,7 +548,7 @@ class TttScopeGameplayMockBukkitTest : StringSpec({
                 val scope = f.firearms.refreshItem(f.firearms.firearmItem(id, player, "match", 1), player)
                 text(scope).contains("ПКМ") shouldBe true
                 text(scope).contains("ПКМ — прицел") shouldBe true
-                text(scope).contains("Shift+F — настройки") shouldBe true
+                text(scope).contains("/events burst — настройки") shouldBe true
                 f.firearms.state(scope) shouldBe FirearmState(id, 1, "match")
                 scope.itemMeta.lore().orEmpty().all { !it.hasDecoration(net.kyori.adventure.text.format.TextDecoration.ITALIC) } shouldBe true
             }

@@ -3,14 +3,15 @@ command:
   player-only: '<prefix> <#c42323>This command is only available to players.'
   no-permission: '<prefix> <#c42323>You do not have access to this action.'
   help: |-
-    <prefix> <#e6fff3>Menu and rules: <#92bed8>/arcevents
+    <prefix> <#e6fff3>Menu and rules <#92bed8>/events <#8c8c8c>or <#92bed8>/arcevents
     <#8c8c8c>   Queue: <#92bed8>/arcevents join  <#8c8c8c>leave: <#92bed8>/arcevents leave
     <#8c8c8c>   Start roster: <#92bed8>/arcevents start
     <#8c8c8c>   Match: <#92bed8>/arcevents status  <#8c8c8c>roster: <#92bed8>/arcevents roster
     <#8c8c8c>   Shop: <#92bed8>/arcevents shop  <#8c8c8c>report: <#92bed8>/arcevents report
     <#e8dfd2>   Zombies, solo or team: <#92bed8>/arcevents zombies
     <#e8dfd2>   Enter the apocalypse <#92bed8>/arcevents apocalypse
-    <#e8dfd2>   Held weapon <#92bed8>Shift+F <#e8dfd2>or <#92bed8>/arcevents burst
+    <#e8dfd2>   Event menu <#92bed8>Shift+F
+    <#e8dfd2>   Held weapon settings <#92bed8>/events burst
   unknown: '<prefix> <#c42323>Unknown<#8c8c8c>: <#e6fff3><input>'
   failed: '<prefix> <#ff6b61>Could not complete: <#e8dfd2><reason>'
   reload-ok: '<prefix> <#2bba43>Configuration and locales reloaded.'
@@ -139,7 +140,8 @@ menu:
       - '<#8c8c8c>The loot effect pattern signals its rarity.'
       - ''
       - '<#8c8c8c>LMB — fire · RMB — aim'
-      - '<#8c8c8c>F — reload · Shift+F — settings'
+      - '<#8c8c8c>F — reload · Shift+F — event menu'
+      - '<#8c8c8c>/events burst — weapon settings'
     controls-name: '<#92bed8><bold>Commands'
     controls-lore:
     - <#86dcf1>/arcevents<#e8dfd2> — match menu
@@ -540,7 +542,8 @@ weapon:
     - '<#8c8c8c>Damage: <#f2f0e6><damage> <#8c8c8c>range: <#f2f0e6><range>'
     - ''
     - '<#e3b341>LMB<#f2f0e6> — fire  <#e3b341>RMB<#f2f0e6> — aim'
-    - '<#e3b341>F<#f2f0e6> — reload  <#e3b341>Shift+F<#f2f0e6> — settings'
+    - '<#e3b341>F<#f2f0e6> — reload  <#e3b341>Shift+F<#f2f0e6> — menu'
+    - '<#e3b341>/events burst<#f2f0e6> — weapon settings'
   rarity:
     common: '<#8c8c8c>Common weapon'
     uncommon: '<#7bd88f>Uncommon weapon'
@@ -561,7 +564,7 @@ weapon:
   ammo-hud-reserve: '<#9eabb8>  reserve <reserve></#9eabb8>'
   ammo-hud-creative: '<#9de1e8>∞  Unlimited</#9de1e8>'
   ammo-hud-controls: '<#d9e0e6><white>LMB</white> Fire  <white>RMB</white> Aim</#d9e0e6>'
-  ammo-hud-reload: '<#d9e0e6><white>F</white> Reload  <white>Shift+F</white> Mode</#d9e0e6>'
+  ammo-hud-reload: '<#d9e0e6><white>F</white> Reload · <white>Shift+F</white> Menu</#d9e0e6>'
   ammo-hud-reloading: '<#ffd080><white>F</white> Reloading…</#ffd080>'
   ammo-hud-empty: '<#ff8b82>Empty  <white>F</white> Reload</#ff8b82>'
   creative-ammo-actionbar: '<weapon>  <#ffffff>∞  <#aaaaaa>Ammo is unlimited'
@@ -964,7 +967,7 @@ fishing:
     shotgun-name: "<#e3b341>Double-barrel shotgun"
     shotgun-description: "Strong up close; reload after two shots."
     burst_rifle-name: <#ffb277>G36
-    burst_rifle-description: "The stock burst fires three rounds. Press Shift+F to change it."
+    burst_rifle-description: "The default burst fires three rounds. Use /events burst to change its length."
     assault_rifle-name: <#ffb277>AEK-971
     assault_rifle-description: "Faster, tighter bursts for the later islands."
     sniper-name: <#ffb277>McMillan
@@ -1244,6 +1247,7 @@ apocalypse:
   entered: '<#c4d58b>Apocalypse. <#e8dfd2>Search the bunker and take the stairs to the surface. To return, use <#92bed8>/arcevents leave<#e8dfd2>.'
   resumed: '<#9bd48d>You are back in the apocalypse world.'
   returned: '<#9bd48d>You returned from the apocalypse.'
+  admin-teleport-failed: '<#9bd48d>You left the expedition. Your inventory was restored.<newline>  <#ffb277>The teleport was cancelled. Try <#92bed8>/tp<#ffb277> again.'
   fly:
     enabled: '<#9bd48d>Flight enabled. Jump to climb and sneak to descend.'
     disabled: '<#e8dfd2>Flight disabled.'
@@ -1304,10 +1308,10 @@ apocalypse:
       address: '<bearing><newline><#382b21>X <x> Y <y> Z <z>'
       track: '<#235a76><underlined>Track landmark'
       weapons: '<#382b21>Use the axe in melee. Carry spare rounds for firearms. Open parts crates with a crowbar.'
-      controls: '<#324855>Left click — fire<newline>Right click — aim<newline>F — reload<newline>Shift+F — settings'
+      controls: '<#324855>Left click — fire<newline>Right click — aim<newline>F — reload<newline>Shift+F — event menu'
       workbench: '<#382b21>Right-click the bunker crafting table. Use a copper block and a spare crafting table to make the T1 telegraph. Place it, then use 8 iron ingots and 6 logs to craft the DB-2 Durin.'
       parts: '<#382b21>At a crafting table, make an iron ammo box with 1 iron ingot and 7 planks. Combine the box with 2 copper ingots and 1 more iron ingot to make an ammo bench. Place it to craft ammunition.'
-      health: '<#382b21>Infection has four stages. A vaccine cures and gives temporary immunity. A golden apple also cures.'
+      health: '<#382b21>A vaccine or golden apple cures all 4 stages. A vaccine gives brief immunity.<newline>Craft a vaccine at a crafting table with 1 glass bottle, 1 gold ingot and 2 redstone dust.'
       horde: '<#382b21>A horde comes every tenth night. Stock food and ammunition.'
       refresh: '<#235a76><underlined>Refresh field guide'
       leave: '<#782c22><underlined>Leave expedition'
@@ -1376,9 +1380,9 @@ apocalypse:
     kit-gun: '<#e8dfd2>You have a gun. Spare rounds <white><ammo></white>.'
     kit-axe: '<#e8dfd2>The axe is useful in melee. Spare rounds <white><ammo></white>.'
     weapons-help: '<#e8dfd2>Look for guns in cities and bunkers. Open gun storage by hand. Use a crowbar for parts crates.'
-    controls: '<#92bed8>Left click <white>fire · <#92bed8>Right click <white>aim · <#92bed8>F <white>reload<newline><#92bed8>Shift+F <white>weapon settings'
+    controls: '<#92bed8>Left click <white>fire · <#92bed8>Right click <white>aim · <#92bed8>F <white>reload<newline><#92bed8>Shift+F <white>event menu'
     health-title: '<#ffb277><bold>Infection'
-    health-help: '<#e8dfd2>A zombie hit can infect you. Infection has four stages. A vaccine cures it and briefly prevents reinfection. A golden apple also cures infection.'
+    health-help: '<#e8dfd2>A zombie hit can infect you. Infection has four stages. A vaccine cures it and briefly prevents reinfection. A golden apple also cures infection.<newline><newline>Right-click a regular crafting table and choose “Infection vaccine”. Each vaccine takes 1 glass bottle, 1 gold ingot and 2 redstone dust.'
     horde-title: '<#ffb277><bold>Horde · day <day>'
     horde-help: '<#e8dfd2>Every tenth night, zombies converge on survivors in waves. Gather food and ammunition and find shelter before dark.'
     refresh: '<white>Refresh'
@@ -1536,6 +1540,9 @@ apocalypse:
       minecraft_logs: 'Any log'
       minecraft_planks: 'Any planks'
     items:
+      cure_vaccine: '<#9bd48d>Infection vaccine'
+      minecraft_glass_bottle: 'Glass bottle'
+      minecraft_redstone: 'Redstone dust'
       the_deeper_void_void_refinery_casing: 'Refinery casing'
       the_deeper_void_refinery_fuel_cell: 'Refinery fuel cell'
       the_deeper_void_void_slag: 'Void slag'

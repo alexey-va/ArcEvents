@@ -25,8 +25,10 @@ import org.bukkit.event.block.Action
 import org.bukkit.event.entity.ProjectileLaunchEvent
 import org.bukkit.event.entity.EntityDamageByEntityEvent
 import org.bukkit.event.entity.EntityDamageEvent.DamageCause
+import org.bukkit.event.player.PlayerCommandPreprocessEvent
 import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.event.player.PlayerSwapHandItemsEvent
+import org.bukkit.event.player.PlayerTeleportEvent
 import org.bukkit.event.server.BroadcastMessageEvent
 import org.bukkit.command.CommandSender
 import net.kyori.adventure.text.Component
@@ -255,6 +257,39 @@ class SafetyContractTest : StringSpec({
         verify(exactly = 1) { service.reloadFirearm(player) }
     }
 
+    "current event shortcuts consume shifted F and let the event command alias through" {
+        MockBukkitTestRuntime.open().use { paper ->
+            val player = paper.addPlayer("event-shortcut")
+            val service = mockk<ArcEventsGameplayBoundary> {
+                every { isParticipant(player.uniqueId) } returns true
+                every { phase() } returns MatchPhase.ACTIVE
+                every { reloadFirearm(player) } returns true
+            }
+            val menu = mockk<ArcEventsMenu> {
+                every { openRoot(player) } returns Unit
+            }
+            val listener = ArcEventsListener(service, menu, mockk(), openShortcut = {
+                menu.openRoot(it)
+                true
+            })
+            fun swap(sneaking: Boolean): PlayerSwapHandItemsEvent {
+                player.isSneaking = sneaking
+                return PlayerSwapHandItemsEvent(player, player.inventory.itemInOffHand, player.inventory.itemInMainHand)
+                    .also(listener::onSwap)
+            }
+            swap(true).isCancelled shouldBe true
+            verify(exactly = 1) { menu.openRoot(player) }
+            verify(exactly = 0) { service.reloadFirearm(player) }
+            swap(false).isCancelled shouldBe true
+            verify(exactly = 1) { service.reloadFirearm(player) }
+
+            listOf("/events", "/arcevents", "/arcevents:events leave", "/arcevents:arcevents menu").forEach { message ->
+                PlayerCommandPreprocessEvent(player, message).also(listener::onCommand).isCancelled shouldBe false
+            }
+            PlayerCommandPreprocessEvent(player, "/other:events").also(listener::onCommand).isCancelled shouldBe true
+        }
+    }
+
     "state recovery consumes plain and shifted F before firearm input" {
         MockBukkitTestRuntime.open().use { paper ->
             val player = paper.addPlayer("firearm-state-lock")
@@ -287,6 +322,30 @@ class SafetyContractTest : StringSpec({
             swap(true)
             verify(exactly = 1) { service.reloadFirearm(player) }
             verify(exactly = 1) { menu.openFirearmSettings(player, quiet = true) }
+        }
+    }
+
+    "administrators can use commands and teleport while participating in every arcade mode" {
+        MockBukkitTestRuntime.open().use { paper ->
+            val player = paper.addPlayer("admin-travel")
+            val destination = Location(mockk<World>(), 12.0, 70.0, 4.0)
+            val service = mockk<ArcEventsGameplayBoundary>(relaxed = true) {
+                every { isParticipant(player.uniqueId) } returns true
+                every { phase() } returns MatchPhase.ACTIVE
+                every { withinArena(any()) } returns false
+            }
+            val listener = ArcEventsListener(service, mockk(), mockk())
+            for (mode in listOf("fishing", "zombies", "practice")) {
+                every { service.isFishingParticipant(player.uniqueId) } returns (mode == "fishing")
+                every { service.isZombiesParticipant(player.uniqueId) } returns (mode == "zombies")
+                every { service.isPracticeParticipant(player.uniqueId) } returns (mode == "practice")
+                player.isOp = true
+                PlayerCommandPreprocessEvent(player, "/tp another-player").also(listener::onCommand).isCancelled shouldBe false
+                PlayerTeleportEvent(player, player.location, destination).also(listener::onTeleport).isCancelled shouldBe false
+                player.isOp = false
+                PlayerCommandPreprocessEvent(player, "/tp another-player").also(listener::onCommand).isCancelled shouldBe true
+                PlayerTeleportEvent(player, player.location, destination).also(listener::onTeleport).isCancelled shouldBe true
+            }
         }
     }
 

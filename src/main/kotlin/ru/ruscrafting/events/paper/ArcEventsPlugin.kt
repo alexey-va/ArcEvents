@@ -79,9 +79,17 @@ open class ArcEventsPlugin : JavaPlugin() {
     private fun originalContent() = originalContent ?: ru.ruscrafting.events.paper.apocalypse.ApocalypseContent(dataFolder.toPath())
         .also { originalContent = it }
 
-    /** ARC calls this before resolving the personal Shift+F action. */
-    fun tryOpenFirearmSettings(player: Player): Boolean =
-        service != null && !isInventoryLocked(player) && menu.openFirearmSettings(player, quiet = true)
+    /** The deployed ARC Shift+F bridge calls this method before resolving the personal shortcut. */
+    fun tryOpenFirearmSettings(player: Player): Boolean {
+        if (isInventoryLocked(player)) return true
+        val activeService = service ?: return false
+        if (apocalypse?.tryOpenMenu(player) == true) return true
+        if (activeService.isParticipant(player.uniqueId)) {
+            menu.openRoot(player)
+            return true
+        }
+        return menu.openFirearmSettings(player, quiet = true)
+    }
 
     private fun isInventoryLocked(player: Player): Boolean {
         val id = player.uniqueId
@@ -314,6 +322,7 @@ open class ArcEventsPlugin : JavaPlugin() {
                 firearms, activeWork, manager, backendTransfer,
                 occupied = { id -> activeService.isParticipant(id) || escrow.isLocked(id) || id in escrow.pendingPlayers() },
                 queued = coordinator::queueState,
+                internalTeleport = activeService::isInternalTeleport,
                 returnToOrigin = coordinator::returnPlayer, sourceLayout = sourceLayout,
                 packetDisplays = packetDisplays, chunkTickets = chunkTickets).also { apocalypse = it; lifecycle.own(it) }
             activeService.independentInventoryOwner = { id -> apocalypseRuntime.isPlaying(id) || apocalypseRuntime.isBusy(id) }
@@ -357,7 +366,10 @@ open class ArcEventsPlugin : JavaPlugin() {
                 ammo?.hudFrame { key, values -> locale.render(key, player, values) }
             })
             lifecycle.tasks.runTimer(1, 1) { actionHud.tick(server.onlinePlayers) }
-            server.pluginManager.registerEvents(ArcEventsListener(activeService, menu, items, worldFirearms, actionHud::clear), this)
+            server.pluginManager.registerEvents(
+                ArcEventsListener(activeService, menu, items, worldFirearms, actionHud::clear, ::tryOpenFirearmSettings),
+                this,
+            )
             apocalypseRuntime.start()
             coordinator.start()
             activeService.start()

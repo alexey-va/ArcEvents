@@ -10,16 +10,17 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 class LocaleContractTest : StringSpec({
-    "only arcevents is registered and advertised as the event command" {
+    "events is the registered and advertised alias of arcevents" {
         val root = Files.createTempDirectory("arcevents-command-")
         try {
             val descriptor = Config(root, "plugin.yml")
             descriptor.keys("commands").toSet() shouldBe setOf("arcevents")
-            descriptor.stringList("commands.arcevents.aliases").isEmpty() shouldBe true
+            descriptor.stringList("commands.arcevents.aliases") shouldBe listOf("events")
             listOf("ru", "en").forEach { language ->
                 val locale = Config(root, "lang/$language.yml")
                 locale.string("command.help").contains("/arcevents") shouldBe true
-                Regex("""/(?:ae|events)\b""").containsMatchIn(Files.readString(root.resolve("lang/$language.yml"))) shouldBe false
+                locale.string("command.help").contains("/events") shouldBe true
+                Regex("""/ae\b""").containsMatchIn(Files.readString(root.resolve("lang/$language.yml"))) shouldBe false
             }
         } finally {
             root.toFile().deleteRecursively()

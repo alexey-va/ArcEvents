@@ -10,6 +10,7 @@ commands:
   arcevents:
     description: RusCrafting events
     usage: /arcevents
+    aliases: [events]
     permission: arcevents.play
 permissions:
   arcevents.play:

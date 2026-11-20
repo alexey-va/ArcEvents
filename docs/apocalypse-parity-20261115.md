@@ -46,7 +46,7 @@ mechanics and rendered client acceptance are separate evidence.
 | Depths and DeepVoid | Source-bound overworld teleporter ores and compact refining make rare-material gun progression functional. | Separate dimensions, travel, pressure and their complete terrain, ore distribution and exploration chain. |
 | World generation | Original source buildings/parts are materialized using native blocks. | Exact Terralith terrain/biomes and Forge LostCities placement/RNG/infrastructure behavior; full modded blocks and decoration. |
 | Enemies | Native zombie carriers provide pursuit, melee, leap, ranged and bounded rage attacks; crawler size and late-wave stats are approximated. | Full mutant/feral/drone AI, models, animations and all source scaling rules. |
-| Medicine and equipment | Infection, cures and vaccines work; several consumables use native potion equivalents. | Wearable immunity modifiers, Foxweed→vaccine crafting and full source medicine recipes/effects. |
+| Medicine and equipment | Infection, cures and vaccines work; several consumables use native potion equivalents. The native crafting table replenishes one vaccine for one glass bottle, one gold ingot and two redstone; this is an ArcEvents recipe. | Wearable immunity modifiers, Foxweed→vaccine crafting and full source medicine recipes/effects. |
 | Loot and death | One finite physical container inventory is shared. Expedition state is journaled. | Lootr per-player container inventories, source mob drops/XP and Corpse recovery. Death inventory policy still depends on the host's normal rules. |
 | Pack support | Optional native field guide and existing Minecraft UI. | Full FTB quest chapters, backpacks/upgrades, trains/air transport, seasons and client minimap/recipe interfaces. |
 

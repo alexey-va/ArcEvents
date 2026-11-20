@@ -249,6 +249,7 @@ test('Apocalypse enters through the native menu and opens actionable guide route
     const guide=await until(()=>dialogs.screens.slice(since).find(s=>apocButton(s,'track_supplies')),'Bare /arcevents did not open the field guide');
     assert.match(JSON.stringify(guide.title),/Field guide/);
     assert.ok(apocButton(guide,'track_exit'),'The real surface exit has no guide route');
+    assert.ok(apocButton(guide,'leave'),'The field guide root has no expedition exit');
     assert.ok(apocButton(guide,'track_weapons')||apocButton(guide,'track_city'),'Guide has no actual destination for finding firearms');
     const trackSince=player.getMessageBufferIndex();
     apocClick(player,guide,'track_supplies');
@@ -261,14 +262,14 @@ test('Apocalypse enters through the native menu and opens actionable guide route
     since=dialogs.screens.length;player.chat('/arcevents apocalypse guide');
     const fresh=await until(()=>dialogs.screens.slice(since).find(s=>apocButton(s,'survival')),'Guide refresh failed');
     apocClick(player,fresh,'survival');
-    const help=await until(()=>dialogs.screens.slice(since).find(s=>apocButton(s,'leave')),'Survival controls did not open');
+    const help=await until(()=>dialogs.screens.slice(since).find(s=>apocButton(s,'back')),'Survival controls did not open');
     assert.match(JSON.stringify(help.body),/crowbar/i);
     assert.match(JSON.stringify(help.body),/DB-2 Durin/);
     assert.match(JSON.stringify(help.body),/ammo bench/i);
     assert.match(JSON.stringify(help.body),/reload/i);
-    apocClick(player,help,'back');
-    await until(()=>dialogs.screens.slice(since).filter(s=>apocButton(s,'track_supplies')).length>=2,'Back did not return to the guide');
-    player.chat('/arcevents leave');await players(admin,0);await until(()=>items(player)===origin,'Guide flow did not preserve origin inventory');
+    since=dialogs.screens.length;apocClick(player,help,'back');
+    const returned=await until(()=>dialogs.screens.slice(since).find(s=>apocButton(s,'track_supplies')),'Back did not return to the guide');
+    apocClick(player,returned,'leave');await players(admin,0);await until(()=>items(player)===origin,'Guide exit did not restore origin inventory');
   }finally{dialogs.stop();player.chat('/arcevents leave');admin.bot.quit();}
 });
 

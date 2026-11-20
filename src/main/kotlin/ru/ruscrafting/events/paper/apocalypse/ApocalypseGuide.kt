@@ -140,9 +140,11 @@ internal class ApocalypseGuide(
 
         if (!dialogsEnabled() || protocols.resolve(player) < MIN_DIALOG_PROTOCOL) {
             // Books use dark ink on parchment and short pages to preserve vanilla's 114 px text width.
+            val leaveLink = page("book.leave").clickEvent(ClickEvent.runCommand("/arcevents leave"))
             val pages = buildList {
                 add(lines(page("book.title"), page("book.status", "day" to locale.text(snapshot.day), "next" to locale.text(snapshot.nextHordeDay)),
-                    Component.empty(), if (nextStep == "supplies") page("book-step.check-barrels", *supplyCounts) else page("book-step.$nextStep")))
+                    Component.empty(), if (nextStep == "supplies") page("book-step.check-barrels", *supplyCounts) else page("book-step.$nextStep"),
+                    Component.empty(), leaveLink))
                 for ((target, route) in routes) {
                     val id = target.name.lowercase()
                     val p = route.point
@@ -161,7 +163,7 @@ internal class ApocalypseGuide(
                     page("book.refresh").clickEvent(ClickEvent.runCommand(GUIDE_COMMAND)),
                     if (canFly(player)) page(if (player.allowFlight) "book.fly-off" else "book.fly-on")
                         .clickEvent(ClickEvent.runCommand("/arcevents apocalypse fly")) else null,
-                    Component.empty(), page("book.leave").clickEvent(ClickEvent.runCommand("/arcevents leave")))))
+                    Component.empty(), leaveLink)))
             }
             player.openBook(Book.book(page("book.title"), page("author"), pages))
             return
@@ -180,6 +182,7 @@ internal class ApocalypseGuide(
             add(button("refresh", page("refresh"), page("refresh-tip"), close = true, action = onRefresh))
             if (canFly(player)) add(button("admin_fly", page(if (player.allowFlight) "fly-off" else "fly-on"),
                 page("fly-tip"), close = true, action = toggleFly))
+            add(leaveButton(player))
         }
         val description = lines(listOfNotNull(status, Component.empty(), next, tracked?.let { lines(Component.empty(), it) },
             Component.empty(), page("choose-route")))
@@ -196,7 +199,7 @@ internal class ApocalypseGuide(
             lines(text(player, "health-title"), text(player, "health-help")),
             lines(text(player, "horde-title", "day" to locale.text(snapshot.nextHordeDay)), text(player, "horde-help")))
         dialogs.open(player, PaperDialogScreen(title = text(player, "survival-title"), body = sections.map { PaperDialogBody(it, WIDTH) },
-            buttons = listOf(button("leave", text(player, "leave"), text(player, "leave-tip"), close = true, action = onLeave)),
+            buttons = listOf(leaveButton(player)),
             exitButton = button("back", locale.render("menu.common.back-name", player), Component.empty()) {},
             id = "events.apocalypse.guide.survival"))
     }
@@ -235,6 +238,8 @@ internal class ApocalypseGuide(
         return text(player, format, "direction" to text(player, "$key.${DIRECTIONS[index]}"),
             "distance" to locale.text(distance))
     }
+
+    private fun leaveButton(player: Player) = button("leave", text(player, "leave"), text(player, "leave-tip"), close = true, action = onLeave)
 
     private fun closeButton(player: Player) = button("close", locale.render("menu.common.close-name", player), Component.empty(), close = true) {}
 

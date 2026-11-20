@@ -116,6 +116,7 @@ class ArcEventsListener(
     private val itemResolver: EventItemResolver,
     private val worldFirearms: WorldFirearms? = null,
     private val clearFirearmHud: (UUID) -> Unit = {},
+    private val openShortcut: (Player) -> Boolean = { menu.openFirearmSettings(it, quiet = true) },
 ) : Listener {
     private val pendingEliminations = mutableSetOf<UUID>()
 
@@ -458,7 +459,7 @@ class ArcEventsListener(
         }
     }
     @EventHandler(ignoreCancelled = true) fun onSwap(event: PlayerSwapHandItemsEvent) {
-        if (event.player.isSneaking && menu.openFirearmSettings(event.player, quiet = true)) {
+        if (event.player.isSneaking && openShortcut(event.player)) {
             event.isCancelled = true
             return
         }
@@ -529,7 +530,7 @@ class ArcEventsListener(
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onTeleport(event: PlayerTeleportEvent) {
         clearWeaponState(event.player.uniqueId)
-        if (event.player.bypassesEventProtection() && !service.isZombiesParticipant(event.player.uniqueId)) return
+        if (event.player.hasPermission(ADMIN_BYPASS_PERMISSION)) return
         val participant = service.isParticipant(event.player.uniqueId)
         if (service.isInternalTeleport(event.player.uniqueId, event.to)) return
         if (!participant && service.withinProtectedArena(event.to)) {
@@ -543,10 +544,10 @@ class ArcEventsListener(
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onCommand(event: PlayerCommandPreprocessEvent) {
-        if (event.player.bypassesEventProtection() && !service.isZombiesParticipant(event.player.uniqueId)) return
+        if (event.player.hasPermission(ADMIN_BYPASS_PERMISSION)) return
         if (!service.isParticipant(event.player.uniqueId) || service.phase() !in CONTROLLED_PHASES) return
-        val root = event.message.removePrefix("/").substringBefore(' ').lowercase()
-        if (root != "arcevents") event.isCancelled = true
+        val label = event.message.removePrefix("/").substringBefore(' ')
+        if (!isArcEventsCommandLabel(label)) event.isCancelled = true
     }
 
     private fun attacker(entity: Entity): Player? = when (entity) {

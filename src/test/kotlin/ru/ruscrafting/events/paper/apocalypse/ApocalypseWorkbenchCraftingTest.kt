@@ -93,6 +93,33 @@ class ApocalypseWorkbenchCraftingTest : StringSpec({
         }
     }
 
+    "vaccine plan spends the exact native ingredients and returns usable medicine" {
+        WorkbenchCraftingFixture().use { fixture ->
+            val crafting = fixture.crafting
+            val recipe = requireNotNull(crafting.catalog.find("arcevents:vaccine"))
+            val storage = arrayOfNulls<ItemStack>(36).also {
+                it[0] = ItemStack.of(Material.GLASS_BOTTLE)
+                it[1] = ItemStack.of(Material.GOLD_INGOT)
+                it[2] = ItemStack.of(Material.REDSTONE)
+            }
+            val before = storage.map { it?.clone() }
+            val missing = crafting.plan(recipe, storage, fixture.player) as ApocalypseWorkbenchCraftResult.Missing
+            missing.ingredients.filterNot { it.satisfied }.single().ingredient.alternatives.single() shouldBe
+                ApocalypseSourceItemIdentity("minecraft:redstone")
+            storage.asList() shouldBe before
+
+            storage[2] = ItemStack.of(Material.REDSTONE, 3)
+            val ready = crafting.plan(recipe, storage, fixture.player) as ApocalypseWorkbenchCraftResult.Ready
+            val vaccine = ready.outputs.single()
+            vaccine.type shouldBe Material.HONEY_BOTTLE
+            vaccine.amount shouldBe 1
+            vaccine.itemMeta.persistentDataContainer.get(NamespacedKey(fixture.plugin, "apocalypse_medicine"), PersistentDataType.BYTE) shouldBe 1.toByte()
+            crafting.identity(vaccine) shouldBe ApocalypseSourceItemIdentity("cure:vaccine")
+            ready.afterStorage.filterNotNull() shouldBe listOf(vaccine, ItemStack.of(Material.REDSTONE))
+            storage[2]!!.amount shouldBe 3
+        }
+    }
+
     "one native stack cannot satisfy duplicated ingredient predicates twice" {
         WorkbenchCraftingFixture().use { fixture ->
             val recipe = recipe(ApocalypseSourceLootItem("minecraft:diamond", 1), "minecraft:iron_ingot" to 2, "minecraft:iron_ingot" to 2)

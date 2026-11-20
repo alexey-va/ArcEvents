@@ -15,6 +15,11 @@ import ru.ruscrafting.events.domain.TttRole
 import ru.ruscrafting.events.domain.TttTeam
 import ru.ruscrafting.events.domain.EventMode
 
+internal fun isArcEventsCommandLabel(label: String?): Boolean = when (label?.lowercase()) {
+    "arcevents", "events", "arcevents:arcevents", "arcevents:events" -> true
+    else -> false
+}
+
 class ArcEventsCommand(
     private val plugin: Plugin,
     private val service: ArcEventsService,

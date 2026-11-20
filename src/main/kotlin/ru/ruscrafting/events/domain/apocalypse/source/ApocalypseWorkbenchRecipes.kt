@@ -79,7 +79,7 @@ data class ApocalypseWorkbenchRecipe(
     }
 }
 
-/** Immutable source recipe data; native item matching and mutation belong to the Paper adapter. */
+/** Immutable workbench recipe data; native item matching and mutation belong to the Paper adapter. */
 class ApocalypseWorkbenchRecipes(recipes: List<ApocalypseWorkbenchRecipe>) {
     val all: List<ApocalypseWorkbenchRecipe> = Collections.unmodifiableList(recipes.map { recipe ->
         recipe.copy(ingredients = Collections.unmodifiableList(recipe.ingredients.map {
@@ -98,13 +98,26 @@ class ApocalypseWorkbenchRecipes(recipes: List<ApocalypseWorkbenchRecipe>) {
     companion object {
         private const val RESOURCE = "/apocalypse/workbench-recipes.json"
         private val T3_AMMUNITION = setOf("tacz:ammo/12g", "tacz:ammo/556x45", "tacz:ammo/308", "tacz:ammo/57x28", "tacz:ammo/40mm", "tacz:ammo/9mm")
+        private val VACCINE_RECIPE = ApocalypseWorkbenchRecipe(
+            id = "arcevents:vaccine",
+            station = ApocalypseWorkbenchStation.CRAFTING,
+            kind = ApocalypseWorkbenchRecipeKind.MATERIAL,
+            result = ApocalypseSourceLootItem("cure:vaccine", 1),
+            ingredients = listOf(
+                ApocalypseWorkbenchIngredient(listOf(ApocalypseSourceItemIdentity("minecraft:glass_bottle")), 1),
+                ApocalypseWorkbenchIngredient(listOf(ApocalypseSourceItemIdentity("minecraft:gold_ingot")), 1),
+                ApocalypseWorkbenchIngredient(listOf(ApocalypseSourceItemIdentity("minecraft:redstone")), 2),
+            ),
+            source = "ArcEvents native vaccine recipe",
+        )
 
         fun load(): ApocalypseWorkbenchRecipes = requireNotNull(ApocalypseWorkbenchRecipes::class.java.getResourceAsStream(RESOURCE)) {
             "Missing source workbench catalog: $RESOURCE"
         }.use { stream ->
             val bytes = stream.readNBytes(1024 * 1024 + 1)
             require(bytes.size <= 1024 * 1024) { "Source workbench catalog exceeds bound" }
-            decode(bytes.toString(Charsets.UTF_8))
+            val source = decode(bytes.toString(Charsets.UTF_8))
+            ApocalypseWorkbenchRecipes(listOf(VACCINE_RECIPE) + source.all)
         }
 
         internal fun decode(json: String): ApocalypseWorkbenchRecipes {

@@ -3,13 +3,14 @@ command:
   player-only: '<prefix> <#c42323>Эта команда доступна только игроку.'
   no-permission: '<prefix> <#c42323>У вас нет доступа к этому действию.'
   help: |-
-    <prefix> <#e6fff3>Меню и правила: <#92bed8>/arcevents
+    <prefix> <#e6fff3>Меню и правила <#92bed8>/events <#8c8c8c>или <#92bed8>/arcevents
     <#8c8c8c>   Очередь: <#92bed8>/arcevents join  <#8c8c8c>выйти: <#92bed8>/arcevents leave
     <#8c8c8c>   Запуск состава: <#92bed8>/arcevents start
     <#8c8c8c>   Матч: <#92bed8>/arcevents status  <#8c8c8c>состав: <#92bed8>/arcevents roster
     <#8c8c8c>   Магазин: <#92bed8>/arcevents shop  <#8c8c8c>итоги: <#92bed8>/arcevents report
     <#e8dfd2>   Зомби — одному или командой: <#92bed8>/arcevents zombies
-    <#e8dfd2>   Оружие в руке <#92bed8>Shift+F <#e8dfd2>или <#92bed8>/arcevents burst
+    <#e8dfd2>   Меню события <#92bed8>Shift+F
+    <#e8dfd2>   Настройки оружия <#92bed8>/events burst
     <#e8dfd2>   Войти в мир апокалипсиса <#92bed8>/arcevents apocalypse
   unknown: '<prefix> <#c42323>Неизвестно<#8c8c8c>: <#e6fff3><input>'
   failed: '<prefix> <#ff6b61>Не удалось: <#e8dfd2><reason>'
@@ -139,7 +140,8 @@ menu:
       - '<#8c8c8c>Рисунок эффекта подсказывает редкость находки.'
       - ''
       - '<#8c8c8c>ЛКМ — огонь · ПКМ — прицел'
-      - '<#8c8c8c>F — перезарядка · Shift+F — настройки'
+      - '<#8c8c8c>F — перезарядка · Shift+F — меню события'
+      - '<#8c8c8c>/events burst — настройки оружия'
     controls-name: '<#92bed8><bold>Команды'
     controls-lore:
     - <#86dcf1>/arcevents<#e8dfd2> — меню матча
@@ -540,7 +542,8 @@ weapon:
     - '<#8c8c8c>Урон: <#f2f0e6><damage> <#8c8c8c>дальность: <#f2f0e6><range>'
     - ''
     - '<#e3b341>ЛКМ<#f2f0e6> — огонь  <#e3b341>ПКМ<#f2f0e6> — прицел'
-    - '<#e3b341>F<#f2f0e6> — перезарядка  <#e3b341>Shift+F<#f2f0e6> — настройки'
+    - '<#e3b341>F<#f2f0e6> — перезарядка  <#e3b341>Shift+F<#f2f0e6> — меню'
+    - '<#e3b341>/events burst<#f2f0e6> — настройки оружия'
   rarity:
     common: '<#8c8c8c>Обычное оружие'
     uncommon: '<#7bd88f>Необычное оружие'
@@ -561,7 +564,7 @@ weapon:
   ammo-hud-reserve: '<#9eabb8>  запас <reserve></#9eabb8>'
   ammo-hud-creative: '<#9de1e8>∞  Без расхода</#9de1e8>'
   ammo-hud-controls: '<#d9e0e6><white>ЛКМ</white> Огонь  <white>ПКМ</white> Прицел</#d9e0e6>'
-  ammo-hud-reload: '<#d9e0e6><white>F</white> Перезарядка  <white>Shift+F</white> Режим</#d9e0e6>'
+  ammo-hud-reload: '<#d9e0e6><white>F</white> Перезарядка · <white>Shift+F</white> Меню</#d9e0e6>'
   ammo-hud-reloading: '<#ffd080><white>F</white> Перезарядка…</#ffd080>'
   ammo-hud-empty: '<#ff8b82>Пусто  <white>F</white> Перезарядка</#ff8b82>'
   creative-ammo-actionbar: '<weapon>  <#ffffff>∞  <#aaaaaa>Боеприпасы не расходуются'
@@ -964,7 +967,7 @@ fishing:
     shotgun-name: "<#e3b341>Двустволка"
     shotgun-description: "Дробь сильна вблизи; два выстрела до перезарядки."
     burst_rifle-name: <#ffb277>G36
-    burst_rifle-description: "Штатная очередь — три патрона. Shift+F меняет её длину."
+    burst_rifle-description: "Штатная очередь — три патрона. Изменить длину можно через /events burst."
     assault_rifle-name: <#ffb277>АЕК-971
     assault_rifle-description: "Более быстрые и точные очереди для поздних островов."
     sniper-name: <#ffb277>McMillan
@@ -1244,6 +1247,7 @@ apocalypse:
   entered: '<#c4d58b>Апокалипсис. <#e8dfd2>Обыщите бункер и поднимайтесь по лестнице. Для выхода введите <#92bed8>/arcevents leave<#e8dfd2>.'
   resumed: '<#9bd48d>Вы снова в мире апокалипсиса.'
   returned: '<#9bd48d>Вы вернулись из апокалипсиса.'
+  admin-teleport-failed: '<#9bd48d>Вы вышли из экспедиции. Инвентарь восстановлен.<newline>  <#ffb277>Телепортация отменена. Повторите <#92bed8>/tp<#ffb277>.'
   fly:
     enabled: '<#9bd48d>Полёт включён. Прыжок поднимает, приседание опускает.'
     disabled: '<#e8dfd2>Полёт выключен.'
@@ -1304,10 +1308,10 @@ apocalypse:
       address: '<bearing><newline><#382b21>X <x> Y <y> Z <z>'
       track: '<#235a76><underlined>Отметить ориентир'
       weapons: '<#382b21>Топор — для ближнего боя. Для стрельбы носите патроны. Ящики с деталями открывайте ломом.'
-      controls: '<#324855>ЛКМ — огонь<newline>ПКМ — прицел<newline>F — перезарядка<newline>Shift+F — настройки'
+      controls: '<#324855>ЛКМ — огонь<newline>ПКМ — прицел<newline>F — перезарядка<newline>Shift+F — меню события'
       workbench: '<#382b21>ПКМ по верстаку в бункере откроет рецепты. Медный блок и ещё один верстак нужны для телеграфа T1. Поставьте его. На нём из 8 железных слитков и 6 брёвен собирают DB-2 Durin.'
       parts: '<#382b21>На обычном верстаке сделайте железный ящик для патронов из 1 железного слитка и 7 досок. Из ящика, 2 медных слитков и ещё 1 железного соберите патронный стол. Поставьте его для сборки патронов.'
-      health: '<#382b21>Четыре стадии заражения. Вакцина лечит и защищает на время. Золотое яблоко тоже лечит.'
+      health: '<#382b21>Вакцина и золотое яблоко лечат все 4 стадии. Вакцина защищает на время.<newline>На обычном верстаке сделайте вакцину из 1 бутылочки, 1 золотого слитка и 2 редстоуна.'
       horde: '<#382b21>Каждую десятую ночь приходит орда. Запасите еду и патроны.'
       refresh: '<#235a76><underlined>Обновить справочник'
       leave: '<#782c22><underlined>Покинуть экспедицию'
@@ -1376,9 +1380,9 @@ apocalypse:
     kit-gun: '<#e8dfd2>У вас есть оружие. Запасных патронов <white><ammo></white>.'
     kit-axe: '<#e8dfd2>Топор пригодится в ближнем бою. Запасных патронов <white><ammo></white>.'
     weapons-help: '<#e8dfd2>Ищите оружие в городах и бункерах. Оружейное хранилище открывается рукой. Для ящиков с деталями нужен лом.'
-    controls: '<#92bed8>ЛКМ <white>огонь · <#92bed8>ПКМ <white>прицел · <#92bed8>F <white>перезарядка<newline><#92bed8>Shift+F <white>настройки оружия'
+    controls: '<#92bed8>ЛКМ <white>огонь · <#92bed8>ПКМ <white>прицел · <#92bed8>F <white>перезарядка<newline><#92bed8>Shift+F <white>меню события'
     health-title: '<#ffb277><bold>Заражение'
-    health-help: '<#e8dfd2>Удар зомби может заразить. У инфекции четыре стадии. Вакцина лечит и ненадолго защищает от новых укусов. Золотое яблоко тоже лечит.'
+    health-help: '<#e8dfd2>Удар зомби может заразить. У инфекции четыре стадии. Вакцина лечит и ненадолго защищает от новых укусов. Золотое яблоко тоже лечит.<newline><newline>Нажмите ПКМ по обычному верстаку и выберите «Вакцина от заражения». Для одной вакцины возьмите 1 бутылочку, 1 золотой слиток и 2 редстоуна.'
     horde-title: '<#ffb277><bold>Орда · день <day>'
     horde-help: '<#e8dfd2>Каждую десятую ночь зомби идут к выжившим волнами. Запасите еду и патроны, найдите укрытие до темноты.'
     refresh: '<white>Обновить'
@@ -1536,6 +1540,9 @@ apocalypse:
       minecraft_logs: 'Любое бревно'
       minecraft_planks: 'Любые доски'
     items:
+      cure_vaccine: '<#9bd48d>Вакцина от заражения'
+      minecraft_glass_bottle: 'Бутылочка'
+      minecraft_redstone: 'Редстоун'
       the_deeper_void_void_refinery_casing: 'Корпус переработчика'
       the_deeper_void_refinery_fuel_cell: 'Топливная ячейка'
       the_deeper_void_void_slag: 'Шлак Пустоты'

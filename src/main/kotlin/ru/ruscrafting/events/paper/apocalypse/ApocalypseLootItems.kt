@@ -149,6 +149,7 @@ internal class ApocalypseLootItems(
         val valid = when {
             station != null -> ApocalypseWorkbenchStations.stationOf(item, plugin) == station
             id == REFINERY_FUEL_CELL -> fuelPerCell(item) != null
+            id == "cure:vaccine" -> item.type == Material.HONEY_BOTTLE && pdc.get(medicine, PersistentDataType.BYTE) == 1.toByte()
             gun != null -> weapons[gun]?.let { profile -> item.amount == 1 &&
                 pdc.get(NamespacedKey(plugin, "world_firearm"), PersistentDataType.STRING) == profile.name &&
                 pdc.get(NamespacedKey(plugin, "world_loaded_rounds"), PersistentDataType.INTEGER)?.let { it in 0..firearms.spec(profile).magazineSize } == true } == true

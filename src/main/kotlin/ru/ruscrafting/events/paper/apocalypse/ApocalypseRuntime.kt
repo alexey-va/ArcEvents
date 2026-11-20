@@ -41,6 +41,7 @@ import ru.ruscrafting.events.domain.apocalypse.*
 import ru.ruscrafting.events.network.QueueState
 import ru.ruscrafting.events.paper.EventWork
 import ru.ruscrafting.events.paper.TttFirearms
+import ru.ruscrafting.events.paper.isArcEventsCommandLabel
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
@@ -82,6 +83,7 @@ class ApocalypseRuntime(
     private val sourceLayout: CompletableFuture<ApocalypseLayout>? = null,
     packetDisplays: PaperPacketDisplays? = null,
     chunkTickets: PaperChunkTicketRegistry,
+    private val internalTeleport: (UUID, Location) -> Boolean = { _, _ -> false },
 ) : Listener, AutoCloseable {
     private val options = ApocalypseSettings.load(plugin.dataFolder.resolve("apocalypse.yml"))
     private val host = config().nodeMode == NodeMode.HOST
@@ -149,6 +151,7 @@ class ApocalypseRuntime(
     private val infectionSpeed = NamespacedKey(plugin, "apocalypse_infection_speed")
     private val medicine = NamespacedKey(plugin, "apocalypse_medicine")
     private val nativeSession = NamespacedKey(plugin, "apocalypse_session")
+    private val adminVisit = NamespacedKey(plugin, "apocalypse_admin_visit")
     private val playerStates = PaperPlayerStateService()
     private val layout: ApocalypseLayout by lazy { checkNotNull(sourceLayout?.getNow(null)) }
     private var openingWorld = host
@@ -178,7 +181,7 @@ class ApocalypseRuntime(
     fun allowsRecoveryCommand(player: Player, command: String): Boolean {
         if (!isBusy(player.uniqueId) || player.uniqueId in joining || player.uniqueId in playerOperations || player.uniqueId in recoveryOperations) return false
         val parts = command.removePrefix("/").trim().lowercase().split(Regex("\\s+"))
-        if (parts.firstOrNull() !in setOf("arcevents", "arcevents:arcevents")) return false
+        if (!isArcEventsCommandLabel(parts.firstOrNull())) return false
         return parts.drop(1) == listOf("leave") || parts.drop(1) in listOf(listOf("apocalypse", "leave"), listOf("apocalypse", "recover"))
     }
 
@@ -284,7 +287,7 @@ class ApocalypseRuntime(
         }
         if (action == "leave") { leave(player); return true }
         if (action == "status") { status(player); return true }
-        if (isPlaying(player.uniqueId) && action in setOf(null, "menu", "help")) { openGuide(player); return true }
+        if (action in setOf(null, "menu", "help") && tryOpenMenu(player)) return true
         if (action == "apocalypse") {
             when (arguments.getOrNull(1)?.lowercase()) {
                 "fly" -> toggleAdminFlight(player)
@@ -465,6 +468,12 @@ class ApocalypseRuntime(
                 inventory.setItem(slot, previous)
             }
         }
+        return true
+    }
+
+    internal fun tryOpenMenu(player: Player): Boolean {
+        if (!isPlaying(player.uniqueId) || isBusy(player.uniqueId)) return false
+        openGuide(player)
         return true
     }
 
@@ -662,6 +671,7 @@ class ApocalypseRuntime(
                             player.inventory.addItem(axe, ItemStack.of(Material.BREAD, 9), vaccine().asQuantity(6), ItemStack.of(Material.SPYGLASS))
                         }
                         // Only a completely applied loadout receives a native admission marker.
+                        player.persistentDataContainer.remove(adminVisit)
                         player.persistentDataContainer.set(nativeSession, PersistentDataType.STRING, requireNotNull(record.nativeSession))
                         constrainExpeditionFlight(player)
                         player.saveData()
@@ -700,7 +710,9 @@ class ApocalypseRuntime(
         }
     }
 
-    fun leave(player: Player) {
+    fun leave(player: Player) = leave(player, null)
+
+    private fun leave(player: Player, requestedTeleport: (() -> Boolean)?) {
         val record = players[player.uniqueId] ?: return
         if (record.phase == ApocalypsePlayerPhase.PARKED) {
             if (record.returnPending) attemptReturn(player, record)
@@ -713,7 +725,7 @@ class ApocalypseRuntime(
         if (!busy.add(player.uniqueId)) return
         workbenchMenu.forget(player)
         playerOperations += player.uniqueId
-        savePlayer(exiting).thenCompose { work.onMain { recoverOrigin(player, exiting) } }.whenComplete { _, failure -> work.onMain {
+        savePlayer(exiting).thenCompose { work.onMain { recoverOrigin(player, exiting, requestedTeleport) } }.whenComplete { _, failure -> work.onMain {
             if (!currentPlayer(player)) return@onMain
             playerOperations -= player.uniqueId
             if (failure != null) { log("leave player=${player.uniqueId}", failure); message(player, "restore-pending") }
@@ -757,7 +769,7 @@ class ApocalypseRuntime(
         } }
     }
 
-    private fun recoverOrigin(player: Player, record: ApocalypsePlayerRecord) {
+    private fun recoverOrigin(player: Player, record: ApocalypsePlayerRecord, requestedTeleport: (() -> Boolean)? = null) {
         if (!currentPlayer(player)) return
         if (!recoveryOperations.add(player.uniqueId)) return
         if (!player.isOnline || player.isDead) {
@@ -769,6 +781,9 @@ class ApocalypseRuntime(
             player.getAttribute(Attribute.MOVEMENT_SPEED)?.removeModifier(infectionSpeed)
             playerStates.restoreAndVerify(player, requireNotNull(record.origin), null) { p, at -> p.teleport(at) }
             player.persistentDataContainer.remove(nativeSession)
+            // Joining from a staff visit captures the normal inventory at its location in this world.
+            if (player.world.name == options.world && player.hasPermission("arcevents.admin"))
+                player.persistentDataContainer.set(adminVisit, PersistentDataType.STRING, player.world.uid.toString())
             player.saveData()
             active -= player.uniqueId
             guideSnapshots.remove(player.uniqueId)
@@ -778,13 +793,20 @@ class ApocalypseRuntime(
             // Retain the root envelope after return: native saveData has no disk acknowledgement.
             // A stale native expedition marker on a later login can replay this exact origin.
             val parked = record.copy(phase = ApocalypsePlayerPhase.PARKED, returnTicket = null,
-                returnPending = config().network.returnToOrigin && record.originServer != config().serverId)
+                returnPending = requestedTeleport == null && config().network.returnToOrigin && record.originServer != config().serverId)
             savePlayer(parked).thenCompose { work.onMain {
                 if (!currentPlayer(player)) return@onMain
                 busy -= player.uniqueId
                 recoveryOperations -= player.uniqueId
                 message(player, "returned")
-                attemptReturn(player, parked)
+                if (requestedTeleport == null) attemptReturn(player, parked)
+                else {
+                    val moved = runCatching(requestedTeleport).getOrElse { failure ->
+                        plugin.logger.log(Level.WARNING, "ArcEvents admin teleport after expedition player=${player.uniqueId}", failure)
+                        false
+                    }
+                    if (!moved) message(player, "admin-teleport-failed")
+                }
             } }.whenComplete { _, failure -> if (failure != null) work.onMain {
                 if (!currentPlayer(player)) return@onMain
                 recoveryOperations -= player.uniqueId
@@ -842,13 +864,26 @@ class ApocalypseRuntime(
     private fun pendingApocalypseInventory(player: Player): Boolean =
         players[player.uniqueId]?.phase?.let { it != ApocalypsePlayerPhase.PARKED } == true ||
             playerSaves[player.uniqueId]?.let { !it.isDone || it.isCompletedExceptionally } == true ||
-            player.persistentDataContainer.has(nativeSession) || host && player.world.name == options.world
+            player.persistentDataContainer.has(nativeSession) || unmarkedExpeditionWorld(player)
+
+    private fun unmarkedExpeditionWorld(player: Player): Boolean {
+        if (!host || player.world.name != options.world) return false
+        val data = player.persistentDataContainer
+        return !data.has(adminVisit, PersistentDataType.STRING) || data.get(adminVisit, PersistentDataType.STRING) != player.world.uid.toString() ||
+            !player.hasPermission("arcevents.admin") || data.has(nativeSession)
+    }
+
+    private fun canVisit(player: Player, destination: Location? = null): Boolean = player.hasPermission("arcevents.admin") &&
+        !isPlaying(player.uniqueId) && !isBusy(player.uniqueId) && player.uniqueId !in joining &&
+        players[player.uniqueId]?.returnPending != true && !pendingApocalypseInventory(player) &&
+        // An arcade recovery still owns its escrow when it teleports back to the staff visit it captured.
+        (!occupied(player.uniqueId) || destination != null && internalTeleport(player.uniqueId, destination))
 
     private fun currentPlayer(player: Player): Boolean = plugin.server.getPlayer(player.uniqueId) === player && player.isOnline
 
     private fun joinRecovery(player: Player, record: ApocalypsePlayerRecord?) = apocalypseJoinRecovery(
         record?.phase, record?.origin != null, record?.nativeSession,
-        player.persistentDataContainer.get(nativeSession, PersistentDataType.STRING), host && player.world.name == options.world)
+        player.persistentDataContainer.get(nativeSession, PersistentDataType.STRING), unmarkedExpeditionWorld(player))
 
     private fun captureExpedition(player: Player): ru.arc.paper.playerstate.PaperPlayerStateEnvelope {
         var snapshot = playerStates.capture(player, System.currentTimeMillis())
@@ -878,6 +913,7 @@ class ApocalypseRuntime(
     }
 
     private fun resumeNative(player: Player, record: ApocalypsePlayerRecord) {
+        player.persistentDataContainer.remove(adminVisit)
         constrainExpeditionFlight(player)
         if (player.world == world) {
             busy -= player.uniqueId; active += player.uniqueId; announceArrival(player); return
@@ -1149,7 +1185,7 @@ class ApocalypseRuntime(
                 if (natural != null && (abs(y + dy - player.location.blockY) > natural.maximumVerticalDistance ||
                     !natural.matches(state.survival.worldTick % 24000, feet.lightFromBlocks.toInt(),
                         target.getHighestBlockYAt(x, z) < y + dy, target.getHighestBlockYAt(x, z) >= y + dy))) continue
-                if (target.getBlockAt(x, y + dy - 1, z).type.isSolid && feet.isPassable && target.getBlockAt(x, y + dy + 1, z).isPassable)
+                if (canSpawnApocalypseZombieAt(feet))
                     return Location(target, x + .5, (y + dy).toDouble(), z + .5)
             }
         }
@@ -1439,19 +1475,42 @@ class ApocalypseRuntime(
     fun onUnload(event: ChunkUnloadEvent) { if (event.world == world) chunkMarkers.remove(event.chunk.chunkKey) }
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onTeleport(event: PlayerTeleportEvent) {
-        if (event.player.uniqueId in moving) return
-        if (isBusy(event.player.uniqueId) && pendingApocalypseInventory(event.player)) {
+        val player = event.player
+        if (player.uniqueId in moving) return
+        if (isBusy(player.uniqueId) && pendingApocalypseInventory(player)) {
             event.isCancelled = true
-        } else if (isPlaying(event.player.uniqueId) && event.to.world != world) {
-            event.isCancelled = true; message(event.player, "leave-first")
-        } else if (host && event.to.world.name == options.world && !isPlaying(event.player.uniqueId)) event.isCancelled = true
+        } else if (isPlaying(player.uniqueId) && event.to.world != world) {
+            event.isCancelled = true
+            if (!player.hasPermission("arcevents.admin")) { message(player, "leave-first"); return }
+            val destination = event.to.clone()
+            val cause = event.cause
+            leave(player) { player.teleport(destination, cause) }
+        } else if (host && event.to.world.name == options.world && !isPlaying(player.uniqueId) && !canVisit(player, event.to)) {
+            event.isCancelled = true
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    fun onAdminVisitTeleport(event: PlayerTeleportEvent) {
+        val destination = event.to.world
+        if (host && destination.name == options.world && event.from.world != destination &&
+            event.player.uniqueId !in moving && canVisit(event.player, event.to)) {
+            event.player.persistentDataContainer.set(adminVisit, PersistentDataType.STRING, destination.uid.toString())
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    fun onWorldChanged(event: PlayerChangedWorldEvent) {
+        if (host && event.from.name == options.world) event.player.persistentDataContainer.remove(adminVisit)
     }
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onCommand(event: PlayerCommandPreprocessEvent) {
         if (!isPlaying(event.player.uniqueId) && !isBusy(event.player.uniqueId)) return
         if (!isBusy(event.player.uniqueId) && event.player.hasPermission("arcevents.admin")) return
-        val root = event.message.removePrefix("/").substringBefore(' ').substringAfter(':').lowercase()
-        if (root !in setOf("arcevents", "ae", "msg", "tell", "r", "reply", "help", "rules", "report")) {
+        val label = event.message.removePrefix("/").substringBefore(' ')
+        if (isArcEventsCommandLabel(label)) return
+        val root = label.substringAfter(':').lowercase()
+        if (root !in setOf("ae", "msg", "tell", "r", "reply", "help", "rules", "report")) {
             event.isCancelled = true; message(event.player, "leave-first")
         }
     }
@@ -1498,6 +1557,7 @@ class ApocalypseRuntime(
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onBreak(event: BlockBreakEvent) {
         if (event.block.world != world) return
+        if (canVisit(event.player)) return
         if (!isPlaying(event.player.uniqueId) || isBusy(event.player.uniqueId)) { event.isCancelled = true; return }
         val layout = layout
         if (layout is ApocalypseOriginalLayout) sourceMining.prepare(event.block.chunk, layout, priority = true)

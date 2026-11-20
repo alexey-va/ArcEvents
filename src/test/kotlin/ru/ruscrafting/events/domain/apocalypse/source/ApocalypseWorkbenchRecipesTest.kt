@@ -50,6 +50,21 @@ class ApocalypseWorkbenchRecipesTest : StringSpec({
         members("minecraft:planks").size shouldBe 11
     }
 
+    "native vaccine recipe is available only at the ordinary crafting table" {
+        val catalog = ApocalypseWorkbenchRecipes.load()
+        val recipe = requireNotNull(catalog.find("arcevents:vaccine"))
+        ApocalypseWorkbenchStation.entries.filter { catalog.availableAt(recipe.id, it) } shouldBe
+            listOf(ApocalypseWorkbenchStation.CRAFTING)
+        catalog.recipes(ApocalypseWorkbenchStation.CRAFTING).first() shouldBe recipe
+        recipe.kind shouldBe ApocalypseWorkbenchRecipeKind.MATERIAL
+        recipe.result shouldBe ApocalypseSourceLootItem("cure:vaccine", 1)
+        recipe.ingredients.map { it.alternatives.single() to it.count } shouldBe listOf(
+            ApocalypseSourceItemIdentity("minecraft:glass_bottle") to 1,
+            ApocalypseSourceItemIdentity("minecraft:gold_ingot") to 1,
+            ApocalypseSourceItemIdentity("minecraft:redstone") to 2,
+        )
+    }
+
     "catalog rejects unresolved tags and unsupported partial NBT rather than weakening ingredients" {
         val base = """{"schema":1,"recipes":[{"id":"test:gun","station":"bf1:telegraph","kind":"gun",
             "inputs":[%s],"output":{"kind":"gun","id":"tacz:m1911","count":1}}]}"""
