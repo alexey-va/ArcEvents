@@ -68,6 +68,7 @@ class ArcEventsNativePreviewTest : StringSpec({
             val workbenchRuntime = mockk<PaperDialogRuntime>(relaxed = true)
             every { workbenchRuntime.open(player, any(), any(), any(), any()) } answers { last = secondArg() }
             every { workbenchRuntime.open(player, any(), any(), any()) } answers { last = secondArg() }
+            every { workbenchRuntime.open(player, any()) } answers { last = secondArg() }
             val schematics = ApocalypseWorkbenchRecipes.load()
             val plugin = mockk<Plugin>(relaxed = true)
             every { plugin.name } returns "ArcEvents"
@@ -120,8 +121,19 @@ class ArcEventsNativePreviewTest : StringSpec({
                 workbench.open(player, ApocalypseWorkbenchStation.REFINERY, { true }, { _, _ -> })
                 last!!.buttons.first { it.id.value == "recipe_0" }.onClick.handle(mockk<PaperDialogClickContext>())
                 save("$language-refinery-cost")
+                val click = mockk<PaperDialogClickContext>()
+                every { click.player } returns player
                 guide.show(player, routes)
                 save("$language-apocalypse-route")
+                val journal = requireNotNull(last)
+                journal.buttons.single { it.id.value == "map" }.onClick.handle(click)
+                save("$language-apocalypse-map")
+                last!!.buttons.single { it.id.value == "place_city" }.onClick.handle(click)
+                save("$language-apocalypse-place")
+                journal.buttons.single { it.id.value == "equipment" }.onClick.handle(click)
+                save("$language-apocalypse-equipment")
+                journal.buttons.single { it.id.value == "hazards" }.onClick.handle(click)
+                save("$language-apocalypse-hazards")
                 menu.open(player, EventsView.Main); save("$language-root")
                 val subjects = last!!.buttons.take(6).map { legacy.serialize(it.label).take(8) }
                 subjects.toSet().size shouldBe 6
@@ -129,8 +141,6 @@ class ArcEventsNativePreviewTest : StringSpec({
                 last!!.buttons.map { it.id.value }.toSet() shouldBe (EventMode.entries.map { "rules_${it.id}" } + "rules_apocalypse").toSet()
                 menu.open(player, EventsView.Apocalypse); save("$language-apocalypse")
                 last!!.buttons.map { it.id.value } shouldBe listOf("action_apocalypse_enter_name", "rules_apocalypse")
-                val click = mockk<PaperDialogClickContext>()
-                every { click.player } returns player
                 last!!.buttons.last().onClick.handle(click)
                 last!!.id shouldBe "events.rules.apocalypse.0"
                 save("$language-rules-apocalypse")

@@ -17,10 +17,13 @@ class TttMatchRuntimeTest : StringSpec({
         Modifier.isVolatile(currentField.modifiers) shouldBe true
     }
 
-    "preparation expires after exactly the configured number of ticks" {
+    "only the countdown consumes ticks after preparation is ready" {
         val runtime = TttMatchRuntime({ TttMatchEngine(4, 12, 300_000L) }, clock = { 10_000L })
         val matchId = UUID.randomUUID()
-        runtime.prepare(runtime.create(matchId, players, allocation, 7L), seconds = 3)
+        runtime.prepare(runtime.create(matchId, players, allocation, 7L))
+        runtime.phaseSecondsRemaining() shouldBe 0
+        shouldThrow<IllegalStateException> { runtime.tickPhase() }
+        runtime.beginCountdown(seconds = 3)
 
         runtime.phaseSecondsRemaining() shouldBe 3
         runtime.tickPhase() shouldBe PhaseCountdownTick(2, false)
@@ -32,7 +35,7 @@ class TttMatchRuntimeTest : StringSpec({
         var now = 10_000L
         val runtime = TttMatchRuntime({ TttMatchEngine(4, 12, 300_000L) }, clock = { now })
         val matchId = UUID.randomUUID()
-        runtime.prepare(runtime.create(matchId, players, allocation, 7L), seconds = 1)
+        runtime.prepare(runtime.create(matchId, players, allocation, 7L))
         runtime.beginCountdown(seconds = 1)
         runtime.activate()
 
@@ -49,7 +52,7 @@ class TttMatchRuntimeTest : StringSpec({
     "successful recovery is recorded even when a disconnected player returns mid-round" {
         val runtime = TttMatchRuntime({ TttMatchEngine(4, 12, 300_000L) }, clock = { 10_000L })
         val matchId = UUID.randomUUID()
-        runtime.prepare(runtime.create(matchId, players, allocation, 7L), seconds = 1)
+        runtime.prepare(runtime.create(matchId, players, allocation, 7L))
         runtime.beginCountdown(seconds = 1)
         runtime.activate()
         val playerId = runtime.current!!.participants.values.first { it.role != TttRole.TRAITOR }.playerId
@@ -61,14 +64,14 @@ class TttMatchRuntimeTest : StringSpec({
 
     "runtime refuses to silently release a live match" {
         val runtime = TttMatchRuntime({ TttMatchEngine(4, 12, 300_000L) }, clock = { 10_000L })
-        runtime.prepare(runtime.create(UUID.randomUUID(), players, allocation, 7L), seconds = 1)
+        runtime.prepare(runtime.create(UUID.randomUUID(), players, allocation, 7L))
 
         shouldThrow<IllegalArgumentException> { runtime.release() }
     }
 
     "bounded combat history keeps globally monotonic sequence numbers" {
         val runtime = TttMatchRuntime({ TttMatchEngine(4, 12, 300_000L) }, clock = { 10_000L })
-        runtime.prepare(runtime.create(UUID.randomUUID(), players, allocation, 7L), seconds = 1)
+        runtime.prepare(runtime.create(UUID.randomUUID(), players, allocation, 7L))
         runtime.beginCountdown(seconds = 1)
         runtime.activate()
         val attacker = runtime.current!!.participants.values.first()

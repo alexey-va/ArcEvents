@@ -10,15 +10,15 @@ import org.bukkit.generator.WorldInfo
 import java.util.Random
 import kotlin.math.abs
 
-enum class FishingArenaStage(val centerX: Int, val deck: Material) {
-    CAMP(0, Material.OAK_PLANKS),
+enum class FishingArenaStage(val centerX: Int, val deck: Material, private val maxShoreZ: Double = 96.0) {
+    CAMP(0, Material.OAK_PLANKS, maxShoreZ = 121.0),
     REEF(384, Material.JUNGLE_PLANKS),
     SHRINE(768, Material.DARK_OAK_PLANKS),
     CLIFFS(1152, Material.SPRUCE_PLANKS),
     VOLCANO(1536, Material.CRIMSON_PLANKS);
 
     internal fun containsShore(x: Double, y: Double, z: Double): Boolean =
-        x in (centerX - 40.0)..(centerX + 40.0) && y in 53.0..130.0 && z in -28.0..96.0
+        x in (centerX - 40.0)..(centerX + 40.0) && y in 53.0..130.0 && z in -28.0..maxShoreZ
 
     internal val harbour by lazy {
         AuthoredArenaVolume.load("/arena-templates/${FishingArenaGenerator.TEMPLATE}/${name.lowercase()}.schem")
@@ -51,7 +51,7 @@ class FishingArenaGenerator : ChunkGenerator() {
         chunkData.setRegion(0, OCEAN_FLOOR_Y, 0, 16, SEA_Y, 16, Material.GRAVEL)
         chunkData.setRegion(0, SEA_Y, 0, 16, WATER_SURFACE_Y + 1, 16, Material.WATER)
         val z = chunkZ * 16
-        if (z + 15 < MIN_HARBOUR_Z || z > MAX_HARBOUR_Z) return
+        if (z + 15 < MIN_HARBOUR_Z) return
         val x = chunkX * 16
         val stage = stageNear(x + 8) ?: return
         if (x + 15 < stage.centerX - HARBOUR_HALF_WIDTH || x > stage.centerX + HARBOUR_HALF_WIDTH) return
@@ -79,7 +79,7 @@ class FishingArenaGenerator : ChunkGenerator() {
     override fun shouldGenerateStructures(worldInfo: WorldInfo, random: Random, chunkX: Int, chunkZ: Int) = false
 
     companion object {
-        const val TEMPLATE = "fishing-archipelago-v1"
+        const val TEMPLATE = "fishing-archipelago-v2"
         const val SEED = 0x415243464953484CL
         const val MIN_Y = 54
         const val MAX_Y = 130
@@ -91,7 +91,6 @@ class FishingArenaGenerator : ChunkGenerator() {
         const val MIN_FISHING_DEPTH = WATER_SURFACE_Y - SEA_Y + 1
         internal const val HARBOUR_HALF_WIDTH = 65
         private const val MIN_HARBOUR_Z = -30
-        private const val MAX_HARBOUR_Z = 105
         private const val STAGE_SPACING = 384
 
         fun spawn(stage: FishingArenaStage) = point(stage, 0, 0)
@@ -114,7 +113,7 @@ class FishingArenaGenerator : ChunkGenerator() {
         fun materialAt(x: Int, y: Int, z: Int): Material? {
             if (y !in MIN_Y..MAX_Y) return null
             val stage = stageNear(x)
-            if (stage != null && abs(x - stage.centerX) <= HARBOUR_HALF_WIDTH && z in MIN_HARBOUR_Z..MAX_HARBOUR_Z && y >= SEA_Y) {
+            if (stage != null && abs(x - stage.centerX) <= HARBOUR_HALF_WIDTH && z >= MIN_HARBOUR_Z && y >= SEA_Y) {
                 stage.harbour.materialAt(x - stage.centerX + HARBOUR_HALF_WIDTH, y - SEA_Y, z - MIN_HARBOUR_Z)?.let { return it }
             }
             return when (y) {

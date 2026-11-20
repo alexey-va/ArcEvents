@@ -16,6 +16,7 @@ import ru.ruscrafting.events.domain.FirearmSpec
 import ru.ruscrafting.events.domain.FirearmSoundPreset
 import ru.ruscrafting.events.domain.TttFirearmCatalog
 import ru.ruscrafting.events.paper.DisasterArenaGenerator
+import ru.ruscrafting.events.paper.FishingArenaGenerator
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.math.floor
@@ -165,7 +166,6 @@ data class ArenaRuntimeSettings(
 data class TttSettings(
     val minimumPlayers: Int,
     val maximumPlayers: Int,
-    val preparationSeconds: Int,
     val countdownSeconds: Int,
     val roundSeconds: Int,
     val postRoundSeconds: Int,
@@ -264,8 +264,8 @@ data class DebugSettings(
 data class ArcadeSettings(
     val gunGame: ArcadeRules,
     val disasters: ArcadeRules,
-    val fishing: ArcadeRules = ArcadeRules(minimumPlayers = 1, maximumPlayers = 1, preparationSeconds = 3, countdownSeconds = 3, roundSeconds = 1800),
-    val zombies: ArcadeRules = ArcadeRules(minimumPlayers = 1, maximumPlayers = 4, preparationSeconds = 5, countdownSeconds = 3, roundSeconds = 1800),
+    val fishing: ArcadeRules = ArcadeRules(minimumPlayers = 1, maximumPlayers = 1, countdownSeconds = 3, roundSeconds = 1800),
+    val zombies: ArcadeRules = ArcadeRules(minimumPlayers = 1, maximumPlayers = 4, countdownSeconds = 3, roundSeconds = 1800),
 ) {
     fun rules(mode: EventMode): ArcadeRules = when (mode) {
         EventMode.GUN_GAME -> gunGame
@@ -310,7 +310,6 @@ class ArcEventsConfig(private val config: Config) {
         return ArcadeRules(
             minimumPlayers = config.int("$path.minimum-players", if (id in setOf("fishing", "zombies")) 1 else 3),
             maximumPlayers = config.int("$path.maximum-players", maximum),
-            preparationSeconds = config.int("$path.preparation-seconds", when (id) { "fishing" -> 3; "zombies" -> 5; else -> 15 }),
             countdownSeconds = config.int("$path.countdown-seconds", if (id in setOf("fishing", "zombies")) 3 else 5),
             roundSeconds = config.int("$path.round-seconds", if (id in setOf("fishing", "zombies")) 1800 else 360),
             postRoundSeconds = config.int("$path.post-round-seconds", 8),
@@ -415,7 +414,6 @@ class ArcEventsConfig(private val config: Config) {
         get() = TttSettings(
             minimumPlayers = config.int("ttt.minimum-players", 4),
             maximumPlayers = config.int("ttt.maximum-players", 16),
-            preparationSeconds = config.int("ttt.preparation-seconds", 30),
             countdownSeconds = config.int("ttt.countdown-seconds", 8),
             roundSeconds = config.int("ttt.round-seconds", 600),
             postRoundSeconds = config.int("ttt.post-round-seconds", 12),
@@ -539,14 +537,15 @@ class ArcEventsConfig(private val config: Config) {
     }
 
     private fun fishingArena(): ArenaSettings {
-        val world = when (val configured = config.string("arcade.fishing.arena.world", "arcevents_fishing_archipelago")) {
-            "arcevents_fishing", "arcevents_fishing_v2", "arcevents_fishing_v3", "arcevents_fishing_v4" -> "arcevents_fishing_archipelago"
-            "arcevents_lab_fishing_v3", "arcevents_lab_fishing_v4" -> "arcevents_lab_archipelago"
+        val world = when (val configured = config.string("arcade.fishing.arena.world", "arcevents_fishing_archipelago_v2")) {
+            "arcevents_fishing", "arcevents_fishing_v2", "arcevents_fishing_v3", "arcevents_fishing_v4",
+            "arcevents_fishing_archipelago" -> "arcevents_fishing_archipelago_v2"
+            "arcevents_lab_fishing_v3", "arcevents_lab_fishing_v4", "arcevents_lab_archipelago" -> "arcevents_lab_archipelago_v2"
             else -> configured
         }
         val spawn = EventLocation(world, 0.5, 65.0, 0.5)
-        return ArenaSettings("fishing", true, world, "fishing-archipelago-v1", spawn, spawn,
-            EventBounds(EventLocation(world, -320.0, 53.0, -70.0), EventLocation(world, 1857.0, 130.0, 96.0)),
+        return ArenaSettings("fishing", true, world, FishingArenaGenerator.TEMPLATE, spawn, spawn,
+            EventBounds(EventLocation(world, -320.0, 53.0, -70.0), EventLocation(world, 1857.0, 130.0, 121.0)),
             listOf(spawn), emptyList())
     }
 
@@ -644,7 +643,6 @@ class ArcEventsConfig(private val config: Config) {
         val ttt = ttt
         require(ttt.minimumPlayers in 4..ttt.maximumPlayers)
         require(ttt.maximumPlayers in 4..32)
-        require(ttt.preparationSeconds in 3..120)
         require(ttt.countdownSeconds in 3..30)
         require(ttt.roundSeconds in 60..3600)
         require(ttt.postRoundSeconds in 3..60)
@@ -773,7 +771,7 @@ class ArcEventsConfig(private val config: Config) {
             "",
             "citadel-v1",
             "disasters-coast-v1",
-            "fishing-archipelago-v1",
+            FishingArenaGenerator.TEMPLATE,
             "zombies-store-v1",
             "ttt-minecraft-b5-v1",
             "cs2-inferno-v1",

@@ -59,7 +59,7 @@ class ArenaWorldGeneratorRegistryTest : StringSpec({
 
     "retired minigame worlds retain their chunks and marker across upgrades" {
         val container = Files.createTempDirectory("arcevents-retired-")
-        val retired = listOf("fishing-v1", "fishing-v2", "fishing-v3", "fishing-v4",
+        val retired = listOf("fishing-v1", "fishing-v2", "fishing-v3", "fishing-v4", "fishing-archipelago-v1",
             "zombies-zero-v1", "zombies-zero-v2", "zombies-zero-v3", "disasters-v1")
         for (template in retired) {
             val arena = Files.createDirectory(container.resolve(template))

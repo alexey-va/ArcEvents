@@ -124,9 +124,8 @@ menu:
       - '<#f2f0e6>Inspect bodies and lead the investigation.'
     flow-name: '<#e3b341><bold>Round flow'
     flow-lore:
-      - '<#f2f0e6>Preparation: explore the map and collect weapons.'
-      - '<#f2f0e6>Roles stay hidden and all damage is disabled.'
-      - '<#f2f0e6>Your role is revealed before the combat countdown.'
+      - '<#f2f0e6>Your role is revealed when the countdown starts.'
+      - '<#f2f0e6>Collect weapons on the map. Damage unlocks at the start.'
       - '<#8c8c8c>Normal chat reaches nearby players.'
       - '<#8c8c8c>Eliminated players hear spectators only.'
     evidence-name: '<#e3b341><bold>Bodies and evidence'
@@ -426,12 +425,23 @@ match:
     <prefix> <#92bed8><phase>  <#e3b341><time>
     <#8c8c8c>   Alive: <#e3b341><alive>/<players>
 
+opening:
+  gungame-title: '<#f4c575>Gun Game'
+  gungame: '<#f2f0e6>Get a kill to switch weapons'
+  disasters-title: '<#9fc6ff><bold><hazard>'
+  fishing-title: '<#74ded2><bold>First catch'
+  fishing: '<#f2f0e6>Cast between the buoys'
+  zombies: '<#f2f0e6>Stop zombies at the windows'
+  innocent: '<#f2f0e6>Use clues to find the traitors'
+  detective: '<#f2f0e6>Right-click a body for clues'
+  traitor: '<#f2f0e6>Eliminate innocents in secret'
+
 role:
-  innocent-title: '<#55ff88><bold>You are innocent'
+  innocent-title: '<#55ff88><bold>Innocent'
   innocent-subtitle: '<#ffffff>Find the traitors and survive'
-  traitor-title: '<#ff5b6e><bold>You are a traitor'
+  traitor-title: '<#ff5b6e><bold>Traitor'
   traitor-subtitle: '<#ffffff>Allies: <allies>'
-  detective-title: '<#32d6ff><bold>You are a detective'
+  detective-title: '<#32d6ff><bold>Detective'
   detective-subtitle: '<#ffffff>Inspect bodies and lead the innocents'
   actionbar: '<role>  <#ffffff>Alive: <#ffcc33><bold><alive>  <#ffffff>Time: <#ffcc33><bold><time>'
   innocent-name: '<#7bd88f>innocent'
@@ -749,18 +759,18 @@ arcade:
   disasters-title: '<#20252b>Disasters'
   disasters-name: '<#9fc6ff><bold>Disasters'
   disasters-lore:
-  - <#e8dfd2>Survive a series of disasters.
-  - <#e8dfd2>Watch for warnings before each strike.
+  - <#e8dfd2>Weather the storm at Pirate Cove.
+  - <#e8dfd2>Dodge the strikes and find a route to high ground.
   disasters-guide-name: '<#9fc6ff><bold>Disasters rules'
   disasters-guide:
   - '<#e8dfd2>Map · <selected_arena>'
   - <#9fc6ff>Goal
-  - <#e8dfd2>Survive <rounds> rounds. Survivors earn points.
+  - <#e8dfd2>Earn one point for each of the <rounds> rounds you survive.
   - ''
-  - <#9fc6ff>Shelter
-  - '<#e8dfd2>Meteors: move out of the marked circles.'
-  - '<#e8dfd2>The copper roof by the wharf shelters you from lightning.'
-  - '<#e8dfd2>In fog, take the stairs to the lookout.'
+  - <#9fc6ff>How to survive
+  - '<#e8dfd2>A meteor lands inside the ring of fire. Step outside it.'
+  - '<#e8dfd2>Lightning hits the strip between the sparks. Step aside or under a roof.'
+  - '<#e8dfd2>The fog rises twice. Take the stairs to the lookout.'
   fishing-title: '<#20252b>Islands of the Deep'
   fishing-name: '<#74ded2><bold>Islands of the Deep'
   fishing-lore:
@@ -792,7 +802,7 @@ arcade:
   started: '<#7bd88f><mode> has started.'
   hud: '<#f2f0e6><mode> <#8c8c8c>| <#e3b341><seconds>s <#8c8c8c>| Score: <#7bd88f><score> <#8c8c8c>| Stage: <#92bed8><stage>/<total> <#8c8c8c>| Round: <#92bed8><round>'
   gungame-hud: <#f4c575>Weapon <stage>/<total> <#ffffff>· <seconds>s · <score> kills
-  disasters-hud: <#9fc6ff>Round <round>/<rounds> <#ffffff>· <seconds>s · <score> pts
+  disasters-hud: <#9fc6ff><hazard> <#ffffff>· <round>/<rounds> · <seconds>s · <score> pts
   fishing-hud: <#74ded2>Expedition <#ffffff>· <seconds>s
   result: '<#ffb277>Winners: <#ffffff><winners>'
   eliminated: <#ff6b61>Respawning in <seconds>s
@@ -801,10 +811,11 @@ arcade:
   hazard-meteors: 'Meteors'
   hazard-lightning: 'Lightning'
   hazard-fog: 'Fog'
-  hazard-meteors-guide: 'Dodge the marked circles.'
-  hazard-lightning-guide: 'Get under the copper roof by the wharf.'
-  hazard-fog-guide: 'Take the stairs to the lookout.'
-  round-complete: '<#7bd88f>Round <round> of <total> complete.'
+  hazard-meteors-guide: 'Step outside the ring of fire'
+  hazard-lightning-guide: 'Step out of the sparking lane or get under a roof.'
+  hazard-fog-guide: 'The fog rises twice. Climb the lookout stairs.'
+  round-complete: '<#c5cbd1>Round <round> of <total> complete.'
+  disaster-survived: '<#ffffff>Survived round <round>/<total> <#9bd48d>· +1 point'
   knife-name: '<#d84a4a><bold>Final knife'
   knife-lore:
     - '<#f2f0e6>One precise hit after 12 weapon levels.'
@@ -825,7 +836,7 @@ arcade:
 
   zombies-briefing: <#ff9c82>Survive <waves> waves.<newline>  <#e8dfd2>LMB — fire · RMB — aim · F — reload
   gungame-briefing: <#f4c575>Each elimination advances your weapon. Finish with the knife.<newline>  <#e8dfd2>LMB — fire · RMB — aim · F — reload
-  disasters-briefing: <#9fc6ff>Survive and move away from marked strikes.
+  disasters-briefing: <#9fc6ff>Meteors are falling on the wharf. <#ffffff>Step outside the ring of fire.
   fishing-briefing: <#74ded2>Follow the planks to the buoys and take out your rod.
   zombies-solo-name: <#9bd48d>Play solo
   zombies-solo-lore:
@@ -1123,7 +1134,7 @@ dialog:
   ttt-map: '<#e8dfd2>Map · <#ffffff><selected_arena>'
   map: '<#e8dfd2>Map · <#ffffff><arena>'
   gungame-overview: '<#f4c575>Get a new weapon with each kill. Win with the knife.'
-  disasters-overview: '<#9fc6ff>Find shelter and survive <rounds> rounds of disasters.'
+  disasters-overview: '<#9fc6ff>Weather <rounds> rounds at Pirate Cove. Earn a point for every round you survive.'
   zombies-overview: '<#ff9c82>Repair the barricades and fend off <waves> waves of zombies.'
   fishing-overview: '<#74ded2>Cast between the buoys. Each island has a boss.'
   fishing-facts: <#e8dfd2>One player · Up to <minutes> min.
@@ -1157,7 +1168,7 @@ dialog:
   - <#e8dfd2>Your role is public. Inspect bodies and protect innocents.
   rules-ttt-1:
   - <#c4abff>Before combat
-  - <#e8dfd2>Find weapons on the map. Roles are hidden; damage is off.
+  - <#e8dfd2>Learn your role. Combat unlocks after the countdown.
   - ''
   - <#c4abff>During combat
   - <#e8dfd2>LMB — fire · RMB — aim · F — reload.
@@ -1177,12 +1188,12 @@ dialog:
   - <#e8dfd2>After elimination, return with brief spawn protection.
   rules-disasters-0:
   - <#9fc6ff>Goal
-  - <#e8dfd2>Survive <rounds> rounds. Survivors earn points.
+  - <#e8dfd2>Earn one point for each of the <rounds> rounds you survive.
   - ''
-  - <#9fc6ff>Shelter
-  - '<#e8dfd2>Meteors: move out of the marked circles.'
-  - '<#e8dfd2>The copper roof by the wharf shelters you from lightning.'
-  - '<#e8dfd2>In fog, take the stairs to the lookout.'
+  - <#9fc6ff>How to survive
+  - '<#e8dfd2>A meteor lands inside the ring of fire. Step outside it.'
+  - '<#e8dfd2>Lightning hits the strip between the sparks. Step aside or under a roof.'
+  - '<#e8dfd2>The fog rises twice. Take the stairs to the lookout.'
   rules-fishing-0:
   - <#74ded2>Fish → fight → upgrade
   - <#e8dfd2>Cast by the pier. Hold your catch and RMB the ground.
@@ -1298,7 +1309,7 @@ apocalypse:
     crowbar-needed: '<#f4d87a>Hold the crowbar in your main hand and open the parts crate.'
     container-full: '<#f4d87a>The container needs room for supplies. Take out some items, then open it again.'
     book:
-      title: '<#382b21><bold>Field guide'
+      title: '<#382b21><bold>Field journal'
       heading: '<#382b21><bold><target>'
       status: '<#59452e>Day <day> · Horde <next>'
       bearing: '<#324855><direction> · <distance>'
@@ -1335,8 +1346,7 @@ apocalypse:
       city: '<#382b21>Search abandoned buildings for supplies.'
       weapons: '<#382b21>Search the structure for its weapon cache. Survivors share its contents.'
     route-unavailable: '<#f4d87a>This landmark has not been found. Choose another in the field guide.'
-    short-bearing: '<#92bed8><direction> <white><distance>'
-    route-notice: '<#ffb277><bold><target></bold><#e8dfd2> · <bearing><newline><#e8dfd2>X <white><x></white> · Y <white><y></white> · Z <white><z></white>'
+    route-notice: '<#c4d58b>Marked on your map — <white><target></white>.<newline>  <bearing><newline>  <#d1c5ac>X <x> · Y <y> · Z <z>'
     short:
       workbench: 'Workbench'
       structure: 'Structure'
@@ -1353,69 +1363,73 @@ apocalypse:
       sw: 'SW'
       w: 'W'
       nw: 'NW'
-    title: '<#c4d58b><bold>Field guide'
+    title: '<#ead8ac><bold>Field journal'
+    chapter-title: '<#ead8ac><bold><title>'
+    page-link: '<white><title> ›'
+    marked-link: '<#9bd48d>✔ <title> ›'
+    map-title: 'Local map'
+    map-tip: '<#e8dfd2>The workshop, bunker exit and places to look for supplies.'
+    map-inside: '<#e8dfd2>The corridor leads to the supply room. The ladder in the central shaft leads to the surface.'
+    map-outside: '<#e8dfd2>Survivors share the caches. Map markings show where to look for supplies.'
+    equipment-title: 'Gear and workbenches'
+    equipment-tip: '<#e8dfd2>How to build your first gun, find ammunition and open parts crates.'
+    hazards-title: 'Infection and hordes'
+    hazards-tip: '<#e8dfd2>How to treat a bite and when to prepare for the next horde.'
+    mark: '<#9bd48d>Mark on map'
+    mark-tip: '<#e8dfd2>Close the journal and follow this landmark.'
     author: 'Survivors'
     starter-arrival: '<#e8dfd2>Follow the corridor to the supply hall. The ladder in the shaft leads to the surface.'
     continuing: '<#e8dfd2>You are back in the expedition. Your field guide shows nearby landmarks.'
     exit-command: '  <#a7adb2>Leave with <#92bed8>/arcevents leave'
-    open: '<#92bed8><underlined>Open field guide</underlined> ›'
-    status: '<#e8dfd2>Day <white><day></white> · <infection><#e8dfd2> · Horde on day <#ffb277><next>'
-    choose-route: '<#e8dfd2>Choose a landmark to see its coordinates in chat.'
-    tracked-location: '<#9bd48d>✔ <target><#e8dfd2> · <bearing><newline><white>X <x> · Y <y> · Z <z>'
-    choice: '<white><target><#e8dfd2> · <bearing>'
-    tracked-choice: '<#9bd48d>✔ <target><#e8dfd2> · <bearing>'
-    bearing: '<#92bed8><direction><#e8dfd2> · <distance> blocks'
-    here: '<#92bed8>You are here'
-    above: '<#92bed8><distance> blocks above'
-    below: '<#92bed8><distance> blocks below'
-    address: '<bearing><newline><white>X <x> · Y <y> · Z <z>'
-    barrel: '<#e8dfd2>Barrel <white><x> / <y> / <z>'
-    barrel-visited: '<#e8dfd2>Barrel <white><x> / <y> / <z><#9bd48d> · visited'
-    survival: '<#ffb277>Survival tips ›'
-    survival-title: '<#ffb277><bold>Survival tips'
-    survival-tip: 'Firearms, infection treatment and horde preparation.'
-    weapons-title: '<#ffb277><bold>Guns and ammunition'
-    workbench-title: '<#ffb277><bold>Assembling a gun'
+    open: '<#d0bd91><underlined>Open field journal</underlined> ›'
+    status: '<#c4d58b>Day <day></#c4d58b><#ded4bd>   ·   </#ded4bd><infection>'
+    bearing: '<#d8c39c><direction></#d8c39c><#e8dfd2> · about <white><distance> blocks</white> from here'
+    here: '<#c4d58b>You are at the landmark.'
+    above: '<#e8dfd2>The landmark is <white><distance> blocks</white> above you.'
+    below: '<#e8dfd2>The landmark is <white><distance> blocks</white> below you.'
+    address: '<#d1c5ac>X <x> · Y <y> · Z <z>'
+    barrel: '<#d1c5ac>Another barrel · X <x> · Y <y> · Z <z>'
+    barrel-visited: '<#d1c5ac>Searched barrel · X <x> · Y <y> · Z <z>'
+    weapons-title: '<#ead8ac><bold>Weapons in your pack'
+    workbench-title: '<#ead8ac><bold>Workshop notes'
     workbench-help: '<#e8dfd2>Right-click the crafting table in the bunker. Use a copper block and a spare crafting table to make the T1 telegraph. Place the telegraph, then use it to craft the DB-2 Durin with 8 iron ingots and 6 logs.<newline><newline>For ammunition, use the crafting table to make an iron ammo box with 1 iron ingot and 7 planks. Combine the box with 2 copper ingots and 1 more iron ingot to make an ammo bench. Place it to craft ammunition.'
     kit-gun: '<#e8dfd2>You have a gun. Spare rounds <white><ammo></white>.'
     kit-axe: '<#e8dfd2>The axe is useful in melee. Spare rounds <white><ammo></white>.'
     weapons-help: '<#e8dfd2>Look for guns in cities and bunkers. Open gun storage by hand. Use a crowbar for parts crates.'
     controls: '<#92bed8>Left click <white>fire · <#92bed8>Right click <white>aim · <#92bed8>F <white>reload<newline><#92bed8>Shift+F <white>event menu'
-    health-title: '<#ffb277><bold>Infection'
+    health-title: '<#ead8ac><bold>Infection</bold>   <stage>'
     health-help: '<#e8dfd2>A zombie hit can infect you. Infection has four stages. A vaccine cures it and briefly prevents reinfection. A golden apple also cures infection.<newline><newline>Right-click a regular crafting table and choose “Infection vaccine”. Each vaccine takes 1 glass bottle, 1 gold ingot and 2 redstone dust.'
-    horde-title: '<#ffb277><bold>Horde · day <day>'
+    horde-title: '<#ead8ac><bold>Next horde</bold> · day <day>'
     horde-help: '<#e8dfd2>Every tenth night, zombies converge on survivors in waves. Gather food and ammunition and find shelter before dark.'
-    refresh: '<white>Refresh'
     fly-on: '<white>Enable flight'
     fly-off: '<white>Disable flight'
     fly-tip: '<#e8dfd2>Administrator flight inside the apocalypse world.'
-    refresh-tip: 'Update landmarks and check your supplies.'
     leave: '<#ff8d6f>Leave expedition'
     leave-tip: 'Return with your usual inventory. Your expedition gear will be saved.'
     target:
-      workbench: 'Bunker workbench'
-      structure: 'Nearest structure'
-      supplies: 'Supply barrels'
-      exit: 'Bunker exit'
-      city: 'Nearest city'
+      workbench: 'Bunker workshop'
+      structure: 'Abandoned building'
+      supplies: 'Bunker supply room'
+      exit: 'Ladder shaft'
+      city: 'City blocks'
       weapons: 'Weapon cache'
     step:
-      check-barrels: '<#ffb277><bold>Supply barrels · <opened> of <total> opened</bold><newline><#e8dfd2>Follow the corridor to the hall. Track Barrel to find the nearest one you have yet to open.'
-      structure: '<#ffb277><bold>Explore the structure</bold><newline><#e8dfd2>Check its crates and look for a place to shelter for the night.'
-      cure: '<#ffb277><bold>Treat the infection</bold><newline><#e8dfd2>Drink a vaccine or eat a golden apple. Your infection stage appears at the top of the screen.'
-      supplies: '<#ffb277><bold>Search the two barrels</bold><newline><#e8dfd2>Follow the corridor to the main hall. The barrels at the far end hold food and materials.'
-      exit: '<#ffb277><bold>Reach the surface</bold><newline><#e8dfd2>Check the barrels for remaining supplies. Ladders in the main hall lead to the surface.'
-      weapons: '<#ffb277><bold>Find a firearm</bold><newline><#e8dfd2>Track the weapon cache and search it. Your axe can keep zombies off you on the way.'
-      city: '<#ffb277><bold>Reach the city</bold><newline><#e8dfd2>Search buildings and supply crates. Look for a gun, spare ammunition and shelter.'
-      ammo: '<#ffb277><bold>Gather spare rounds</bold><newline><#e8dfd2>You have a gun. Search city buildings and underground caches for ammunition.'
-      shelter: '<#ffb277><bold>Prepare a shelter</bold><newline><#e8dfd2>Scout the city and gather food and ammunition. Find somewhere you can defend when the horde arrives.'
+      check-barrels: '<#ead8ac><bold>Search the supply room</bold></#ead8ac><newline><#e8dfd2>Supply barrels stand at the far end of the corridor. You have searched <opened> of <total>.'
+      structure: '<#ead8ac><bold>Explore the building</bold></#ead8ac><newline><#e8dfd2>There is a building beyond the bunker. Search it for supplies and a place to stay the night.'
+      cure: '<#ead8ac><bold>Treat the bite</bold></#ead8ac><newline><#e8dfd2>Drink a vaccine or eat a golden apple. The vaccine recipe is in “Infection and hordes”.'
+      supplies: '<#ead8ac><bold>Search the supply room</bold></#ead8ac><newline><#e8dfd2>Follow the corridor to the main hall. Two supply barrels stand at the far end.'
+      exit: '<#ead8ac><bold>Reach the surface</bold></#ead8ac><newline><#e8dfd2>The supplies have been checked. Climb the ladder in the central shaft.'
+      weapons: '<#ead8ac><bold>Find a firearm</bold></#ead8ac><newline><#e8dfd2>The map shows a weapon cache. Keep your axe close on the way.'
+      city: '<#ead8ac><bold>Reach the city</bold></#ead8ac><newline><#e8dfd2>Search the abandoned houses for a gun, spare ammunition and a place to shelter.'
+      ammo: '<#ead8ac><bold>Gather spare rounds</bold></#ead8ac><newline><#e8dfd2>You have a gun. Check supply crates for ammunition or craft it at an ammo bench.'
+      shelter: '<#ead8ac><bold>Prepare a shelter</bold></#ead8ac><newline><#e8dfd2>Gather food and ammunition before dark. Find somewhere you can defend.'
     route:
-      workbench: '<#e8dfd2>Right-click the crafting table in the starter bunker to open the recipes for the T1 telegraph and the ammo bench.'
-      structure: '<#e8dfd2>This landmark leads to a structure beyond the starter bunker. Look for supplies and a safe way in.'
-      supplies: '<#e8dfd2>The barrels in the main hall can hold food, metal, gunpowder and vaccines. All survivors share the supplies.'
-      exit: '<#e8dfd2>Ladders in the central shaft lead from the main hall to the surface.'
-      city: '<#e8dfd2>Look for supplies in abandoned buildings. This landmark leads to the city.'
-      weapons: '<#e8dfd2>Search the structure for a weapon cache. Other survivors may already have taken supplies.'
+      workbench: '<#e8dfd2>The workshop has a regular crafting table. Right-click it for the T1 telegraph, ammo bench and vaccine recipes.'
+      structure: '<#e8dfd2>Check the entrance. Look inside for supply crates and a place to stay the night.'
+      supplies: '<#e8dfd2>Two barrels stand in the main hall. They can hold food, metal, gunpowder and vaccines. Survivors share the supplies.'
+      exit: '<#e8dfd2>The ladder in the central shaft leads from the main hall to the surface. It also leads back down to the bunker.'
+      city: '<#e8dfd2>Search the abandoned houses for crates and a place to shelter before dark.'
+      weapons: '<#e8dfd2>There is a weapon crate inside the building. Check it — another survivor may have been here first.'
     direction:
       n: 'North'
       ne: 'Northeast'

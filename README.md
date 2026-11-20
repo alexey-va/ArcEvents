@@ -50,6 +50,8 @@ use the existing coordinated-restart replacement barrier. Administrator commands
 `/arcevents apocalypse locate [kind]`, `day <n>`; scoped QA reads use `qa` and
 `markers [kind]`. Debug-only `time <absolute ticks>` moves the world clock forward.
 The western waterfront leads from the bunker bridge to a freight pier. Existing expeditions and player-edited lots survive this map update.
+For a fresh Apocalypse world, run `/events admin apocalypse-reset-plan <new-world>` on the host.
+The [world rotation runbook](docs/apocalypse-world-reset.md) covers the Parkour switch, recovery checks and rollback.
 After a failed transition, `/arcevents apocalypse recover` retries the recorded return. The host parks the expedition before transferring the player. The original backend acknowledges arrival against the return ticket in Redis (`arc:events:apocalypse:returns:v1`). Update the host and relays together for end-to-end acknowledgement. Read the
 [reference and fidelity limits](docs/apocalypse-reference.md),
 [economy assessment](docs/economy/apocalypse-20261114.md) and
@@ -88,8 +90,11 @@ host type and restore it before the return transfer, including after a restart.
 Arcade wins contribute to shared match/win statistics without changing TTT karma
 or role-specific wins. Old-round projectiles cannot affect a later match.
 
-Fishing places five authored harbours 384 blocks apart in the `fishing-archipelago-v1` world. The stages draw on Tahiti, Coral Reef, Temple Valley, Isle and Pompeii. The host prepares the starting quay at startup and the next island before ferry travel. Configure the world through
-`arcade.fishing.arena.world`. It is excluded from public combat-map rotation.
+Fishing places five authored harbours 384 blocks apart in the `fishing-archipelago-v2` world. The stages draw on Tahiti, Coral Reef, Temple Valley, Isle and Pompeii. The host prepares the starting quay at startup and the next island before ferry travel. Configure the world through
+`arcade.fishing.arena.world`. The previous bundled world names select fresh V2
+geometry automatically. If a custom world already has the
+`fishing-archipelago-v1` marker, configure a new name before upgrading. Fishing
+is excluded from public combat-map rotation.
 Its temporary rod, weapons, creatures and hooks leave no permanent item or XP
 reward; original player state is restored on success, defeat, evacuation and
 recovery in `PRESERVE` mode and in administrator practice. Public expeditions
@@ -520,12 +525,11 @@ flag disabled until modern-client acceptance QA is explicitly selected.
 
 ## Round presentation
 
-TTT follows three visible stages. During the 30-second preparation, players
-are already free to scout the arena, collect or drop map firearms, and open
-the briefing book,
-while roles remain hidden and all combat is blocked. The role reveal starts a
-short countdown, equips only the relevant role shop, and then unlocks the
-active round.
+After the host prepares the arena, commits player state and confirms the roster,
+one `countdown-seconds` timer opens the match. Existing profiles may retain
+`preparation-seconds`; that key no longer adds a second wait. TTT reveals each
+player's role and objective privately at countdown start. Players may collect
+map weapons before combat unlocks. Only traitors see the names of their allies.
 
 Each participant gets a locale-aware sidebar, per-player boss bar, contextual
 action bar, phase titles, and restrained transition particles. The previous
@@ -570,9 +574,10 @@ the window within 3.25 blocks to repair one board per 1.5 seconds. Moving, looki
 away, taking damage or an occupied threshold interrupts repair. Repair is free,
 awards no points and does not enable arbitrary construction.
 
-All five mode screens expose their rules separately. Automatic preparation sends
-one short briefing rather than the rules list; reservation and start confirmation
-are not duplicated. Native results, traders and supply screens share compact
+All five mode screens expose their detailed rules. At match opening, a single
+title introduces the first objective while the HUD shows the countdown.
+The first Zombies wave opens with combat. Intermissions begin after a wave is cleared.
+Native results, traders and supply screens share compact
 panels, readable text and the existing Back/Escape history.
 
 `arcade.zombies` controls the roster, deadlines, wave count, intermission and

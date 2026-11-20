@@ -6,9 +6,9 @@ Source repository revision `1e8cf8b79218ee13f82a172ee6193ffca6834040`. Input bou
 
 ## Camp — Tahiti
 
-Tahiti by NixaniaXi and Strangey. The existing port, timber houses, ships and beach form the first harbour. [Original world and license](https://github.com/OvercastCommunity/PublicMaps/tree/1e8cf8b79218ee13f82a172ee6193ffca6834040/koth/tahiti)
+Tahiti by NixaniaXi and Strangey. The complete port, timber houses, ships and beach sit beyond the fishing channel. Original block (x, y, z) is placed at (x − 19, y + 63, z + 43). The original facades and terrain are preserved at that offset. RusCrafting added the shallow shoreline, the piled boardwalk and the stairs to the beach. [Original world and license](https://github.com/OvercastCommunity/PublicMaps/tree/1e8cf8b79218ee13f82a172ee6193ffca6834040/koth/tahiti)
 
-Input selection `(-47, 0, -19)` through `(78, 47, 82)`. Output SHA-256 `0402864f4da9e6e66403ae2d4774b7d4e5c9f9c99aa6b9f7dad8df73612265af`.
+Input selection `(-47, 0, -19)` through `(78, 47, 82)`. Output SHA-256 `ef14bba5944497fd8815bfb9c1d851a47576039a36d4f04a445dcf5ac271ef4f`.
 
 | Original Anvil region | SHA-256 |
 | --- | --- |

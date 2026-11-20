@@ -129,7 +129,9 @@ class ArcadeRoundLifecycleMockBukkitTest : FunSpec({
                 fixture.service.arcadeSnapshot()?.phase shouldBe MatchPhase.ACTIVE
                 fixture.service.arcadeSnapshot()?.participants?.values
                     ?.all { it.status == ParticipantStatus.ALIVE } shouldBe true
-                fixture.players.all { it.inventory.itemInMainHand.isEmpty.not() } shouldBe true
+                fixture.players.all { player ->
+                    fixture.firearms.state(player.inventory.itemInMainHand)?.id == FirearmId.FIVE_SEVEN
+                } shouldBe true
                 fixture.escrow.pendingCount() shouldBe fixture.players.size
                 fixture.service.close()
                 fixture.assertOriginalPlayerStateRestored()

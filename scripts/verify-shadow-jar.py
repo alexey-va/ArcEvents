@@ -9,7 +9,7 @@ if len(sys.argv) != 2:
     raise SystemExit("Usage: verify-shadow-jar.py path/to/production.jar")
 with ZipFile(sys.argv[1]) as artifact:
     unexpected = sorted(name for name in artifact.namelist()
-                        if forbidden.search(name) or name.startswith("ru/arc/staffspells/api/"))
+                        if forbidden.search(name) or name.startswith(("ru/arc/staffspells/api/", "ru/arc/dungeons/api/")))
     if unexpected:
         raise SystemExit("Production JAR embeds host/server-owned classes:\n" + "\n".join(unexpected))
     descriptor = artifact.read("plugin.yml").decode()

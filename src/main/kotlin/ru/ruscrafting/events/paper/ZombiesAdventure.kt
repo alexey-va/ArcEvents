@@ -127,7 +127,8 @@ class ZombiesAdventure(
         if (before != director.phase && director.phase == ZombiesPhase.WAVE) {
             roster.values.filter(::belongsTo).forEach { player ->
                 val values = values(player)
-                player.showTitle(Title.title(locale.render("zombies.wave-title", player, values),
+                // The opening countdown already introduced wave one and its first objective.
+                if (director.wave > 1) player.showTitle(Title.title(locale.render("zombies.wave-title", player, values),
                     locale.render(if (director.wave % 5 == 0) "zombies.brute-warning" else "zombies.wave-subtitle", player, values),
                     Title.Times.times(Duration.ofMillis(100), Duration.ofSeconds(2), Duration.ofMillis(300))))
                 if (sounds()) player.playSound(player.location, Sound.BLOCK_BEACON_ACTIVATE, .65f, .65f)

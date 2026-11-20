@@ -152,10 +152,15 @@ test('Apocalypse original bunker spawner emits native guards at its source posit
 });
 
 function watchApocalypseDialogs(player) {
-  const result={screens:[]};
+  const result={screens:[],clears:0};
   const show=({dialog})=>result.screens.push(dialog.data?nbt.simplify(dialog.data):{});
+  const clear=()=>result.clears++;
   player.bot._client.on('show_dialog',show);
-  result.stop=()=>player.bot._client.removeListener('show_dialog',show);
+  player.bot._client.on('clear_dialog',clear);
+  result.stop=()=>{
+    player.bot._client.removeListener('show_dialog',show);
+    player.bot._client.removeListener('clear_dialog',clear);
+  };
   return result;
 }
 function apocButtons(value) {
@@ -244,32 +249,51 @@ test('Apocalypse enters through the native menu and opens actionable guide route
     const card=await until(()=>dialogs.screens.slice(cardSince).find(s=>apocButton(s,enter)),'Apocalypse card did not offer ordinary entry');
     assert.ok(!apocButton(card,'action_apocalypse_test_name'),'The ordinary player received the admin-only entry button');
     apocClick(player,card,enter);await players(admin,1);
-    const expedition=items(player);let since=dialogs.screens.length;
-    player.chat('/arcevents');
-    const guide=await until(()=>dialogs.screens.slice(since).find(s=>apocButton(s,'track_supplies')),'Bare /arcevents did not open the field guide');
-    assert.match(JSON.stringify(guide.title),/Field guide/);
-    assert.ok(apocButton(guide,'track_exit'),'The real surface exit has no guide route');
-    assert.ok(apocButton(guide,'leave'),'The field guide root has no expedition exit');
-    assert.ok(apocButton(guide,'track_weapons')||apocButton(guide,'track_city'),'Guide has no actual destination for finding firearms');
+    const expedition=items(player);
+    const screenAfter=async(action, predicate, message)=>{
+      const since=dialogs.screens.length;
+      action();
+      return until(()=>dialogs.screens.slice(since).find(predicate),message);
+    };
+    const openChapter=(screen,id,expected)=>screenAfter(()=>apocClick(player,screen,id),
+      s=>apocButton(s,expected),`The ${id} action did not open ${expected}`);
+    const isJournal=s=>apocButton(s,'map')&&apocButton(s,'equipment')&&apocButton(s,'hazards')&&apocButton(s,'leave');
+    const guide=await screenAfter(()=>player.chat('/arcevents'),isJournal,'Bare /arcevents did not open the journal');
+    assert.match(JSON.stringify(guide.title),/Field journal/);
+    assert.ok(!apocButton(guide,'track_supplies')&&!apocButton(guide,'refresh'));
+    const clearBeforePages=dialogs.clears;
+    let map=await openChapter(guide,'map','place_supplies');
+    assert.ok(apocButton(map,'place_exit'),'The map is missing the surface exit');
+    assert.ok(apocButton(map,'place_weapons')||apocButton(map,'place_city'),'The map has no real surface destination');
+    for(let cycle=0;cycle<3;cycle++){
+      const place=await openChapter(map,'place_supplies','track_supplies');
+      assert.match(JSON.stringify(place.title),/Bunker supply room/);
+      map=await openChapter(place,'back','place_supplies');
+    }
+    const place=await openChapter(map,'place_supplies','track_supplies');
+    assert.equal(dialogs.clears,clearBeforePages,'Native map navigation closed the journal between pages');
     const trackSince=player.getMessageBufferIndex();
-    apocClick(player,guide,'track_supplies');
-    await expect(player).toHaveReceivedMessage(/^Supply barrels · [A-Za-z -]+ · \d+ blocks\nX -?\d+ · Y -?\d+ · Z -?\d+$/,{since:trackSince});
-    const trackedAt=Number((await qa(admin)).tick);
-    await until(async()=>Number((await qa(admin)).tick)>=trackedAt+40,'Apocalypse HUD did not refresh');
-    assert.ok(player.bot.bossBars.some(bar=>/^Day \d+ · .+ · hostiles \d+$/.test(String(bar.title))),
-      'Tracking a landmark replaced the survival HUD');
-    assert.equal(items(player),expedition,'Tracking a source barrel changed expedition items');
-    since=dialogs.screens.length;player.chat('/arcevents apocalypse guide');
-    const fresh=await until(()=>dialogs.screens.slice(since).find(s=>apocButton(s,'survival')),'Guide refresh failed');
-    apocClick(player,fresh,'survival');
-    const help=await until(()=>dialogs.screens.slice(since).find(s=>apocButton(s,'back')),'Survival controls did not open');
-    assert.match(JSON.stringify(help.body),/crowbar/i);
-    assert.match(JSON.stringify(help.body),/DB-2 Durin/);
-    assert.match(JSON.stringify(help.body),/ammo bench/i);
-    assert.match(JSON.stringify(help.body),/reload/i);
-    since=dialogs.screens.length;apocClick(player,help,'back');
-    const returned=await until(()=>dialogs.screens.slice(since).find(s=>apocButton(s,'track_supplies')),'Back did not return to the guide');
-    apocClick(player,returned,'leave');await players(admin,0);await until(()=>items(player)===origin,'Guide exit did not restore origin inventory');
+    apocClick(player,place,'track_supplies');
+    await expect(player).toHaveReceivedMessage(/^Marked on your map — Bunker supply room\.\n[^\n]+\n\s*X -?\d+ · Y -?\d+ · Z -?\d+$/,{since:trackSince});
+    const strip=/^<[ NSEW◇↑↓←→]{73}>$/u;
+    const bars=()=>player.bot.bossBars.filter(bar=>strip.test(String(bar.title)));
+    const compass=await until(()=>bars().find(bar=>/[◇↑↓←→]/u.test(String(bar.title))),'The compass did not mark the supply room');
+    assert.equal(bars().length,1,'Tracking opened duplicate compass bars');
+    assert.equal(items(player),expedition,'Reading and marking a place changed expedition items');
+    let fresh=await screenAfter(()=>player.chat('/arcevents apocalypse guide'),isJournal,'The journal command did not reopen its cover');
+    const marked=await openChapter(fresh,'map','place_supplies');
+    assert.match(JSON.stringify(apocButton(marked,'place_supplies').label),/✔/);
+    fresh=await openChapter(marked,'back','equipment');
+    const equipment=await openChapter(fresh,'equipment','back');
+    for(const topic of [/crowbar/i,/Durin/,/ammo/i,/reload/i]) assert.match(JSON.stringify(equipment.body),topic);
+    fresh=await openChapter(equipment,'back','hazards');
+    const hazards=await openChapter(fresh,'hazards','back');
+    for(const topic of [/vaccine/i,/horde/i]) assert.match(JSON.stringify(hazards.body),topic);
+    const returned=await openChapter(hazards,'back','leave');
+    apocClick(player,returned,'leave');
+    await players(admin,0);
+    await until(()=>!player.bot.bossBars.some(bar=>bar.entityUUID===compass.entityUUID),'The expedition compass survived departure');
+    await until(()=>items(player)===origin,'Journal departure did not restore the original inventory');
   }finally{dialogs.stop();player.chat('/arcevents leave');admin.bot.quit();}
 });
 

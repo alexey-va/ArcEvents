@@ -4,9 +4,7 @@ import net.kyori.adventure.bossbar.BossBar
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.title.Title
 import org.bukkit.GameMode
-import org.bukkit.HeightMap
 import org.bukkit.Location
-import org.bukkit.Particle
 import org.bukkit.Sound
 import org.bukkit.attribute.Attribute
 import org.bukkit.entity.Player
@@ -14,9 +12,8 @@ import org.bukkit.event.entity.EntityDamageEvent
 import org.bukkit.event.player.PlayerFishEvent
 import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.plugin.Plugin
-import org.bukkit.potion.PotionEffect
-import org.bukkit.potion.PotionEffectType
 import org.bukkit.util.Vector
+import ru.arc.core.ScheduledTask
 import ru.arc.core.Tasks
 import ru.arc.paper.display.PaperPacketDisplays
 import ru.ruscrafting.events.config.ArcEventsConfig
@@ -31,8 +28,6 @@ import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.logging.Level
 import kotlin.math.ceil
-import kotlin.math.cos
-import kotlin.math.sin
 
 /** Paper presentation for arcade modes. The existing host owns escrow, routing and the arena lease. */
 class ArcadeSession(
@@ -55,15 +50,12 @@ class ArcadeSession(
 ) {
     val runtime = ArcadeMatchRuntime(clock)
     val current: ArcadeMatch? get() = runtime.current
-    private var rosterCommitted = false
     private var resultShown = false
     private var restoreAt = 0L
     private var hazardAt = 0L
-    private var lastHazardPulse = -1L
+    private var disasterFrames: ScheduledTask? = null
     private val bars = mutableMapOf<UUID, BossBar>()
     private val recentAttacks = RecentAttackLedger(clock = clock)
-    private var impacts = emptyList<Location>()
-    private var impactAt = 0L
     private var hazardVictim: UUID? = null
     private var fishing: FishingAdventure? = null
     private var zombies: ZombiesAdventure? = null
@@ -79,31 +71,21 @@ class ArcadeSession(
         check(players.none { escrow.pendingAnotherMatch(it.uniqueId, matchId) }) { "Player still has recovery from another match" }
         val arena = requireNotNull(arenaPool.active())
         resultShown = false
-        rosterCommitted = false
         require(practice == null || practice.matchId == matchId && players.singleOrNull()?.uniqueId == practice.ownerId)
-        val match = runtime.start(matchId, mode, entries.map(QueueEntry::queuedPlayer) + practice?.bots.orEmpty(), rules)
+        runtime.start(matchId, mode, entries.map(QueueEntry::queuedPlayer) + practice?.bots.orEmpty(), rules)
         practiceRoster = practice
         var mutationAttempted = false
         val preservePlayerState = practice != null || settings().playerStateMode == PlayerStateMode.PRESERVE
-        fun current() = current?.matchId == matchId && current?.phase == MatchPhase.PREPARING && players.all(Player::isOnline)
-        val applyPlayer: (IndexedValue<Player>) -> Unit = { (slot, player) ->
+        fun stillPreparing() = current?.matchId == matchId && current?.phase == MatchPhase.PREPARING && players.all(Player::isOnline)
+        val applyPlayer: (IndexedValue<Player>) -> Unit = apply@{ (slot, player) ->
+            val preparing = current?.takeIf { it.matchId == matchId && it.phase == MatchPhase.PREPARING } ?: return@apply
+            if (!player.isOnline || preparing.participants[player.uniqueId]?.status != ParticipantStatus.RESERVED) return@apply
             mutationAttempted = true
             resetPlayer(player)
             player.inventory.clear()
             player.inventory.armorContents = arrayOfNulls(4)
             player.inventory.setItemInOffHand(null)
             teleport(player, arena.spawnFor(slot, players.size))
-            val guideValues = if (mode == EventMode.FISHING) mapOf(
-                "phase" to locale.render("phase.${match.phase.name.lowercase()}", player),
-                "seconds" to locale.text(secondsRemaining()),
-                "maximum" to locale.text(rules.roundSeconds),
-                "arena" to locale.render("arena.fishing.name", player),
-            ) else if (mode == EventMode.ZOMBIES) mapOf(
-                "waves" to locale.text(settings().zombies.waves),
-                "minimum" to locale.text(rules.minimumPlayers),
-                "maximum" to locale.text(rules.maximumPlayers),
-            ) else emptyMap()
-            player.sendEventMessage(locale.render("arcade.${mode.id}-briefing", player, guideValues))
             if (preservePlayerState) player.saveData()
         }
         val mutatePlayers: () -> CompletableFuture<Unit> = {
@@ -112,7 +94,7 @@ class ArcadeSession(
                 CompletableFuture.completedFuture(Unit)
             } else {
                 val iterator = players.withIndex().iterator()
-                work.capture(::current) {
+                work.capture(::stillPreparing) {
                     if (iterator.hasNext()) applyPlayer(iterator.next())
                     !iterator.hasNext()
                 }
@@ -120,7 +102,7 @@ class ArcadeSession(
         }
         val operation = runCatching {
             if (preservePlayerState) escrow.commitThenMutateStagesAsync(matchId, players,
-                entries.associate { UUID.fromString(it.playerId) to it.originServer }, clock(), ::current,
+                entries.associate { UUID.fromString(it.playerId) to it.originServer }, clock(), ::stillPreparing,
             ) { mutatePlayers() }.thenApply { Unit } else mutatePlayers()
         }.getOrElse { CompletableFuture.failedFuture(it) }
         return operation.handle { _, failure -> failure }.thenCompose { failure -> onMain {
@@ -134,9 +116,20 @@ class ArcadeSession(
                 }
                 throw failure
             }
-            check(current()) { "Arcade preparation superseded" }
-            updateHud(requireNotNull(this.current))
-        } }
+            check(stillPreparing()) { "Arcade preparation superseded" }
+            if (mode == EventMode.FISHING) {
+                val player = players.single()
+                val adventure = FishingAdventure(plugin, locale, items, firearms, settings().fishing, matchId, player,
+                    player.world, teleport, ::hurt, {
+                        if (current?.matchId == matchId && current?.phase == MatchPhase.ACTIVE && isAlive(player.uniqueId)) {
+                            runtime.completeFishing(player.uniqueId)
+                            showResult()
+                        }
+                    }, packetDisplays, clock, work)
+                fishing = adventure
+                adventure.prepareAsync()
+            } else CompletableFuture.completedFuture(Unit)
+        } }.thenCompose { it }
     }
 
     private fun <T> onMain(action: () -> T): CompletableFuture<T> = if (work == null) {
@@ -144,8 +137,20 @@ class ArcadeSession(
     } else work.onMain(action)
 
     fun confirmRoster() {
-        if (!rosterCommitted) runtime.restartPreparationClock()
-        rosterCommitted = true
+        if (current?.phase != MatchPhase.PREPARING) return
+        val match = runtime.beginCountdown()
+        online().forEach { player ->
+            val title = when (match.mode) {
+                EventMode.GUN_GAME -> locale.render("opening.gungame-title", player)
+                EventMode.DISASTERS -> locale.render("opening.disasters-title", player, mapOf("hazard" to hazardName(player)))
+                EventMode.FISHING -> locale.render("opening.fishing-title", player)
+                EventMode.ZOMBIES -> locale.render("zombies.wave-title", player, mapOf("wave" to locale.text(1), "total" to locale.text(settings().zombies.waves)))
+                EventMode.TTT -> error("TTT owns its role reveal")
+            }
+            val objective = if (match.mode == EventMode.DISASTERS) "arcade.hazard-${hazardId()}-guide" else "opening.${match.mode.id}"
+            player.showEventOpening(title, locale.render(objective, player))
+        }
+        updateHud(match)
     }
 
     fun participant(id: UUID): ArcadePlayer? = current?.participants?.get(id)
@@ -165,13 +170,12 @@ class ArcadeSession(
             if (clock() >= restoreAt) beginRestoration()
             return
         }
-        if (!rosterCommitted) return
+        if (before.phase == MatchPhase.PREPARING) return
         val now = clock()
         val match = runtime.tick()
         if (match.phase == MatchPhase.RESOLVING) { showResult(); return }
         if (match.phase != before.phase) {
             when (match.phase) {
-                MatchPhase.COUNTDOWN -> broadcast("arcade.countdown", mapOf("seconds" to locale.text(secondsRemaining())))
                 MatchPhase.ACTIVE -> {
                     val roster = online()
                     val arena = requireNotNull(arenaPool.active())
@@ -179,15 +183,17 @@ class ArcadeSession(
                         resetPlayer(player)
                         spawn(player, arena, arena.spawnFor(slot, roster.size))
                         giveLoadout(player)
-                        if (match.mode != EventMode.ZOMBIES) {
-                            player.sendEventMessage(locale.render("arcade.started", player, mapOf("mode" to modeName(player))))
-                        }
                     }
                     if (practiceRoster != null && match.mode in setOf(EventMode.DISASTERS, EventMode.FISHING)) {
                         practiceCompanions = ArcadePracticeCompanions(plugin, packetDisplays, roster.single(), match.mode,
                             match.matchId, locale, practiceRoster?.bots?.singleOrNull()).also { it.start() }
                     }
-                    if (match.mode == EventMode.DISASTERS) prepareHazard()
+                    if (match.mode == EventMode.DISASTERS) {
+                        practiceCompanions?.resetRound()
+                        beginHazard(match, now)
+                        roster.forEach { player -> player.sendEventMessage(locale.render("arcade.disaster-warning", player,
+                            mapOf("hazard" to hazardName(player), "seconds" to locale.text(DisastersFootprint.WARNING_MS / 1_000)))) }
+                    }
                     if (match.mode == EventMode.ZOMBIES) {
                         val adventure = ZombiesAdventure(plugin, locale, items, firearms, settings().zombies,
                             match.matchId, roster.first().world, roster,
@@ -210,15 +216,7 @@ class ArcadeSession(
                         adventure.start()
                     }
                     if (match.mode == EventMode.FISHING) {
-                        val player = roster.single()
-                        val adventure = FishingAdventure(plugin, locale, items, firearms, settings().fishing, match.matchId,
-                            player, player.world, teleport, ::hurt, {
-                                if (current?.matchId == match.matchId && current?.phase == MatchPhase.ACTIVE && isAlive(player.uniqueId)) {
-                                    runtime.completeFishing(player.uniqueId)
-                                    showResult()
-                                }
-                            }, packetDisplays, clock, work)
-                        fishing = adventure
+                        val adventure = requireNotNull(fishing)
                         adventure.startAsync().whenComplete { _, failure ->
                             if (failure != null && work?.isCurrent() != false && fishing === adventure &&
                                 current?.matchId == match.matchId) {
@@ -245,7 +243,6 @@ class ArcadeSession(
                         }
                     }
             } else if (match.mode == EventMode.DISASTERS) {
-                practiceCompanions?.tick(match.disasterRound, hazardId(), match.disasterActive)
                 tickDisasters()
             } else if (match.mode == EventMode.FISHING) {
                 fishing?.tick()
@@ -267,6 +264,7 @@ class ArcadeSession(
 
     fun disconnect(player: Player) {
         if (!isParticipant(player.uniqueId)) return
+        if (current?.phase == MatchPhase.COUNTDOWN) player.clearTitle()
         closeFishing()
         clearWeaponState(player.uniqueId)
         removeHud(player)
@@ -322,7 +320,7 @@ class ArcadeSession(
         val recent = recentAttacks.consume(before.matchId, player.uniqueId)
         val killer = killerId ?: recent?.attackerId
         val firearmId = recent?.takeIf { !knifeKill && it.attackerId == killer }?.firearmId
-        val botKnife = practiceRoster?.bots?.any { it.playerId == killer } == true && before.participants[killer]?.stage == FirearmId.entries.size
+        val botKnife = practiceRoster?.bots?.any { it.playerId == killer } == true && before.participants[killer]?.stage == GunGameProgression.knifeStage
         val after = runtime.eliminate(player.uniqueId, killer, knifeKill || botKnife, firearmId)
         if (after == before) return
         if (before.mode == EventMode.ZOMBIES) {
@@ -343,7 +341,7 @@ class ArcadeSession(
 
     fun useKnife(attacker: Player, victim: Player): Boolean {
         val match = current ?: return false
-        if (match.mode != EventMode.GUN_GAME || participant(attacker.uniqueId)?.stage != FirearmId.entries.size) return false
+        if (match.mode != EventMode.GUN_GAME || participant(attacker.uniqueId)?.stage != GunGameProgression.knifeStage) return false
         if (items.kind(attacker.inventory.itemInMainHand) != EventItemKind.ARCADE_KNIFE ||
             !items.belongsTo(attacker.inventory.itemInMainHand, match.matchId.toString())) return false
         if (shouldCancelDamage(victim.uniqueId, attacker.uniqueId, false, null)) return false
@@ -377,7 +375,7 @@ class ArcadeSession(
             player.sendEventMessage(locale.render("match.unavailable", player))
             return
         }
-        if (match.mode == EventMode.FISHING && fishing != null) {
+        if (match.mode == EventMode.FISHING && match.phase == MatchPhase.ACTIVE && fishing != null) {
             player.sendEventMessage(requireNotNull(fishing).hud())
             return
         }
@@ -397,7 +395,7 @@ class ArcadeSession(
         player.inventory.clear()
         player.inventory.setItemInOffHand(null)
         if (match.mode != EventMode.GUN_GAME) return
-        val firearm = FirearmId.entries.getOrNull(state.stage)
+        val firearm = GunGameProgression.firearmAt(state.stage)
         if (firearm == null) player.inventory.setItem(0, items.arcadeKnife(player, match.matchId.toString()))
         else {
             player.inventory.setItem(0, firearms.firearmItem(firearm, player, match.matchId.toString()))
@@ -456,7 +454,6 @@ class ArcadeSession(
 
     private fun prepareHazard() {
         val match = requireNotNull(current)
-        impacts = emptyList()
         hazardAt = clock() + match.rules.intermissionSeconds * 1000L
         online().filter { participant(it.uniqueId)?.status in setOf(ParticipantStatus.ALIVE, ParticipantStatus.RESERVED) }.forEach { player ->
             resetPlayer(player)
@@ -470,63 +467,56 @@ class ArcadeSession(
     private fun tickDisasters() {
         val match = requireNotNull(current)
         val now = clock()
+        if (now < hazardAt) return
         if (!match.disasterActive) {
-            if (now >= hazardAt) {
-                runtime.beginDisaster()
-                hazardAt = now + match.rules.disasterSeconds * 1000L
-                lastHazardPulse = -1L
-            }
+            beginHazard(match, now)
             return
         }
-        if (now >= hazardAt) {
-            val changed = runtime.completeDisaster()
-            impacts = emptyList()
-            broadcast("arcade.round-complete", mapOf("round" to locale.text(changed.disasterRound), "total" to locale.text(changed.rules.disasterRounds)))
-            if (changed.phase == MatchPhase.RESOLVING) showResult() else prepareHazard()
-            return
+        closeDisasters()
+        val changed = runtime.completeDisaster()
+        val values = mapOf("round" to locale.text(changed.disasterRound), "total" to locale.text(changed.rules.disasterRounds))
+        for (player in online()) {
+            val scored = changed.participants.getValue(player.uniqueId).score > match.participants.getValue(player.uniqueId).score
+            player.sendEventMessage(locale.render(if (scored) "arcade.disaster-survived" else "arcade.round-complete", player, values))
+            if (scored && settings().ui.sounds) player.playSound(player.location, Sound.ENTITY_EXPERIENCE_ORB_PICKUP, .65f, 1.35f)
         }
-        val alive = online().filter { isAlive(it.uniqueId) }.associateBy(Player::getUniqueId)
-        val locations = alive.mapValues { it.value.location }.toMutableMap()
+        if (changed.phase == MatchPhase.RESOLVING) showResult() else prepareHazard()
+    }
+
+    private fun beginHazard(match: ArcadeMatch, now: Long) {
+        runtime.beginDisaster()
+        hazardAt = now + match.rules.disasterSeconds * 1000L
+        val storm = DisastersRound(match.disasterRound, now, hazardAt)
+        val world = requireNotNull(arenaPool.active()).world
         val bot = practiceRoster?.bots?.singleOrNull()?.playerId
-        if (bot != null && isAlive(bot)) practiceCompanions?.location()?.let { locations[bot] = it }
-        fun hurtParticipant(id: UUID, damage: Double) {
-            if (id == bot) {
-                if (practiceCompanions?.hitByHazard(damage) == true) runtime.eliminate(id, null)
-            } else alive[id]?.let { hurt(it, damage) }
-        }
-        when (hazardId()) {
-            "meteors" -> {
-                if (impacts.isNotEmpty() && now >= impactAt) {
-                    impacts.forEach { point ->
-                        if (settings().ui.particles) point.world.spawnParticle(Particle.EXPLOSION, point, 1)
-                        if (settings().ui.sounds) point.world.playSound(point, Sound.ENTITY_GENERIC_EXPLODE, 0.7f, 1.1f)
-                        locations.filterValues { it.world == point.world && it.distanceSquared(point) <= 9.0 }.keys.forEach { hurtParticipant(it, 12.0) }
-                    }
-                    impacts = emptyList()
-                }
-                if (now / 3000L != lastHazardPulse && impacts.isEmpty()) {
-                    lastHazardPulse = now / 3000L
-                    impacts = locations.values.toList()
-                    impactAt = now + 2000L
-                }
-                impacts.forEach { point ->
-                    // Telegraphs remain visible even when optional cosmetic particles are disabled.
-                    for (i in 0..15) point.world.spawnParticle(Particle.FLAME, point.clone().add(cos(i * Math.PI / 8) * 3, 0.2, sin(i * Math.PI / 8) * 3), 1, 0.0, 0.0, 0.0, 0.0)
-                }
-            }
-            "lightning" -> if (now / 2000L != lastHazardPulse) {
-                lastHazardPulse = now / 2000L
-                locations.filterValues { at -> at.world.getHighestBlockYAt(at.blockX, at.blockZ, HeightMap.OCEAN_FLOOR) < at.blockY + 2 }
-                    .forEach { (id, at) ->
-                        at.world.strikeLightningEffect(at)
-                        hurtParticipant(id, 6.0)
-                    }
-            }
-            "fog" -> locations.filterValues { it.y < DisasterArenaGenerator.FOG_SAFE_Y }.keys.forEach { id ->
-                alive[id]?.addPotionEffect(PotionEffect(PotionEffectType.DARKNESS, 30, 0, false, false))
-                hurtParticipant(id, 3.0)
+        practiceCompanions?.tick(match.disasterRound, hazardId(), true)
+        fun frame() {
+            val active = current ?: return
+            if (active.matchId != match.matchId || active.phase != MatchPhase.ACTIVE || !active.disasterActive ||
+                active.disasterRound != match.disasterRound || clock() >= hazardAt) return
+            val viewers = online().filter { it.world.name == world }
+            val players = viewers.filter { isAlive(it.uniqueId) }.associateBy(Player::getUniqueId)
+            val actors = players.mapValues { it.value.location }.toMutableMap()
+            if (bot != null && isAlive(bot)) practiceCompanions?.location()?.let { actors[bot] = it }
+            val ui = settings().ui
+            storm.tick(clock(), actors, viewers, ui.particles, ui.sounds) { id, damage ->
+                if (id == bot) {
+                    if (practiceCompanions?.hitByHazard(damage) == true) runtime.eliminate(id, null)
+                } else players[id]?.let { hurt(it, damage) }
             }
         }
+        frame()
+        disasterFrames = Tasks.scheduler.runTimer(4L, 4L) {
+            runCatching { frame() }.onFailure { failure ->
+                plugin.logger.log(Level.SEVERE, "ArcEvents disaster frame failed for ${match.matchId}", failure)
+                cancel(MatchEndReason.SHUTDOWN)
+            }
+        }
+    }
+
+    private fun closeDisasters() {
+        disasterFrames?.cancel()
+        disasterFrames = null
     }
 
     private fun hurt(player: Player, amount: Double) {
@@ -544,7 +534,7 @@ class ArcadeSession(
         closeZombies()
         closePracticeCompanions()
         restoreAt = clock() + match.rules.postRoundSeconds * 1000L
-        impacts = emptyList()
+        closeDisasters()
         val winners = match.winners.mapNotNull { match.participants[it]?.playerName }.sorted().joinToString(", ")
         online().forEach { player ->
             clearWeaponState(player.uniqueId)
@@ -573,7 +563,7 @@ class ArcadeSession(
         closeFishing()
         closeZombies()
         closePracticeCompanions()
-        impacts = emptyList()
+        closeDisasters()
         recentAttacks.clear()
         online().forEach { clearWeaponState(it.uniqueId); removeHud(it) }
         restorePlayers()
@@ -602,16 +592,17 @@ class ArcadeSession(
             val state = match.participants.getValue(player.uniqueId)
             val values = mapOf("mode" to modeName(player), "seconds" to locale.text(secondsRemaining()),
                 "score" to locale.text(if (match.mode == EventMode.GUN_GAME) state.kills else state.score), "stage" to locale.text(state.stage + 1),
-                "total" to locale.text(FirearmId.entries.size + 1), "round" to locale.text((match.disasterRound + 1).coerceAtMost(match.rules.disasterRounds)), "rounds" to locale.text(match.rules.disasterRounds))
-            val text = if (match.mode == EventMode.ZOMBIES && match.phase == MatchPhase.ACTIVE) zombies?.hud(player)
+                "total" to locale.text(GunGameProgression.knifeStage + 1), "round" to locale.text((match.disasterRound + 1).coerceAtMost(match.rules.disasterRounds)), "rounds" to locale.text(match.rules.disasterRounds))
+            val text = if (match.phase == MatchPhase.COUNTDOWN) locale.render("arcade.countdown", player, values)
+                else if (match.mode == EventMode.ZOMBIES && match.phase == MatchPhase.ACTIVE) zombies?.hud(player)
                 ?: locale.render("arcade.zombies-hud", player, values)
                 else if (match.mode == EventMode.FISHING && match.phase == MatchPhase.ACTIVE) fishing?.hud()
                 ?: locale.render("arcade.fishing-hud", player, values)
+                else if (match.mode == EventMode.DISASTERS) locale.render("arcade.disasters-hud", player, values + ("hazard" to hazardName(player)))
                 else locale.render("arcade.${match.mode.id}-hud", player, values)
             if (settings().ui.bossBar) {
                 val bar = bars.getOrPut(player.uniqueId) { BossBar.bossBar(text, 1f, if (match.mode == EventMode.FISHING) BossBar.Color.BLUE else BossBar.Color.YELLOW, BossBar.Overlay.PROGRESS).also(player::showBossBar) }
                 val duration = when (match.phase) {
-                    MatchPhase.PREPARING -> match.rules.preparationSeconds
                     MatchPhase.COUNTDOWN -> match.rules.countdownSeconds
                     else -> if (match.mode == EventMode.DISASTERS) {
                         if (match.disasterActive) match.rules.disasterSeconds else match.rules.intermissionSeconds
@@ -619,8 +610,16 @@ class ArcadeSession(
                 }
                 bar.name(text).progress(if (match.mode == EventMode.ZOMBIES && match.phase == MatchPhase.ACTIVE)
                     zombies?.progress() ?: 0f else (secondsRemaining().toFloat() / duration.coerceAtLeast(1)).coerceIn(0f, 1f))
+                if (match.mode == EventMode.DISASTERS && match.phase == MatchPhase.ACTIVE) bar.color(when (DisasterHazard.forRound(match.disasterRound)) {
+                    DisasterHazard.METEORS -> BossBar.Color.RED
+                    DisasterHazard.LIGHTNING -> BossBar.Color.BLUE
+                    DisasterHazard.FOG -> BossBar.Color.WHITE
+                })
                 if (match.mode == EventMode.ZOMBIES) bar.color(if (zombies?.director?.phase == ZombiesPhase.WAVE) BossBar.Color.RED else BossBar.Color.YELLOW)
-            } else removeHud(player)
+            } else {
+                removeHud(player)
+                if (match.phase == MatchPhase.COUNTDOWN) player.sendEventActionBar(text)
+            }
         }
     }
 
@@ -665,7 +664,7 @@ class ArcadeSession(
         it.status != ParticipantStatus.RESTORED && (includeDisconnected || it.status != ParticipantStatus.DISCONNECTED)
     }
         ?.mapNotNull { plugin.server.getPlayer(it.playerId)?.takeIf(Player::isOnline) }.orEmpty()
-    private fun hazardId(): String = listOf("meteors", "lightning", "fog")[requireNotNull(current).disasterRound % 3]
+    private fun hazardId(): String = DisasterHazard.forRound(requireNotNull(current).disasterRound).id
     private fun hazardName(player: Player) = locale.render("arcade.hazard-${hazardId()}", player)
     private fun modeName(player: Player) = locale.render("arcade.${requireNotNull(current).mode.id}-name", player)
     private fun broadcast(key: String, values: Map<String, Component>) = online().forEach { it.sendEventMessage(locale.render(key, it, values)) }

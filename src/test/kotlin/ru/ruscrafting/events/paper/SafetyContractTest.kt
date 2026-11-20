@@ -17,6 +17,7 @@ import io.mockk.verify
 import org.bukkit.Location
 import org.bukkit.World
 import org.bukkit.block.BlockFace
+import org.bukkit.entity.Entity
 import org.bukkit.entity.Player
 import org.bukkit.event.Event
 import org.bukkit.event.EventHandler
@@ -26,6 +27,8 @@ import org.bukkit.event.entity.ProjectileLaunchEvent
 import org.bukkit.event.entity.EntityDamageByEntityEvent
 import org.bukkit.event.entity.EntityDamageEvent.DamageCause
 import org.bukkit.event.player.PlayerCommandPreprocessEvent
+import org.bukkit.event.player.PlayerInteractAtEntityEvent
+import org.bukkit.event.player.PlayerInteractEntityEvent
 import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.event.player.PlayerSwapHandItemsEvent
 import org.bukkit.event.player.PlayerTeleportEvent
@@ -36,11 +39,43 @@ import org.bukkit.inventory.EquipmentSlot
 import org.bukkit.inventory.ItemStack
 import org.bukkit.inventory.meta.ItemMeta
 import org.bukkit.NamespacedKey
+import org.bukkit.Server
+import org.bukkit.util.Vector
 import org.bukkit.event.inventory.InventoryCreativeEvent
 import ru.ruscrafting.events.domain.MatchPhase
 import java.util.UUID
 
 class SafetyContractTest : StringSpec({
+    "the two interaction packets of a body click open evidence only once" {
+        val player = mockk<Player>()
+        val playerId = UUID.randomUUID()
+        val server = mockk<Server>()
+        var tick = 100
+        every { player.uniqueId } returns playerId
+        every { player.server } returns server
+        every { server.currentTick } answers { tick }
+        val body = mockk<Entity>()
+        val bodyId = UUID.randomUUID()
+        val service = mockk<ArcEventsGameplayBoundary>(relaxed = true) {
+            every { fishingAdventure(player) } returns null
+            every { readBodyId(body) } returns bodyId
+        }
+        val menu = mockk<ArcEventsMenu>(relaxed = true)
+        val listener = ArcEventsListener(service, menu, mockk())
+        PlayerInteractAtEntityEvent(player, body, Vector(), EquipmentSlot.HAND)
+            .also(listener::onInteractAtEntity).isCancelled shouldBe true
+        tick++
+        PlayerInteractEntityEvent(player, body, EquipmentSlot.HAND)
+            .also(listener::onInteractEntity).isCancelled shouldBe true
+        PlayerInteractAtEntityEvent(player, body, Vector(), EquipmentSlot.OFF_HAND)
+            .also(listener::onInteractAtEntity).isCancelled shouldBe true
+        verify(exactly = 1) { service.inspectBody(player, bodyId) }
+        verify(exactly = 1) { menu.open(player, EventsView.Body(bodyId)) }
+        tick += 4
+        PlayerInteractEntityEvent(player, body, EquipmentSlot.HAND).also(listener::onInteractEntity)
+        verify(exactly = 2) { menu.open(player, EventsView.Body(bodyId)) }
+    }
+
     "internal teleport authorization is player and destination bound" {
         val playerId = UUID.randomUUID()
         val world = mockk<World>()

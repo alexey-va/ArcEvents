@@ -119,6 +119,7 @@ class ArcEventsListener(
     private val openShortcut: (Player) -> Boolean = { menu.openFirearmSettings(it, quiet = true) },
 ) : Listener {
     private val pendingEliminations = mutableSetOf<UUID>()
+    private val bodyClicks = mutableMapOf<UUID, Pair<UUID, Int>>()
 
     private fun clearWeaponState(playerId: UUID) {
         clearFirearmHud(playerId)
@@ -394,12 +395,14 @@ class ArcEventsListener(
             if (hand == EquipmentSlot.HAND && !adventure.feedHeldCatch(player, entity)) menu.openFishingTraderRoot(player)
             return
         }
-        inspect(player, entity, cancel)
-    }
-
-    private fun inspect(player: Player, entity: Entity, cancel: () -> Unit) {
         val bodyId = service.readBodyId(entity) ?: return
         cancel()
+        if (hand != EquipmentSlot.HAND) return
+        val tick = player.server.currentTick
+        val previous = bodyClicks[player.uniqueId]
+        // A single click can send both interact-at and interact packets for the same body.
+        if (previous?.first == bodyId && tick - previous.second in 0..1) return
+        bodyClicks[player.uniqueId] = bodyId to tick
         service.inspectBody(player, bodyId)
         menu.open(player, EventsView.Body(bodyId))
     }

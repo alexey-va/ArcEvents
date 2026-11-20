@@ -1,5 +1,16 @@
 package ru.ruscrafting.events.paper
 
+import net.kyori.adventure.text.Component
+import net.kyori.adventure.title.Title
+import org.bukkit.entity.Player
+import java.time.Duration
+
+internal fun Player.showEventOpening(title: Component, objective: Component) {
+    showTitle(Title.title(title, objective, Title.Times.times(
+        Duration.ofMillis(150), Duration.ofSeconds(4), Duration.ofMillis(350),
+    )))
+}
+
 internal enum class StartMessageAudience { PLAYER, ADMIN, DEBUG }
 
 internal fun reservationStartMessage(

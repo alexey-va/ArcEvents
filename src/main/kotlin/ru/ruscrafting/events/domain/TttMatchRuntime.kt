@@ -40,13 +40,12 @@ class TttMatchRuntime(
         nowMs: Long = clock(),
     ): TttMatch = engine().create(matchId, players, allocation, seed, nowMs)
 
-    fun prepare(created: TttMatch, seconds: Int): TttMatch {
+    fun prepare(created: TttMatch): TttMatch {
         check(current == null) { "A match is already active" }
         recentAttacks.clear()
         combatLog.clear()
         combatSequence = 0
         current = engine().prepare(created)
-        phaseCountdown.start(MatchPhase.PREPARING, seconds)
         return requireNotNull(current)
     }
 

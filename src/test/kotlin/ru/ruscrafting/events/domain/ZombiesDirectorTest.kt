@@ -24,10 +24,14 @@ class ZombiesDirectorTest : StringSpec({
         for (count in 1..4) {
             val ids = (0 until count).map { UUID.nameUUIDFromBytes("team-$it".toByteArray()) }.toSet()
             val game = ZombiesDirector(ids, ZombiesRules(), 0)
-            game.tick(14_999)
-            game.wave shouldBe 0
-            game.spawn() shouldBe null
+            game.tick(0)
+            game.phase shouldBe ZombiesPhase.WAVE
+            game.wave shouldBe 1
             for (wave in 1..10) {
+                if (wave > 1) {
+                    game.tick(game.nextWaveAt - 1)
+                    game.phase shouldBe ZombiesPhase.INTERMISSION
+                }
                 val kinds = clearWave(game, ids.first())
                 kinds.size shouldBe 8 + (wave - 1) * 3 + (count - 1) * 3
                 kinds.count { it == ZombieKind.BRUTE } shouldBe if (wave % 5 == 0) 1 else 0

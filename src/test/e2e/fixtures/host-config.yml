@@ -25,7 +25,6 @@ debug:
 ttt:
   minimum-players: 4
   maximum-players: 4
-  preparation-seconds: 3
   countdown-seconds: 3
   round-seconds: 60
   post-round-seconds: 3
@@ -37,12 +36,10 @@ ttt:
 
 arcade:
   fishing:
-    preparation-seconds: 1
     countdown-seconds: 1
   disasters:
     minimum-players: 2
     maximum-players: 2
-    preparation-seconds: 1
     countdown-seconds: 1
     intermission-seconds: 3
     disaster-seconds: 9
@@ -53,14 +50,12 @@ arcade:
   zombies:
     minimum-players: 1
     maximum-players: 4
-    preparation-seconds: 1
     countdown-seconds: 1
     round-seconds: 180
     post-round-seconds: 1
     intermission-seconds: 8
   gungame:
     minimum-players: 2
-    preparation-seconds: 1
     countdown-seconds: 1
     round-seconds: 180
     post-round-seconds: 1

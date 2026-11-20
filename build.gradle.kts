@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "ru.ruscrafting"
-version = "0.9.9"
+version = "0.9.10"
 description = "Cross-server custom events for RusCrafting"
 
 val integrationTestSourceSet = sourceSets.create("integrationTest") {
@@ -31,6 +31,7 @@ kotlin { jvmToolchain(25) }
 
 val worldEditVersion = "7.3.18"
 val arcCoreVersion = "2.7.81"
+val dungeonsApi = "ru.ruscrafting.arc:arc-dungeons-api:0.1.2"
 val staffHudApi = "ru.ruscrafting.arc:arc-staff-spells-api:0.1.3"
 
 dependencies {
@@ -41,6 +42,7 @@ dependencies {
     implementation("ru.ruscrafting.arc:arc-core-paper-menu:$arcCoreVersion")
     implementation("ru.ruscrafting.arc:arc-core-redis:$arcCoreVersion")
     compileOnly("ru.ruscrafting.arc:arc-core-paper-api:$arcCoreVersion")
+    compileOnly(dungeonsApi)
     compileOnly(staffHudApi)
     implementation("com.google.code.gson:gson:2.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
@@ -58,6 +60,7 @@ dependencies {
     testImplementation("com.sk89q.worldedit:worldedit-core:$worldEditVersion")
     testImplementation("ru.ruscrafting.arc:arc-core-paper-testing:$arcCoreVersion")
     testImplementation("ru.ruscrafting.arc:arc-core-paper-api:$arcCoreVersion")
+    testImplementation(dungeonsApi)
     testImplementation(staffHudApi)
     testImplementation("net.luckperms:api:5.5")
     testImplementation("com.github.retrooper:packetevents-spigot:2.12.1") { exclude(group = "io.netty") }
@@ -122,6 +125,7 @@ tasks {
         exclude("ru/arc/paper/scene/PaperSceneObservationServiceProvider*.class")
         exclude("ru/arc/paper/scene/PaperSceneEntityInfoServiceProvider*.class")
         exclude("ru/arc/paper/api/**")
+        exclude("ru/arc/dungeons/api/**")
         exclude("ru/arc/staffspells/api/**")
         // ARC is the sole native sidebar host; consumers share only its API class identity.
         exclude("ru/arc/paper/sidebar/**")

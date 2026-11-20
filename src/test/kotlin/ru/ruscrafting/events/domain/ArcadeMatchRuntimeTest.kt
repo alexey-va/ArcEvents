@@ -17,13 +17,14 @@ class ArcadeMatchRuntimeTest : StringSpec({
 
     "fishing keeps its single-player roster and victory requires completion" {
         val solo = players(1)
-        val rules = ArcadeRules(1, 1, 0, 0, 30)
+        val rules = ArcadeRules(1, 1, countdownSeconds = 0, roundSeconds = 30)
         shouldThrow<IllegalArgumentException> { ArcadeMatchRuntime().start(UUID.randomUUID(), EventMode.GUN_GAME, solo, rules) }
         shouldThrow<IllegalArgumentException> { ArcadeMatchRuntime().start(UUID.randomUUID(), EventMode.DISASTERS, solo, rules) }
         shouldThrow<IllegalArgumentException> { ArcadeMatchRuntime().start(UUID.randomUUID(), EventMode.FISHING, players(2), rules) }
         val c = Clock()
         val runtime = ArcadeMatchRuntime(c::read)
         runtime.start(UUID.randomUUID(), EventMode.FISHING, solo, rules)
+        runtime.beginCountdown()
         runtime.tick().phase shouldBe MatchPhase.ACTIVE
         runtime.current!!.winners shouldBe emptySet()
         runtime.completeFishing(solo.single().playerId).winners shouldBe setOf(solo.single().playerId)
@@ -35,7 +36,8 @@ class ArcadeMatchRuntimeTest : StringSpec({
         val solo = players(1)
         val id = solo.single().playerId
         fun active(c: Clock) = ArcadeMatchRuntime(c::read).apply {
-            start(UUID.randomUUID(), EventMode.FISHING, solo, ArcadeRules(1, 1, 0, 0, 30))
+            start(UUID.randomUUID(), EventMode.FISHING, solo, ArcadeRules(1, 1, countdownSeconds = 0, roundSeconds = 30))
+            beginCountdown()
             tick()
         }
         val c = Clock()
@@ -56,11 +58,12 @@ class ArcadeMatchRuntimeTest : StringSpec({
     }
 
     "zombies accept solo or four players and resolve only when their director completes" {
-        val rules = ArcadeRules(1, 4, 0, 0, 30)
+        val rules = ArcadeRules(1, 4, countdownSeconds = 0, roundSeconds = 30)
         for (count in 1..4) {
             val roster = players(count)
             val runtime = ArcadeMatchRuntime { 0L }
             runtime.start(UUID.randomUUID(), EventMode.ZOMBIES, roster, rules)
+            runtime.beginCountdown()
             runtime.tick().phase shouldBe MatchPhase.ACTIVE
             val id = roster.first().playerId
             runtime.eliminate(id, null).phase shouldBe MatchPhase.ACTIVE
@@ -81,14 +84,16 @@ class ArcadeMatchRuntimeTest : StringSpec({
         val clock = Clock()
         val runtime = ArcadeMatchRuntime(clock::read)
         val roster = players(2)
-        runtime.start(UUID.randomUUID(), EventMode.ZOMBIES, roster, ArcadeRules(1, 4, 0, 0, 30))
+        runtime.start(UUID.randomUUID(), EventMode.ZOMBIES, roster, ArcadeRules(1, 4, countdownSeconds = 0, roundSeconds = 30))
+        runtime.beginCountdown()
         runtime.tick()
         runtime.disconnect(roster.first().playerId).phase shouldBe MatchPhase.ACTIVE
         clock.now = 30_000
         runtime.tick().winners shouldBe emptySet()
         runtime.phase shouldBe MatchPhase.RESOLVING
         val solo = ArcadeMatchRuntime { 0L }
-        solo.start(UUID.randomUUID(), EventMode.ZOMBIES, players(1), ArcadeRules(1, 4, 0, 0, 30))
+        solo.start(UUID.randomUUID(), EventMode.ZOMBIES, players(1), ArcadeRules(1, 4, countdownSeconds = 0, roundSeconds = 30))
+        solo.beginCountdown()
         solo.tick()
         solo.disconnect(players(1).single().playerId).phase shouldBe MatchPhase.CANCELLED
     }
@@ -98,27 +103,38 @@ class ArcadeMatchRuntimeTest : StringSpec({
         shouldThrow<IllegalArgumentException> { ArcadeRules(roundSeconds = -1).validated() }
     }
 
-    "tick crosses preparation and countdown by authoritative deadlines" {
-        val c = Clock(); val runtime = ArcadeMatchRuntime(c::read)
-        runtime.start(UUID.randomUUID(), EventMode.GUN_GAME, players(3), ArcadeRules(preparationSeconds = 2, countdownSeconds = 3))
-        c.now = 1_999; runtime.tick().phase shouldBe MatchPhase.PREPARING
-        c.now = 2_000; runtime.tick().phase shouldBe MatchPhase.COUNTDOWN
-        c.now = 5_000; runtime.tick().phase shouldBe MatchPhase.ACTIVE
+    "only a confirmed roster starts one countdown from readiness" {
+        val c = Clock()
+        val runtime = ArcadeMatchRuntime(c::read)
+        runtime.start(UUID.randomUUID(), EventMode.GUN_GAME, players(3), ArcadeRules(countdownSeconds = 3))
+        c.now = 60_000
+        runtime.tick().phase shouldBe MatchPhase.PREPARING
+        runtime.phaseSecondsRemaining() shouldBe 0
+        runtime.beginCountdown().phase shouldBe MatchPhase.COUNTDOWN
+        runtime.phaseSecondsRemaining() shouldBe 3
+        c.now = 62_999
+        runtime.tick().phase shouldBe MatchPhase.COUNTDOWN
+        shouldThrow<IllegalStateException> { runtime.beginCountdown() }
+        c.now = 63_000
+        runtime.tick().phase shouldBe MatchPhase.ACTIVE
         runtime.current!!.participants.values.all { it.status == ParticipantStatus.ALIVE } shouldBe true
     }
 
     "gun game advances firearms and requires the final knife" {
         val c = Clock(); val runtime = ArcadeMatchRuntime(c::read)
-        runtime.start(UUID.randomUUID(), EventMode.GUN_GAME, players(3), ArcadeRules(2, 16, 0, 0, 30, spawnProtectionSeconds = 0))
+        runtime.start(UUID.randomUUID(), EventMode.GUN_GAME, players(3), ArcadeRules(2, 16, countdownSeconds = 0, roundSeconds = 30, spawnProtectionSeconds = 0))
+        runtime.beginCountdown()
         runtime.tick(); val ids = runtime.current!!.participants.keys.toList(); val killer = ids[0]; val victim = ids[1]
+        GunGameProgression.firearms shouldBe listOf(
+            FirearmId.FIVE_SEVEN, FirearmId.REVOLVER, FirearmId.G36, FirearmId.AEK_971, FirearmId.RPL_20,
+            FirearmId.VEPR_12, FirearmId.M1_GARAND, FirearmId.VSS_VINTOREZ, FirearmId.MCMILLAN,
+        )
         runtime.eliminate(victim, killer, firearmId = FirearmId.FLINTLOCK)
-        runtime.current!!.participants.getValue(killer).stage shouldBe 1
-        c.now = 10_000
-        FirearmId.entries.drop(1).forEach { firearm ->
+        runtime.current!!.participants.getValue(killer).stage shouldBe 0
+        GunGameProgression.firearms.forEachIndexed { index, firearm ->
             c.now += 3_000
             runtime.respawn(victim)
-            c.now += 3_000
-            runtime.eliminate(victim, killer, firearmId = firearm)
+            runtime.eliminate(victim, killer, firearmId = firearm).participants.getValue(killer).stage shouldBe index + 1
         }
         c.now += 3_000
         runtime.respawn(victim)
@@ -135,7 +151,9 @@ class ArcadeMatchRuntimeTest : StringSpec({
 
     "protected players cannot be eliminated and respawn is due only once" {
         val c = Clock(); val runtime = ArcadeMatchRuntime(c::read)
-        runtime.start(UUID.randomUUID(), EventMode.GUN_GAME, players(3), ArcadeRules(2, 16, 0, 0, 30, respawnSeconds = 3, spawnProtectionSeconds = 2)); runtime.tick()
+        runtime.start(UUID.randomUUID(), EventMode.GUN_GAME, players(3), ArcadeRules(2, 16, countdownSeconds = 0, roundSeconds = 30, respawnSeconds = 3, spawnProtectionSeconds = 2))
+        runtime.beginCountdown()
+        runtime.tick()
         val ids = runtime.current!!.participants.keys.toList()
         c.now = 3_000
         runtime.eliminate(ids[1], ids[0])
@@ -148,7 +166,8 @@ class ArcadeMatchRuntimeTest : StringSpec({
 
     "active disconnect below two resolves the match" {
         val runtime = ArcadeMatchRuntime { 0L }
-        runtime.start(UUID.randomUUID(), EventMode.GUN_GAME, players(3), ArcadeRules(2, 16, 0, 0, 30))
+        runtime.start(UUID.randomUUID(), EventMode.GUN_GAME, players(3), ArcadeRules(2, 16, countdownSeconds = 0, roundSeconds = 30))
+        runtime.beginCountdown()
         runtime.tick()
         runtime.disconnect(runtime.current!!.participants.keys.first()); runtime.phase shouldBe MatchPhase.ACTIVE
         runtime.disconnect(runtime.current!!.participants.keys.first { runtime.current!!.participants.getValue(it).status != ParticipantStatus.DISCONNECTED })
@@ -157,7 +176,9 @@ class ArcadeMatchRuntimeTest : StringSpec({
 
     "disaster cycles score living players and reset dead players" {
         val c = Clock(); val runtime = ArcadeMatchRuntime(c::read)
-        runtime.start(UUID.randomUUID(), EventMode.DISASTERS, players(3), ArcadeRules(2, 16, 0, 0, 30, disasterRounds = 2)); runtime.tick()
+        runtime.start(UUID.randomUUID(), EventMode.DISASTERS, players(3), ArcadeRules(2, 16, countdownSeconds = 0, roundSeconds = 30, disasterRounds = 2))
+        runtime.beginCountdown()
+        runtime.tick()
         c.now = 31_000
         runtime.tick().phase shouldBe MatchPhase.ACTIVE
         runtime.beginDisaster()
@@ -175,10 +196,11 @@ class ArcadeMatchRuntimeTest : StringSpec({
     "gun game timeout ranks a dead respawning player" {
         val c = Clock()
         val runtime = ArcadeMatchRuntime(c::read)
-        runtime.start(UUID.randomUUID(), EventMode.GUN_GAME, players(3), ArcadeRules(2, 16, 0, 0, 30, spawnProtectionSeconds = 0))
+        runtime.start(UUID.randomUUID(), EventMode.GUN_GAME, players(3), ArcadeRules(2, 16, countdownSeconds = 0, roundSeconds = 30, spawnProtectionSeconds = 0))
+        runtime.beginCountdown()
         runtime.tick()
         val ids = runtime.current!!.participants.keys.toList()
-        runtime.eliminate(ids[1], ids[0], firearmId = FirearmId.FLINTLOCK)
+        runtime.eliminate(ids[1], ids[0], firearmId = FirearmId.FIVE_SEVEN)
         runtime.eliminate(ids[2], ids[0], firearmId = FirearmId.REVOLVER)
         c.now = 30_000
         runtime.tick().phase shouldBe MatchPhase.RESOLVING
@@ -187,7 +209,7 @@ class ArcadeMatchRuntimeTest : StringSpec({
 
     "recovery marking is idempotent and release is gated" {
         val runtime = ArcadeMatchRuntime { 0L }
-        runtime.start(UUID.randomUUID(), EventMode.GUN_GAME, players(3), ArcadeRules(2, 16, 0, 0, 30))
+        runtime.start(UUID.randomUUID(), EventMode.GUN_GAME, players(3), ArcadeRules(2, 16, countdownSeconds = 0, roundSeconds = 30))
         runtime.cancel(MatchEndReason.ADMIN)
         runtime.beginRestoring()
         val id = runtime.current!!.participants.keys.first(); runtime.markRecoveryApplied(id); runtime.markRecoveryApplied(id)
@@ -198,7 +220,8 @@ class ArcadeMatchRuntimeTest : StringSpec({
 
         val lateClock = Clock(0L)
         val late = ArcadeMatchRuntime(lateClock::read)
-        late.start(UUID.randomUUID(), EventMode.GUN_GAME, players(3), ArcadeRules(2, 16, 0, 0, 30))
+        late.start(UUID.randomUUID(), EventMode.GUN_GAME, players(3), ArcadeRules(2, 16, countdownSeconds = 0, roundSeconds = 30))
+        late.beginCountdown()
         late.tick()
         val lateIds = late.current!!.participants.keys.toList()
         late.disconnect(lateIds[2])
@@ -212,7 +235,7 @@ class ArcadeMatchRuntimeTest : StringSpec({
         late.markRecoveryApplied(lateIds[2]).revision shouldBe late.current!!.revision
 
         val active = ArcadeMatchRuntime { 0L }
-        active.start(UUID.randomUUID(), EventMode.GUN_GAME, players(3), ArcadeRules(2, 16, 0, 0, 30))
+        active.start(UUID.randomUUID(), EventMode.GUN_GAME, players(3), ArcadeRules(2, 16, countdownSeconds = 0, roundSeconds = 30))
         shouldThrow<IllegalArgumentException> { active.release() }
     }
 

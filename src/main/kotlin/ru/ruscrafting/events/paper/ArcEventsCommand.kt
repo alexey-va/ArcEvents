@@ -14,6 +14,7 @@ import ru.ruscrafting.events.domain.FirearmSoundPreset
 import ru.ruscrafting.events.domain.TttRole
 import ru.ruscrafting.events.domain.TttTeam
 import ru.ruscrafting.events.domain.EventMode
+import ru.ruscrafting.events.paper.apocalypse.ApocalypseWorldResetPlan
 
 internal fun isArcEventsCommandLabel(label: String?): Boolean = when (label?.lowercase()) {
     "arcevents", "events", "arcevents:arcevents", "arcevents:events" -> true
@@ -101,7 +102,7 @@ class ArcEventsCommand(
                     settings().eventControls.creatorControlsEnabled || sender.hasPermission("arcevents.start") || sender.hasPermission("arcevents.admin") -> EventMode.entries.map(EventMode::id)
                     else -> listOf(EventMode.FISHING.id)
                 }
-                "admin" -> listOf("status", "player", "network", "arenas", "arena", "recovery", "start", "stop", "reload", "recover", "sound", "guide") +
+                "admin" -> listOf("status", "player", "network", "arenas", "arena", "recovery", "start", "stop", "reload", "recover", "sound", "guide", "apocalypse-reset-plan") +
                     if (sender is Player) listOf("menu", "weapons", "gun", "solo") else emptyList()
                 "burst" -> if (sender is Player) listOf("1", "3", "6", "full", "default", "menu") else emptyList()
                 "qa" -> listOf("status", "player", "network", "arenas", "recovery")
@@ -177,6 +178,16 @@ class ArcEventsCommand(
             return
         }
         when (args[0].lowercase()) {
+            "apocalypse-reset-plan" -> {
+                val target = args.drop(1).singleOrNull()
+                if (target == null || apocalypse == null) {
+                    val reason = if (target == null) "usage" else "host_unavailable"
+                    sender.sendEventMessage(Component.text(ApocalypseWorldResetPlan.blocked(reason)))
+                } else apocalypse.planWorldReset(target) { result ->
+                    if (sender.hasPermission("arcevents.admin") && (sender !is Player || sender.isOnline))
+                        sender.sendEventMessage(Component.text(result))
+                }
+            }
             "guide" -> {
                 val target = args.getOrNull(1)?.let(plugin.server::getPlayerExact)
                 val given = target != null && apocalypse?.giveGuide(target, hold = true) == true

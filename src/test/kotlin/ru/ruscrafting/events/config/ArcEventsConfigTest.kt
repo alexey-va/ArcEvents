@@ -108,14 +108,18 @@ class ArcEventsConfigTest : StringSpec({
             ArcEventsConfig.load(root)
             val file = root.resolve("config.yml")
             val host = Files.readString(file).replace("node-mode: RELAY", "node-mode: HOST")
-            Files.writeString(file, host.replace("arcevents_fishing_archipelago", "arcevents_fishing_v4")
+            Files.writeString(file, host.replace("arcevents_fishing_archipelago_v2", "arcevents_fishing_v4")
                 .replace("arcevents_zombies_store", "arcevents_zombies_zero_v3")
                 .replace("arcevents_disasters_coast", "arcevents_disasters"))
             val arenas = ArcEventsConfig.inspect(root).arenas.associateBy { it.id }
             arenas.getValue("disasters").world shouldBe "arcevents_disasters_coast"
-            arenas.getValue("fishing").world shouldBe "arcevents_fishing_archipelago"
+            arenas.getValue("fishing").world shouldBe "arcevents_fishing_archipelago_v2"
             arenas.getValue("zombies").world shouldBe "arcevents_zombies_store"
-            Files.writeString(file, host.replace("arcevents_fishing_archipelago", "local_archipelago"))
+            Files.writeString(file, host.replace("arcevents_fishing_archipelago_v2", "arcevents_fishing_archipelago"))
+            ArcEventsConfig.inspect(root).arenas.single { it.id == "fishing" }.world shouldBe "arcevents_fishing_archipelago_v2"
+            Files.writeString(file, host.replace("arcevents_fishing_archipelago_v2", "arcevents_lab_archipelago"))
+            ArcEventsConfig.inspect(root).arenas.single { it.id == "fishing" }.world shouldBe "arcevents_lab_archipelago_v2"
+            Files.writeString(file, host.replace("arcevents_fishing_archipelago_v2", "local_archipelago"))
             ArcEventsConfig.inspect(root).arenas.single { it.id == "fishing" }.world shouldBe "local_archipelago"
         } finally { root.toFile().deleteRecursively() }
     }
@@ -135,8 +139,8 @@ class ArcEventsConfigTest : StringSpec({
             Files.writeString(root.resolve("config.yml"), original.replace("node-mode: RELAY", "node-mode: HOST"))
             val host = ArcEventsConfig.inspect(root)
             host.arenas.single { it.id == "fishing" }.let { arena ->
-                arena.world shouldBe "arcevents_fishing_archipelago"
-                arena.template shouldBe "fishing-archipelago-v1"
+                arena.world shouldBe "arcevents_fishing_archipelago_v2"
+                arena.template shouldBe "fishing-archipelago-v2"
                 arena.operational(1) shouldBe true
             }
             current.arenas.none { it.id == "fishing" } shouldBe true
@@ -203,7 +207,7 @@ class ArcEventsConfigTest : StringSpec({
             config.gameplay.medkitHealing shouldBe 8.0
             config.gameplay.traitorBladeCost shouldBe 2
             config.gameplay.detectiveArmorCost shouldBe 1
-            config.ttt.preparationSeconds shouldBe 30
+            config.ttt.countdownSeconds shouldBe 8
             config.ui.dialogsEnabled shouldBe false
             config.ui.lootDisplays shouldBe true
             config.ui.lootDisplay shouldBe LootDisplaySettings(

@@ -96,7 +96,7 @@ internal class ArenaStagingFiles(private val container: Path) {
     }
 }
 
-internal val retiredArenaTemplates = setOf("fishing-v1", "fishing-v2", "fishing-v3", "fishing-v4",
+internal val retiredArenaTemplates = setOf("fishing-v1", "fishing-v2", "fishing-v3", "fishing-v4", "fishing-archipelago-v1",
     "zombies-zero-v1", "zombies-zero-v2", "zombies-zero-v3", "disasters-v1")
 
 internal fun isGeneratedArenaTemplate(template: String): Boolean = template == TttCitadelBlueprint.TEMPLATE ||

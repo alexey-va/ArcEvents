@@ -28,7 +28,6 @@ enum class EventMode(val id: String, val primaryArenaId: String, val usesSharedA
 data class ArcadeRules(
     val minimumPlayers: Int = 3,
     val maximumPlayers: Int = 16,
-    val preparationSeconds: Int = 15,
     val countdownSeconds: Int = 5,
     val roundSeconds: Int = 360,
     val postRoundSeconds: Int = 8,
@@ -42,7 +41,7 @@ data class ArcadeRules(
         if (cooperative) require(minimumPlayers in 1..maximumPlayers && maximumPlayers in 1..4)
         else if (allowSolo) require(minimumPlayers == 1 && maximumPlayers == 1)
         else require(minimumPlayers in 2..maximumPlayers && maximumPlayers in 2..16)
-        require(preparationSeconds in 0..60 && countdownSeconds in 0..60)
+        require(countdownSeconds in 0..60)
         require(roundSeconds in 30..1800 && postRoundSeconds in 0..60)
         require(respawnSeconds in 1..15 && spawnProtectionSeconds in 0..5)
         require(disasterSeconds in 5..120 && intermissionSeconds in 3..30)
@@ -101,23 +100,20 @@ class ArcadeMatchRuntime(
         return ArcadeMatch(
             matchId, 0, mode, MatchPhase.PREPARING,
             players.associate { it.playerId to ArcadePlayer(it.playerId, it.playerName, it.originServer) },
-            rules, now, deadlineMs = now + rules.preparationSeconds * 1000L,
+            rules, now,
         ).also { current = it }
     }
 
-    /** Preparation time starts after durable player mutation and roster confirmation. */
-    fun restartPreparationClock() {
+    /** Starts the sole opening clock after the host confirms player state, arena and roster readiness. */
+    fun beginCountdown(): ArcadeMatch {
         val match = requireCurrent()
         check(match.phase == MatchPhase.PREPARING)
-        current = change(match, deadlineMs = clock() + match.rules.preparationSeconds * 1000L)
+        return change(match, phase = MatchPhase.COUNTDOWN, deadlineMs = clock() + match.rules.countdownSeconds * 1000L)
     }
 
     fun tick(): ArcadeMatch {
         var match = requireCurrent()
         val now = clock()
-        if (match.phase == MatchPhase.PREPARING && now >= requireNotNull(match.deadlineMs)) {
-            match = change(match, phase = MatchPhase.COUNTDOWN, deadlineMs = now + match.rules.countdownSeconds * 1000L)
-        }
         if (match.phase == MatchPhase.COUNTDOWN && now >= requireNotNull(match.deadlineMs)) {
             val participants = match.participants.mapValues { (_, p) ->
                 if (p.status == ParticipantStatus.RESERVED) p.copy(status = ParticipantStatus.ALIVE, protectedUntilMs = if (match.mode == EventMode.GUN_GAME) now + match.rules.spawnProtectionSeconds * 1000L else null) else p
@@ -151,9 +147,9 @@ class ArcadeMatchRuntime(
         if (killerId != null && killerId != victimId) {
             val killer = players[killerId]
             if (killer?.status == ParticipantStatus.ALIVE) {
-                val knifeWins = knifeKill && killer.stage == FirearmId.entries.size
+                val knifeWins = knifeKill && killer.stage == GunGameProgression.knifeStage
                 if (firearmId != null || knifeWins) {
-                    val advances = firearmId != null && FirearmId.entries.getOrNull(killer.stage) == firearmId
+                    val advances = firearmId != null && GunGameProgression.firearmAt(killer.stage) == firearmId
                     val nextStage = if (advances) killer.stage + 1 else killer.stage
                     players[killerId] = killer.copy(kills = killer.kills + 1, stage = nextStage)
                     if (knifeWins) return finish(match, players, setOf(killerId), MatchEndReason.ELIMINATION)

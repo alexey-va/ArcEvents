@@ -2,17 +2,27 @@ package ru.ruscrafting.events.paper.apocalypse
 
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
+import io.mockk.every
+import io.mockk.mockk
+import net.kyori.adventure.inventory.Book
 import net.kyori.adventure.text.format.TextDecoration
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
+import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.NamespacedKey
+import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
 import org.bukkit.persistence.PersistentDataType
+import ru.arc.paper.menu.PaperDialogClickContext
+import ru.arc.paper.menu.PaperDialogRuntime
+import ru.arc.paper.menu.PaperDialogScreen
 import ru.arc.paper.testing.MockBukkitTestRuntime
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.domain.apocalypse.ApocalypseInfectionStage
 import ru.ruscrafting.events.domain.apocalypse.ApocalypsePoint
+import ru.ruscrafting.events.paper.MIN_DIALOG_PROTOCOL
+import java.util.UUID
 
 class ApocalypseGuideTest : StringSpec({
     val first = GuideRoute(ApocalypsePoint(6, 35, -9))
@@ -43,6 +53,65 @@ class ApocalypseGuideTest : StringSpec({
                 guide.isItem(ordinary) shouldBe false
                 guide.isItem(null) shouldBe false
             }
+        }
+    }
+
+    "the journal opens place notes before tracking and keeps flight in the equipment chapter" {
+        MockBukkitTestRuntime.open().use { paper ->
+            val plugin = paper.createSimplePlugin("ApocalypseJournal")
+            val root = plugin.dataFolder.toPath()
+            val settings = ArcEventsConfig.load(root)
+            val locale = ArcEventsLocale(root) { settings }
+            val player = mockk<Player>(relaxed = true)
+            every { player.isOnline } returns true
+            every { player.uniqueId } returns UUID.randomUUID()
+            every { player.protocolVersion } returns MIN_DIALOG_PROTOCOL
+            every { player.location } returns Location(null, 3.0, 35.0, 39.0)
+            val click = mockk<PaperDialogClickContext>()
+            every { click.player } returns player
+            val dialogs = mockk<PaperDialogRuntime>(relaxed = true)
+            lateinit var current: PaperDialogScreen
+            every { dialogs.open(player, any(), any(), any(), any()) } answers { current = secondArg() }
+            every { dialogs.open(player, any()) } answers { current = secondArg() }
+            val selected = mutableListOf<GuideTarget>()
+            var left = false
+            val guide = ApocalypseGuide(plugin, locale, {}, { _, target -> selected += target }, { left = true },
+                canFly = { true }, dialogs = dialogs)
+            guide.show(player, snapshot.copy(tracked = GuideTarget.SUPPLIES))
+            val journal = current
+            journal.buttons.map { it.id.value } shouldBe listOf("map", "equipment", "hazards", "leave")
+            journal.exitButton?.id?.value shouldBe "close"
+            val map = journal.buttons.first()
+            map.closeDialogBeforeAction shouldBe false
+            map.onClick.handle(click)
+            current.id shouldBe "events.apocalypse.guide.map"
+            val supply = current.buttons.single { it.id.value == "place_supplies" }
+            val plain = PlainTextComponentSerializer.plainText()
+            plain.serialize(supply.label) shouldBe "✔ Кладовая бункера ›"
+            supply.closeDialogBeforeAction shouldBe false
+            supply.onClick.handle(click)
+            current.id shouldBe "events.apocalypse.guide.map.supplies"
+            current.exitButton?.id?.value shouldBe "back"
+            selected.isEmpty() shouldBe true
+            val mark = current.buttons.single()
+            mark.closeDialogBeforeAction shouldBe true
+            mark.onClick.handle(click)
+            selected shouldBe listOf(GuideTarget.SUPPLIES)
+            journal.buttons.single { it.id.value == "equipment" }.onClick.handle(click)
+            current.buttons.single().id.value shouldBe "admin_fly"
+            journal.buttons.single { it.id.value == "hazards" }.onClick.handle(click)
+            current.buttons.isEmpty() shouldBe true
+            journal.buttons.last().onClick.handle(click)
+            left shouldBe true
+
+            lateinit var book: Book
+            every { player.openBook(any<Book>()) } answers { book = firstArg() }
+            every { player.protocolVersion } returns MIN_DIALOG_PROTOCOL - 1
+            guide.show(player, snapshot)
+            plain.serialize(book.title()) shouldBe "Полевой дневник"
+            book.pages().first().children().last().clickEvent()?.value() shouldBe "/arcevents leave"
+            book.pages()[1].children().last().clickEvent()?.value() shouldBe "/arcevents apocalypse track supplies"
+            book.pages().last().children().last().clickEvent()?.value() shouldBe "/arcevents leave"
         }
     }
 

@@ -31,7 +31,8 @@ class TttHud(
 
     fun open(match: TttMatch) {
         close()
-        match.participants.values.mapNotNull { plugin.server.getPlayer(it.playerId) }.forEach { player -> open(player, match) }
+        match.participants.values.filter { it.status != ParticipantStatus.DISCONNECTED && it.status != ParticipantStatus.RESTORED }
+            .mapNotNull { plugin.server.getPlayer(it.playerId)?.takeIf(Player::isOnline) }.forEach { player -> open(player, match) }
     }
 
     fun update(match: TttMatch, secondsRemaining: Int, totalSeconds: Int) {
@@ -40,7 +41,8 @@ class TttHud(
             it.status in setOf(ParticipantStatus.RESERVED, ParticipantStatus.ALIVE)
         }
         match.participants.values.forEach { participant ->
-            val player = plugin.server.getPlayer(participant.playerId) ?: return@forEach
+            if (participant.status == ParticipantStatus.DISCONNECTED || participant.status == ParticipantStatus.RESTORED) return@forEach
+            val player = plugin.server.getPlayer(participant.playerId)?.takeIf(Player::isOnline) ?: return@forEach
             val session = sessions[player.uniqueId] ?: open(player, match)
             val roleVisible = match.phase != MatchPhase.PREPARING
             updateScoreboard(player, match, participant, roleVisible, alive, secondsRemaining)

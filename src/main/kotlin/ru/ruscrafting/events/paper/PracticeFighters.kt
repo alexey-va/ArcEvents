@@ -83,10 +83,12 @@ internal class PracticeFighters(
         attack: (UUID, UUID, FirearmId?) -> Unit) {
         step++
         val now = clock()
+        val origin by lazy(::practiceOrigin)
+        val reachable by lazy { reachablePracticeSpawnCells(origin, ::safeSpawn) }
         for ((index, bot) in roster.bots.withIndex()) {
             if (!alive(bot.playerId)) { remove(bot.playerId); continue }
             val selected = weapon(bot.playerId)
-            val fighter = fighters[bot.playerId] ?: spawn(bot, index, selected, now) ?: continue
+            val fighter = fighters[bot.playerId] ?: spawn(bot, index, selected, now, origin, reachable) ?: continue
             if (!fighter.mob.isValid || !contains(fighter.mob.location)) {
                 remove(bot.playerId)
                 continue
@@ -131,16 +133,22 @@ internal class PracticeFighters(
         return false
     }
 
-    private fun spawn(bot: QueuedPlayer, index: Int, selected: FirearmId?, now: Long): Fighter? {
-        val origin = practiceOrigin()
-        val candidates = if (authoredSpawns.size > 1) nearbyWaypoints(origin) else waypoints
+    private fun spawn(
+        bot: QueuedPlayer,
+        index: Int,
+        selected: FirearmId?,
+        now: Long,
+        origin: Location,
+        reachable: Set<PracticeSpawnCell>,
+    ): Fighter? {
+        if (reachable.isEmpty()) return null
         val occupied = fighters.values.map { it.mob.location }.filter { it.world === world } + origin
-        fun unoccupied(at: Location): Boolean =
-            safeSpawn(at) && occupied.none { it.distanceSquared(at) < 2.25 }
-        val available = candidates.filter(::unoccupied).ifEmpty { authoredSpawns.filter(::unoccupied) }
-            .ifEmpty { authoredSpawns.filter(::safeSpawn) }
-        if (available.isEmpty()) return null
-        val point = available[(index * 3 + step / 2) % available.size]
+        fun available(at: Location): Boolean =
+            PracticeSpawnCell(at) in reachable && occupied.none { it.distanceSquared(at) < 2.25 }
+        val candidates = nearbyWaypoints(origin).filter(::available).ifEmpty { authoredSpawns.filter(::available) }
+            .ifEmpty { reachable.map { it.location(world) }.filter(::available) }
+        if (candidates.isEmpty()) return null
+        val point = candidates[(index * 3 + step / 2) % candidates.size]
         val mob = world.spawn(point, Pillager::class.java) {
             it.isPersistent = false
             it.removeWhenFarAway = false

@@ -49,13 +49,14 @@ test('Fishing enters through the public menu, lands a native bite, releases the 
     const startId = 'action_arcade_fishing_start_name';
     click(player, await openMode(player, observed, 'fishing', startId), startId);
     const { match } = await waitForQa(admin, 'status', { game: 'fishing', phase: 'active', arena_id: 'fishing', participants: 1 }, 20000);
-    await until(() => observed.world === 'minecraft:arcevents_fishing_archipelago' && bot.heldItem?.name === 'fishing_rod' &&
+    await until(() => observed.world === 'minecraft:arcevents_fishing_archipelago_v2' && bot.heldItem?.name === 'fishing_rod' &&
       tagged(bot.heldItem, 'FISHING_ROD', match), 'The dedicated fishing world or its selected expedition rod did not arrive');
     assert.equal(bot.inventory.slots[40], null, 'Origin hotbar remained exposed inside Fishing');
 
     await walkTo(player, dock);
     await until(() => bot.blockAt(castTarget)?.name === 'water' &&
-      bot.blockAt(new Vec3(-2, 72, 37))?.name === 'spruce_stairs', 'The authored harbour or its casting water did not arrive');
+      [-17, 9].every((x) => bot.blockAt(new Vec3(x, 86, 47))?.name === 'cobblestone_stairs'),
+    'The harbour gables or their open casting water did not arrive');
     await bot.lookAt(castTarget, true);
     const catchSince = player.getMessageBufferIndex();
     bot.on('entityUpdate', handleHint);

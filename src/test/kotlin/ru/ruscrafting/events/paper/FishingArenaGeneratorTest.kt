@@ -9,7 +9,7 @@ class FishingArenaGeneratorTest : StringSpec({
         FishingArenaGenerator.materialAt(stage.centerX + x, y, z)
 
     "each island sits beyond the maximum view distance and has ocean to the horizon" {
-        FishingArenaGenerator.TEMPLATE shouldBe "fishing-archipelago-v1"
+        FishingArenaGenerator.TEMPLATE shouldBe "fishing-archipelago-v2"
         val stages = FishingArenaStage.entries
         stages.map { it.centerX } shouldBe listOf(0, 384, 768, 1152, 1536)
         stages.zipWithNext().forEach { (first, second) ->
@@ -73,8 +73,41 @@ class FishingArenaGeneratorTest : StringSpec({
         }
     }
 
-    "each source harbour has a distinct landmark beyond the casting water" {
-        block(FishingArenaStage.CAMP, -2, 72, 37) shouldBe Material.SPRUCE_STAIRS
+    "the complete Tahiti facades and rear shore fit behind the casting channel" {
+        val camp = FishingArenaStage.CAMP
+        for (gableX in listOf(-17, 9)) {
+            block(camp, gableX, 86, 47) shouldBe Material.COBBLESTONE_STAIRS
+            block(camp, gableX, 86, 48) shouldBe Material.OAK_LOG
+            for (postX in listOf(gableX - 4, gableX + 4)) {
+                block(camp, postX, 77, 48) shouldBe Material.OAK_LOG
+            }
+        }
+        for (postX in listOf(-6, -2)) block(camp, postX, 64, 50) shouldBe Material.OAK_LOG
+        block(camp, -4, 86, 52) shouldBe Material.WHITE_WOOL
+        block(camp, -24, 86, 108) shouldBe Material.OAK_LOG
+        block(camp, 15, 74, 117) shouldBe Material.JUNGLE_LEAVES
+        for (stage in FishingArenaStage.entries) {
+            stage.containsShore(stage.centerX + .5, 65.0, 117.0) shouldBe (stage == camp)
+            stage.containsShore(stage.centerX + .5, 65.0, 122.0) shouldBe false
+        }
+    }
+
+    "the camp boardwalk leads around the buoys and climbs onto the original sand" {
+        val camp = FishingArenaStage.CAMP
+        fun step(x: Int, y: Int, z: Int, material: Material) {
+            block(camp, x, y, z) shouldBe material
+            block(camp, x, y + 1, z) shouldBe null
+            block(camp, x, y + 2, z) shouldBe null
+        }
+        for (z in 17..39) for (x in -12..-11) step(x, 64, z, Material.OAK_PLANKS)
+        for (z in 38..49) for (x in -10..-9) step(x, 64, z, Material.OAK_PLANKS)
+        for (x in -10..-9) {
+            for (dy in 0..2) step(x, 65 + dy, 50 + dy, Material.OAK_STAIRS)
+            step(x, 67, 53, Material.SAND)
+        }
+    }
+
+    "each remaining source harbour has a distinct landmark beyond the casting water" {
         block(FishingArenaStage.REEF, -20, 67, 35) shouldBe Material.PRISMARINE_BRICKS
         block(FishingArenaStage.SHRINE, -15, 90, 34) shouldBe Material.JUNGLE_SLAB
         block(FishingArenaStage.VOLCANO, -11, 79, 40) shouldBe Material.MAGMA_BLOCK

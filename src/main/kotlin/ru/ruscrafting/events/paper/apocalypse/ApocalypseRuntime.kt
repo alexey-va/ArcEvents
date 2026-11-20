@@ -1,7 +1,6 @@
 package ru.ruscrafting.events.paper.apocalypse
 
 import com.google.gson.Gson
-import net.kyori.adventure.bossbar.BossBar
 import org.bukkit.*
 import org.bukkit.attribute.Attribute
 import org.bukkit.attribute.AttributeModifier
@@ -99,7 +98,7 @@ class ApocalypseRuntime(
     private val returnReceipts = linkedSetOf<UUID>()
     private val unacknowledgedJoins = mutableSetOf<UUID>()
     private val playerSaves = mutableMapOf<UUID, CompletableFuture<Unit>>()
-    private val bars = mutableMapOf<UUID, BossBar>()
+    private val compasses = mutableMapOf<UUID, ApocalypseCompass>()
     private val guideRequests = mutableSetOf<UUID>()
     private val joining = mutableSetOf<UUID>()
     private val waitingForWorld = mutableSetOf<UUID>()
@@ -169,6 +168,7 @@ class ApocalypseRuntime(
     private var step = 0L
     private var checkpointPending = false
     private var checkpointQueued = false
+    private var inspectingWorldReset = false
     private val checkpointWrites = ApocalypseCheckpointWrites(work, { retry -> tasks.runLater(100) { retry() } }) { failure ->
         if (failure != null) log("world-checkpoint", failure) else plugin.logger.info("ArcEvents apocalypse world checkpoint recovered")
     }
@@ -444,6 +444,31 @@ class ApocalypseRuntime(
         return "ARCEVENTS_APOCALYPSE ready=$ready world=${world?.key ?: "-"} day=${rules.dayAt(state.survival.worldTick)} tick=${state.survival.worldTick} players=${active.size} busy=${busy.size} enemies=${actors.size} hordes=${state.hordes.values.count { it.horde != null }} switches=${state.switches.size} spawners=${state.spawners.size} bunker_enemies=${actors.keys.count { ":bunker:" in it }} generation=$generation spawn_x=${spawn?.x ?: "-"} spawn_y=${spawn?.y ?: "-"} spawn_z=${spawn?.z ?: "-"} tile_failures=$sourceTileFailures"
     }
 
+    /** Admin diagnostic. Source records remain under the HOST's normal recovery lifecycle. */
+    fun planWorldReset(target: String, reply: (String) -> Unit) {
+        if (!host) return reply(ApocalypseWorldResetPlan.blocked("not_host"))
+        val source = world?.takeIf { ready } ?: return reply(ApocalypseWorldResetPlan.blocked("host_unavailable"))
+        if (inspectingWorldReset) return reply(ApocalypseWorldResetPlan.blocked("scan_running"))
+        ApocalypseWorldResetPlan.targetProblem(source.name, target)?.let { return reply(ApocalypseWorldResetPlan.blocked(it)) }
+        val snapshot = players.toMap()
+        val plan = ApocalypseWorldResetPlan(source.name, source.uid, options.seed, target, snapshot.values)
+        inspectingWorldReset = true
+        plan.inspect(plugin.server.worldContainer.toPath(), plugin.dataFolder.toPath(), work).whenComplete { _, failure -> work.onMain {
+            inspectingWorldReset = false
+            if (!opened) return@onMain
+            if (failure != null) {
+                log("reset-plan", failure)
+                reply(ApocalypseWorldResetPlan.blocked("inspection_failed"))
+            } else {
+                val pendingSaves = playerSaves.filterValues { !it.isDone || it.isCompletedExceptionally }.keys
+                val busyPlayers = busy + joining + playerOperations + recoveryOperations + returnOperations.keys + pendingSaves
+                val targetUsed = plugin.server.getWorld(target) != null || config().arenas.any { it.world.equals(target, true) }
+                reply(plan.report(source.players.size, active.size, busyPlayers.size, checkpointPending, targetUsed,
+                    changed = !ready || world !== source || players != snapshot))
+            }
+        } }
+    }
+
     fun status(player: Player) {
         player.sendMessage(locale.render("apocalypse.status", player, mapOf(
             "day" to locale.text(rules.dayAt(state.survival.worldTick)),
@@ -500,7 +525,10 @@ class ApocalypseRuntime(
 
     private fun updateNavigation(player: Player) {
         val id = player.uniqueId
-        if (id in trackedGuides && id !in automaticGuides) return
+        if (id in trackedGuides && id !in automaticGuides) {
+            if (id !in guideSnapshots) prepareGuide(player) {}
+            return
+        }
         val inside = isInStarter(player)
         val next = if (inside) {
             if (unopenedSupplies(player).isNotEmpty()) GuideTarget.SUPPLIES else GuideTarget.EXIT
@@ -789,7 +817,7 @@ class ApocalypseRuntime(
             guideSnapshots.remove(player.uniqueId)
             trackedGuides.remove(player.uniqueId)
             automaticGuides.remove(player.uniqueId)
-            bars.remove(player.uniqueId)?.let(player::hideBossBar)
+            compasses.remove(player.uniqueId)?.close()
             // Retain the root envelope after return: native saveData has no disk acknowledgement.
             // A stale native expedition marker on a later login can replay this exact origin.
             val parked = record.copy(phase = ApocalypsePlayerPhase.PARKED, returnTicket = null,
@@ -1049,6 +1077,14 @@ class ApocalypseRuntime(
         }
         if (!ready || !host) return
         step++
+        active.forEach { id ->
+            val player = plugin.server.getPlayer(id)
+            if (player == null || id in busy || player.isDead || player.world != world) {
+                compasses.remove(id)?.close()
+            } else {
+                compasses.getOrPut(id) { ApocalypseCompass(player) }.refresh(guideSnapshots[id])
+            }
+        }
         repeat(minOf(2, pendingChunks.size)) { prepareChunk(pendingChunks.removeFirst()) }
         repeat(8) {
             val job = pendingSourceTiles.firstOrNull() ?: return@repeat
@@ -1104,11 +1140,6 @@ class ApocalypseRuntime(
             val infection = rules.advanceInfection(state.infections[key] ?: ApocalypseInfectionState(), state.survival.worldTick)
             state = state.copy(infections = state.infections + (key to infection))
             infectionEffects(player, infection)
-            val title = locale.render("apocalypse.hud", player, mapOf("day" to locale.text(rules.dayAt(state.survival.worldTick)),
-                "infection" to locale.render("apocalypse.infection.${infection.stage.name.lowercase()}", player),
-                "enemies" to locale.text(actors.size)))
-            val bar = bars.getOrPut(player.uniqueId) { BossBar.bossBar(title, 1f, BossBar.Color.RED, BossBar.Overlay.PROGRESS).also(player::showBossBar) }
-            bar.name(title)
         }
         tickActors(survivors)
         if (step % 600L == 0L) checkpoint()
@@ -1460,7 +1491,7 @@ class ApocalypseRuntime(
         guideRequests.remove(event.player.uniqueId)
         trackedGuides.remove(event.player.uniqueId)
         automaticGuides.remove(event.player.uniqueId)
-        bars.remove(event.player.uniqueId)?.let(event.player::hideBossBar)
+        compasses.remove(event.player.uniqueId)?.close()
         // ACTIVE native player data stays in the expedition on disconnect; the origin journal remains intact.
     }
     @EventHandler(priority = EventPriority.MONITOR)
@@ -1705,7 +1736,8 @@ class ApocalypseRuntime(
         sourceShapes.close()
         guide.close()
         guideRequests.clear(); guideSnapshots.clear(); trackedGuides.clear()
-        bars.forEach { (id, bar) -> plugin.server.getPlayer(id)?.hideBossBar(bar) }; bars.clear()
+        compasses.values.forEach(ApocalypseCompass::close)
+        compasses.clear()
         actors.values.mapNotNull(plugin.server::getEntity).forEach(Entity::remove); actors.clear()
         val snapshot = state
         val pendingWrite = checkpointWrites.stop()

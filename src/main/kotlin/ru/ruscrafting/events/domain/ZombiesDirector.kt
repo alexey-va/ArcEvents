@@ -43,7 +43,7 @@ class ZombiesDirector(roster: Set<UUID>, val rules: ZombiesRules, now: Long) {
         private set
     var waveSize = 0
         private set
-    var nextWaveAt = now + rules.intermissionSeconds * 1000L
+    var nextWaveAt = now
         private set
     private var spawned = 0
     private data class MysteryReservation(val weapon: FirearmId, val paid: Int)

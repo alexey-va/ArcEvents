@@ -112,6 +112,7 @@ class FishingAdventure(
     private var movementEndsAtMs = 0L
     private var nextHitAcceptedAtMs = 0L
     private var started = false
+    private var preparation: CompletableFuture<Unit>? = null
     private var starting: CompletableFuture<Unit>? = null
     private var transitioning = false
     private val staleCleanupCancelled = java.util.concurrent.atomic.AtomicBoolean()
@@ -137,10 +138,14 @@ class FishingAdventure(
         }
     }
 
+    /** Sweep stale entities before the roster countdown. Equipment and controls unlock at ACTIVE. */
+    fun prepareAsync(): CompletableFuture<Unit> =
+        preparation ?: cleanupEntities(stale = true).also { preparation = it }
+
     fun startAsync(): CompletableFuture<Unit> {
         if (started || closed) return CompletableFuture.completedFuture(Unit)
         starting?.let { return it }
-        val prepared = cleanupEntities(stale = true).thenCompose {
+        val prepared = prepareAsync().thenCompose {
             onMain {
                 if (closed || !player.isOnline || player.world.uid != world.uid) {
                     throw CancellationException("Fishing source changed before entity cleanup completed")

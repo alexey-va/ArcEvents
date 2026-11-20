@@ -184,7 +184,7 @@ test('Admin solo TTT starts from a native button, accepts real combat and finish
 
 test('Admin solo Gun Game advances after a real shot against a moving rival and restores the player', async (fixture) => {
   await withPractice(fixture, 'gungame', { ...combatArena('deadwood'), participants: 2 }, async (player, admin) => {
-    await until(() => hasIssuedItem(player, 'flintlock'), 'Gun Game did not issue the Flintlock');
+    await until(() => hasIssuedItem(player, 'five_seven'), 'Gun Game did not issue the Five-Seven');
     // The open lane leads west in Deadwood and south in Citadel.
     await movingRivals(player, 1, { lure: authored.deadwood ? [-8, 0] : [0, 8] });
     await until(() => player.bot.health < 20, 'The Gun Game rival did not damage the tester', 15000);
@@ -203,7 +203,7 @@ test('Admin solo Disasters runs a real hazard round with a moving rival and skip
 });
 
 test('Admin solo Fishing issues its rod alongside a practice fisherman and restores the player', async (fixture) => {
-  await withPractice(fixture, 'fishing', { world: 'arcevents_fishing_archipelago', participants: 1 }, async (player) => {
+  await withPractice(fixture, 'fishing', { world: 'arcevents_fishing_archipelago_v2', participants: 1 }, async (player) => {
     await until(() => hasIssuedItem(player, 'fishing_rod'), 'Fishing did not issue its rod');
     const angler = await until(() => player.bot.nearestEntity((entity) => companion(entity) && entity.heldItem?.name === 'fishing_rod'),
       'The practice fisherman was not visible with a rod');

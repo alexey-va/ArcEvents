@@ -138,8 +138,8 @@ async function startGunGame(players, admin) {
   // Observe admission outside the roster while participant chat changes phase.
   await waitForQa(admin, 'status', { game: 'gungame', phase: 'active', participants: players.length });
   for (const player of players) {
-    const weapon = await waitForWeapon(player, 'flintlock');
-    assert.match(JSON.stringify(weapon), /flintlock/i, `${player.username} did not receive the starting firearm`);
+    const weapon = await waitForWeapon(player, 'five_seven');
+    assert.match(JSON.stringify(weapon), /five_seven/i, `${player.username} did not receive the starting firearm`);
   }
 }
 
@@ -203,7 +203,7 @@ test('Gun Game advances through every firearm and finishes on the real knife hit
   const admin = await createConnected(createPlayer, 'EventQA');
   await admin.makeOp();
   const players = [player, rival];
-  const firearmIds = ['flintlock', 'revolver', 'hand_cannon', 'double_barrel', 'five_seven', 'g36', 'aek_971', 'rpl_20', 'vepr_12', 'm1_garand', 'vss_vintorez', 'mcmillan'];
+  const firearmIds = ['five_seven', 'revolver', 'g36', 'aek_971', 'rpl_20', 'vepr_12', 'm1_garand', 'vss_vintorez', 'mcmillan'];
   await player.makeOp();
   await seedPlayerState(player, player, 0);
   await seedPlayerState(player, rival, 1);
@@ -212,7 +212,7 @@ test('Gun Game advances through every firearm and finishes on the real knife hit
   const before = players.map(snapshot);
   try {
     await startGunGame(players, admin);
-    for (let stage = 0; stage < 12; stage += 1) {
+    for (let stage = 0; stage < firearmIds.length; stage += 1) {
       const weapon = await waitForWeapon(players[0], firearmIds[stage]);
       assert.ok(weapon, `missing Gun Game weapon at stage ${stage}`);
       assert.notEqual(weapon.name, 'air', `empty Gun Game weapon at stage ${stage}`);
