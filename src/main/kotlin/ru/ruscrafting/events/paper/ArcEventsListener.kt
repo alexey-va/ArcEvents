@@ -204,7 +204,8 @@ class ArcEventsListener(
         if (damage <= 0.0 || !damage.isFinite()) return
         val health = victim.health
         service.recordAttack(victim.uniqueId, attackerId)
-        val lethal = service.phase() == MatchPhase.ACTIVE && service.isAlive(victim.uniqueId) && damage >= health
+        val phase = service.phase()
+        val lethal = (phase == MatchPhase.ACTIVE || phase == MatchPhase.INTERMISSION) && service.isAlive(victim.uniqueId) && damage >= health
         service.recordDamage(victim, attacker, damage.coerceAtMost(health), lethal)
         if (lethal) {
             event.isCancelled = true
@@ -212,7 +213,7 @@ class ArcEventsListener(
             val matchId = service.matchIdentity()
             Tasks.scheduler.runLater(1L) {
                 try {
-                    if (victim.isOnline && service.matchIdentity() == matchId) {
+                    if (victim.isOnline && service.matchIdentity() == matchId && service.phase() == phase) {
                         service.eliminate(victim, attackerId)
                     }
                 } finally {
@@ -344,6 +345,10 @@ class ArcEventsListener(
     // Attacking a nearby entity does not emit PlayerInteractEvent's left-click route.
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onFirearmAttack(event: PrePlayerAttackEntityEvent) {
+        if (service.fishingAdventure(event.player)?.melee(event.player, event.attacked) == true) {
+            event.isCancelled = true
+            return
+        }
         if (event.attacked is Pillager && service.handlePracticeMelee(event.player, event.attacked)) {
             event.isCancelled = true
             return
@@ -570,6 +575,7 @@ class ArcEventsListener(
             MatchPhase.COUNTDOWN,
             MatchPhase.ACTIVE,
             MatchPhase.RESOLVING,
+            MatchPhase.INTERMISSION,
             MatchPhase.CANCELLED,
             MatchPhase.RESTORING,
         )

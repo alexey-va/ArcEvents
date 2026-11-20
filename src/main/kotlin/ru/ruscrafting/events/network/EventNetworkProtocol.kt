@@ -253,6 +253,8 @@ data class ReservationBatch(
     val preferredArenaId: String? = null,
     val mode: EventMode = EventMode.TTT,
     val practice: Boolean = false,
+    /** Host-local continuation target. Redis routes keep this batch’s independent matchId. */
+    val continuingSessionId: UUID? = null,
 ) {
     init {
         require(entries.all { (it.mode ?: EventMode.TTT.id) == mode.id }) { "Reservation entries use mixed event modes" }

@@ -1270,6 +1270,7 @@ internal fun evacuationAccessible(current: TttMatch?, participant: TttParticipan
         MatchPhase.COUNTDOWN,
         MatchPhase.ACTIVE,
         MatchPhase.RESOLVING,
+        MatchPhase.INTERMISSION,
         MatchPhase.CANCELLED,
         MatchPhase.RESTORING,
     ) && participant?.status != null && participant.status != ParticipantStatus.RESTORED

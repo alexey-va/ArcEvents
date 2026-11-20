@@ -149,7 +149,7 @@ async function startTtt(players, admin) {
   await expect(players[0]).toHaveReceivedMessage('Set arcevents.start to true');
   for (const player of players) await join(player);
   players[0].chat('/arcevents start ttt');
-  await waitForQa(admin, 'status', { game: 'ttt', phase: 'active', participants: players.length });
+  return waitForQa(admin, 'status', { game: 'ttt', phase: 'active', participants: players.length });
 }
 
 async function qaPlayer(admin, player, pattern) {
@@ -238,7 +238,7 @@ test('Gun Game advances through every firearm and finishes on the real knife hit
   }
 });
 
-test('TTT assigns hidden roles, completes a real traitor blade win, and restores exact state', async ({ player, createPlayer }) => {
+test('TTT continues after a traitor blade win and restores the original state on exit', async ({ player, createPlayer }) => {
   await waitForEventsReady();
   const players = [
     player,
@@ -254,7 +254,7 @@ test('TTT assigns hidden roles, completes a real traitor blade win, and restores
     await player.makeOp();
     for (const [index, entry] of players.entries()) await seedPlayerState(player, entry, index);
     players.forEach((entry, index) => { assertSeeded(entry, index); before[index] = snapshot(entry); });
-    await startTtt(players, admin);
+    const first = await startTtt(players, admin);
     for (const entry of players) {
       const marker = admin.getMessageBufferIndex();
       admin.chat(`/arcevents debug player ${entry.username}`);
@@ -267,12 +267,16 @@ test('TTT assigns hidden roles, completes a real traitor blade win, and restores
     }
     assert.ok(traitor, 'QA role snapshot did not identify a traitor');
     const victims = players.filter((entry) => entry !== traitor);
-    for (const victim of victims) {
+    for (const [index, victim] of victims.entries()) {
+      if (index === 2) await qaPlayer(admin, traitor, new RegExp(`player=${traitor.username}.*role=traitor.*kills=2`));
       const bladeSlot = await grantTraitorBlade(admin, traitor);
       await tttKill(admin, traitor, victim, bladeSlot);
     }
-    await qaPlayer(admin, traitor, new RegExp(`player=${traitor.username}.*role=traitor.*kills=3`));
     await expect(traitor).toHaveReceivedMessage(/The report is ready/i, { timeout: 10000 });
+    await waitForQa(admin, 'status', { game: 'ttt', phase: 'intermission', alive: 4, combat: 0 });
+    const next = await waitForQa(admin, 'status', { game: 'ttt', phase: 'active', alive: 4, traitors: 1 });
+    assert.notEqual(next.match, first.match);
+    for (const entry of players) entry.chat('/arcevents leave');
     await Promise.all(players.map((entry, index) => waitForRestored(entry, before[index])));
     players.forEach((entry, index) => assertRestored(entry, before[index]));
   } finally {

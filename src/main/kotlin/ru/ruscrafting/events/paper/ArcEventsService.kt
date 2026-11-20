@@ -151,6 +151,7 @@ class ArcEventsService(
         packetDisplays, clock, work, practiceOpponentLocation = { practiceFighters?.actor(it)?.location })
     private var arcadeRules: ArcadeRules? = null
     private var reservation: ReservationBatch? = null
+    private var refillTimeout: ScheduledTask? = null
     private var practice: PracticeRoster? = null
     private var practiceFighters: PracticeFighters? = null
     private var pendingPracticeAttack: Pair<UUID, UUID>? = null
@@ -212,7 +213,7 @@ class ArcEventsService(
         )
     }
 
-    fun matchState(): Pair<UUID?, MatchPhase?> = match?.let { it.matchId to it.phase }
+    fun matchState(): Pair<UUID?, MatchPhase?> = match?.let { (it.sessionId ?: it.matchId) to it.phase }
         ?: arcade.current?.let { it.matchId to it.phase }
         ?: reservation?.let { it.matchId to MatchPhase.RESERVED }
         ?: (null to null)
@@ -225,7 +226,7 @@ class ArcEventsService(
         val matchId = entry.matchId?.let { runCatching { UUID.fromString(it) }.getOrNull() } ?: return false
         val pending = reservation
         if (pending?.matchId == matchId && pending.entries.any { it.playerId == entry.playerId }) return true
-        val tttParticipant = match?.takeIf { it.matchId == matchId }?.participant(playerId)
+        val tttParticipant = match?.takeIf { it.recoveryId(playerId) == matchId }?.participant(playerId)
         if (tttParticipant?.status?.let { it != ParticipantStatus.RESTORED } == true) return true
         val arcadeParticipant = arcade.current?.takeIf { it.matchId == matchId }?.participants?.get(playerId)
         return arcadeParticipant?.status?.let { it != ParticipantStatus.RESTORED } == true
@@ -276,11 +277,11 @@ class ArcEventsService(
             ParticipantStatus.ALIVE,
         )
     }
-    override fun matchIdentity(): UUID? = matchState().first
+    override fun matchIdentity(): UUID? = match?.matchId ?: matchState().first
     override fun phase(): MatchPhase? = match?.phase ?: arcade.current?.phase
         ?: reservation?.let { MatchPhase.RESERVED }
         ?: arrivalPlayers.takeIf { it.isNotEmpty() }?.let { MatchPhase.RESTORING }
-    fun activeMatchId(): String? = matchState().first?.toString()
+    fun activeMatchId(): String? = matchIdentity()?.toString()
     fun arenaReady(): Boolean = arenaPool.anyReady()
     fun activeArenaId(): String? = arenaPool.active()?.id
     fun isPracticeMatch(matchId: UUID): Boolean = practice?.matchId == matchId
@@ -330,7 +331,31 @@ class ArcEventsService(
         )
     }
 
+    /** FIFO refill uses only the remaining seats, and only while the existing session lacks a playable roster. */
+    fun tttRefill(): TttRefill? {
+        val waiting = match ?: return null
+        if (waiting.phase != MatchPhase.INTERMISSION || waiting.sessionId == null || reservation != null || preparingPlayers != null) return null
+        val retained = waiting.alive().size
+        val rules = activeTtt()
+        if (retained !in 1 until rules.minimumPlayers) return null
+        val arena = arenaPool.active() ?: return null
+        return TttRefill(waiting.sessionId, arena.id, (rules.minimumPlayers - retained)..(rules.maximumPlayers - retained))
+    }
+
     fun onReservation(batch: ReservationBatch): Boolean {
+        if (batch.continuingSessionId != null) {
+            val available = tttRefill() ?: return false
+            if (!started || settings().nodeMode != NodeMode.HOST || available.sessionId != batch.continuingSessionId ||
+                batch.mode != EventMode.TTT || batch.practice || batch.entries.size !in available.seats ||
+                batch.entries.any { isParticipant(UUID.fromString(it.playerId)) } ||
+                batch.preferredArenaId !in setOf(null, "auto", available.arenaId)) return false
+            reservation = batch
+            arrivals.clear()
+            refillTimeout = Tasks.scheduler.runLater(settings().network.reservationSeconds * 20L) {
+                if (reservation === batch) startReservedRoster()
+            }
+            return true
+        }
         if (!started || settings().nodeMode != NodeMode.HOST || match != null || arcade.current != null || reservation != null) {
             return false
         }
@@ -363,7 +388,7 @@ class ArcEventsService(
         val batch = reservation ?: return rejected()
         if (entry.matchId != batch.matchId.toString() || entry.mode != batch.mode.id) return rejected()
         val playerId = UUID.fromString(entry.playerId)
-        if (batch.entries.none { it.playerId == entry.playerId }) return rejected()
+        if (batch.entries.none { it.playerId == entry.playerId && it.originServer == entry.originServer }) return rejected()
         val player = plugin.server.getPlayer(playerId)?.takeIf(Player::isOnline) ?: return rejected()
         if (batch.practice && !player.hasPermission("arcevents.admin")) return rejected()
         arrivalOperations[playerId]?.let { return it }
@@ -450,7 +475,8 @@ class ArcEventsService(
         if (current.phase == MatchPhase.COUNTDOWN) player.clearTitle()
         var changed = current
         var outcome: MatchOutcome = MatchOutcome.Continue
-        if (current.phase in LIVE_PHASES && participant.status in setOf(ParticipantStatus.RESERVED, ParticipantStatus.ALIVE)) {
+        if (current.phase in DISCONNECT_PHASES) {
+            if (current.sessionId != null) arrivalPlayers += player.uniqueId
             val disconnected = runtime.disconnect(player.uniqueId)
             changed = disconnected.first
             outcome = disconnected.second
@@ -474,9 +500,10 @@ class ArcEventsService(
                 return@recoverPlayer
             }
             completeRecovery(player, recovery, "match.evacuated")
-            if (changed.phase != MatchPhase.ACTIVE && changed.phase in LIVE_PHASES && !preRoundRosterViable(changed)) {
-                cancel(MatchEndReason.INSUFFICIENT_PLAYERS)
-            }
+            val live = match
+            if (live?.matchId == changed.matchId && live.phase in setOf(MatchPhase.PREPARING, MatchPhase.COUNTDOWN) &&
+                !preRoundRosterViable(live)) cancel(MatchEndReason.INSUFFICIENT_PLAYERS)
+            closeEmptyIntermission()
         }
     }
 
@@ -606,27 +633,30 @@ class ArcEventsService(
         cancelMapSpawnReturn(player.uniqueId, notify = false)
         hud.remove(player.uniqueId)
         val current = match ?: return
-        if (current.participant(player.uniqueId) == null) return
-        if (current.phase !in LIVE_PHASES) {
+        val departing = current.participant(player.uniqueId) ?: return
+        if (departing.status == ParticipantStatus.RESTORED) return
+        if (current.phase !in DISCONNECT_PHASES) {
             quitRecovery?.let { completeRecovery(player, it, departing = true) }
             return
         }
+        if (current.sessionId != null) arrivalPlayers += player.uniqueId
         val (changed, outcome) = runtime.disconnect(player.uniqueId)
         debug.event("participant_disconnected", "match" to current.matchId, "player" to player.uniqueId, "phase" to current.phase)
         if (outcome is MatchOutcome.Finished) {
             resolve(changed)
-            quitRecovery?.takeIf { it.matchId == changed.matchId }?.let { completeRecovery(player, it, departing = true) }
+            quitRecovery?.takeIf { it.matchId == changed.recoveryId(player.uniqueId) }?.let { completeRecovery(player, it, departing = true) }
         } else if (isPracticeMatch(changed.matchId)) {
             // Paper refuses recovery teleports during quit. The durable snapshot is reapplied on join.
             sessionTasks += Tasks.scheduler.runLater(1L) {
                 if (match?.matchId == changed.matchId) cancel(MatchEndReason.ADMIN)
             }
-        } else if (changed.phase != MatchPhase.ACTIVE && !preRoundRosterViable(changed)) {
-            quitRecovery?.takeIf { it.matchId == changed.matchId }?.let { completeRecovery(player, it, departing = true) }
+        } else if (changed.phase in setOf(MatchPhase.PREPARING, MatchPhase.COUNTDOWN) && !preRoundRosterViable(changed)) {
+            quitRecovery?.takeIf { it.matchId == changed.recoveryId(player.uniqueId) }?.let { completeRecovery(player, it, departing = true) }
             cancel(MatchEndReason.INSUFFICIENT_PLAYERS)
         } else {
-            quitRecovery?.takeIf { it.matchId == changed.matchId }?.let { completeRecovery(player, it, departing = true) }
+            quitRecovery?.takeIf { it.matchId == changed.recoveryId(player.uniqueId) }?.let { completeRecovery(player, it, departing = true) }
         }
+        closeEmptyIntermission()
     }
 
     fun startFromQueue(
@@ -691,7 +721,7 @@ class ArcEventsService(
         arenaPool.reconfigure()
         network.reconfigure()
         val current = match
-        current?.participants?.values?.mapNotNull { plugin.server.getPlayer(it.playerId) }?.forEach { player ->
+        current?.participants?.values?.filter { it.status !in DEPARTED }?.mapNotNull { plugin.server.getPlayer(it.playerId) }?.forEach { player ->
             runCatching {
                 player.inventory.storageContents = player.inventory.storageContents.map { stack ->
                     stack?.let { firearms.refreshItem(it, player) }
@@ -715,6 +745,7 @@ class ArcEventsService(
 
     fun stopByAdmin(): AdminStopResult {
         if (arcade.current != null) { arcade.cancel(MatchEndReason.ADMIN); return AdminStopResult.MATCH }
+        if (reservation?.continuingSessionId != null) cancelRefill()
         reservation?.let { pending ->
             val arrivedPlayers = arrivals.keys.mapNotNull(plugin.server::getPlayer)
             restoreReservationArrivals(pending, arrivedPlayers)
@@ -725,7 +756,7 @@ class ArcEventsService(
             releaseRestoredReservation(pending)
             return AdminStopResult.RESERVATION
         }
-        if (match?.phase !in LIVE_PHASES) return AdminStopResult.NO_MATCH
+        if (match?.phase !in LIVE_PHASES && match?.phase != MatchPhase.INTERMISSION) return AdminStopResult.NO_MATCH
         cancel(MatchEndReason.ADMIN)
         return AdminStopResult.MATCH
     }
@@ -821,6 +852,8 @@ class ArcEventsService(
         if (projectile && projectileMatchId != current.matchId) return true
         if (victim == null || victim.status != ParticipantStatus.ALIVE) return true
         if (attackerId != null && (attacker == null || attacker.status != ParticipantStatus.ALIVE)) return true
+        if (current.phase == MatchPhase.INTERMISSION)
+            return preparingPlayers == current.matchId || attacker == null || attackerId == victimId || projectile || pendingFirearmHit(attackerId, victimId) != null
         return current.phase != MatchPhase.ACTIVE
     }
 
@@ -851,6 +884,10 @@ class ArcEventsService(
         clearFirearmScope(player.uniqueId)
         if (arcade.current != null) { arcade.eliminate(player, killerId); return }
         val current = match ?: return
+        if (current.phase == MatchPhase.INTERMISSION && current.participant(player.uniqueId)?.status == ParticipantStatus.ALIVE) {
+            equipWarmupPlayer(current, player)
+            return
+        }
         if (current.phase != MatchPhase.ACTIVE || current.participant(player.uniqueId)?.status != ParticipantStatus.ALIVE) return
         val elimination = runtime.eliminate(player.uniqueId, killerId)
         val lethal = runtime.combatRecords().lastOrNull { it.victimId == player.uniqueId && it.lethal }
@@ -1859,6 +1896,7 @@ class ArcEventsService(
 
     private fun startReservedRoster() {
         val batch = reservation ?: return
+        if (batch.continuingSessionId != null) { finishRefill(batch); return }
         reservation = null
         val online = arrivals.values.mapNotNull { entry -> plugin.server.getPlayer(UUID.fromString(entry.playerId)) }
             .filter(Player::isOnline).distinctBy(Player::getUniqueId)
@@ -1893,7 +1931,7 @@ class ArcEventsService(
                 ),
                 seed = batch.matchId.mostSignificantBits xor batch.matchId.leastSignificantBits,
                 nowMs = clock(),
-            )
+            ).copy(sessionId = batch.matchId.takeUnless { batch.practice })
             val prepared = runtime.prepare(created)
             preparingPlayers = batch.matchId
             commitPlayerMutation(batch.matchId, online, entries.associate { UUID.fromString(it.playerId) to it.originServer }, clock(),
@@ -1910,7 +1948,7 @@ class ArcEventsService(
                         if (mutationAttempted) cancel(MatchEndReason.SHUTDOWN) else abortUnmutatedPreparation(online)
                     }
                 } else if (started && match?.matchId == batch.matchId && match?.phase == MatchPhase.PREPARING) {
-                    arrivalPlayers.removeAll(online.map(Player::getUniqueId).toSet())
+                    arrivalPlayers.removeAll(online.map(Player::getUniqueId).filter { match?.participant(it)?.status !in DEPARTED }.toSet())
                     network.completeReservation(batch.matchId, online.map(Player::getUniqueId)).whenComplete { _, failure -> onMain {
                         if (started && match?.matchId == batch.matchId && match?.phase == MatchPhase.PREPARING) {
                             if (preparingPlayers == batch.matchId) preparingPlayers = null
@@ -1938,6 +1976,53 @@ class ArcEventsService(
                 matchSettings = null
             }
         }
+    }
+
+    private fun finishRefill(batch: ReservationBatch) {
+        if (preparingPlayers == batch.matchId) return
+        refillTimeout?.cancel()
+        refillTimeout = null
+        val candidates = arrivals.toMap()
+        val ids = candidates.keys.filter { plugin.server.getPlayer(it)?.isOnline == true }
+        if (ids.isEmpty()) { cancelRefill(); return }
+        preparingPlayers = batch.matchId
+        network.completeReservation(batch.matchId, ids).whenComplete { _, failure -> onMain {
+            if (reservation !== batch) return@onMain
+            if (preparingPlayers == batch.matchId) preparingPlayers = null
+            val waiting = match
+            if (failure != null || !started || waiting == null || waiting.sessionId != batch.continuingSessionId ||
+                waiting.phase != MatchPhase.INTERMISSION || waiting.alive().isEmpty()) {
+                if (failure != null) plugin.logger.log(Level.WARNING, "ArcEvents could not finalize TTT refill ${batch.matchId}", failure)
+                cancelRefill()
+                return@onMain
+            }
+            val accepted = ids.filter { id -> arrivals[id] == candidates[id] && plugin.server.getPlayer(id)?.isOnline == true &&
+                eventRecoveries[id]?.matchId == batch.matchId }
+            reservation = null
+            arrivals.clear()
+            releaseRestoredReservation(batch, accepted.toSet())
+            if (accepted.isEmpty()) return@onMain
+            try {
+                val joined = runtime.joinIntermission(batch.matchId, accepted.map { candidates.getValue(it).queuedPlayer() })
+                arrivalPlayers.removeAll(accepted.toSet())
+                prepareWarmup(joined, accepted)
+            } catch (problem: Throwable) {
+                plugin.logger.log(Level.SEVERE, "ArcEvents could not admit TTT refill ${batch.matchId}", problem)
+                cancel(MatchEndReason.SHUTDOWN)
+            }
+        } }
+    }
+
+    private fun cancelRefill() {
+        val batch = reservation?.takeIf { it.continuingSessionId != null } ?: return
+        reservation = null
+        if (preparingPlayers == batch.matchId) preparingPlayers = null
+        refillTimeout?.cancel()
+        refillTimeout = null
+        val admitted = arrivals.keys.mapNotNull(plugin.server::getPlayer)
+        arrivals.clear()
+        restoreReservationArrivals(batch, admitted)
+        releaseRestoredReservation(batch)
     }
 
     private fun abortUnmutatedPreparation(players: List<Player>) {
@@ -1985,6 +2070,10 @@ class ArcEventsService(
             val preparing = match?.takeIf { it.matchId == current.matchId && it.phase == MatchPhase.PREPARING }
                 ?: return@apply
             if (!player.isOnline || preparing.participant(player.uniqueId)?.status != ParticipantStatus.RESERVED) return@apply
+            if (current.sessionId != null && current.matchId != current.sessionId) {
+                if (player.uniqueId in arrivalPlayers) return@apply
+                check(retainsAdmission(preparing, player)) { "TTT admission changed during preparation for ${player.uniqueId}" }
+            }
             if (disposablePlayerState(current.matchId)) resetDisposablePlayer(player)
             player.closeInventory()
             player.activePotionEffects.forEach { player.removePotionEffect(it.type) }
@@ -2002,7 +2091,7 @@ class ArcEventsService(
             player.saturation = 20f
             player.level = 0
             player.exp = 0f
-            items.givePreparationLoadout(player, current.matchId.toString())
+            items.givePreparationLoadout(player, current.matchId.toString(), forceClear = current.sessionId != null && current.sessionId != current.matchId)
             teleport(player, arena.spawnFor(slot, players.size))
             player.sendEventMessage(locale.render("match.preparing-guide", player))
             if (settings().ui.particles) {
@@ -2013,7 +2102,10 @@ class ArcEventsService(
         val applied = if (work == null) {
             players.withIndex().forEach(applyPlayer)
             CompletableFuture.completedFuture(Unit)
-        } else work.capture({ started && match?.matchId == current.matchId && match?.phase == MatchPhase.PREPARING && players.all(Player::isOnline) }) {
+        } else work.capture({
+            started && match?.matchId == current.matchId && match?.phase == MatchPhase.PREPARING &&
+                (current.sessionId != null && current.matchId != current.sessionId || players.all(Player::isOnline))
+        }) {
             if (pending.hasNext()) applyPlayer(pending.next())
             !pending.hasNext()
         }
@@ -2089,7 +2181,7 @@ class ArcEventsService(
         scopes?.validate(::isScopeAuthorized)
         if (practiceFighters != null && (phase() != MatchPhase.ACTIVE || practiceFighters?.roster?.matchId != matchIdentity())) closePracticeFighters()
         // Cancelled/failed arrivals keep their host escrow and retry before any return transfer.
-        arrivalPlayers.toList().filter { it !in arrivals && participant(it) == null && !arcade.isParticipant(it) }
+        arrivalPlayers.toList().filter { it !in arrivals && participant(it)?.status in setOf(null, ParticipantStatus.DISCONNECTED) && !arcade.isParticipant(it) }
             .mapNotNull(plugin.server::getPlayer).forEach { player ->
                 recoverPlayer(player) { recoveryResult -> recoveryResult.onSuccess { recovery ->
                     if (recovery != null) completeRecovery(player, recovery)
@@ -2107,6 +2199,13 @@ class ArcEventsService(
         }
         val current = match ?: return
         when (current.phase) {
+            MatchPhase.INTERMISSION -> {
+                val roster = current.alive()
+                if (!closeEmptyIntermission() && runtime.tickPhase().elapsed && reservation == null && preparingPlayers == null &&
+                    roster.none { it.playerId in arrivalPlayers } && roster.size >= activeTtt().minimumPlayers) {
+                    startNextTttRound(current)
+                }
+            }
             MatchPhase.PREPARING -> beginCountdown()
             MatchPhase.COUNTDOWN -> {
                 val phaseTick = runtime.tickPhase()
@@ -2160,7 +2259,7 @@ class ArcEventsService(
             combat = runtime.combatRecords(),
         )
         current.participants.values.forEach { participant ->
-            plugin.server.getPlayer(participant.playerId)?.let { player ->
+            plugin.server.getPlayer(participant.playerId)?.takeIf { participant.status !in DEPARTED }?.let { player ->
                 runCatching {
                     player.showTitle(Title.title(
                         locale.render(title, player),
@@ -2175,11 +2274,14 @@ class ArcEventsService(
             }
             if (!isPracticeMatch(current.matchId)) runCatching {
                 network.recordStats(participant.playerId) { it.record(current.matchId, participant, current.winner) }
+                if (current.sessionId != null) ArcProductTelemetryBridge.completed(participant.playerId, "match:${current.matchId}:${participant.playerId}")
             }.onFailure { failure ->
                 plugin.logger.log(Level.WARNING, "ArcEvents could not submit round statistics for ${participant.playerId}", failure)
             }
         }
-        runCatching { Tasks.scheduler.runLater(activeTtt().postRoundSeconds * 20L) { beginRestoration() } }
+        val continuing = current.sessionId != null && current.endReason in setOf(MatchEndReason.ELIMINATION, MatchEndReason.TIMEOUT)
+        if (continuing) enterIntermission(current)
+        else runCatching { Tasks.scheduler.runLater(activeTtt().postRoundSeconds * 20L) { beginRestoration() } }
             .onSuccess(sessionTasks::add)
             .onFailure { failure ->
                 plugin.logger.log(Level.SEVERE, "ArcEvents could not schedule restoration for ${current.matchId}", failure)
@@ -2190,9 +2292,120 @@ class ArcEventsService(
         debug.event("match_resolving", "match" to current.matchId, "winner" to current.winner, "reason" to current.endReason)
     }
 
+    private fun enterIntermission(previous: TttMatch) {
+        try {
+            cancelMatchTasks(keepMainTick = true)
+            hud.close()
+            bodyRegistry.clear()
+            cleanupProjectiles()
+            cleanupLoot()
+            radarTasks.values.forEach { it.cancel() }
+            radarTasks.clear()
+            val retained = previous.participants.values.filter { it.status !in DEPARTED && it.playerId !in arrivalPlayers &&
+                plugin.server.getPlayer(it.playerId)?.isOnline == true }.mapTo(linkedSetOf(), TttParticipant::playerId)
+            val waiting = runtime.beginIntermission(UUID.randomUUID(), retained, activeTtt().postRoundSeconds)
+            if (!closeEmptyIntermission()) prepareWarmup(waiting, retained)
+        } catch (problem: Throwable) {
+            plugin.logger.log(Level.SEVERE, "ArcEvents could not open TTT warmup after ${previous.matchId}", problem)
+            cancel(MatchEndReason.SHUTDOWN)
+        }
+    }
+
+    private fun closeEmptyIntermission(): Boolean {
+        val waiting = match ?: return false
+        if (waiting.phase != MatchPhase.INTERMISSION || waiting.alive().isNotEmpty()) return false
+        cancelRefill()
+        beginRestoration()
+        return true
+    }
+
+    private fun prepareWarmup(waiting: TttMatch, ids: Collection<UUID>) {
+        preparingPlayers = waiting.matchId
+        val pending = ids.iterator()
+        val applyOne = {
+            if (pending.hasNext()) {
+                val id = pending.next()
+                if (match?.participant(id)?.status == ParticipantStatus.ALIVE && id !in arrivalPlayers) {
+                    plugin.server.getPlayer(id)?.takeIf(Player::isOnline)?.let { player ->
+                        equipWarmupPlayer(waiting, player)
+                        player.sendEventMessage(locale.render("match.intermission", player, mapOf(
+                            "players" to locale.text(requireNotNull(match).alive().size), "minimum" to locale.text(activeTtt().minimumPlayers),
+                        )))
+                    }
+                }
+            }
+            !pending.hasNext()
+        }
+        val ready = if (work != null) work.capture({ started && match?.matchId == waiting.matchId &&
+            match?.phase == MatchPhase.INTERMISSION }, applyOne) else {
+            while (!applyOne()) Unit
+            CompletableFuture.completedFuture(Unit)
+        }
+        ready.whenComplete { _, failure -> onMain {
+            if (match?.matchId != waiting.matchId || match?.phase != MatchPhase.INTERMISSION) return@onMain
+            if (preparingPlayers == waiting.matchId) preparingPlayers = null
+            if (failure != null) {
+                plugin.logger.log(Level.SEVERE, "ArcEvents could not equip TTT warmup ${waiting.matchId}", failure)
+                cancel(MatchEndReason.SHUTDOWN)
+            }
+        } }
+    }
+
+    private fun retainsAdmission(current: TttMatch, player: Player): Boolean {
+        val id = player.uniqueId
+        val admission = current.recoveryId(id) ?: return false
+        return player.isOnline && !escrow.isLocked(id) && !independentInventoryOwner(id) &&
+            (disposablePlayerState(admission) || id in requireNotNull(pendingPlayers(admission)))
+    }
+
+    private fun equipWarmupPlayer(waiting: TttMatch, player: Player) {
+        if (!retainsAdmission(waiting, player)) return
+        val arena = requireNotNull(arenaPool.active())
+        resetDisposablePlayer(player)
+        player.gameMode = GameMode.ADVENTURE
+        items.givePreparationLoadout(player, waiting.matchId.toString(), forceClear = true)
+        if (roundReport != null) player.inventory.setItem(4, items.roundReport(player, waiting.matchId.toString()))
+        teleport(player, arena.spawnFor(waiting.participants.keys.indexOf(player.uniqueId), waiting.participants.size))
+    }
+
+    private fun startNextTttRound(waiting: TttMatch) {
+        try {
+            val players = waiting.alive().map { p ->
+                val player = requireNotNull(plugin.server.getPlayer(p.playerId))
+                check(retainsAdmission(waiting, player)) {
+                    "TTT continuation lost player admission ${p.playerId}"
+                }
+                player
+            }
+            val rules = activeTtt()
+            val prepared = runtime.prepareNextRound(UUID.randomUUID(), RoleAllocationSettings(
+                rules.traitorPlayerRatio, rules.detectiveMinimumPlayers, rules.traitorCredits, rules.detectiveCredits,
+            ))
+            preparingPlayers = prepared.matchId
+            roundReport = null
+            applyEventStateAsync(players, prepared).whenComplete { _, failure -> onMain {
+                if (match?.matchId != prepared.matchId || match?.phase != MatchPhase.PREPARING) return@onMain
+                preparingPlayers = null
+                if (failure != null) {
+                    plugin.logger.log(Level.SEVERE, "ArcEvents could not prepare consecutive TTT round ${prepared.matchId}", failure)
+                    cancel(MatchEndReason.SHUTDOWN)
+                } else network.announceStarted(prepared.matchId)
+            } }
+        } catch (problem: Throwable) {
+            plugin.logger.log(Level.SEVERE, "ArcEvents could not continue TTT session ${waiting.sessionId}", problem)
+            cancel(MatchEndReason.SHUTDOWN)
+        }
+    }
+
     private fun cancel(reason: MatchEndReason) {
         val current = match ?: return
         if (current.phase in setOf(MatchPhase.COMPLETED, MatchPhase.RESTORING)) return
+        if (reason == MatchEndReason.INSUFFICIENT_PLAYERS && current.sessionId != null && current.matchId != current.sessionId &&
+            current.phase in setOf(MatchPhase.PREPARING, MatchPhase.COUNTDOWN)) {
+            enterIntermission(current)
+            return
+        }
+        cancelRefill()
         closePracticeFighters()
         scopes?.clearAll()
         val cancelled = runCatching { runtime.cancel(reason) }.getOrElse {
@@ -2222,15 +2435,17 @@ class ArcEventsService(
 
     private fun beginRestoration() {
         val current = match ?: return
-        if (current.phase !in setOf(MatchPhase.RESOLVING, MatchPhase.CANCELLED)) return
+        if (current.phase !in setOf(MatchPhase.RESOLVING, MatchPhase.INTERMISSION, MatchPhase.CANCELLED)) return
         runtime.beginRestoring()
         bodyRegistry.clear()
         cleanupProjectiles()
         cleanupLoot()
         radarTasks.values.forEach { task -> runCatching(task::cancel) }
         radarTasks.clear()
+        preparingPlayers = null
         val restoredOnline = mutableSetOf<UUID>()
         current.participants.values.forEach { participant ->
+            if (participant.status == ParticipantStatus.RESTORED) return@forEach
             val player = plugin.server.getPlayer(participant.playerId) ?: return@forEach
             recoverPlayer(player) { recoveryResult -> recoveryResult
                 .onSuccess { recovery ->
@@ -2244,7 +2459,7 @@ class ArcEventsService(
                     player.sendEventMessage(locale.render("match.restore-pending", player))
                 } }
         }
-        val currentPending = pendingPlayers(current.matchId)?.size ?: -1
+        val currentPending = allPendingPlayers()?.count(current.participants::containsKey) ?: -1
         debug.event(
             "match_restoration",
             "match" to current.matchId,
@@ -2267,7 +2482,7 @@ class ArcEventsService(
             return
         }
         cleanupRetryTask = null
-        if (current.phase == MatchPhase.COMPLETED && !isPracticeMatch(current.matchId)) {
+        if (current.phase == MatchPhase.COMPLETED && current.sessionId == null && !isPracticeMatch(current.matchId)) {
             current.participants.values.forEach { participant ->
                 ArcProductTelemetryBridge.completed(
                     participant.playerId,
@@ -2276,19 +2491,20 @@ class ArcEventsService(
             }
         }
         if (disposablePlayerState(current.matchId)) {
-            current.participants.keys.forEach { clearDisposableArrival(it, current.matchId) }
+            current.participants.keys.forEach { clearDisposableArrival(it, current.recoveryId(it)) }
         }
         debug.event("match_released", "match" to current.matchId, "phase" to current.phase, "recovery" to totalPendingCount())
-        arenaPool.release(current.matchId)
+        arenaPool.release(current.sessionId ?: current.matchId)
         recoveryReadFailures.remove(current.matchId)
         runtime.release()
+        preparingPlayers = null
         matchSettings = null
     }
 
     private fun markRecovered(playerId: UUID, recovery: PlayerRecovery) {
         plugin.server.getPlayer(playerId)?.let { arcade.markRecovered(it, recovery) }
         val current = match ?: return
-        if (current.matchId != recovery.matchId || current.participant(playerId) == null) return
+        if (current.recoveryId(playerId) != recovery.matchId) return
         runtime.markRecoveryApplied(playerId)
     }
 
@@ -2332,7 +2548,7 @@ class ArcEventsService(
     }
 
     private fun onlineRecoveryBlocked(current: TttMatch): Boolean {
-        val pending = pendingPlayers(current.matchId) ?: return true
+        val pending = allPendingPlayers() ?: return true
         val online = current.participants.keys.filterTo(mutableSetOf()) { playerId ->
             plugin.server.getPlayer(playerId)?.isOnline == true
         }
@@ -2671,6 +2887,8 @@ class ArcEventsService(
     private fun recoverPlayer(player: Player, complete: (Result<PlayerRecovery?>) -> Unit) {
         clearWeaponState(player.uniqueId)
         if (escrow.isLocked(player.uniqueId)) return
+        if (match?.sessionId != null && participant(player.uniqueId)?.status?.let { it != ParticipantStatus.RESTORED } == true)
+            arrivalPlayers += player.uniqueId
         val operation = runCatching {
             if (hasPendingRecovery(player.uniqueId)) escrow.recoverAsync(player) { destination -> authorizedTeleport(player, destination) }
             else CompletableFuture.completedFuture(disposableRecovery(player.uniqueId)?.also { resetDisposablePlayer(player) })
@@ -2696,7 +2914,7 @@ class ArcEventsService(
         val tttParticipant = activeTtt?.takeIf { it.phase != MatchPhase.COMPLETED }
             ?.participant(playerId)
             ?.takeIf { it.status != ParticipantStatus.RESTORED }
-            ?.let { PlayerRecovery(activeTtt.matchId, it.originServer) }
+            ?.let { PlayerRecovery(requireNotNull(activeTtt.recoveryId(playerId)), it.originServer) }
         val activeArcade = arcade.current
         val arcadeParticipant = activeArcade
             ?.takeIf { it.phase != MatchPhase.COMPLETED }
@@ -2732,7 +2950,7 @@ class ArcEventsService(
 
     private fun ownsDisposableRecovery(playerId: UUID, recovery: PlayerRecovery): Boolean {
         val tttParticipant = match
-            ?.takeIf { it.matchId == recovery.matchId }
+            ?.takeIf { it.recoveryId(playerId) == recovery.matchId }
             ?.participant(playerId)
         if (tttParticipant != null && tttParticipant.status != ParticipantStatus.RESTORED) return true
 
@@ -2827,7 +3045,7 @@ class ArcEventsService(
     }
 
     private fun phaseRemainingSeconds(current: TttMatch?): Int = when (current?.phase) {
-        MatchPhase.PREPARING, MatchPhase.COUNTDOWN -> runtime.phaseSecondsRemaining()
+        MatchPhase.PREPARING, MatchPhase.COUNTDOWN, MatchPhase.INTERMISSION -> runtime.phaseSecondsRemaining()
         MatchPhase.ACTIVE -> remainingSeconds(current).toInt()
         else -> 0
     }
@@ -2880,13 +3098,15 @@ class ArcEventsService(
                 if (failure != null) plugin.logger.log(Level.SEVERE, "Could not preserve reservation returns for ${pending.matchId}", failure)
             }
         } }
+        detach { refillTimeout?.cancel() }
+        refillTimeout = null
         detach { arenaPool.clear() }
         reservation = null
         matchSettings = null
         arrivals.clear()
         detach { when (match?.phase) {
             MatchPhase.PREPARING, MatchPhase.COUNTDOWN, MatchPhase.ACTIVE -> cancel(MatchEndReason.SHUTDOWN)
-            MatchPhase.RESOLVING, MatchPhase.CANCELLED -> beginRestoration()
+            MatchPhase.RESOLVING, MatchPhase.INTERMISSION, MatchPhase.CANCELLED -> beginRestoration()
             else -> Unit
         } }
         detach { cancelMatchTasks(keepMainTick = false) }
@@ -2909,7 +3129,9 @@ class ArcEventsService(
 
     companion object {
         private val LIVE_PHASES = setOf(MatchPhase.PREPARING, MatchPhase.COUNTDOWN, MatchPhase.ACTIVE)
-        private val EVACUATION_PHASES = LIVE_PHASES + setOf(
+        private val DEPARTED = setOf(ParticipantStatus.DISCONNECTED, ParticipantStatus.RESTORED)
+        private val DISCONNECT_PHASES = LIVE_PHASES + setOf(MatchPhase.RESOLVING, MatchPhase.INTERMISSION)
+        private val EVACUATION_PHASES = DISCONNECT_PHASES + setOf(
             MatchPhase.RESOLVING,
             MatchPhase.CANCELLED,
             MatchPhase.RESTORING,
@@ -2927,6 +3149,7 @@ class ArcEventsService(
             MatchPhase.COUNTDOWN,
             MatchPhase.ACTIVE,
             MatchPhase.RESOLVING,
+            MatchPhase.INTERMISSION,
             MatchPhase.CANCELLED,
             MatchPhase.RESTORING,
         )

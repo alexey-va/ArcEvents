@@ -8,7 +8,7 @@ import kotlin.random.Random
 
 enum class TttRole { INNOCENT, TRAITOR, DETECTIVE }
 enum class TttTeam { INNOCENTS, TRAITORS }
-enum class MatchPhase { RESERVED, PREPARING, COUNTDOWN, ACTIVE, RESOLVING, RESTORING, COMPLETED, CANCELLED }
+enum class MatchPhase { RESERVED, PREPARING, COUNTDOWN, ACTIVE, RESOLVING, INTERMISSION, RESTORING, COMPLETED, CANCELLED }
 enum class ParticipantStatus { RESERVED, ALIVE, DEAD, DISCONNECTED, RESTORED }
 enum class MatchEndReason { ELIMINATION, TIMEOUT, ADMIN, SHUTDOWN, INSUFFICIENT_PLAYERS }
 
@@ -27,6 +27,8 @@ data class TttParticipant(
     val friendlyKills: Int = 0,
     val damageDealt: Double = 0.0,
     val friendlyDamage: Double = 0.0,
+    /** Original reservation that owns this player’s durable recovery and return. */
+    val admissionId: UUID? = null,
 ) {
     fun validated(): TttParticipant = apply {
         NetworkPlayerName.of(playerName)
@@ -47,19 +49,26 @@ data class TttMatch(
     val deadlineMs: Long? = null,
     val winner: TttTeam? = null,
     val endReason: MatchEndReason? = null,
+    /** Public TTT keeps its first arena lease across rounds. Each matchId still identifies one gameplay generation. */
+    val sessionId: UUID? = null,
 ) {
     fun validated(minimumPlayers: Int, maximumPlayers: Int): TttMatch = apply {
         require(revision >= 0)
-        require(participants.size in minimumPlayers..maximumPlayers)
+        val betweenRounds = sessionId != null && phase in setOf(MatchPhase.INTERMISSION, MatchPhase.CANCELLED, MatchPhase.RESTORING, MatchPhase.COMPLETED)
+        require(participants.size in (if (betweenRounds) 0 else minimumPlayers)..maximumPlayers)
         require(participants.keys == participants.values.map(TttParticipant::playerId).toSet())
         participants.values.forEach(TttParticipant::validated)
-        require(participants.values.any { it.role == TttRole.TRAITOR })
-        require(participants.values.any { it.role.team == TttTeam.INNOCENTS })
+        if (!betweenRounds) {
+            require(participants.values.any { it.role == TttRole.TRAITOR })
+            require(participants.values.any { it.role.team == TttTeam.INNOCENTS })
+        }
         if (phase == MatchPhase.ACTIVE) require(activeAtMs != null && deadlineMs != null && winner == null)
         if (phase in setOf(MatchPhase.RESOLVING, MatchPhase.RESTORING, MatchPhase.COMPLETED)) {
             require(winner != null || endReason in setOf(MatchEndReason.ADMIN, MatchEndReason.SHUTDOWN, MatchEndReason.INSUFFICIENT_PLAYERS))
         }
     }
+
+    fun recoveryId(playerId: UUID): UUID? = participant(playerId)?.let { it.admissionId ?: sessionId ?: matchId }
 
     fun alive(): List<TttParticipant> = participants.values.filter { it.status == ParticipantStatus.ALIVE }
     fun participant(playerId: UUID): TttParticipant? = participants[playerId]
@@ -196,14 +205,14 @@ class TttMatchEngine(
     }
 
     fun disconnect(match: TttMatch, playerId: UUID): Pair<TttMatch, MatchOutcome> {
-        require(match.phase in setOf(MatchPhase.PREPARING, MatchPhase.COUNTDOWN, MatchPhase.ACTIVE))
+        require(match.phase in setOf(MatchPhase.PREPARING, MatchPhase.COUNTDOWN, MatchPhase.ACTIVE, MatchPhase.RESOLVING, MatchPhase.INTERMISSION))
         val player = requireNotNull(match.participants[playerId])
-        if (player.status !in setOf(ParticipantStatus.RESERVED, ParticipantStatus.ALIVE)) return match to MatchOutcome.Continue
+        if (player.status in setOf(ParticipantStatus.RESTORED, ParticipantStatus.DISCONNECTED)) return match to MatchOutcome.Continue
         val changed = match.copy(
             revision = match.revision + 1,
-            participants = match.participants + (playerId to player.copy(status = ParticipantStatus.DISCONNECTED, deaths = if (match.phase == MatchPhase.ACTIVE) 1 else 0)),
+            participants = match.participants + (playerId to player.copy(status = ParticipantStatus.DISCONNECTED, deaths = if (match.phase == MatchPhase.ACTIVE) 1 else player.deaths)),
         )
-        if (match.phase != MatchPhase.ACTIVE) return changed to MatchOutcome.Continue
+        if (match.phase != MatchPhase.ACTIVE || player.status != ParticipantStatus.ALIVE) return changed to MatchOutcome.Continue
         val outcome = winner(changed)
         return if (outcome is MatchOutcome.Finished) finish(changed, outcome.winner, outcome.reason) to outcome else changed to outcome
     }
@@ -221,8 +230,9 @@ class TttMatchEngine(
     }
 
     fun restoring(match: TttMatch): TttMatch {
-        require(match.phase in setOf(MatchPhase.RESOLVING, MatchPhase.CANCELLED))
-        return match.copy(revision = match.revision + 1, phase = MatchPhase.RESTORING)
+        require(match.phase in setOf(MatchPhase.RESOLVING, MatchPhase.INTERMISSION, MatchPhase.CANCELLED))
+        return match.copy(revision = match.revision + 1, phase = MatchPhase.RESTORING,
+            endReason = match.endReason ?: MatchEndReason.INSUFFICIENT_PLAYERS)
     }
 
     fun restored(match: TttMatch, playerId: UUID): TttMatch {

@@ -355,6 +355,7 @@ state:
   idle: '<#8c8c8c>idle'
 
 phase:
+  intermission: '<#7fc9ff>warmup'
   idle: '<#8c8c8c>idle'
   reserved: '<#e3b341>roster reserved'
   preparing: '<#e3b341>preparing'
@@ -386,6 +387,7 @@ queue:
   arena-selected: '<prefix> <#7bd88f>Next-round map: <arena><#f2f0e6>.'
 
 match:
+  intermission: '<#9bd48d>Warmup · <players>/<minimum> players. Spar and respawn here until the next round. Leave with /arcevents leave.'
   unavailable: '<prefix> <#ff9f0f>You are not participating in a match.'
   preparing-title: '<#c4abff>Explore the map'
   preparing-subtitle: '<#f2f0e6>Roles hidden <#8fa6b8>— <#d87a82>damage disabled'
@@ -780,7 +782,8 @@ arcade:
   fishing-guide:
   - <#74ded2>Fish → fight → upgrade
   - <#e8dfd2>Cast by the pier. Hold your catch and RMB the ground.
-  - <#e8dfd2>Defeat the catch and sell it to the trader under the canopy.
+  - <#e8dfd2>On the first island the catch flees. On later islands dodge its lunges.
+  - <#e8dfd2>Chase it, strike with LMB, then sell your catch to the trader.
   - ''
   - <#74ded2>Unlock the next island
   - <#e8dfd2>Complete the trader’s task and claim the boss bait.
@@ -874,11 +877,11 @@ fishing:
   creature-hit: "<#7bd88f>Prey health: <health>."
   creature-name: "<#ff9f0f>Dangerous catch"
   boss-name: "<#d6a8ff>Island boss"
-  boss-summoned: <#ff6b61>Boss ashore. <#e8dfd2>LMB to attack; avoid the marked strikes.
-  creature-summoned: <#ffb277>Catch ashore. <#e8dfd2>LMB to attack.
+  boss-summoned: <#ff6b61>Boss ashore. <#e8dfd2>Dodge its lunge, then strike with LMB.
+  creature-summoned: <#ffb277>Catch ashore. <#e8dfd2>Chase it and strike with LMB.
   creature-missing: "<#e3b341>Encounter restored. Keep fighting."
-  boss-warning: "<#d84a4a>Leave the marker: the boss is preparing an attack."
-  braced: "<#e3b341>The boss is stunned — attack now."
+  boss-warning: "<#d84a4a>The boss is turning to strike. Sidestep!"
+  braced: "<#9bd48d>The catch is winded. Move in and strike!"
   boss-defeated: <#9bd48d>Trophy claimed. <#e8dfd2>Hand it to the trader.
   bait-ready: <#86dcf1>Bait ready. <#e8dfd2>Your next catch is the boss.
   bag-full: "<#e3b341>Your bag is full. Feed your catch to the trader or eat some of it."
@@ -917,7 +920,7 @@ fishing:
   reel-now: "<#f4d87a>Bite! Right-click to reel in."
   travel-retry: "<#e3b341>Passage delayed. Walk back to the flag to retry."
   encounter-restored: "<#7bd88f>Encounter restored."
-  telegraph: "<#d84a4a>Incoming attack! Move more than <radius> blocks away from the marker."
+  telegraph: "<#ffb277>The catch has turned towards you. Sidestep!"
   phase:
     casting: "fishing"
     bite: "bite"
@@ -1197,7 +1200,8 @@ dialog:
   rules-fishing-0:
   - <#74ded2>Fish → fight → upgrade
   - <#e8dfd2>Cast by the pier. Hold your catch and RMB the ground.
-  - <#e8dfd2>Defeat the catch and sell it to the trader under the canopy.
+  - <#e8dfd2>On the first island the catch flees. On later islands dodge its lunges.
+  - <#e8dfd2>Chase it, strike with LMB, then sell your catch to the trader.
   - ''
   - <#74ded2>Unlock the next island
   - <#e8dfd2>Complete the trader’s task and claim the boss bait.

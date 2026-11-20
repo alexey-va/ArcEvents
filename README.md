@@ -77,6 +77,14 @@ owns one active match at a time; the solo menu reports a busy host before entry.
 GunGame and Disasters require three
 players by default (configurable under `arcade`), while TTT keeps its own rules.
 
+Public TTT keeps the same arena after a win. Remaining players can spar and
+respawn during the configured post-round interval. At the minimum roster size a
+new round starts with fresh roles, weapons and scores. Below the minimum, the
+queue creator can start TTT to fill the available seats on that arena.
+`/arcevents leave` or the event menu returns a player to their original
+backend and inventory according to the host's player-state policy. The last
+departure releases the public match slot.
+
 Administrators can open a mode card and select the solo test, or run
 `/arcevents admin solo <ttt|gungame|disasters|fishing|zombies|apocalypse>`.
 For the five match modes this reserves one human on the event host without

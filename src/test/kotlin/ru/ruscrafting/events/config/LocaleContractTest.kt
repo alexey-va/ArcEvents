@@ -231,7 +231,9 @@ class LocaleContractTest : StringSpec({
                     }
                 }
                 config.string("fishing.travel-started").contains("<stage>") shouldBe true
-                config.string("fishing.telegraph").contains("<radius>") shouldBe true
+                val warning = visible(config.string("fishing.telegraph"))
+                warning.contains(if (language == "ru") "в сторону" else "sidestep", ignoreCase = true) shouldBe true
+                visible(config.string("fishing.braced")).contains(if (language == "ru") "удар" else "strike", ignoreCase = true) shouldBe true
             }
         } finally {
             root.toFile().deleteRecursively()

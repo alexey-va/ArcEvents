@@ -2,6 +2,7 @@ package ru.ruscrafting.events.paper
 
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.util.TriState
+import org.bukkit.FluidCollisionMode
 import org.bukkit.GameMode
 import org.bukkit.Location
 import org.bukkit.Material
@@ -14,6 +15,7 @@ import org.bukkit.entity.Cod
 import org.bukkit.entity.Drowned
 import org.bukkit.entity.ElderGuardian
 import org.bukkit.entity.Entity
+import org.bukkit.entity.Fish
 import org.bukkit.entity.FishHook
 import org.bukkit.entity.Guardian
 import org.bukkit.entity.Item
@@ -28,7 +30,6 @@ import org.bukkit.entity.Spider
 import org.bukkit.entity.TropicalFish
 import org.bukkit.entity.Villager
 import org.bukkit.event.block.Action
-import org.bukkit.event.entity.EntityDamageByEntityEvent
 import org.bukkit.event.entity.EntityDamageEvent
 import org.bukkit.event.player.PlayerFishEvent
 import org.bukkit.event.player.PlayerInteractEvent
@@ -57,8 +58,6 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CancellationException
 import kotlin.math.ceil
 import kotlin.math.abs
-import kotlin.math.cos
-import kotlin.math.sin
 
 /** Owns the temporary entities and Paper event edge for one personal fishing run. */
 class FishingAdventure(
@@ -77,13 +76,21 @@ class FishingAdventure(
     private val clock: () -> Long = System::currentTimeMillis,
     private val work: EventWork? = null,
 ) {
-    private enum class Pattern { CHARGE, LEAP, POISON_RINGS, DIVE, MULTI_RING }
-    private data class Telegraph(
-        val pattern: Pattern,
-        val points: List<Location>,
-        val impactAtMs: Long,
-        val radius: Double,
-        val damage: Double,
+    private enum class Motion(val travelMs: Long, val windupHeight: Double, val arcHeight: Double) {
+        FLEE(530, 0.10, 0.90),
+        CHARGE(410, 0.38, 0.20),
+        LEAP(540, 0.42, 1.45),
+        DIVE(500, 2.6, 0.0),
+    }
+
+    private data class CatchMove(
+        val motion: Motion,
+        val origin: Location,
+        val landing: Location,
+        val startedAt: Long,
+        val windupMs: Long,
+        val travelMs: Long,
+        var hit: Boolean = false,
     )
     private data class Fuse(val id: UUID, val stage: Int, val detonatesAtMs: Long)
 
@@ -105,11 +112,10 @@ class FishingAdventure(
     private var hookId: UUID? = null
     private var bitingHook: FishHook? = null
     private var submergedSinceMs = 0L
-    private var telegraph: Telegraph? = null
+    private var movement: CatchMove? = null
+    private var moveNumber = 0
     private var combatTask: ScheduledTask? = null
-    private var nextAttackAtMs = 0L
-    private var stunnedUntilMs = 0L
-    private var movementEndsAtMs = 0L
+    private var nextMoveAtMs = 0L
     private var nextHitAcceptedAtMs = 0L
     private var started = false
     private var preparation: CompletableFuture<Unit>? = null
@@ -220,7 +226,7 @@ class FishingAdventure(
         cleanupEntities(stale = false)
         creatures.clear()
         fuses.clear()
-        telegraph = null
+        movement = null
         travelMarker = null
         traderMarker = null
         traderNpc = null
@@ -303,28 +309,46 @@ class FishingAdventure(
         }
     }
 
-    /** Cancels all owned-creature damage, then applies catalog damage and cooldowns only. */
+    /** Encounter health belongs to the match. Native hurt events never award another hit or drop. */
     fun handleDamage(event: EntityDamageEvent): Boolean {
-        val target = event.entity
-        if (!isOwnedEntity(target)) return false
-        val wasCancelled = event.isCancelled
+        if (!isOwnedEntity(event.entity)) return false
         event.isCancelled = true
-        if (closed || wasCancelled) return true
-        val creature = target as? LivingEntity ?: return true
-        if (creatures[creature.uniqueId] !== creature || !isCurrentEntity(creature) ||
-            progress.phase !in setOf(FishingPhase.CREATURE, FishingPhase.BOSS)
-        ) return true
-        val hit = event as? EntityDamageByEntityEvent ?: return true
-        val attacker = hit.damager as? Player ?: return true
-        if (!owns(attacker) || attacker.inventory.heldItemSlot != 1) return true
-        val item = attacker.inventory.getItem(1)
-        if (items.kind(item) != EventItemKind.FISHING_WEAPON || !items.belongsTo(item, matchIdString)) return true
-        val gear = meleeGear(item) ?: return true
+        return true
+    }
+
+    /** A direct Paper attack or a narrowly missed swing with the owner's issued melee weapon. */
+    fun melee(attacker: Player, attacked: Entity? = null): Boolean {
+        if (!belongsTo(attacker) || !attacker.isOnline || attacker.isDead || attacker.gameMode == GameMode.SPECTATOR ||
+            attacker.inventory.heldItemSlot != 1 || progress.phase !in setOf(FishingPhase.CREATURE, FishingPhase.BOSS)
+        ) return false
+        val creature = creatures.values.singleOrNull() ?: return false
+        if (!isCurrentEntity(creature) || attacked != null && attacked.uniqueId != creature.uniqueId) return false
+        val item = attacker.inventory.itemInMainHand
+        if (items.kind(item) != EventItemKind.FISHING_WEAPON || !items.belongsTo(item, matchIdString)) return false
+        val gear = meleeGear(item) ?: return false
         val expectedGear = if (progress.equippedGear.firearmId == null) progress.equippedGear else bestMelee()
-        if (gear != expectedGear || gear !in progress.ownedGear) return true
+        if (gear != expectedGear || gear !in progress.ownedGear) return false
         val now = clock()
         if (now < nextHitAcceptedAtMs) return true
+
+        val eye = attacker.eyeLocation
+        val origin = eye.toVector()
+        val reach = attacker.getAttribute(Attribute.ENTITY_INTERACTION_RANGE)?.value ?: 3.0
+        val box = creature.boundingBox
+        // Paper already identified an exact click. Air/ground swings only get a quarter-block aim margin.
+        val aim = if (attacked != null) origin else
+            box.clone().expand(0.25).rayTrace(origin, eye.direction, reach)?.hitPosition ?: return true
+        val toBody = Vector(aim.x.coerceIn(box.minX, box.maxX), aim.y.coerceIn(box.minY, box.maxY),
+            aim.z.coerceIn(box.minZ, box.maxZ)).subtract(origin)
+        val distance = toBody.length()
+        if (distance > reach || distance > 0.001 &&
+            world.rayTraceBlocks(eye, toBody, distance, FluidCollisionMode.NEVER, true) != null
+        ) return true
+
         nextHitAcceptedAtMs = now + gear.cooldownMillis
+        val contact = box.center.toLocation(world)
+        world.spawnParticle(Particle.CRIT, contact, 6, 0.18, 0.15, 0.18, 0.08)
+        world.playSound(contact, Sound.ENTITY_PLAYER_ATTACK_STRONG, 0.7f, 1.25f)
         damageEncounter(gear.meleeDamage, creature)
         return true
     }
@@ -353,7 +377,11 @@ class FishingAdventure(
     fun handleInteract(event: PlayerInteractEvent): Boolean {
         if (closed || !started || event.player.uniqueId != player.uniqueId || event.player.world.uid != world.uid) return false
         if (transitioning) { event.isCancelled = true; return true }
-        if (event.hand != EquipmentSlot.HAND || event.action !in setOf(Action.RIGHT_CLICK_AIR, Action.RIGHT_CLICK_BLOCK)) return false
+        if (event.hand != EquipmentSlot.HAND) return false
+        if (event.action == Action.LEFT_CLICK_AIR || event.action == Action.LEFT_CLICK_BLOCK) {
+            return melee(event.player).also { if (it) event.isCancelled = true }
+        }
+        if (event.action !in setOf(Action.RIGHT_CLICK_AIR, Action.RIGHT_CLICK_BLOCK)) return false
         if (items.kind(event.item) == EventItemKind.FISHING_LIVE_CATCH) {
             event.isCancelled = true
             if (!owns(player) || progress.phase != FishingPhase.CAUGHT || player.inventory.heldItemSlot != 4 ||
@@ -594,6 +622,8 @@ class FishingAdventure(
             entity.isSilent = true
             entity.isCustomNameVisible = true
             entity.isGlowing = true
+            if (entity is Silverfish) entity.getAttribute(Attribute.SCALE)?.baseValue = 2.75
+            else if (entity is Fish && !catch.boss) entity.getAttribute(Attribute.SCALE)?.baseValue = 1.65
             val speciesName = localized("fishing.species.${catch.species}")
             entity.customName(
                 if (catch.rare) Component.empty().append(localized("fishing.rare-prefix")).append(speciesName)
@@ -617,10 +647,9 @@ class FishingAdventure(
         }
         creatures.clear()
         creatures[entity.uniqueId] = entity
-        telegraph = null
-        nextAttackAtMs = clock() + rules.attackIntervalTicks * 50L
-        stunnedUntilMs = 0L
-        movementEndsAtMs = 0L
+        movement = null
+        moveNumber = 0
+        nextMoveAtMs = clock() + minOf(600L, rules.attackIntervalTicks * 50L)
         nextHitAcceptedAtMs = 0L
         if (announce) {
             if (catch.boss) message("fishing.boss-summoned") else sendActionBar("fishing.creature-summoned")
@@ -631,7 +660,7 @@ class FishingAdventure(
         val current = creatures.values.firstOrNull()
         if (current != null && current.isValid && isCurrentEntity(current)) return
         creatures.clear()
-        telegraph = null
+        movement = null
         val catch = progress.encounter ?: return
         spawnCreature(catch, announce = false)
         // Restoration is automatic. Repeating a notice every tick hid the combat instructions.
@@ -645,113 +674,111 @@ class FishingAdventure(
         ensureCreature()
         val creature = creatures.values.firstOrNull() ?: return
         if (!inStageBounds(creature.location) ||
-            creature.location.y !in (FishingArenaGenerator.WATER_SURFACE_Y - 1.0)..(FishingArenaGenerator.SPAWN_Y + 6.0) ||
-            movementEndsAtMs > 0L && now >= movementEndsAtMs
-        ) settleCreature(creature)
-        if (now < stunnedUntilMs) return
-        val active = telegraph
-        if (active == null && now >= nextAttackAtMs) {
-            telegraph = buildTelegraph(creature, now)
+            creature.location.y !in (FishingArenaGenerator.WATER_SURFACE_Y - 1.0)..(FishingArenaGenerator.SPAWN_Y + 6.0)
+        ) {
+            creature.teleport(encounterLanding ?: point(FishingArenaGenerator.catchLanding(stage())))
+            movement = null
         }
-        val warning = telegraph ?: return
-        drawTelegraph(warning)
-        if (now < warning.impactAtMs) return
-        resolveAttack(warning, creature)
-        telegraph = null
-        val delay = if (warning.pattern == Pattern.CHARGE && progress.phase == FishingPhase.BOSS) 1_400L else rules.attackIntervalTicks * 50L
-        nextAttackAtMs = now + delay
-        if (warning.pattern == Pattern.CHARGE && progress.phase == FishingPhase.BOSS) {
-            stunnedUntilMs = now + 1_200L
-            creature.isGlowing = true
-            sendActionBar("fishing.braced")
+        val move = movement ?: run {
+            if (now < nextMoveAtMs || !playerInCurrentStage() || creature.location.distanceSquared(player.location) > 100.0) return
+            planMove(creature, now).also { movement = it }
         }
-    }
-
-    private fun buildTelegraph(creature: LivingEntity, now: Long): Telegraph {
-        val target = grounded(player.location)
-        val species = progress.encounter?.species.orEmpty()
-        val pattern = when (species) {
-            "spider_crab", "shore_crab" -> Pattern.CHARGE
-            "reef_piranha", "giant_piranha" -> Pattern.LEAP
-            "bowlfish", "pufferfish" -> Pattern.POISON_RINGS
-            "albatross" -> Pattern.DIVE
-            "lava_whale" -> Pattern.MULTI_RING
-            else -> Pattern.CHARGE
+        val elapsed = now - move.startedAt
+        if (elapsed < move.windupMs) {
+            val lift = move.motion.windupHeight * (elapsed.toDouble() / move.windupMs).coerceIn(0.0, 1.0)
+            creature.teleport(move.origin.clone().add(0.0, lift, 0.0))
+            return
         }
-        val lead = player.velocity.clone().setY(0.0).multiply(5.0)
-        val center = grounded(target.clone().add(lead))
-        val points = when (pattern) {
-            Pattern.POISON_RINGS, Pattern.MULTI_RING -> listOf(
-                center,
-                grounded(center.clone().add(2.7, 0.0, 0.0)),
-                grounded(center.clone().add(-2.7, 0.0, 0.0)),
-            )
-            else -> listOf(center)
-        }
-        val radius = when (pattern) {
-            Pattern.POISON_RINGS, Pattern.MULTI_RING -> 1.55
-            Pattern.LEAP, Pattern.DIVE -> 1.85
-            Pattern.CHARGE -> 1.45
-        }
-        val damage = if (progress.phase == FishingPhase.BOSS) 4.0 else 2.0
-        if (pattern == Pattern.DIVE) creature.teleport(creature.location.clone().add(0.0, 4.0, 0.0))
-        sendActionBar("fishing.telegraph", mapOf("radius" to locale.text("%.1f".format(radius))))
-        world.playSound(player.location, Sound.BLOCK_NOTE_BLOCK_HAT, 0.7f, if (progress.phase == FishingPhase.BOSS) 0.7f else 1.4f)
-        return Telegraph(pattern, points, now + rules.telegraphTicks * 50L, radius, damage)
-    }
-
-    private fun drawTelegraph(warning: Telegraph) {
-        val particle = if (progress.phase == FishingPhase.BOSS) Particle.SOUL_FIRE_FLAME else Particle.END_ROD
-        warning.points.forEach { center ->
-            repeat(20) { index ->
-                val angle = index * Math.PI / 10.0
-                world.spawnParticle(particle, center.clone().add(cos(angle) * warning.radius, 0.12, sin(angle) * warning.radius),
-                    1, 0.0, 0.0, 0.0, 0.0)
+        val fraction = ((elapsed - move.windupMs).toDouble() / move.travelMs).coerceIn(0.0, 1.0)
+        val offset = move.landing.toVector().subtract(move.origin.toVector()).multiply(fraction)
+        val lift = move.motion.windupHeight * (1.0 - fraction) + 4.0 * fraction * (1.0 - fraction) * move.motion.arcHeight
+        val before = creature.boundingBox.center
+        if (!creature.teleport(move.origin.clone().add(offset).add(0.0, lift, 0.0))) return
+        if (move.motion != Motion.FLEE && !move.hit && playerInCurrentStage()) {
+            // Sweep the moving body between two server ticks, so damage follows its visible flight.
+            val body = creature.boundingBox
+            val target = player.boundingBox.expand(body.widthX / 2.0, body.height / 2.0, body.widthZ / 2.0)
+            val flight = body.center.subtract(before)
+            if (target.contains(before) || target.contains(body.center) || flight.lengthSquared() > 0.0001 &&
+                target.rayTrace(before, flight, flight.length()) != null) {
+                move.hit = true
+                hurt(player, if (progress.phase == FishingPhase.BOSS) 4.0 else 2.0)
+                if (closed) return
             }
         }
+        if (fraction < 1.0) return
+        movement = null
+        world.playSound(move.landing, Sound.ENTITY_COD_FLOP, 0.8f, if (progress.phase == FishingPhase.BOSS) 0.65f else 1.2f)
+        world.spawnParticle(Particle.SPLASH, move.landing.clone().add(0.0, 0.12, 0.0), 8, 0.26, 0.1, 0.26, 0.03)
+        val rest = if (move.motion == Motion.FLEE) 1_050L - progress.stage * 50L
+            else (rules.attackIntervalTicks * 50L - progress.stage * 150L).coerceIn(950L, 1_650L)
+        nextMoveAtMs = now + rest
+        if (move.motion != Motion.FLEE) sendActionBar("fishing.braced")
     }
 
-    private fun resolveAttack(warning: Telegraph, creature: LivingEntity) {
-        warning.points.forEach { point -> world.spawnParticle(Particle.EXPLOSION, point, 1, 0.0, 0.0, 0.0, 0.0) }
-        world.playSound(player.location, Sound.ENTITY_GENERIC_EXPLODE, 0.55f, 1.15f)
-        if (playerInCurrentStage() && warning.points.any { it.distanceSquared(player.location) <= warning.radius * warning.radius }) {
-            hurt(player, warning.damage)
+    private fun planMove(creature: LivingEntity, now: Long): CatchMove {
+        val origin = creature.location
+        val catch = requireNotNull(progress.encounter)
+        val turn = moveNumber++
+        // The camp teaches pursuit; the reef counters every third move, then the later islands counter more often.
+        val strikes = catch.boss || when (progress.stage) {
+            0 -> false
+            1 -> turn % 3 == 2
+            2 -> turn % 2 == 1
+            else -> turn % 3 != 0
         }
-        val destination = warning.points.first()
-        val direction = destination.toVector().subtract(creature.location.toVector()).setY(0.0)
-        when (warning.pattern) {
-            Pattern.CHARGE -> if (direction.lengthSquared() > 0.01) {
-                moveCreature(creature, direction.normalize().multiply(0.5), 650L, gravity = false)
-            } else settleCreature(creature)
-            Pattern.LEAP -> if (direction.lengthSquared() > 0.01) {
-                moveCreature(creature, direction.normalize().multiply(0.35).setY(0.35), 900L, gravity = true)
-            } else settleCreature(creature)
-            Pattern.DIVE -> {
-                val dive = destination.toVector().subtract(creature.location.toVector())
-                val velocity = if (dive.lengthSquared() > 0.01) dive.normalize().multiply(0.9) else Vector(0.0, -0.9, 0.0)
-                moveCreature(creature, velocity, 1_100L, gravity = true)
+        val motion = when {
+            !strikes -> Motion.FLEE
+            catch.species == "albatross" -> Motion.DIVE
+            catch.species in setOf("reef_piranha", "giant_piranha", "bowlfish", "pufferfish", "lava_whale") -> Motion.LEAP
+            else -> Motion.CHARGE
+        }
+        val towardPlayer = player.location.toVector().subtract(origin.toVector()).setY(0.0)
+        val distance = towardPlayer.length()
+        val heading = if (distance > 0.001) towardPlayer.multiply(1.0 / distance) else Vector(1.0, 0.0, 0.0)
+        val landing = if (motion == Motion.FLEE) {
+            // Angle the escape so the angler has to turn. Try another dry lane at the water's edge.
+            val side = if (turn % 2 == 0) 1.0 else -1.0
+            val away = heading.clone().multiply(-1.0)
+            var furthest = origin
+            for (angle in listOf(side * 0.55, -side * 0.9, side * 1.6, -side * 2.2, Math.PI)) {
+                val point = dryLanding(creature, origin, away.clone().rotateAroundY(angle), 2.6 + progress.stage * 0.20, motion)
+                if (point.distanceSquared(origin) > furthest.distanceSquared(origin)) furthest = point
+                if (furthest.distanceSquared(origin) >= 2.25) break
             }
-            Pattern.POISON_RINGS, Pattern.MULTI_RING -> Unit
+            furthest
+        } else {
+            dryLanding(creature, origin, heading, minOf(distance, (if (catch.boss) 5.0 else 3.7) + progress.stage * 0.4), motion)
         }
+        val direction = landing.toVector().subtract(origin.toVector())
+        if (direction.lengthSquared() > 0.001) origin.direction = direction
+        val windup = if (motion == Motion.FLEE) 130L else
+            (rules.telegraphTicks * 50L - progress.stage * 120L).coerceAtLeast(300L)
+        if (strikes) {
+            sendActionBar("fishing.telegraph")
+            world.playSound(origin, Sound.ENTITY_FISHING_BOBBER_SPLASH, 0.75f, if (catch.boss) 0.7f else 1.4f)
+        }
+        return CatchMove(motion, origin, landing, now, windup, motion.travelMs - progress.stage * 24L)
     }
 
-    private fun moveCreature(creature: LivingEntity, velocity: Vector, durationMs: Long, gravity: Boolean) {
-        creature.setGravity(gravity)
-        creature.velocity = velocity
-        movementEndsAtMs = clock() + durationMs
-    }
-
-    /** Landing is bounded to the player's nearby stage floor so leap/dive bosses remain hittable. */
-    private fun settleCreature(creature: LivingEntity) {
-        val nearPlayer = grounded(player.location)
-        val offset = creature.location.toVector().subtract(nearPlayer.toVector()).setY(0.0)
-        if (offset.lengthSquared() > 6.25) offset.normalize().multiply(2.5)
-        var landing = grounded(nearPlayer.clone().add(offset))
-        if (landing.distanceSquared(player.location) > 16.0) landing = grounded(player.location)
-        creature.velocity = Vector()
-        creature.setGravity(false)
-        creature.teleport(landing)
-        movementEndsAtMs = 0L
+    private fun dryLanding(creature: LivingEntity, origin: Location, heading: Vector, distance: Double, motion: Motion): Location {
+        val anchor = encounterLanding ?: point(FishingArenaGenerator.catchLanding(stage()))
+        val leashSquared = maxOf(36.0, origin.distanceSquared(anchor))
+        val steps = ceil(distance / 0.4).toInt()
+        val clearance = ceil(creature.height + maxOf(motion.windupHeight, motion.arcHeight)).toInt()
+        var landing = origin
+        for (step in 1..steps) {
+            val next = origin.clone().add(heading.clone().multiply(distance * step / steps))
+            val feet = next.block
+            if (!inStageBounds(next) || motion == Motion.FLEE && next.distanceSquared(anchor) > leashSquared ||
+                !feet.getRelative(BlockFace.DOWN).type.isSolid || (0 until clearance).any { height ->
+                    val block = feet.getRelative(0, height, 0)
+                    !block.isPassable || block.isLiquid
+                }
+            ) break
+            landing = next
+        }
+        return landing
     }
 
     private fun resolveFuses(now: Long) {
@@ -795,13 +822,13 @@ class FishingAdventure(
         if (next === progress) return
         val previousPhase = progress.phase
         progress = next
-        syncLoadout()
         if (progress.phase == FishingPhase.CASTING || progress.phase == FishingPhase.TROPHY ||
             progress.phase == FishingPhase.TRAVEL || progress.phase == FishingPhase.COMPLETE
         ) {
             creatures.remove(target.uniqueId)
             target.remove()
-            telegraph = null
+            syncLoadout()
+            movement = null
             nextHitAcceptedAtMs = 0L
             if (progress.phase == FishingPhase.TROPHY) {
                 message("fishing.boss-defeated")
@@ -811,13 +838,16 @@ class FishingAdventure(
             }
             if (progress.phase == FishingPhase.COMPLETE) signalCompletion()
         } else {
+            if (progress.stage == 0 && progress.phase == FishingPhase.CREATURE && movement == null) {
+                nextMoveAtMs = minOf(nextMoveAtMs, clock() + 220L)
+            }
             val visibleMax = target.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20.0
             target.health = progress.creatureHealth.coerceIn(1.0, visibleMax)
             sendActionBar("fishing.creature-hit", mapOf("health" to locale.text("%.1f".format(progress.creatureHealth))))
         }
         if (previousPhase == FishingPhase.BOSS && progress.phase == FishingPhase.TROPHY) {
-            telegraph = null
-            nextAttackAtMs = 0L
+            movement = null
+            nextMoveAtMs = 0L
         }
     }
 
@@ -848,10 +878,8 @@ class FishingAdventure(
                     creatures.clear()
                     fuses.clear()
                     traderNpc = null
-                    telegraph = null
-                    nextAttackAtMs = 0L
-                    stunnedUntilMs = 0L
-                    movementEndsAtMs = 0L
+                    movement = null
+                    nextMoveAtMs = 0L
                     nextHitAcceptedAtMs = 0L
                     progress = next
                     transitioning = false
@@ -1029,13 +1057,6 @@ class FishingAdventure(
         ) return false
         return location.block.type == Material.WATER || location.block.getRelative(0, -1, 0).type == Material.WATER
     }
-
-    private fun grounded(location: Location): Location = Location(
-        world,
-        location.x.coerceIn(stage().centerX - 14.0, stage().centerX + 14.0),
-        FishingArenaGenerator.SPAWN_Y.toDouble(),
-        location.z.coerceIn(-5.0, 12.0),
-    )
 
     private fun near(point: FishingArenaPoint, radius: Double): Boolean =
         player.location.distanceSquared(point(point)) <= radius * radius

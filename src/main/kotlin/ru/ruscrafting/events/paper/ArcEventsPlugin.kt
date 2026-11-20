@@ -260,6 +260,7 @@ open class ArcEventsPlugin : JavaPlugin() {
                 onArrivalAsync = { activeService.onArrivalAsync(it) },
                 recoveryPending = { activeService.escrowPending(it) || apocalypse?.isPlaying(it) == true || apocalypse?.isBusy(it) == true },
                 activeMatchParticipant = { activeService.ownsActiveRoute(it) },
+                tttRefill = { activeService.tttRefill() },
                 initialFirearmSoundPreset = firearmSoundPreset,
             )
             network = coordinator

@@ -59,6 +59,9 @@ data class QueueControlSnapshot(
     fun ownedBy(playerId: UUID): Boolean = ownerId == playerId
 }
 
+/** Remaining FIFO capacity on an already leased public TTT arena. Read on the Paper thread. */
+data class TttRefill(val sessionId: UUID, val arenaId: String, val seats: IntRange)
+
 class EventNetworkCoordinator(
     private val plugin: Plugin,
     private val settings: () -> ArcEventsConfig,
@@ -79,6 +82,7 @@ class EventNetworkCoordinator(
     private val clock: () -> Long = System::currentTimeMillis,
     private val onArrivalAsync: ((QueueEntry) -> CompletableFuture<Boolean>)? = null,
     initialFirearmSoundPreset: FirearmSoundPreset? = null,
+    private val tttRefill: () -> TttRefill? = { null },
 ) : AutoCloseable {
     @Volatile
     var queueSize: Int = 0
@@ -539,14 +543,19 @@ class EventNetworkCoordinator(
             return CompletableFuture.completedFuture(ReservationStartResult.NETWORK_FAILURE)
         }
         if (practicePlayerName != null && !bypassOwner) return CompletableFuture.completedFuture(ReservationStartResult.NOT_OWNER)
+        if (practicePlayerName != null && matchState().first != null) return CompletableFuture.completedFuture(ReservationStartResult.BUSY)
         val requesterBound = mode == EventMode.FISHING || requesterOnly || practicePlayerName != null
         if (requesterBound && (requesterId == null || requesterOrigin == null)) {
             return CompletableFuture.completedFuture(ReservationStartResult.NOT_OWNER)
         }
         startUnavailable(mode)?.let { return CompletableFuture.completedFuture(it) }
+        val phase = matchState().second
+        val refill = if (phase == MatchPhase.INTERMISSION && mode == EventMode.TTT && practicePlayerName == null)
+            tttRefill() ?: return CompletableFuture.completedFuture(ReservationStartResult.BUSY)
+        else null
         val effectivePreferredArena = if (mode.usesSharedArenas) preferredArenaId?.lowercase() else mode.primaryArenaId
         val explicitArena = effectivePreferredArena?.takeUnless { it == "auto" }
-        if (explicitArena != null && explicitArena !in selectableArenaIds(mode)) {
+        if (explicitArena != null && (explicitArena !in selectableArenaIds(mode) || refill != null && explicitArena != refill.arenaId)) {
             return CompletableFuture.completedFuture(ReservationStartResult.ARENA_UNAVAILABLE)
         }
         if (!startInFlight.compareAndSet(false, true)) return CompletableFuture.completedFuture(ReservationStartResult.BUSY)
@@ -579,10 +588,12 @@ class EventNetworkCoordinator(
                     CompletableFuture.completedFuture(ReservationStartResult.NETWORK_FAILURE)
                 } else if (owner == null || owner.playerId != requiredOwnerId.toString() || owner.originServer != requiredOwnerOrigin) {
                     CompletableFuture.completedFuture(ReservationStartResult.NOT_OWNER)
-                } else reserveOnHostInternal(requiredOwnerId, requiredOwnerOrigin, requesterId, effectivePreferredArena, mode)
+                } else reserveOnHostInternal(requiredOwnerId, requiredOwnerOrigin, requesterId, effectivePreferredArena, mode,
+                    refill = refill)
             }.whenComplete { _, _ -> if (eventChannel === generation) startInFlight.set(false) }
         }
-        return reserveOnHostInternal(null, null, requesterId, effectivePreferredArena, mode)
+        return reserveOnHostInternal(null, null, requesterId, effectivePreferredArena, mode,
+            refill = refill)
     }
 
     private fun reserveOnHostInternal(
@@ -593,6 +604,7 @@ class EventNetworkCoordinator(
         mode: EventMode = EventMode.TTT,
         requesterOnly: Boolean = false,
         practicePlayerName: String? = null,
+        refill: TttRefill? = null,
     ): CompletableFuture<ReservationStartResult> {
         val current = settings()
         val generation = eventChannel
@@ -617,8 +629,8 @@ class EventNetworkCoordinator(
             } else repository.reserve(
                 matchId,
                 current.serverId,
-                if (mode == EventMode.TTT) current.ttt.minimumPlayers else current.arcade.rules(mode).minimumPlayers,
-                if (mode == EventMode.TTT) current.ttt.maximumPlayers else current.arcade.rules(mode).maximumPlayers,
+                refill?.seats?.first ?: if (mode == EventMode.TTT) current.ttt.minimumPlayers else current.arcade.rules(mode).minimumPlayers,
+                refill?.seats?.last ?: if (mode == EventMode.TTT) current.ttt.maximumPlayers else current.arcade.rules(mode).maximumPlayers,
                 clock(),
                 current.network.reservationSeconds * 1_000L,
                 requiredOwnerId = requiredOwnerId,
@@ -648,7 +660,8 @@ class EventNetworkCoordinator(
                         else ReservationStartResult.INSUFFICIENT_PLAYERS)
                     return@runSync
                 }
-                val ownedBatch = batch.copy(requesterId = requesterId, preferredArenaId = preferredArenaId, mode = mode)
+                val ownedBatch = batch.copy(requesterId = requesterId, preferredArenaId = preferredArenaId, mode = mode,
+                    continuingSessionId = refill?.sessionId)
                 if (!onReservation(ownedBatch)) {
                     releaseReservation(batch)
                     result.complete(ReservationStartResult.BUSY)
@@ -847,13 +860,15 @@ class EventNetworkCoordinator(
     fun startUnavailable(mode: EventMode): ReservationStartResult? {
         val current = settings()
         if (current.nodeMode == NodeMode.HOST) {
-            if (matchState().first != null) return ReservationStartResult.BUSY
+            val (matchId, phase) = matchState()
+            if (matchId != null) return if (mode == EventMode.TTT && phase == MatchPhase.INTERMISSION && tttRefill() != null) null
+            else ReservationStartResult.BUSY
             return if (arenaReady() && selectableArenaIds(mode).isNotEmpty()) null else ReservationStartResult.ARENA_UNAVAILABLE
         }
         val node = nodes.firstOrNull { it.serverId == current.hostServer && it.mode == NodeMode.HOST.name &&
             clock() - it.heartbeatAtMs in -FUTURE_SKEW_MS..current.network.heartbeatStaleSeconds * 1_000L &&
             it.supports(mode) } ?: return ReservationStartResult.ARENA_UNAVAILABLE
-        if (node.matchId != null) return ReservationStartResult.BUSY
+        if (node.matchId != null) return if (mode == EventMode.TTT && node.phase == MatchPhase.INTERMISSION) null else ReservationStartResult.BUSY
         return if (node.available && node.arenaIds.any(mode::acceptsArena)) null else ReservationStartResult.ARENA_UNAVAILABLE
     }
 
@@ -1281,7 +1296,7 @@ class EventNetworkCoordinator(
                 mode = current.nodeMode.name,
                 available = current.nodeMode == NodeMode.HOST && arenaReady && matchId == null,
                 arenaReady = arenaReady,
-                phase = phase,
+                phase = if (phase == MatchPhase.INTERMISSION && tttRefill() == null) MatchPhase.RESOLVING else phase,
                 matchId = matchId?.toString(),
                 queueSize = queueSize,
                 capacity = if (current.nodeMode == NodeMode.HOST) maxOf(

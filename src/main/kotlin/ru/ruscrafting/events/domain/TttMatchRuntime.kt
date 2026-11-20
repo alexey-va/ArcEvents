@@ -49,6 +49,49 @@ class TttMatchRuntime(
         return requireNotNull(current)
     }
 
+    /** A fresh gameplay identity fences pending hit, loot and inventory callbacks from the finished round. */
+    fun beginIntermission(id: UUID, retained: Set<UUID>, seconds: Int): TttMatch {
+        val previous = requireCurrent()
+        check(previous.sessionId != null && previous.phase in setOf(MatchPhase.RESOLVING, MatchPhase.PREPARING, MatchPhase.COUNTDOWN))
+        require(id != previous.matchId)
+        val ready = previous.participants.filterKeys(retained::contains).mapValues { (_, p) ->
+            check(p.status !in setOf(ParticipantStatus.DISCONNECTED, ParticipantStatus.RESTORED))
+            TttParticipant(p.playerId, p.playerName, p.originServer, TttRole.INNOCENT, ParticipantStatus.ALIVE, 0, admissionId = p.admissionId)
+        }
+        current = previous.copy(matchId = id, revision = 0, phase = MatchPhase.INTERMISSION, participants = ready,
+            activeAtMs = null, deadlineMs = null, winner = null, endReason = null)
+        recentAttacks.clear()
+        combatLog.clear()
+        combatSequence = 0
+        phaseCountdown.start(MatchPhase.INTERMISSION, seconds)
+        return requireNotNull(current)
+    }
+
+    fun joinIntermission(admissionId: UUID, players: List<QueuedPlayer>): TttMatch {
+        val waiting = requireCurrent()
+        check(waiting.phase == MatchPhase.INTERMISSION)
+        val retained = waiting.alive().associateBy(TttParticipant::playerId)
+        require(players.none { it.playerId in retained })
+        val additions = players.associate { p -> p.playerId to TttParticipant(
+            p.playerId, p.playerName, p.originServer, TttRole.INNOCENT, ParticipantStatus.ALIVE, 0, admissionId = admissionId,
+        ) }
+        current = waiting.copy(revision = waiting.revision + 1, participants = retained + additions)
+        return requireNotNull(current)
+    }
+
+    fun prepareNextRound(id: UUID, allocation: RoleAllocationSettings): TttMatch {
+        val waiting = requireCurrent()
+        check(waiting.phase == MatchPhase.INTERMISSION && waiting.sessionId != null && waiting.matchId != id)
+        val now = clock()
+        val roster = waiting.alive().map { QueuedPlayer(it.playerId, it.playerName, it.originServer, now) }
+        val created = create(id, roster, allocation, id.mostSignificantBits xor id.leastSignificantBits, now)
+        current = engine().prepare(created.copy(sessionId = waiting.sessionId, participants = created.participants.mapValues { (id, p) ->
+            p.copy(admissionId = waiting.participants.getValue(id).admissionId)
+        }))
+        phaseCountdown.clear()
+        return requireNotNull(current)
+    }
+
     fun beginCountdown(seconds: Int): TttMatch {
         current = engine().countdown(requireCurrent())
         phaseCountdown.start(MatchPhase.COUNTDOWN, seconds)
@@ -135,6 +178,10 @@ class TttMatchRuntime(
         val participant = requireNotNull(match.participant(playerId))
         if (participant.status == ParticipantStatus.RESTORED) return match
         if (match.phase == MatchPhase.RESTORING) return markRestored(playerId)
+        if (match.phase == MatchPhase.INTERMISSION) {
+            current = match.copy(revision = match.revision + 1, participants = match.participants - playerId)
+            return requireNotNull(current)
+        }
         val changed = match.copy(
             revision = match.revision + 1,
             participants = match.participants + (playerId to participant.copy(status = ParticipantStatus.RESTORED)),

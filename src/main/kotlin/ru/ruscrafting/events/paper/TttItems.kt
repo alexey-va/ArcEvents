@@ -73,8 +73,8 @@ class TttItems(
             )
         }
 
-    fun givePreparationLoadout(player: Player, matchId: String) {
-        clearForEvent(player)
+    fun givePreparationLoadout(player: Player, matchId: String, forceClear: Boolean = false) {
+        clearForEvent(player, forceClear)
         player.inventory.setItem(0, simple(Material.IRON_SWORD, locale.render("loadout.blade", player)))
         val rations = settings().gameplay.preparationRations
         if (rations > 0) player.inventory.setItem(1, simple(Material.COOKED_BEEF, locale.render("loadout.rations", player), rations))

@@ -22,6 +22,7 @@ import ru.arc.paper.testing.failOnUnsupportedMockBukkitOperation
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.domain.EventMode
+import ru.ruscrafting.events.domain.MatchPhase
 import ru.ruscrafting.events.domain.FirearmSoundPreset
 import ru.ruscrafting.events.network.EventNetworkMessage
 import ru.ruscrafting.events.network.EventNetworkSignal
@@ -640,6 +641,27 @@ class EventNetworkCoordinatorMockBukkitTest : FunSpec({
         }
     }
 
+    test("TTT intermission fills only free seats from the authorized FIFO and keeps a separate return batch") {
+        failOnUnsupportedMockBukkitOperation {
+            val session = UUID.randomUUID()
+            EventNetworkCoordinatorFixture(matchState = { session to MatchPhase.INTERMISSION }, tttRefill = { TttRefill(session, "test", 1..2) }).use { f ->
+                f.start()
+                f.queueFourPlayers()
+                f.advanceTime(100)
+                f.coordinator.startUnavailable(EventMode.TTT) shouldBe null
+                f.coordinator.startUnavailable(EventMode.GUN_GAME) shouldBe ReservationStartResult.BUSY
+                val outsider = f.addPlayer("NotTheOwner")
+                f.await(f.coordinator.reserveNow(outsider, mode = EventMode.TTT)) shouldBe ReservationStartResult.NOT_OWNER
+                f.await(f.coordinator.reserveNow(mode = EventMode.TTT)) shouldBe ReservationStartResult.STARTED
+                val batch = f.reservations.single()
+                batch.continuingSessionId shouldBe session
+                (batch.matchId == session) shouldBe false
+                batch.entries.map { it.playerName } shouldBe listOf("Player1", "Player2")
+                f.queueEntry(UUID.nameUUIDFromBytes("coordinator-3".toByteArray()))?.state shouldBe QueueState.QUEUED
+            }
+        }
+    }
+
     test("host heartbeat and every mode reservation use their own player limits") {
         failOnUnsupportedMockBukkitOperation {
             EventNetworkCoordinatorFixture().use { fixture ->
@@ -892,6 +914,8 @@ private class EventNetworkCoordinatorFixture(
     private val disposable: Boolean = false,
     private val onArrival: (QueueEntry) -> Boolean = { true },
     private val activeMatchParticipant: (QueueEntry) -> Boolean = { false },
+    private val matchState: () -> Pair<UUID?, MatchPhase?> = { null to null },
+    private val tttRefill: () -> TttRefill? = { null },
     repositoryRedis: (InMemoryRedis) -> RedisOperations = { it },
 ) : AutoCloseable {
     private val paper = MockBukkitTestRuntime.open()
@@ -926,7 +950,8 @@ private class EventNetworkCoordinatorFixture(
             redis = mockk<PaperRedisClient>(relaxed = true),
             transfer = transfer,
             debug = ArcEventsDebug({ true }) {},
-            matchState = { null to null },
+            matchState = matchState,
+            tttRefill = tttRefill,
             arenaReady = { true },
             readyArenaIds = { combatArenas + listOf("fishing", "zombies", "disasters") },
             onReservation = { batch -> reservations += batch; true },

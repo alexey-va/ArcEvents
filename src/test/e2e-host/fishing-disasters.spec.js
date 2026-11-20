@@ -24,7 +24,7 @@ const tagged = (item, kind, match) => {
   return data.includes(kind) && data.includes(match);
 };
 
-test('Fishing enters through the public menu, lands a native bite, releases the catch, and restores the original player', async ({ player, createPlayer }) => {
+test('Fishing enters through the public menu, lands a bite, pursues its fleeing catch with melee, and restores the original player', async ({ player, createPlayer }) => {
   await ready('fishing');
   const admin = await createPlayer();
   await admin.makeOp();
@@ -74,10 +74,43 @@ test('Fishing enters through the public menu, lands a native bite, releases the 
     assert.equal(floor?.name, 'oak_planks', 'The dry landing block did not arrive');
     const releaseSince = player.getMessageBufferIndex();
     await bot.activateBlock(floor, new Vec3(0, 1, 0), new Vec3(0.5, 1, 0.5));
-    await expect(player).toHaveReceivedMessage(/Catch ashore\. LMB to attack\./, { since: releaseSince });
-    await until(() => !bot.inventory.slots[40] && bot.nearestEntity((entity) =>
+    await expect(player).toHaveReceivedMessage(/Catch ashore\..*strike with LMB/, { since: releaseSince });
+    const catchEntity = await until(() => !bot.inventory.slots[40] && bot.nearestEntity((entity) =>
       ['silverfish', 'spider', 'salmon'].includes(entity.name) && entity.position.distanceTo(landing) < 1),
     'Releasing the caught item did not replace it with a native encounter on the dock');
+    await until(() => bot.quickBarSlot === 1 && tagged(bot.heldItem, 'FISHING_WEAPON', match),
+      'Releasing the catch did not select the expedition knuckles');
+    assert.equal(catchEntity.name, 'silverfish', 'The first landed camp catch was not the clam');
+    const attributeSince = admin.getMessageBufferIndex();
+    admin.chat(`/execute in minecraft:arcevents_fishing_archipelago_v2 run attribute ${catchEntity.uuid} minecraft:scale base get`);
+    await expect(admin).toHaveReceivedMessage(/scale.*2\.75/i, { since: attributeSince, timeout: 5000 });
+    // This Mineflayer decoder misnames several 1.21.11 attribute IDs. Match the independently verified native value on this entity.
+    const [decodedKey] = await until(() => Object.entries(catchEntity.attributes ?? {}).find(([, property]) => property.value === 2.75),
+      'The client did not receive the verified 2.75 attribute on the camp clam');
+    console.info(`[Fishing] Clam ${catchEntity.id} minecraft:scale=2.75, client attribute key=${decodedKey}`);
+    const startingHealth = bot.health;
+    await until(() => bot.entities[catchEntity.id]?.position.distanceTo(landing) > 1,
+      'The first island catch never fled from the angler');
+    let lastStrike = 0;
+    try {
+      await until(async () => {
+        if (tagged(bot.inventory.slots[40], 'FISHING_CATCH_BAG', match)) return true;
+        const target = bot.entities[catchEntity.id];
+        if (!target) return false;
+        const distance = target.position.distanceTo(bot.entity.position);
+        await bot.lookAt(target.position.offset(0, 0.42, 0), true);
+        bot.setControlState('forward', distance > 2.0);
+        if (distance <= 2.7 && Date.now() - lastStrike >= 800) {
+          bot.attack(target);
+          lastStrike = Date.now();
+        }
+        return false;
+      }, 'Pursuing the catch and striking it did not award the match-bound bag', 18000);
+    } finally {
+      bot.setControlState('forward', false);
+    }
+    await until(() => !bot.entities[catchEntity.id], 'The defeated catch remained in the world');
+    assert.ok(bot.health >= startingHealth, 'A fleeing camp catch hurt its pursuer');
 
     const since = observed.screens.length;
     player.chat(mainMenu);
