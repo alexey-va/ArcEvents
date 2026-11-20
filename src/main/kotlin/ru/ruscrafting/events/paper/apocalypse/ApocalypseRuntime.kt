@@ -341,6 +341,7 @@ class ApocalypseRuntime(
             }
             return true
         }
+        if (player.hasPermission("arcevents.admin")) return false
         message(player, "leave-first")
         return true
     }
@@ -1426,8 +1427,7 @@ class ApocalypseRuntime(
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onCommand(event: PlayerCommandPreprocessEvent) {
         if (!isPlaying(event.player.uniqueId) && !isBusy(event.player.uniqueId)) return
-        if (!isBusy(event.player.uniqueId) && isApocalypseSelfFlightCommand(
-                event.player.hasPermission("arcevents.admin"), event.message)) return
+        if (!isBusy(event.player.uniqueId) && event.player.hasPermission("arcevents.admin")) return
         val root = event.message.removePrefix("/").substringBefore(' ').substringAfter(':').lowercase()
         if (root !in setOf("arcevents", "ae", "msg", "tell", "r", "reply", "help", "rules", "report")) {
             event.isCancelled = true; message(event.player, "leave-first")

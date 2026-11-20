@@ -7,6 +7,7 @@ import io.mockk.mockk
 import io.mockk.mockkObject
 import net.kyori.adventure.text.Component
 import org.bukkit.Material
+import org.bukkit.event.player.PlayerCommandPreprocessEvent
 import org.bukkit.NamespacedKey
 import org.bukkit.inventory.ItemStack
 import org.bukkit.persistence.PersistentDataType
@@ -29,6 +30,60 @@ import java.util.UUID
 import java.util.concurrent.CompletableFuture
 
 class ApocalypseColdStartTest : FunSpec({
+    test("active administrators retain all native commands and staff routing while recovery stays locked") {
+        MockBukkitTestRuntime.open().use { paper ->
+            val plugin = paper.createSimplePlugin("ExpeditionCommands")
+            paper.addSimpleWorld("world")
+            PaperArcRuntime.installScheduling(plugin)
+            val work = ColdStartWork()
+            try {
+                val admin = paper.addPlayer("Administrator")
+                admin.addAttachment(plugin, "arcevents.admin", true)
+                val ordinary = paper.addPlayer("Survivor")
+                val settings = coldSettings(NodeMode.RELAY)
+                ApocalypseRuntime(plugin, { settings }, coldLocale(), mockk(), work, InMemoryRedis(), mockk(),
+                    occupied = { false }, queued = { CompletableFuture.completedFuture(null) },
+                    returnToOrigin = { _, _ -> false }, chunkTickets = mockk()).use { runtime ->
+                    @Suppress("UNCHECKED_CAST")
+                    val active = ApocalypseRuntime::class.java.getDeclaredField("active").let {
+                        it.isAccessible = true
+                        it.get(runtime) as MutableSet<UUID>
+                    }
+                    @Suppress("UNCHECKED_CAST")
+                    val busy = ApocalypseRuntime::class.java.getDeclaredField("busy").let {
+                        it.isAccessible = true
+                        it.get(runtime) as MutableSet<UUID>
+                    }
+                    active += listOf(admin.uniqueId, ordinary.uniqueId)
+                    val commands = listOf("/heal", "/cmi:heal", "/cmi heal", "/cmi:cmi heal", "/feed",
+                        "/god", "/gamemode creative", "/minecraft:give Administrator stone", "/fly Survivor")
+                    commands.forEach { command ->
+                        val allowed = PlayerCommandPreprocessEvent(admin, command)
+                        runtime.onCommand(allowed)
+                        allowed.isCancelled shouldBe false
+                        val blocked = PlayerCommandPreprocessEvent(ordinary, command)
+                        runtime.onCommand(blocked)
+                        blocked.isCancelled shouldBe true
+                    }
+                    listOf("admin", "reload", "debug").forEach { command ->
+                        runtime.command(admin, listOf(command)) shouldBe false
+                        runtime.command(ordinary, listOf(command)) shouldBe true
+                    }
+                    listOf("/arcevents status", "/msg Administrator hello").forEach { command ->
+                        val allowed = PlayerCommandPreprocessEvent(ordinary, command)
+                        runtime.onCommand(allowed)
+                        allowed.isCancelled shouldBe false
+                    }
+                    busy += admin.uniqueId
+                    val pending = PlayerCommandPreprocessEvent(admin, "/heal")
+                    runtime.onCommand(pending)
+                    pending.isCancelled shouldBe true
+                    runtime.command(admin, listOf("reload")) shouldBe true
+                }
+            } finally { work.close(); Tasks.reset() }
+        }
+    }
+
     test("a cold host protects only expedition inventories and permits an exact origin return before the source exists") {
         MockBukkitTestRuntime.open().use { paper ->
             val plugin = paper.createSimplePlugin("ColdExpedition")
