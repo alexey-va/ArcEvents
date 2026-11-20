@@ -5,7 +5,11 @@ import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.JoinConfiguration
 import net.kyori.adventure.text.event.ClickEvent
 import net.kyori.adventure.text.format.TextDecoration
+import org.bukkit.Material
+import org.bukkit.NamespacedKey
 import org.bukkit.entity.Player
+import org.bukkit.inventory.ItemStack
+import org.bukkit.persistence.PersistentDataType
 import org.bukkit.plugin.Plugin
 import ru.arc.paper.menu.DialogTables
 import ru.arc.paper.menu.PaperDialogActionId
@@ -71,21 +75,6 @@ internal data class ApocalypseGuideSnapshot(
     }
 }
 
-/** A relative turn for the HUD. Minecraft yaw 0 faces south; positive yaw turns right. */
-internal fun guideArrow(from: ApocalypsePoint, to: ApocalypsePoint, yaw: Float): String {
-    val dx = to.x.toDouble() - from.x
-    val dz = to.z.toDouble() - from.z
-    if (hypot(dx, dz) <= 2.0) return ""
-    val heading = Math.toDegrees(atan2(-dx, dz))
-    val turn = Math.IEEEremainder(heading - yaw, 360.0)
-    return when {
-        kotlin.math.abs(turn) > 155.0 -> "↓ "
-        turn < -18.0 -> "← "
-        turn > 18.0 -> "→ "
-        else -> "↑ "
-    }
-}
-
 /** A read-only field guide. Tracking and leaving remain owned by the active expedition. */
 internal class ApocalypseGuide(
     plugin: Plugin,
@@ -99,24 +88,23 @@ internal class ApocalypseGuide(
     private val dialogs: PaperDialogRuntime = PaperDialogRuntime(plugin),
 ) : AutoCloseable {
     private val protocols = ClientProtocolResolver()
+    private val itemKey = NamespacedKey(plugin, "apocalypse_guide")
+
+    fun item(player: Player): ItemStack = ItemStack.of(Material.BOOK).also { book ->
+        book.editMeta { meta ->
+            meta.displayName(text(player, "item-name"))
+            meta.lore(locale.lore("apocalypse.guide.item-lore", player).map { it.decoration(TextDecoration.ITALIC, false) })
+            meta.persistentDataContainer.set(itemKey, PersistentDataType.BYTE, 1)
+        }
+    }
+
+    fun isItem(item: ItemStack?): Boolean = item?.type == Material.BOOK &&
+        item.itemMeta.persistentDataContainer.get(itemKey, PersistentDataType.BYTE) == 1.toByte()
 
     fun entryNotice(player: Player, inStarter: Boolean) {
         val link = text(player, "open").clickEvent(ClickEvent.runCommand(GUIDE_COMMAND))
         val controls = Component.empty().append(link).append(text(player, "exit-command"))
         player.sendMessage(lines(text(player, if (inStarter) "starter-arrival" else "continuing"), controls))
-    }
-
-    fun trackingHud(player: Player, snapshot: ApocalypseGuideSnapshot): Component? {
-        val target = snapshot.tracked ?: return null
-        val location = player.location
-        val from = ApocalypsePoint(location.blockX, location.blockY, location.blockZ)
-        val route = snapshot.route(target, from) ?: return null
-        val healthy = snapshot.infection == ApocalypseInfectionStage.HEALTHY
-        return text(player, if (healthy) "steering-hud" else "steering-hud-infected",
-            "day" to locale.text(snapshot.day), "target" to text(player, "short.${target.name.lowercase()}"),
-            "arrow" to locale.text(guideArrow(from, route.point, location.yaw)),
-            "bearing" to bearing(player, from, route.point, compact = true),
-            "infection" to locale.render("apocalypse.infection.${snapshot.infection.name.lowercase()}", player))
     }
 
     fun announceRoute(player: Player, snapshot: ApocalypseGuideSnapshot) {
@@ -127,7 +115,7 @@ internal class ApocalypseGuide(
         val notice = text(player, "route-notice", "target" to text(player, "target.${target.name.lowercase()}"),
             "bearing" to bearing(player, from, point), "x" to locale.text(point.x),
             "y" to locale.text(point.y), "z" to locale.text(point.z))
-        player.sendMessage(lines(notice, text(player, "route-cue")))
+        player.sendMessage(notice)
     }
 
     fun show(player: Player, snapshot: ApocalypseGuideSnapshot) {
@@ -164,7 +152,10 @@ internal class ApocalypseGuide(
                         page("book.track").clickEvent(ClickEvent.runCommand("$TRACK_COMMAND $id"))))
                 }
                 add(lines(page("book.weapons"), Component.empty(), page("book.controls")))
-                if (snapshot.workbench != null) add(lines(page("book.workbench"), Component.empty(), page("book.parts")))
+                if (snapshot.workbench != null) {
+                    add(page("book.workbench"))
+                    add(page("book.parts"))
+                }
                 add(lines(page("book.health"), Component.empty(), page("book.horde")))
                 add(lines(listOfNotNull(page("book.title"), Component.empty(),
                     page("book.refresh").clickEvent(ClickEvent.runCommand(GUIDE_COMMAND)),

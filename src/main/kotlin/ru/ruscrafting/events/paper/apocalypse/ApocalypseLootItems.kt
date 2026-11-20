@@ -48,13 +48,13 @@ internal class ApocalypseLootItems(
 
     fun create(source: ApocalypseSourceLootItem, player: Player?, random: Random, mapTarget: Location? = null): List<ItemStack> {
         require(source.count in 1..4096)
-        val gun = source.gunId ?: source.itemId.takeIf(weapons::containsKey)
+        val gun = source.gunId ?: source.itemId.takeIf { firearmProfile(source) != null }
         val blockId = stringTag(source.nbt, "BlockId")
         val station = ApocalypseWorkbenchStation.fromSource(blockId ?: source.itemId)?.takeUnless { it == ApocalypseWorkbenchStation.CRAFTING }
         val result = when {
             station != null -> List(source.count) { ApocalypseWorkbenchStations.stationItem(plugin, station, station.sourceId) }
             gun != null -> List(source.count) {
-                val id = requireNotNull(weapons[gun]) { "Unmapped original firearm $gun" }
+                val id = nativeWeapon(gun)
                 val loaded = integerTag(source.nbt, "GunCurrentAmmoCount")?.coerceIn(0, firearms.spec(id).magazineSize) ?: 0
                 firearms.worldFirearmItem(id, player, loaded)
             }
@@ -278,6 +278,7 @@ internal class ApocalypseLootItems(
         private val potionTypes = mapOf("kubejs:adrenaline_shot" to PotionType.SWIFTNESS, "kubejs:morphine_shot" to PotionType.HEALING,
             "kubejs:steriod_shot" to PotionType.STRENGTH, "marbledsfirstaid:bandages" to PotionType.HEALING,
             "marbledsfirstaid:bandaid" to PotionType.HEALING, "marbledsfirstaid:tonic" to PotionType.REGENERATION)
+        internal fun firearmProfile(source: ApocalypseSourceLootItem): FirearmId? = weapons[source.gunId ?: source.itemId]
         internal fun nativeWeapon(source: String): FirearmId = requireNotNull(weapons[source]) { "Unmapped source firearm $source" }
         internal fun isCrowbar(item: ItemStack?, plugin: Plugin): Boolean = item != null && !item.isEmpty &&
             item.itemMeta.persistentDataContainer.get(NamespacedKey(plugin, "apocalypse_tool"), PersistentDataType.STRING) == "CROWBAR"

@@ -96,7 +96,7 @@ class ArcEventsCommand(
                     settings().eventControls.creatorControlsEnabled || sender.hasPermission("arcevents.start") || sender.hasPermission("arcevents.admin") -> EventMode.entries.map(EventMode::id)
                     else -> listOf(EventMode.FISHING.id)
                 }
-                "admin" -> listOf("status", "player", "network", "arenas", "arena", "recovery", "start", "stop", "reload", "recover", "sound") +
+                "admin" -> listOf("status", "player", "network", "arenas", "arena", "recovery", "start", "stop", "reload", "recover", "sound", "guide") +
                     if (sender is Player) listOf("menu", "weapons", "gun", "solo") else emptyList()
                 "burst" -> if (sender is Player) listOf("1", "3", "6", "full", "default", "menu") else emptyList()
                 "qa" -> listOf("status", "player", "network", "arenas", "recovery")
@@ -115,6 +115,7 @@ class ArcEventsCommand(
         if (root == "admin") {
             if (args.size == 3 && action == "solo" && sender is Player) return EventMode.entries.map(EventMode::id) + "apocalypse"
             if (args.size == 3 && action == "gun" && sender is Player) return listOf("default")
+            if (args.size == 3 && action == "guide") return plugin.server.onlinePlayers.map { it.name }
             if (args.size == 3 && action == "start") return EventMode.entries.map(EventMode::id)
             if (args.size == 4 && action == "start") return parseMode(args[2])?.let { arenaIds(it, includeAuto = true) }.orEmpty()
             if (args.size == 3 && action == "arena") return arenaIds(includeAuto = true)
@@ -171,6 +172,11 @@ class ArcEventsCommand(
             return
         }
         when (args[0].lowercase()) {
+            "guide" -> {
+                val target = args.getOrNull(1)?.let(plugin.server::getPlayerExact)
+                val given = target != null && apocalypse?.giveGuide(target, hold = true) == true
+                sender.sendEventMessage(locale.render("apocalypse.guide." + if (given) "item-given" else "item-unavailable", sender))
+            }
             "status" -> sender.sendEventMessage(Component.text(service.qaStatus()))
             "player" -> sender.sendEventMessage(Component.text(service.qaPlayer(args.getOrNull(1).orEmpty().take(16))))
             "network" -> sendNetwork(sender)

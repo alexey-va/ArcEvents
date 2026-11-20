@@ -290,6 +290,7 @@ class ApocalypseRuntime(
                 "fly" -> toggleAdminFlight(player)
                 "bench" -> workbenchMenu.command(player, arguments.drop(2))
                 "guide", "help" -> openGuide(player)
+                "book" -> giveGuide(player, hold = true)
                 "track" -> {
                     val target = arguments.getOrNull(2)?.uppercase()?.let { runCatching { GuideTarget.valueOf(it) }.getOrNull() }
                     if (target == null) openGuide(player) else trackGuide(player, target)
@@ -448,6 +449,25 @@ class ApocalypseRuntime(
             "infection" to locale.render("apocalypse.infection.${(state.infections[player.uniqueId.toString()]?.stage ?: ApocalypseInfectionStage.HEALTHY).name.lowercase()}", player))))
     }
 
+    /** Reuse the expedition's guide item without replacing equipment or creating duplicates. */
+    fun giveGuide(player: Player, hold: Boolean = false): Boolean {
+        if (!isPlaying(player.uniqueId) || isBusy(player.uniqueId) || player.world != world) return false
+        val inventory = player.inventory
+        val existing = inventory.storageContents.indexOfFirst(guide::isItem)
+        val slot = if (existing >= 0) existing else inventory.firstEmpty()
+        if (slot < 0) { message(player, "guide.item-full"); return false }
+        if (existing < 0) inventory.setItem(slot, guide.item(player))
+        if (hold) {
+            if (slot in 0..8) inventory.heldItemSlot = slot
+            else {
+                val previous = inventory.itemInMainHand
+                inventory.setItemInMainHand(inventory.getItem(slot))
+                inventory.setItem(slot, previous)
+            }
+        }
+        return true
+    }
+
     private fun openGuide(player: Player): Unit = prepareGuide(player) { guide.show(player, it) }
 
     private fun trackGuide(player: Player, target: GuideTarget): Unit = prepareGuide(player) { snapshot ->
@@ -495,7 +515,10 @@ class ApocalypseRuntime(
         }
         if (!guideRequests.add(player.uniqueId)) return
         val id = player.uniqueId
-        val x = player.location.blockX; val z = player.location.blockZ
+        val position = player.location
+        val x = position.blockX; val z = position.blockZ
+        val from = ApocalypsePoint(x, position.blockY, z)
+        val looted = state.looted.toSet()
         val unvisited = unopenedSupplies(player).map(::markerId).toSet()
         work.compute {
             val original = layout as? ApocalypseOriginalLayout
@@ -505,11 +528,12 @@ class ApocalypseRuntime(
                 }
             val sites = layout.sitesNear(x, z)
             val city = sites.firstOrNull { it.kind == ApocalypseSiteKind.CITY }?.anchor?.let(::GuideRoute)
-            val weapons = sites.asSequence().filter { it.kind in setOf(ApocalypseSiteKind.LAB, ApocalypseSiteKind.REACTOR, ApocalypseSiteKind.OIL_RIG) }
-                .take(12).firstNotNullOfOrNull { site -> layout.markers(site).firstOrNull {
-                    if (original == null) it.kind.name in setOf("ARMORY", "CORE")
-                    else it.lootTable?.let(original.lootCatalog::hasFirearm) == true
-                }?.let { GuideRoute(ApocalypsePoint(it.x, it.y, it.z)) } }
+            val weaponCandidates = sites.asSequence()
+                .filter { it.kind in setOf(ApocalypseSiteKind.LAB, ApocalypseSiteKind.REACTOR, ApocalypseSiteKind.OIL_RIG) }
+                .take(12).flatMap(layout::markers)
+            val weapons = nearestApocalypseWeaponCache(weaponCandidates, from, { lootClaimId(it) in looted }) { marker ->
+                original?.loot(marker, java.util.Random(options.seed xor markerId(marker).hashCode().toLong()))
+            }?.let { GuideRoute(ApocalypsePoint(it.x, it.y, it.z)) }
             val structure = sites.asSequence().filter { it.kind != ApocalypseSiteKind.STARTER_BUNKER }.take(12)
                 .firstNotNullOfOrNull { site -> layout.markers(site).firstOrNull {
                     it.kind.name in setOf("LOOT", "MEDICAL", "ARMORY", "CORE")
@@ -848,6 +872,7 @@ class ApocalypseRuntime(
     }
 
     private fun announceArrival(player: Player) {
+        giveGuide(player)
         guide.entryNotice(player, isInStarter(player) && unopenedSupplies(player).isNotEmpty())
         updateNavigation(player)
     }
@@ -1048,9 +1073,6 @@ class ApocalypseRuntime(
                 "enemies" to locale.text(actors.size)))
             val bar = bars.getOrPut(player.uniqueId) { BossBar.bossBar(title, 1f, BossBar.Color.RED, BossBar.Overlay.PROGRESS).also(player::showBossBar) }
             bar.name(title)
-            guideSnapshots[player.uniqueId]?.let { snapshot ->
-                guide.trackingHud(player, snapshot.copy(day = rules.dayAt(state.survival.worldTick), infection = infection.stage))?.let(bar::name)
-            }
         }
         tickActors(survivors)
         if (step % 600L == 0L) checkpoint()
@@ -1433,11 +1455,18 @@ class ApocalypseRuntime(
             event.isCancelled = true; message(event.player, "leave-first")
         }
     }
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.HIGHEST)
     fun onInteract(event: PlayerInteractEvent) {
         if (!isPlaying(event.player.uniqueId) || event.hand != EquipmentSlot.HAND) return
         if (isBusy(event.player.uniqueId)) { event.isCancelled = true; return }
         if (!event.action.isRightClick) return
+        // Paper may pre-cancel air interactions for a book with no vanilla use action.
+        if (guide.isItem(event.item)) {
+            event.isCancelled = true
+            openGuide(event.player)
+            return
+        }
+        if (event.isCancelled) return
         val block = event.clickedBlock ?: return
         workbenches.stationAt(block)?.let { station ->
             if (station == ApocalypseWorkbenchStation.CRAFTING && event.player.isSneaking &&

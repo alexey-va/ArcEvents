@@ -252,13 +252,19 @@ test('Apocalypse enters through the native menu and opens actionable guide route
     assert.ok(apocButton(guide,'track_weapons')||apocButton(guide,'track_city'),'Guide has no actual destination for finding firearms');
     const trackSince=player.getMessageBufferIndex();
     apocClick(player,guide,'track_supplies');
-    await expect(player).toHaveReceivedMessage(/^Supply barrels · [A-Za-z -]+ · \d+ blocks\nX -?\d+ · Y -?\d+ · Z -?\d+\nFollow the arrow at the top of the screen\. ↑ means the landmark is straight ahead\.$/,{since:trackSince});
+    await expect(player).toHaveReceivedMessage(/^Supply barrels · [A-Za-z -]+ · \d+ blocks\nX -?\d+ · Y -?\d+ · Z -?\d+$/,{since:trackSince});
+    const trackedAt=Number((await qa(admin)).tick);
+    await until(async()=>Number((await qa(admin)).tick)>=trackedAt+40,'Apocalypse HUD did not refresh');
+    assert.ok(player.bot.bossBars.some(bar=>/^Day \d+ · .+ · hostiles \d+$/.test(String(bar.title))),
+      'Tracking a landmark replaced the survival HUD');
     assert.equal(items(player),expedition,'Tracking a source barrel changed expedition items');
     since=dialogs.screens.length;player.chat('/arcevents apocalypse guide');
     const fresh=await until(()=>dialogs.screens.slice(since).find(s=>apocButton(s,'survival')),'Guide refresh failed');
     apocClick(player,fresh,'survival');
     const help=await until(()=>dialogs.screens.slice(since).find(s=>apocButton(s,'leave')),'Survival controls did not open');
     assert.match(JSON.stringify(help.body),/crowbar/i);
+    assert.match(JSON.stringify(help.body),/DB-2 Durin/);
+    assert.match(JSON.stringify(help.body),/ammo bench/i);
     assert.match(JSON.stringify(help.body),/reload/i);
     apocClick(player,help,'back');
     await until(()=>dialogs.screens.slice(since).filter(s=>apocButton(s,'track_supplies')).length>=2,'Back did not return to the guide');

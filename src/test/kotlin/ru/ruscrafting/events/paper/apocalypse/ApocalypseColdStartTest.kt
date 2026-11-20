@@ -55,6 +55,18 @@ class ApocalypseColdStartTest : FunSpec({
                         it.get(runtime) as MutableSet<UUID>
                     }
                     active += listOf(admin.uniqueId, ordinary.uniqueId)
+                    ApocalypseRuntime::class.java.getDeclaredField("world").also {
+                        it.isAccessible = true
+                        it.set(runtime, admin.world)
+                    }
+                    admin.inventory.setItem(0, ItemStack.of(Material.IRON_AXE))
+                    runtime.giveGuide(admin, hold = true) shouldBe true
+                    admin.inventory.itemInMainHand.type shouldBe Material.BOOK
+                    admin.inventory.getItem(0)?.type shouldBe Material.IRON_AXE
+                    runtime.giveGuide(admin, hold = true) shouldBe true
+                    val guideKey = NamespacedKey(plugin, "apocalypse_guide")
+                    admin.inventory.storageContents.count { it?.itemMeta?.persistentDataContainer
+                        ?.has(guideKey, PersistentDataType.BYTE) == true } shouldBe 1
                     val commands = listOf("/heal", "/cmi:heal", "/cmi heal", "/cmi:cmi heal", "/feed",
                         "/god", "/gamemode creative", "/minecraft:give Administrator stone", "/fly Survivor")
                     commands.forEach { command ->
@@ -75,6 +87,7 @@ class ApocalypseColdStartTest : FunSpec({
                         allowed.isCancelled shouldBe false
                     }
                     busy += admin.uniqueId
+                    runtime.giveGuide(admin, hold = true) shouldBe false
                     val pending = PlayerCommandPreprocessEvent(admin, "/heal")
                     runtime.onCommand(pending)
                     pending.isCancelled shouldBe true
@@ -191,6 +204,7 @@ private fun coldSettings(mode: NodeMode) = mockk<ArcEventsConfig> {
 
 private fun coldLocale() = mockk<ArcEventsLocale> {
     every { render(any(), any(), any()) } answers { Component.text(firstArg<String>()) }
+    every { lore(any(), any(), any()) } returns emptyList()
 }
 
 private class ColdStartWork : EventWork, AutoCloseable {
