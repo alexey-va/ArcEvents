@@ -39,6 +39,7 @@ class FishingAdmissionMockBukkitTest : FunSpec({
     }
     test("unsupported direct-command and host starts cannot enter a native-dialog expedition") {
         TttRoundFixture().use { fixture ->
+            fixture.prepareArcadeTerrain(EventMode.FISHING)
             fixture.clientProtocolVersion = MIN_DIALOG_PROTOCOL - 1
             val player = fixture.players.first()
             val original = player.inventory.contents.map { it?.clone() }

@@ -615,13 +615,6 @@ internal class TttRoundFixture(
             world.loadChunk(x shr 4, 0)
             world.getBlockAt(x, 63, 0).type = Material.STONE
         }
-        for (x in -24..24) for (z in -24..24) {
-            disastersWorld.getBlockAt(x, 63, z).type = Material.STONE
-            disastersWorld.getBlockAt(x, 64, z).type = Material.MOSS_BLOCK
-        }
-        for (center in FishingArenaStage.entries.map(FishingArenaStage::centerX)) for (x in center - 4..center + 4) for (z in -10..13) {
-            fishingWorld.getBlockAt(x, 64, z).type = Material.OAK_PLANKS
-        }
         ConfigManager.clear()
         if (disposable) {
             val configPath = dataRoot.resolve("config.yml")
@@ -704,8 +697,24 @@ internal class TttRoundFixture(
         return service
     }
 
+    fun prepareArcadeTerrain(mode: EventMode) {
+        when (mode) {
+            EventMode.DISASTERS -> for (x in -24..24) for (z in -24..24) {
+                disastersWorld.getBlockAt(x, 63, z).type = Material.STONE
+                disastersWorld.getBlockAt(x, 64, z).type = Material.MOSS_BLOCK
+            }
+            EventMode.FISHING -> for (stage in FishingArenaStage.entries) {
+                for (x in stage.centerX - 4..stage.centerX + 4) for (z in -10..13) {
+                    fishingWorld.getBlockAt(x, 64, z).type = Material.OAK_PLANKS
+                }
+            }
+            else -> Unit
+        }
+    }
+
     fun startPreparingRound(mode: EventMode = EventMode.TTT): CompletableFuture<DebugMutationResult> {
         check(!started) { "The fixture owns one TTT round" }
+        prepareArcadeTerrain(mode)
         started = true
         service.start()
         paper.performTicks(1)
@@ -735,6 +744,7 @@ internal class TttRoundFixture(
     fun startActiveArcade(mode: EventMode) {
         check(mode != EventMode.TTT)
         check(!started) { "The fixture owns one event round" }
+        prepareArcadeTerrain(mode)
         if (mode == EventMode.FISHING) {
             reloadRuntime { raw -> raw.replace("weapons:\n  enabled: false", "weapons:\n  enabled: true") }
             firearms.enabled shouldBe true
@@ -780,6 +790,7 @@ internal class TttRoundFixture(
     fun reservationMatchId(): UUID = requireNotNull(reservationBatch).matchId
 
     fun startPracticeReservation(mode: EventMode, origin: String = "parkour"): ReservationBatch {
+        prepareArcadeTerrain(mode)
         if (!started) {
             started = true
             service.start()
