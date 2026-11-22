@@ -10,6 +10,7 @@ import io.mockk.verify
 import org.bukkit.FluidCollisionMode
 import org.bukkit.Location
 import org.bukkit.Material
+import org.bukkit.block.Block
 import org.bukkit.block.BlockFace
 import org.bukkit.damage.DamageSource
 import org.bukkit.damage.DamageType
@@ -32,6 +33,7 @@ import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.event.player.PlayerInteractEntityEvent
 import org.bukkit.inventory.EquipmentSlot
 import org.bukkit.util.RayTraceResult
+import org.bukkit.util.BoundingBox
 import org.bukkit.util.Vector
 import org.mockbukkit.mockbukkit.entity.CodMock
 import org.mockbukkit.mockbukkit.entity.DrownedMock
@@ -45,6 +47,7 @@ import org.mockbukkit.mockbukkit.entity.SalmonMock
 import org.mockbukkit.mockbukkit.entity.SilverfishMock
 import org.mockbukkit.mockbukkit.entity.SpiderMock
 import org.mockbukkit.mockbukkit.entity.TropicalFishMock
+import ru.arc.paper.display.PacketItemDisplay
 import ru.arc.paper.testing.failOnUnsupportedMockBukkitOperation
 import ru.ruscrafting.events.domain.EventMode
 import ru.ruscrafting.events.domain.FishingGear
@@ -59,12 +62,24 @@ internal class FishingTestWorld(private val server: org.mockbukkit.mockbukkit.Se
 
     var passageReady: CompletableFuture<Unit> = CompletableFuture.completedFuture(Unit)
 
-    // MockBukkit lacks the block collision ray. Supply the Paper result for a clear or obstructed swing.
+    // MockBukkit lacks the collision ray/shape. The arena fixture uses full cubes for its catch floor.
     var meleeObstruction: RayTraceResult? = null
     val hurtAnimations = mutableListOf<UUID>()
 
     override fun rayTraceBlocks(start: Location, direction: Vector, maxDistance: Double,
-        fluidCollisionMode: FluidCollisionMode, ignorePassableBlocks: Boolean): RayTraceResult? = meleeObstruction
+        fluidCollisionMode: FluidCollisionMode, ignorePassableBlocks: Boolean): RayTraceResult? {
+        if (direction.x != 0.0 || direction.z != 0.0 || direction.y >= 0.0) return meleeObstruction
+        for (y in start.blockY downTo kotlin.math.floor(start.y - maxDistance).toInt()) {
+            if (!getBlockAt(start.blockX, y, start.blockZ).type.isSolid || y + 1.0 > start.y) continue
+            val block = mockk<Block> {
+                every { this@mockk.y } returns y
+                every { isLiquid } returns false
+                every { collisionShape.boundingBoxes } returns listOf(BoundingBox(0.0, 0.0, 0.0, 1.0, 1.0, 1.0))
+            }
+            return RayTraceResult(Vector(start.x, y + 1.0, start.z), block, BlockFace.UP)
+        }
+        return null
+    }
 
     // MockBukkit has no async chunk loader. Tests can withhold the native completion.
     override fun getChunkAtAsync(x: Int, z: Int, generate: Boolean, urgent: Boolean): CompletableFuture<org.bukkit.Chunk> {
@@ -179,12 +194,8 @@ class FishingAdventureMockBukkitTest : FunSpec({
                 fixture.items.kind(player.inventory.getItem(4)) shouldBe EventItemKind.FISHING_CATCH_BAG
 
                 if (stage == 0) {
-                    val npc = world.entities.filterIsInstance<Villager>().single()
                     repeat(3) { remaining ->
-                        player.inventory.heldItemSlot = 4
-                        val fed = PlayerInteractEntityEvent(player, npc, EquipmentSlot.HAND)
-                        fixture.paper.callEvent(fed)
-                        fed.isCancelled shouldBe true
+                        feedTrader(fixture, player)
                         adventure.snapshot().bag.size shouldBe 2 - remaining
                     }
                     adventure.snapshot().bag.isEmpty() shouldBe true
@@ -194,7 +205,8 @@ class FishingAdventureMockBukkitTest : FunSpec({
                 }
 
                 if (stage == 1) {
-                    repeat(3) { trade(adventure, player, "feed") shouldBe true }
+                    trade(adventure, player, "feed") shouldBe false
+                    repeat(3) { feedTrader(fixture, player) }
                     trade(adventure, player, "buy:PISTOL") shouldBe true
                     adventure.snapshot().equippedGear shouldBe FishingGear.PISTOL
                     val pistol = requireNotNull(player.inventory.getItem(2))
@@ -234,6 +246,7 @@ class FishingAdventureMockBukkitTest : FunSpec({
                     water.block.type = Material.WATER
                     dynamite.teleport(water)
                     fixture.advanceTime(2_600)
+                    pickUp(fixture, player, adventure)
                     adventure.snapshot().phase shouldBe FishingPhase.CASTING
                     adventure.snapshot().catchesOnStage shouldBe 3
                     adventure.snapshot().bag.size shouldBe 1
@@ -274,9 +287,14 @@ class FishingAdventureMockBukkitTest : FunSpec({
                 } else {
                     strike(fixture, player, boss)
                 }
+                adventure.snapshot().phase shouldBe FishingPhase.GROUNDED
+                val credited = adventure.snapshot().coins
+                pickUp(fixture, player, adventure)
                 adventure.snapshot().phase shouldBe FishingPhase.TROPHY
+                adventure.snapshot().coins shouldBe credited
                 moveToTrader(player, stage)
-                trade(adventure, player, "trophy") shouldBe true
+                trade(adventure, player, "trophy") shouldBe false
+                feedTrader(fixture, player)
 
                 if (stage < FishingArenaStage.entries.lastIndex) {
                     adventure.snapshot().phase shouldBe FishingPhase.TRAVEL
@@ -377,10 +395,118 @@ class FishingAdventureMockBukkitTest : FunSpec({
             adventure.snapshot().creatureHealth shouldBe 4.0
             fixture.paper.callEvent(PrePlayerAttackEntityEvent(player, hitbox, true))
             fixture.paper.callEvent(fishingHit(player, creature, 100.0))
+            adventure.snapshot().bag.size shouldBe 0
+            player.world.entities.filterIsInstance<Interaction>().single().uniqueId shouldBe hitbox.uniqueId
+            pickUp(fixture, player, adventure)
             adventure.snapshot().bag.size shouldBe 1
             world.entities.filterIsInstance<Interaction>().size shouldBe 0
             hurtSounds() shouldBe 3
             world.hurtAnimations.count { it == creature.uniqueId } shouldBe 3
+        } }
+    }
+
+    test("a grounded catch waits for its owner's reachable main-hand click and the trader accepts exactly the displayed fish") {
+        failOnUnsupportedMockBukkitOperation { TttRoundFixture().use { fixture ->
+            fixture.startActiveArcade(EventMode.FISHING)
+            val player = fixture.players.first() as PlayerMock
+            val adventure = requireNotNull(fixture.service.fishingAdventure(player))
+            val world = player.world as FishingTestWorld
+            val outsider = fixture.players[1]
+            castCatch(fixture, player, adventure)
+            placeCatch(fixture, player, adventure)
+            val body = world.entities.filterIsInstance<Mob>().single { it !is Villager }
+            val box = world.entities.filterIsInstance<Interaction>().single()
+            strike(fixture, player, body)
+            val unclaimed = adventure.snapshot()
+            unclaimed.phase shouldBe FishingPhase.GROUNDED
+            unclaimed.totalCatches shouldBe 1
+            unclaimed.bag.isEmpty() shouldBe true
+            unclaimed.coins shouldBe 0
+            body.isValid shouldBe false
+            box.location.y shouldBe 65.0
+            fixture.items.kind(player.inventory.getItem(4)) shouldBe null
+            fixture.advanceTime(6_000)
+            adventure.snapshot() shouldBe unclaimed
+            adventure.handleHitboxUse(outsider, box) { false } shouldBe false
+            fixture.paper.callEvent(PlayerInteractEntityEvent(player, box, EquipmentSlot.OFF_HAND))
+            player.simulatePlayerMove(box.location.clone().add(0.0, 0.0, 5.0))
+            fixture.paper.callEvent(PlayerInteractEntityEvent(player, box, EquipmentSlot.HAND))
+            player.simulatePlayerMove(box.location.clone().add(0.0, 0.0, 1.5))
+            world.meleeObstruction = RayTraceResult(player.eyeLocation.toVector())
+            fixture.paper.callEvent(PlayerInteractEntityEvent(player, box, EquipmentSlot.HAND))
+            world.meleeObstruction = null
+            fixture.paper.callEvent(PlayerInteractAtEntityEvent(player, box, Vector(), EquipmentSlot.HAND))
+            adventure.snapshot() shouldBe unclaimed
+            pickUp(fixture, player, adventure)
+            val first = player.inventory.itemInMainHand.clone()
+            first.type shouldBe Material.NAUTILUS_SHELL
+            fixture.paper.callEvent(PlayerInteractEntityEvent(player, box, EquipmentSlot.HAND))
+            adventure.snapshot().bag.size shouldBe 1
+
+            catchAndDefeat(fixture, player, adventure)
+            val second = player.inventory.itemInMainHand.clone()
+            second.type shouldBe first.type
+            second.isSimilar(first) shouldBe false
+            adventure.snapshot().carriedCatch?.species shouldBe "shore_crab"
+            val npc = world.entities.filterIsInstance<Villager>().single()
+            adventure.feedHeldCatch(player, npc) shouldBe false
+            moveToTrader(player, 0)
+            adventure.feedHeldCatch(outsider, npc) shouldBe false
+            adventure.feedHeldCatch(player, box) shouldBe false
+            player.inventory.setItem(4, first)
+            adventure.feedHeldCatch(player, npc) shouldBe false
+            player.inventory.setItem(4, second.asQuantity(2))
+            adventure.feedHeldCatch(player, npc) shouldBe false
+            player.inventory.setItem(4, second)
+            world.meleeObstruction = RayTraceResult(player.eyeLocation.toVector())
+            adventure.feedHeldCatch(player, npc) shouldBe false
+            world.meleeObstruction = null
+            player.inventory.heldItemSlot = 1
+            adventure.feedHeldCatch(player, npc) shouldBe false
+            player.inventory.heldItemSlot = 4
+            // The north side of the villager is in vanilla reach even beyond the ledger's five-block radius.
+            player.simulatePlayerMove(Location(world, npc.location.x, npc.location.y, npc.boundingBox.minZ - 2.97))
+            adventure.canUseTraderNpc(player, npc) shouldBe true
+            adventure.canTrade(player) shouldBe true
+            trade(adventure, player, "feed") shouldBe false
+            fixture.paper.callEvent(PlayerInteractAtEntityEvent(player, npc, Vector(), EquipmentSlot.HAND))
+            fixture.paper.callEvent(PlayerInteractEntityEvent(player, npc, EquipmentSlot.OFF_HAND))
+            adventure.snapshot().coins shouldBe 0
+            repeat(2) { fixture.paper.callEvent(PlayerInteractEntityEvent(player, npc, EquipmentSlot.HAND)) }
+            adventure.snapshot().coins shouldBe 10
+            adventure.snapshot().carriedCatch?.species shouldBe "clam"
+            feedTrader(fixture, player)
+            adventure.snapshot().coins shouldBe 20
+            adventure.snapshot().carriedCatch shouldBe null
+            fixture.items.kind(player.inventory.getItem(4)) shouldBe null
+        } }
+    }
+
+    test("a failed visual can recover the same defeat and leaving removes the unclaimed catch") {
+        failOnUnsupportedMockBukkitOperation { TttRoundFixture().use { fixture ->
+            fixture.startActiveArcade(EventMode.FISHING)
+            val player = fixture.players.first() as PlayerMock
+            val adventure = requireNotNull(fixture.service.fishingAdventure(player))
+            castCatch(fixture, player, adventure)
+            placeCatch(fixture, player, adventure)
+            val recovery = mockk<PacketItemDisplay>(relaxed = true)
+            every { recovery.isValid } returns true
+            every { fixture.packetDisplays.spawnItem(any(), match { it.type == Material.NAUTILUS_SHELL }) } throws
+                IllegalStateException("fixture rejects the first catch visual") andThen recovery
+            val mob = player.world.entities.filterIsInstance<Mob>().single { it !is Villager }
+            strike(fixture, player, mob)
+            val state = adventure.snapshot()
+            state.phase shouldBe FishingPhase.GROUNDED
+            mob.isValid shouldBe true
+            adventure.melee(player, mob) shouldBe false
+            adventure.tick()
+            adventure.snapshot() shouldBe state
+            mob.isValid shouldBe false
+            player.world.entities.filterIsInstance<Interaction>().size shouldBe 1
+            adventure.close()
+            player.world.entities.filterIsInstance<Interaction>().size shouldBe 0
+            verify(exactly = 1) { recovery.remove() }
+            adventure.snapshot().phase shouldBe FishingPhase.CLOSED
         } }
     }
 
@@ -417,6 +543,7 @@ class FishingAdventureMockBukkitTest : FunSpec({
             }
             player.simulatePlayerMove(clam.location.clone().add(0.0, 0.0, 1.6))
             strike(fixture, player, clam)
+            pickUp(fixture, player, adventure)
             adventure.snapshot().bag.single().species shouldBe "clam"
             adventure.snapshot().totalCatches shouldBe 1
             player.totalExperience shouldBe xp
@@ -434,8 +561,9 @@ class FishingAdventureMockBukkitTest : FunSpec({
             castCatch(fixture, player, adventure)
             placeCatch(fixture, player, adventure)
             strike(fixture, player, player.world.entities.filterIsInstance<Mob>().single { it !is Villager })
+            pickUp(fixture, player, adventure)
             moveToTrader(player, 0)
-            trade(adventure, player, "trophy") shouldBe true
+            feedTrader(fixture, player)
             player.simulatePlayerMove(Location(player.world, 0.5, 65.0, -8.5))
             fixture.advanceTime(1_000)
             adventure.snapshot().stage shouldBe 1
@@ -485,6 +613,7 @@ class FishingAdventureMockBukkitTest : FunSpec({
             strike(fixture, player, fish)
             fixture.advanceTime(700)
             strike(fixture, player, fish)
+            pickUp(fixture, player, adventure)
             adventure.snapshot().bag.last().species shouldBe "reef_perch"
         } }
     }
@@ -577,6 +706,7 @@ class FishingAdventureMockBukkitTest : FunSpec({
             fixture.paper.callEvent(staleClick)
             player.world.entities.filterIsInstance<Mob>().filter { it !is Villager }.map { it.uniqueId } shouldBe listOf(creature.uniqueId)
             strike(fixture, player, creature)
+            pickUp(fixture, player, adventure)
             fixture.items.kind(player.inventory.getItem(4)) shouldBe EventItemKind.FISHING_CATCH_BAG
         } }
     }
@@ -627,7 +757,28 @@ private fun catchAndDefeat(fixture: TttRoundFixture, player: PlayerMock, adventu
     creature.location.z shouldBe 10.5
     creature.isGlowing shouldBe true
     strike(fixture, player, creature)
+    pickUp(fixture, player, adventure)
     fixture.items.kind(player.inventory.getItem(4)) shouldBe EventItemKind.FISHING_CATCH_BAG
+}
+
+private fun pickUp(fixture: TttRoundFixture, player: PlayerMock, adventure: FishingAdventure) {
+    val ground = adventure.snapshot()
+    ground.phase shouldBe FishingPhase.GROUNDED
+    val box = player.world.entities.filterIsInstance<Interaction>().single()
+    player.simulatePlayerMove(box.location.clone().add(0.0, 0.0, 1.5))
+    fixture.paper.callEvent(PlayerInteractEntityEvent(player, box, EquipmentSlot.HAND)).isCancelled shouldBe true
+    box.isValid shouldBe false
+    player.inventory.heldItemSlot shouldBe 4
+    player.inventory.itemInMainHand.amount shouldBe 1
+    adventure.snapshot().carriedCatch shouldBe ground.encounter
+}
+
+private fun feedTrader(fixture: TttRoundFixture, player: PlayerMock) {
+    fixture.advanceTime(100)
+    val npc = player.world.entities.filterIsInstance<Villager>().single()
+    player.simulatePlayerMove(npc.location.clone().add(0.0, 0.0, 1.5))
+    player.inventory.heldItemSlot = 4
+    fixture.paper.callEvent(PlayerInteractEntityEvent(player, npc, EquipmentSlot.HAND)).isCancelled shouldBe true
 }
 
 private fun castCatch(fixture: TttRoundFixture, player: PlayerMock, adventure: FishingAdventure) {

@@ -8,6 +8,10 @@ import ru.arc.paper.api.ArcSidebarFrame
 import ru.arc.paper.api.ArcSidebarHandle
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
+import ru.ruscrafting.events.domain.FishingCatalog
+import ru.ruscrafting.events.domain.FishingPhase
+import ru.ruscrafting.events.domain.FishingProgress
+import ru.ruscrafting.events.domain.FishingRules
 import ru.ruscrafting.events.domain.MatchPhase
 import ru.ruscrafting.events.domain.ParticipantStatus
 import ru.ruscrafting.events.domain.TttMatch
@@ -65,6 +69,38 @@ class TttHud(
         nameplates.remove(playerId)
         closeSession(playerId)
     }
+
+    internal fun updateFishingSidebar(player: Player, progress: FishingProgress?) {
+        if (progress == null || !settings().ui.scoreboard) {
+            hideFishingSidebar(player.uniqueId)
+            return
+        }
+        val objective = when {
+            progress.phase != FishingPhase.CASTING -> progress.phase.name.lowercase()
+            progress.bag.size == FishingRules.MAX_BAG -> "feed"
+            progress.bossBait -> "cast-boss"
+            progress.catchesNeeded == 0 -> "collect-bait"
+            progress.bag.isNotEmpty() -> "feed"
+            else -> "casting"
+        }
+        val values = mapOf(
+            "stage" to locale.text(progress.stage + 1),
+            "total" to locale.text(progress.rules.islands),
+            "island" to locale.render("fishing.island.${FishingCatalog.island(progress.stage).name.lowercase()}", player),
+            "catches" to locale.text(progress.catchesOnStage),
+            "needed" to locale.text(progress.rules.catchesPerIsland),
+            "coins" to locale.text(progress.coins),
+            "cargo" to if (progress.phase == FishingPhase.TROPHY) locale.render("fishing.sidebar.trophy", player)
+                else locale.text(progress.bag.size),
+            "objective" to locale.render("fishing.phase.$objective", player),
+        )
+        sidebar.show(player, ArcSidebarFrame(
+            title = locale.render("arcade.fishing-name", player),
+            rows = locale.lore("fishing.sidebar.rows", player, values).take(ArcSidebarFrame.MAX_ROWS),
+        ))
+    }
+
+    internal fun hideFishingSidebar(playerId: UUID) = sidebar.hide(playerId)
 
     private fun closeSession(playerId: UUID) {
         val session = sessions.remove(playerId) ?: return

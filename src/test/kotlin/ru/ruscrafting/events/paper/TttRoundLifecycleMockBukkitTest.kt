@@ -873,6 +873,7 @@ internal class TttRoundFixture(
             clearWeaponState = {},
             packetDisplays = packetDisplays,
             clock = { nowMs },
+            hud = mockk(relaxed = true),
         )
         return session
     }

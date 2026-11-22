@@ -56,8 +56,6 @@ internal class FishingTraderDialog(
         val values = mapOf(
             "coins" to locale.text(state.coins),
             "bag" to locale.text(state.bag.size),
-            "value" to locale.text(state.bag.firstOrNull()?.value ?: 0),
-            "stage" to locale.text(state.stage + 1),
             "catches" to locale.text(state.catchesOnStage),
             "needed" to locale.text(state.rules.catchesPerIsland),
             "rod" to locale.text(state.rodLevel + 1),
@@ -90,13 +88,10 @@ internal class FishingTraderDialog(
                 join(listOf(text(if (owned) "equip-help" else "gear-help", details),
                     locale.render("fishing.gear.${gear.name.lowercase()}-description", player))), available, selected, owned)
         } else buildList {
-            if (state.feedCatch() != state) add(button("feed", text("feed"), text("feed-help"), true))
-            if (state.bag.isNotEmpty() && (player.health < (player.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH)?.value ?: 20.0) || player.foodLevel < 20))
+            if (state.eatCatch() != state && (player.health < (player.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH)?.value ?: 20.0) || player.foodLevel < 20))
                 add(button("eat", text("eat"), text("eat-help"), true))
-            val trophy = state.phase == FishingPhase.TROPHY
-            if (if (trophy) state.handInTrophy() != state else state.claimBossBait() != state)
-                add(button(if (trophy) "trophy" else "bait", text(if (trophy) "trophy" else "bait"),
-                    text(if (trophy) "trophy-help" else "bait-help"), true))
+            if (state.claimBossBait() != state)
+                add(button("bait", text("bait"), text("bait-help"), true))
             add(PaperDialogButton(PaperDialogActionId.of("armory"), clean(text("armory"), GOLD),
                 text("armory-help"), 230, onClick = PaperDialogClickHandler { action("armory") }))
             listOf(FishingOffer.AMMO, FishingOffer.DYNAMITE, FishingOffer.ROD_ONE, FishingOffer.ROD_TWO).forEach { offer ->
@@ -137,7 +132,9 @@ internal class FishingTraderDialog(
 
     private fun join(lines: List<Component>) = Component.join(JoinConfiguration.newlines(), listOf(Component.empty()) + lines + Component.empty())
     private fun clean(value: Component, color: TextColor): Component = value.color(color)
-        .decoration(TextDecoration.ITALIC, false).children(value.children().map { clean(it, color) })
+        .decoration(TextDecoration.ITALIC, false).children(value.children().map { child ->
+            clean(child, if (child.color() == WHITE) WHITE else color)
+        })
 
     private companion object {
         val WHITE = TextColor.fromHexString("#ffffff")!!

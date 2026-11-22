@@ -6,6 +6,9 @@ import io.kotest.matchers.string.shouldContain
 import io.mockk.every
 import io.mockk.mockk
 import net.kyori.adventure.text.Component
+import net.kyori.adventure.text.TextComponent
+import net.kyori.adventure.text.format.NamedTextColor
+import net.kyori.adventure.text.format.TextColor
 import net.kyori.adventure.text.format.TextDecoration
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
 import org.bukkit.entity.Player
@@ -13,6 +16,7 @@ import ru.arc.paper.menu.PaperDialogRuntime
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.domain.FishingProgress
+import ru.ruscrafting.events.domain.FishingRules
 import java.nio.file.Files
 import java.util.Locale
 
@@ -53,12 +57,30 @@ class FishingTraderDialogTest : StringSpec({
                 armory.exitButton!!.width shouldBe 200
                 plain(armory.buttons.first { it.id.value == "buy_pistol" }.label) shouldContain
                     if (language.language == "ru") "Недоступно" else "Unavailable"
-                plain(trader.body.single().text) shouldContain "300"
+                plain(trader.body.single().text) shouldContain "300💰"
+                val knife = armory.buttons.first { it.id.value == "buy_knife" }
+                plain(knife.label) shouldContain "25💰"
+                coinColors(knife.label) shouldBe listOf(NamedTextColor.WHITE)
                 plain(trader.body.single().text) shouldContain
                     if (language.language == "ru") "только в этом заходе" else "expedition only"
+
+                val carry = FishingProgress(FishingRules(catchesPerIsland = 1)).beginCast().recordCatch()
+                    .placeCatch().damageCreature(1_000.0).pickUpCatch()
+                val supplies = menu.model(player, carry, false) {}.buttons.map { it.id.value }
+                ("feed" in supplies) shouldBe false
+                ("bait" in supplies) shouldBe true
+                val trophy = carry.claimBossBait().beginCast().recordCatch().placeCatch().damageCreature(1_000.0).pickUpCatch()
+                val withTrophy = menu.model(player, trophy, false) {}.buttons.map { it.id.value }
+                withTrophy.any { it in setOf("trophy", "feed", "bait") } shouldBe false
             }
         } finally { root.toFile().deleteRecursively() }
     }
 })
 
 private fun plain(component: Component): String = PlainTextComponentSerializer.plainText().serialize(component)
+
+private fun coinColors(component: Component, parentColor: TextColor? = null): List<TextColor?> {
+    val color = component.color() ?: parentColor
+    val here = if (component is TextComponent && "💰" in component.content()) listOf(color) else emptyList()
+    return here + component.children().flatMap { coinColors(it, color) }
+}

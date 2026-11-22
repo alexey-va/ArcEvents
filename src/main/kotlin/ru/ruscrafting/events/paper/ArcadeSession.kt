@@ -45,6 +45,7 @@ class ArcadeSession(
     private val clearWeaponState: (UUID) -> Unit,
     private val packetDisplays: PaperPacketDisplays,
     private val clock: () -> Long,
+    private val hud: TttHud,
     private val work: EventWork? = null,
     private val practiceOpponentLocation: (UUID) -> Location? = { null },
 ) {
@@ -590,13 +591,16 @@ class ArcadeSession(
     private fun updateHud(match: ArcadeMatch) {
         online().forEach { player ->
             val state = match.participants.getValue(player.uniqueId)
+            if (match.mode == EventMode.FISHING && match.phase == MatchPhase.ACTIVE) {
+                hud.updateFishingSidebar(player, fishingAdventure(player)?.snapshot())
+            }
             val values = mapOf("mode" to modeName(player), "seconds" to locale.text(secondsRemaining()),
                 "score" to locale.text(if (match.mode == EventMode.GUN_GAME) state.kills else state.score), "stage" to locale.text(state.stage + 1),
                 "total" to locale.text(GunGameProgression.knifeStage + 1), "round" to locale.text((match.disasterRound + 1).coerceAtMost(match.rules.disasterRounds)), "rounds" to locale.text(match.rules.disasterRounds))
             val text = if (match.phase == MatchPhase.COUNTDOWN) locale.render("arcade.countdown", player, values)
                 else if (match.mode == EventMode.ZOMBIES && match.phase == MatchPhase.ACTIVE) zombies?.hud(player)
                 ?: locale.render("arcade.zombies-hud", player, values)
-                else if (match.mode == EventMode.FISHING && match.phase == MatchPhase.ACTIVE) fishing?.hud()
+                else if (match.mode == EventMode.FISHING && match.phase == MatchPhase.ACTIVE && !settings().ui.scoreboard) fishing?.hud()
                 ?: locale.render("arcade.fishing-hud", player, values)
                 else if (match.mode == EventMode.DISASTERS) locale.render("arcade.disasters-hud", player, values + ("hazard" to hazardName(player)))
                 else locale.render("arcade.${match.mode.id}-hud", player, values)
@@ -651,9 +655,13 @@ class ArcadeSession(
     }
 
     private fun closeFishing() {
-        val owned = fishing
+        val owned = fishing ?: return
         fishing = null
-        owned?.close()
+        try {
+            owned.close()
+        } finally {
+            current?.participants?.keys?.forEach(hud::hideFishingSidebar)
+        }
     }
     private fun closeZombies() {
         val owned = zombies

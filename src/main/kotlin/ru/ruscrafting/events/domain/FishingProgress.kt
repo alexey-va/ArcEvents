@@ -59,6 +59,7 @@ enum class FishingPhase {
     BITE,
     CAUGHT,
     CREATURE,
+    GROUNDED,
     TRAVEL,
     BOSS,
     TROPHY,
@@ -70,7 +71,7 @@ enum class FishingPhase {
  * Immutable state for a single temporary fishing run.
  *
  * Invalid or duplicate events are no-ops. Progress counts completed normal
- * encounters; caught fish remain in `encounter` until placed and defeated.
+ * encounters. A defeated catch stays in `encounter` until the owner picks it up.
  */
 data class FishingProgress(
     val rules: FishingRules = FishingRules(),
@@ -107,13 +108,13 @@ data class FishingProgress(
                 (phase in setOf(FishingPhase.CASTING, FishingPhase.BITE) && catchesOnStage == rules.catchesPerIsland),
         )
         if (phase in setOf(FishingPhase.BOSS, FishingPhase.TROPHY, FishingPhase.TRAVEL, FishingPhase.COMPLETE) ||
-            (phase == FishingPhase.CAUGHT && encounter?.boss == true)
+            (phase in setOf(FishingPhase.CAUGHT, FishingPhase.GROUNDED) && encounter?.boss == true)
         ) {
             require(catchesOnStage == rules.catchesPerIsland)
         }
 
         val activeEncounter = phase == FishingPhase.CREATURE || phase == FishingPhase.BOSS
-        val caughtEncounter = phase == FishingPhase.CAUGHT
+        val caughtEncounter = phase == FishingPhase.CAUGHT || phase == FishingPhase.GROUNDED
         if (activeEncounter || caughtEncounter) {
             require(encounter != null)
             if (activeEncounter) require(creatureHealth > 0.0 && creatureHealth <= encounter.maxHealth)
@@ -136,6 +137,11 @@ data class FishingProgress(
     val catchesNeeded: Int get() = rules.catchesPerIsland - catchesOnStage
     val travelUnlocked: Boolean get() = phase == FishingPhase.TRAVEL
     val bagValue: Long get() = bag.sumOf { it.value.toLong() }
+    val carriedCatch: FishingCatch? get() = when (phase) {
+        FishingPhase.TROPHY -> encounter
+        FishingPhase.CASTING, FishingPhase.BITE, FishingPhase.TRAVEL -> bag.lastOrNull()
+        else -> null
+    }
 
     fun beginCast(): FishingProgress =
         if (phase == FishingPhase.CASTING && bag.size < FishingRules.MAX_BAG && castNonce < Long.MAX_VALUE) {
@@ -178,19 +184,24 @@ data class FishingProgress(
         if (remaining > 0.0) return copy(creatureHealth = remaining)
         if (phase == FishingPhase.BOSS) {
             return copy(
-                phase = FishingPhase.TROPHY,
+                phase = FishingPhase.GROUNDED,
                 creatureHealth = 0.0,
                 coins = (coins.toLong() + landed.value).coerceAtMost(FishingRules.MAX_COINS.toLong()).toInt(),
             )
         }
         return copy(
-            phase = FishingPhase.CASTING,
+            phase = FishingPhase.GROUNDED,
             creatureHealth = 0.0,
             catchesOnStage = (catchesOnStage + 1).coerceAtMost(rules.catchesPerIsland),
             totalCatches = if (totalCatches == Int.MAX_VALUE) totalCatches else totalCatches + 1,
-            bag = bag + landed,
-            encounter = null,
         )
+    }
+
+    fun pickUpCatch(): FishingProgress {
+        if (phase != FishingPhase.GROUNDED) return this
+        val caught = requireNotNull(encounter)
+        return if (caught.boss) copy(phase = FishingPhase.TROPHY)
+        else copy(phase = FishingPhase.CASTING, bag = bag + caught, encounter = null)
     }
 
     /** Shop transactions are atomic and only available between encounters or before trophy hand-in. */
@@ -233,17 +244,17 @@ data class FishingProgress(
             this
         }
 
-    /** Feeds the oldest catch to the trader for its unchanged expedition credit value. */
+    /** The most recently picked-up fish is in hand; feeding it reveals the preceding one. */
     fun feedCatch(): FishingProgress {
-        if (!canTrade() || bag.isEmpty()) return this
-        val catch = bag.first()
+        if (phase != FishingPhase.CASTING) return this
+        val catch = carriedCatch ?: return this
         if (coins.toLong() + catch.value > FishingRules.MAX_COINS) return this
-        return copy(coins = coins + catch.value, bag = bag.drop(1))
+        return copy(coins = coins + catch.value, bag = bag.dropLast(1))
     }
 
-    /** Eating consumes the oldest carried catch. */
+    /** Eating consumes the same ordinary fish that could be fed to the trader. */
     fun eatCatch(): FishingProgress =
-        if (canTrade() && bag.isNotEmpty()) copy(bag = bag.drop(1)) else this
+        if (phase == FishingPhase.CASTING && bag.isNotEmpty()) copy(bag = bag.dropLast(1)) else this
 
     fun claimBossBait(): FishingProgress =
         if (phase == FishingPhase.CASTING && catchesOnStage >= rules.catchesPerIsland && !bossBait) {

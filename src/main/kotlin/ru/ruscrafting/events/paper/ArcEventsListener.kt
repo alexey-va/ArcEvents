@@ -387,26 +387,32 @@ class ArcEventsListener(
     @EventHandler(ignoreCancelled = true)
     fun onInteractEntity(event: PlayerInteractEntityEvent) {
         // An Interaction consumes RMB on the client. Its general interact packet owns the item action once.
-        if (event.hand == EquipmentSlot.HAND &&
-            service.fishingAdventure(event.player)?.handleHitboxUse(event.player, event.rightClicked, service::toggleFirearmScope) == true
+        val adventure = service.fishingAdventure(event.player)
+        if (event.hand == EquipmentSlot.HAND && adventure?.handleHitboxUse(event.player, event.rightClicked, service::toggleFirearmScope) == true
         ) {
             event.isCancelled = true
+            return
+        }
+        if (adventure?.isTraderNpc(event.rightClicked) == true) {
+            event.isCancelled = true
+            if (event.hand == EquipmentSlot.HAND && !adventure.feedHeldCatch(event.player, event.rightClicked) &&
+                adventure.canUseTraderNpc(event.player, event.rightClicked)) menu.openFishingTraderRoot(event.player)
             return
         }
         interactEntity(event.player, event.rightClicked, event.hand) { event.isCancelled = true }
     }
 
     @EventHandler(ignoreCancelled = true)
-    fun onInteractAtEntity(event: PlayerInteractAtEntityEvent) =
-        interactEntity(event.player, event.rightClicked, event.hand) { event.isCancelled = true }
-
-    private fun interactEntity(player: Player, entity: Entity, hand: EquipmentSlot, cancel: () -> Unit) {
-        val adventure = service.fishingAdventure(player)
-        if (adventure?.isTraderNpc(entity) == true) {
-            cancel()
-            if (hand == EquipmentSlot.HAND && !adventure.feedHeldCatch(player, entity)) menu.openFishingTraderRoot(player)
+    fun onInteractAtEntity(event: PlayerInteractAtEntityEvent) {
+        if (service.fishingAdventure(event.player)?.isTraderNpc(event.rightClicked) == true) {
+            // Vanilla follows this targeted packet with the general interact packet for a villager.
+            event.isCancelled = true
             return
         }
+        interactEntity(event.player, event.rightClicked, event.hand) { event.isCancelled = true }
+    }
+
+    private fun interactEntity(player: Player, entity: Entity, hand: EquipmentSlot, cancel: () -> Unit) {
         val bodyId = service.readBodyId(entity) ?: return
         cancel()
         if (hand != EquipmentSlot.HAND) return

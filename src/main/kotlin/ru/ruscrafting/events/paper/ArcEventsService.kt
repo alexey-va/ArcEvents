@@ -148,7 +148,7 @@ class ArcEventsService(
         get() = runtime.current
     private val arcade = ArcadeSession(plugin, settings, locale, items, firearms, arenaPool, network, escrow,
         ::teleport, ::recoverPlayer, { player, recovery -> completeRecovery(player, recovery) }, ::clearWeaponState,
-        packetDisplays, clock, work, practiceOpponentLocation = { practiceFighters?.actor(it)?.location })
+        packetDisplays, clock, hud, work, practiceOpponentLocation = { practiceFighters?.actor(it)?.location })
     private var arcadeRules: ArcadeRules? = null
     private var reservation: ReservationBatch? = null
     private var refillTimeout: ScheduledTask? = null

@@ -13,6 +13,7 @@ import org.bukkit.persistence.PersistentDataType
 import org.bukkit.plugin.Plugin
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
+import ru.ruscrafting.events.domain.FishingCatch
 import ru.ruscrafting.events.domain.FishingGear
 import ru.ruscrafting.events.domain.TttRole
 
@@ -55,6 +56,7 @@ class TttItems(
 ) : EventItemResolver {
     private val itemKindKey = NamespacedKey(plugin, "event_item")
     private val matchIdKey = NamespacedKey(plugin, "match_id")
+    private val catchIdKey = NamespacedKey(plugin, "fishing_catch_id")
 
     val traitorOffers: List<ShopOffer>
         get() = settings().gameplay.let { gameplay ->
@@ -211,13 +213,20 @@ class TttItems(
         locale.lore("fishing.live-catch-lore", player),
     )
 
-    fun fishingCatchBag(player: Player, matchId: String, count: Int, species: Component, value: Int): ItemStack = tagged(
-        Material.COD,
-        EventItemKind.FISHING_CATCH_BAG,
-        matchId,
-        locale.render("fishing.catch-bag-name", player, mapOf("count" to locale.text(count), "species" to species)),
-        locale.lore("fishing.catch-bag-lore", player, mapOf("value" to locale.text(value))),
-    ).also { it.amount = count.coerceIn(1, 64) }
+    fun fishingCarriedCatch(player: Player, matchId: String, catch: FishingCatch, id: Long): ItemStack {
+        val species = locale.render("fishing.species.${catch.species}", player)
+        val name = if (catch.rare) locale.render("fishing.rare-prefix", player).append(species) else species
+        val key = if (catch.boss) "trophy" else "carried"
+        return tagged(fishingCatchMaterial(catch), EventItemKind.FISHING_CATCH_BAG, matchId,
+            locale.render("fishing.$key-name", player, mapOf("species" to name)),
+            locale.lore("fishing.$key-lore", player, mapOf("value" to locale.text(catch.value))),
+        ).also { it.editMeta { meta -> meta.persistentDataContainer.set(catchIdKey, PersistentDataType.LONG, id) } }
+    }
+
+    fun isCarriedCatch(item: ItemStack?, matchId: String, catch: FishingCatch, id: Long): Boolean =
+        item?.type == fishingCatchMaterial(catch) && item.amount == 1 &&
+            kind(item) == EventItemKind.FISHING_CATCH_BAG && belongsTo(item, matchId) &&
+            item.itemMeta.persistentDataContainer.get(catchIdKey, PersistentDataType.LONG) == id
 
     fun fishingLedger(player: Player, matchId: String): ItemStack = tagged(
         Material.COMPASS,
@@ -248,6 +257,15 @@ class TttItems(
     }
 
     companion object {
+        fun fishingCatchMaterial(catch: FishingCatch): Material = when (catch.species) {
+            "clam", "shore_crab", "spider_crab" -> Material.NAUTILUS_SHELL
+            "bowlfish", "pufferfish" -> Material.PUFFERFISH
+            "seahorse", "shrimp", "reef_piranha", "giant_piranha", "ember_trout" -> Material.TROPICAL_FISH
+            "tuna", "lava_salmon", "lava_whale" -> Material.SALMON
+            "albatross" -> Material.FEATHER
+            else -> Material.COD
+        }
+
         fun nonItalic(component: Component): Component = component.decoration(TextDecoration.ITALIC, false)
     }
 }

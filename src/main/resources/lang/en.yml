@@ -907,13 +907,14 @@ arcade:
   - <#74ded2>Fish → fight → upgrade
   - <#e8dfd2>Cast by the pier. Hold your catch and RMB the ground.
   - <#e8dfd2>On the first island the catch flees. On later islands dodge its lunges.
-  - <#e8dfd2>Chase it, strike with LMB, then sell your catch to the trader.
+  - <#e8dfd2>Defeat the catch, then right-click it on the ground to pick it up.
+  - <#e8dfd2>Right-click the trader with the catch in hand to feed them and earn coins.
   - ''
   - <#74ded2>Unlock the next island
   - <#e8dfd2>Complete the trader’s task and claim the boss bait.
-  - <#e8dfd2>Catch the boss, defeat it and hand in its trophy.
+  - <#e8dfd2>Defeat the boss, pick up its trophy and take it to the trader.
   - ''
-  - <#e8dfd2>Purchases and tokens last for this expedition only.
+  - <#e8dfd2>Coins and purchases last for this expedition only.
   fishing-start-name: '<#7bd88f><bold>Start solo'
   fishing-start-lore:
   - <#e8dfd2>Start a solo expedition.
@@ -995,9 +996,13 @@ fishing:
   start: <#74ded2>Cast between the buoys from the end of the pier.
   catch: '<#74ded2>You caught <catches>.'
   complete: "<newline>  <#7bd88f>Expedition complete. All five trophies delivered.<newline>"
-  creature-defeated: '<#9bd48d>Catch defeated. <#e8dfd2>Fish in slot 5: RMB the trader.'
+  creature-defeated: '<#9bd48d>Catch defeated. <#e8dfd2>Right-click it on the ground to pick it up.'
   card-bite: '<#74ded2><bold>Fish on!</bold></#74ded2><newline><white>RMB</white> <#a0b9b6>·</#a0b9b6> <#e2eeed>Reel in</#e2eeed>'
   card-release: '<#74ded2><species></#74ded2><newline><white>RMB on ground</white> <#a0b9b6>·</#a0b9b6> <#e2eeed>Release</#e2eeed>'
+  card-pickup: '<#74ded2><species></#74ded2><newline><white>RMB the catch</white> <#a0b9b6>·</#a0b9b6> <#e2eeed>Pick up</#e2eeed>'
+  card-feed: '<#74ded2><species></#74ded2><newline><white>RMB the trader</white> <#a0b9b6>·</#a0b9b6> <#e2eeed>Feed</#e2eeed>'
+  card-trophy: '<#f4d87a><species></#f4d87a><newline><white>RMB the trader</white> <#a0b9b6>·</#a0b9b6> <#e2eeed>Hand in trophy</#e2eeed>'
+  picked-up: '<#74ded2><species> <#e8dfd2>in hand. Bring your catch to the trader.'
   creature-hit: "<#7bd88f>Prey health: <health>."
   creature-name: "<#ff9f0f>Dangerous catch"
   boss-name: "<#d6a8ff>Island boss"
@@ -1006,7 +1011,7 @@ fishing:
   creature-missing: "<#e3b341>Encounter restored. Keep fighting."
   boss-warning: "<#d84a4a>The boss is turning to strike. Sidestep!"
   braced: "<#9bd48d>The catch is winded. Move in and strike!"
-  boss-defeated: <#9bd48d>Trophy claimed. <#e8dfd2>Hand it to the trader.
+  boss-defeated: <#9bd48d>Boss defeated. <#e8dfd2>Right-click the trophy on the ground to pick it up.
   bait-ready: <#86dcf1>Bait ready. <#e8dfd2>Your next catch is the boss.
   bag-full: "<#e3b341>Your bag is full. Feed your catch to the trader or eat some of it."
   dynamite-thrown: "<#ffb277>The fuse is burning. Move away from the dynamite!"
@@ -1016,7 +1021,7 @@ fishing:
   rare-prefix: "<#c4abff>Rare catch: "
   near-trader: "<#e3b341>Approach the stall under the canopy."
   trader-npc: "<#f4d87a>Catch trader"
-  fed: <#9bd48d>Fish sold · +<value> tokens
+  fed: '<#9bd48d>The trader ate your catch <#a0b9b6>· <#f4d87a>+<value><white>💰</white>'
   water-rescue: "<#67d7ff>You were brought back ashore."
   live-catch-name: "<#ff9f0f>Live catch: <species>"
   live-catch-lore:
@@ -1029,32 +1034,51 @@ fishing:
   catch-bag-name: "<#67d7ff><species> | In bag: <count>"
   catch-bag-lore:
     - "<#e8dfd2>Hold this and right-click the trader."
-    - "<#e8dfd2>They will take one fish for <value> expedition credits."
+    - "<#e8dfd2>They pay <value><white>💰</white> per fish."
+  carried-name: '<#74ded2><species>'
+  carried-lore:
+    - '<#e8dfd2>Right-click the trader with this catch in hand.'
+    - '<#e8dfd2>Feeding reward  <#f4d87a>+<value><white>💰</white>'
+  trophy-name: '<#f4d87a>Trophy <#a0b9b6>· <white><species>'
+  trophy-lore:
+    - '<#e8dfd2>Right-click the trader with this trophy in hand.'
   food-full: "<#e3b341>Your health and hunger are already full."
   inventory-full: "<#e3b341>Make room for your purchase."
-  purchase-failed: "<#e3b341>Purchase unavailable. Check your expedition credits and unlocked island."
-  hud: <#74ded2><island> <#ffffff>· <stage>/<total> · catch <catches>/<needed> · <coins> tokens
-  quest-ready: "<#7bd88f>Task complete. Collect special bait from the trader."
+  purchase-failed: "<#e3b341>Purchase unavailable. Check your expedition coins and island."
+  hud: '<#74ded2><island> <white>· <stage>/<total> · catch <catches>/<needed> · <#f4d87a><coins><white>💰</white>'
+  sidebar:
+    rows:
+      - '<#74ded2><stage>/<total>  <white><island>'
+      - '<#a0b9b6>Defeated <white><catches>/<needed>'
+      - '<#a0b9b6>Expedition coins <#f4d87a><coins><white>💰</white>'
+      - '<#a0b9b6>Carrying <white><cargo>'
+      - '<#74ded2><objective>'
+    trophy: 'trophy'
+  quest-ready: "<#7bd88f>Task complete. Pick up the catch and see the trader for boss bait."
   quest-bait: "<#67d7ff>Special bait is on the hook: catch the boss."
   travel-unlocked: "<newline>  <#7bd88f>Trophy accepted. Board under the teal flag.<newline>"
   travel-started: "<#67d7ff>Island <stage> · <island>"
   travel-marker: "<#67d7ff>Ferry<newline><#e8dfd2>Stand under the flag"
-  trader-marker: <#f4d87a>Trader<newline><#e8dfd2>RMB — trade and supplies
+  trader-marker: <#f4d87a>Trader<newline><#e8dfd2>RMB with catch to feed
   invalid-catch: "<#e3b341>Cast between the buoys from the pier tip."
   reel-now: "<#f4d87a>Bite! Right-click to reel in."
   travel-retry: "<#e3b341>Passage delayed. Walk back to the flag to retry."
   encounter-restored: "<#7bd88f>Encounter restored."
   telegraph: "<#ffb277>The catch has turned towards you. Sidestep!"
   phase:
-    casting: "fishing"
-    bite: "bite"
-    caught: "right-click ground to release fish"
-    creature: "fight"
-    travel: "next island"
-    boss: "boss fight"
-    trophy: "deliver trophy"
-    complete: "complete"
-    closed: "closed"
+    casting: "Cast between the buoys"
+    bite: "Watch the bobber"
+    caught: "Release on land with RMB"
+    creature: "Defeat the catch on shore"
+    grounded: "Pick up the catch with RMB"
+    feed: "Take the catch to the trader"
+    collect-bait: "Get bait from the trader"
+    cast-boss: "Cast with boss bait"
+    travel: "Go to the ferry flag"
+    boss: "Defeat the island boss"
+    trophy: "Take the trophy to the trader"
+    complete: "Expedition complete"
+    closed: "Expedition over"
   rod-name: "<#67d7ff>Expedition rod"
   rod-lore:
     - ""
@@ -1081,7 +1105,7 @@ fishing:
     - ""
     - "<#e8dfd2>Approach the trader under the canopy."
     - ""
-    - "<#e8dfd2>Right-click to sell, buy supplies or deliver a trophy."
+    - "<#e8dfd2>Right-click to browse the trader’s supplies."
     - ""
   weapon-0-name: "<#e3b341>Knuckles"
   weapon-1-name: "<#e3b341>Knife"
@@ -1142,38 +1166,34 @@ fishing:
     armory-title: "Expedition weapons"
     armory: "Weapons ›"
     armory-help: "Progress from knuckles and blades to pistols, a shotgun and rifles."
-    status: 'Tokens: <coins>   Catch: <bag>
+    status: 'Expedition coins  <coins><white>💰</white>
 
-      Rod: <rod>   First fish value: <value>'
-    session-only: Tokens and purchases last for this expedition only.
+      Fish carried  <bag>   Rod  <rod>'
+    session-only: Coins and purchases last for this expedition only.
     nearby: "Approach the trader under the canopy after the fight."
     client-required: "Trading requires a Java 1.21.6+ client with native dialogs."
     done: Done.
-    changed: Action unavailable. Check your catch, tokens and inventory space.
-    feed: Sell fish · +<value> tokens
-    feed-help: Sell the first fish in your bag.
+    changed: Action unavailable. Check your catch, coins and inventory space.
     eat: "Eat one catch"
     eat-help: +4 health and +4 hunger. Consumes one fish.
     bait: "Collect boss bait"
     bait-help: Defeat <needed> catches on this island first.
-    trophy: "Deliver trophy"
-    trophy-help: "Unlock the next island. Delivering the final trophy completes the expedition."
     quest-catches: 'Defeat your catch: <catches>/<needed>.'
     quest-ready: Task complete. Claim the boss bait.
     quest-cast: Your next cast summons the boss.
-    quest-trophy: Hand in the trophy to unlock the next island.
-    purchase: <item> · <price>
-    gear-help: '<price> tokens · Island <island>
+    quest-trophy: Hold the trophy and right-click the trader to hand it in.
+    purchase: '<item> · <price><white>💰</white>'
+    gear-help: '<price><white>💰</white> · Island <island>
 
       Firearms come with a full magazine.'
     equip-help: "Equip owned gear. Switching does not refill ammunition."
-    ammo: 32 rounds · <price>
+    ammo: '32 rounds · <price><white>💰</white>'
     ammo-help: "Reserve ammunition for an owned firearm. Press the swap-hands key F to reload."
-    dynamite: 2 dynamite · <price>
+    dynamite: '2 dynamite · <price><white>💰</white>'
     dynamite-help: "Right-click to throw. Hurts you too; marked water lures a catch."
-    rod_one: Rod II · <price>
+    rod_one: 'Rod II · <price><white>💰</white>'
     rod_one-help: "Shortens the wait for a bite. Buy this upgrade first."
-    rod_two: Rod III · <price>
+    rod_two: 'Rod III · <price><white>💰</white>'
     rod_two-help: "Attracts catches even faster. Requires rod II and the third island."
   dynamite-cap: "<#e3b341>Wait for the dynamite already thrown to explode."
 
@@ -1325,13 +1345,14 @@ dialog:
   - <#74ded2>Fish → fight → upgrade
   - <#e8dfd2>Cast by the pier. Hold your catch and RMB the ground.
   - <#e8dfd2>On the first island the catch flees. On later islands dodge its lunges.
-  - <#e8dfd2>Chase it, strike with LMB, then sell your catch to the trader.
+  - <#e8dfd2>Defeat the catch, then right-click it on the ground to pick it up.
+  - <#e8dfd2>Right-click the trader with the catch in hand to feed them and earn coins.
   - ''
   - <#74ded2>Unlock the next island
   - <#e8dfd2>Complete the trader’s task and claim the boss bait.
-  - <#e8dfd2>Catch the boss, defeat it and hand in its trophy.
+  - <#e8dfd2>Defeat the boss, pick up its trophy and take it to the trader.
   - ''
-  - <#e8dfd2>Purchases and tokens last for this expedition only.
+  - <#e8dfd2>Coins and purchases last for this expedition only.
   rules-zombies-0:
   - <#ff9c82>Hold the sector
   - <#e8dfd2>Survive <waves> waves with <minimum>–<maximum> players.

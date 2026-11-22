@@ -20,6 +20,7 @@ import org.bukkit.entity.FishHook
 import org.bukkit.entity.Guardian
 import org.bukkit.entity.Interaction
 import org.bukkit.entity.Item
+import org.bukkit.entity.ItemDisplay
 import org.bukkit.entity.LivingEntity
 import org.bukkit.entity.Mob
 import org.bukkit.entity.Phantom
@@ -40,10 +41,14 @@ import org.bukkit.inventory.ItemStack
 import org.bukkit.persistence.PersistentDataType
 import org.bukkit.plugin.Plugin
 import org.bukkit.util.BoundingBox
+import org.bukkit.util.Transformation
 import org.bukkit.util.Vector
+import org.joml.Quaternionf
+import org.joml.Vector3f
 import ru.arc.core.ScheduledTask
 import ru.arc.core.Tasks
 import ru.arc.paper.display.PacketTextDisplay
+import ru.arc.paper.display.PacketItemDisplay
 import ru.arc.paper.display.PaperPacketDisplays
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.config.EventLocation
@@ -96,6 +101,12 @@ class FishingAdventure(
         var hit: Boolean = false,
     )
     private data class Fuse(val id: UUID, val stage: Int, val detonatesAtMs: Long)
+    private class GroundedCatch(val droppedAt: Location) {
+        var floor: Location? = null
+        var display: PacketItemDisplay? = null
+        var hitbox: Interaction? = null
+        var reportedFailure = false
+    }
     private data class CatchBody(val mob: Mob, val hitbox: Interaction, val lungeWidth: Double, val lungeHeight: Double) {
         fun move(to: Location): Boolean {
             if (!mob.teleport(to)) return false
@@ -115,10 +126,14 @@ class FishingAdventure(
     private val matchKey = NamespacedKey(plugin, "fishing_match")
     private val stageKey = NamespacedKey(plugin, "fishing_stage")
     private val bossKey = NamespacedKey(plugin, "fishing_boss")
+    private val groundedKey = NamespacedKey(plugin, "fishing_grounded")
     private val ownerTag = "arcevents-fishing"
     private val matchIdString = matchId.toString()
     private var progress = FishingProgress(rules)
     private var catchBody: CatchBody? = null
+    private var grounded: GroundedCatch? = null
+    private var carriedId = 0L
+    private var lastFeedTick = -1
     private var encounterLanding: Location? = null
     private val fuses = linkedMapOf<UUID, Fuse>()
     private val firearmItems = EnumMap<FishingGear, ItemStack>(FishingGear::class.java)
@@ -149,9 +164,10 @@ class FishingAdventure(
 
     /** The exact state and location gate shared by the ledger and native trader dialog. */
     fun canTrade(candidate: Player): Boolean {
-        if (!belongsTo(candidate) || !candidate.isOnline || candidate.gameMode == GameMode.SPECTATOR) return false
-        if (candidate.world.uid != world.uid || progress.phase !in setOf(FishingPhase.CASTING, FishingPhase.TROPHY)) return false
-        return candidate.location.distanceSquared(point(FishingArenaGenerator.trader(stage()))) <= 25.0
+        if (!belongsTo(candidate) || transitioning || !candidate.isOnline || candidate.isDead ||
+            candidate.gameMode == GameMode.SPECTATOR || progress.phase !in setOf(FishingPhase.CASTING, FishingPhase.TROPHY)) return false
+        return candidate.location.distanceSquared(point(FishingArenaGenerator.trader(stage()))) <= 25.0 ||
+            traderNpc?.let { canUseTraderNpc(candidate, it) } == true
     }
 
     fun start() {
@@ -229,6 +245,7 @@ class FishingAdventure(
             }
         }
         if (progress.phase in setOf(FishingPhase.CREATURE, FishingPhase.BOSS)) ensureCreature()
+        if (progress.phase == FishingPhase.GROUNDED) showGroundedCatch()
         if (progress.phase == FishingPhase.COMPLETE) signalCompletion()
     }
 
@@ -242,6 +259,7 @@ class FishingAdventure(
         nextHitAcceptedAtMs = 0L
         cleanupEntities(stale = false)
         catchBody = null
+        grounded = null
         fuses.clear()
         movement = null
         travelMarker = null
@@ -331,7 +349,8 @@ class FishingAdventure(
         if (!isOwnedEntity(event.entity)) return false
         // An Interaction emits a preliminary damage event before Paper's PrePlayerAttackEntityEvent.
         // The responsive, healthless target must let the owner's normal weapon input reach that hook.
-        if (event.entity === catchBody?.hitbox && isCurrentEntity(event.entity) && event is EntityDamageByEntityEvent &&
+        if (progress.phase in setOf(FishingPhase.CREATURE, FishingPhase.BOSS) &&
+            event.entity === catchBody?.hitbox && isCurrentEntity(event.entity) && event is EntityDamageByEntityEvent &&
             (event.damager as? Player)?.let(::belongsTo) == true
         ) return false
         event.isCancelled = true
@@ -447,7 +466,15 @@ class FishingAdventure(
     }
 
     fun handleHitboxUse(candidate: Player, entity: Entity, toggleScope: (Player) -> Boolean): Boolean {
-        if (!belongsTo(candidate) || entity !== catchBody?.hitbox || !isCurrentEntity(entity)) return false
+        if (!belongsTo(candidate) || !isCurrentEntity(entity)) return false
+        val ground = grounded
+        if (ground != null && entity === ground.hitbox) {
+            val floor = ground.floor ?: return true
+            if (!ground.reportedFailure && ground.display?.isValid == true &&
+                canReach(candidate, floor.toVector().add(Vector(0.0, 0.04, 0.0)))) pickUpCatch(candidate, ground)
+            return true
+        }
+        if (entity !== catchBody?.hitbox) return false
         if (isFirearmTarget(candidate, entity, matchIdString)) {
             toggleScope(candidate)
             return true
@@ -511,13 +538,39 @@ class FishingAdventure(
     fun isTraderNpc(entity: Entity): Boolean =
         traderNpc === entity && isCurrentEntity(entity)
 
+    private fun canReach(candidate: Player, contact: Vector): Boolean {
+        if (!belongsTo(candidate) || transitioning || !candidate.isOnline || candidate.isDead ||
+            candidate.gameMode == GameMode.SPECTATOR) return false
+        val eye = candidate.eyeLocation.toVector()
+        val reach = candidate.getAttribute(Attribute.ENTITY_INTERACTION_RANGE)?.value ?: 3.0
+        return eye.distanceSquared(contact) <= reach * reach && clearPath(eye, contact)
+    }
+
+    fun canUseTraderNpc(candidate: Player, entity: Entity): Boolean =
+        isTraderNpc(entity) && progress.phase in setOf(FishingPhase.CASTING, FishingPhase.TROPHY) &&
+            canReach(candidate, nearestPoint(entity.boundingBox, candidate.eyeLocation.toVector()))
+
     fun feedHeldCatch(candidate: Player, entity: Entity): Boolean {
-        if (!isTraderNpc(entity) || !canTrade(candidate) || candidate.inventory.heldItemSlot != 4) return false
-        val item = candidate.inventory.getItem(4)
-        if (items.kind(item) != EventItemKind.FISHING_CATCH_BAG || !items.belongsTo(item, matchIdString) ||
-            item?.amount != progress.bag.size
-        ) return false
-        return trade(candidate, progress, "feed")
+        if (candidate.inventory.heldItemSlot != 4) return false
+        val catch = progress.carriedCatch ?: return false
+        if (!items.isCarriedCatch(candidate.inventory.itemInMainHand, matchIdString, catch, carriedId) ||
+            !canUseTraderNpc(candidate, entity)) return false
+        val tick = candidate.server.currentTick
+        if (tick == lastFeedTick) return true
+        val next = if (catch.boss) progress.handInTrophy() else progress.feedCatch()
+        if (next === progress) return true
+        replaceCarriedCatch(candidate, next)
+        lastFeedTick = tick
+        if (!catch.boss) {
+            sendActionBar("fishing.fed", mapOf("value" to locale.text(catch.value)))
+        } else if (progress.phase == FishingPhase.COMPLETE) {
+            message("fishing.complete")
+            signalCompletion()
+        } else {
+            message("fishing.travel-unlocked")
+            showTravelMarker()
+        }
+        return true
     }
 
     /** Snapshot-checked atomic transactions used by the native merchant dialog. */
@@ -526,8 +579,9 @@ class FishingAdventure(
         val before = progress
         val next: FishingProgress
         when {
-            action == "feed" -> next = before.feedCatch()
             action == "eat" -> {
+                val catch = before.carriedCatch ?: return false
+                if (!items.isCarriedCatch(candidate.inventory.getItem(4), matchIdString, catch, carriedId)) return false
                 val maxHealth = player.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20.0
                 if (player.health >= maxHealth && player.foodLevel >= 20) {
                     sendActionBar("fishing.food-full")
@@ -535,11 +589,12 @@ class FishingAdventure(
                 }
                 next = before.eatCatch()
                 if (next === before) return false
+                replaceCarriedCatch(candidate, next)
                 player.health = (player.health + 4.0).coerceAtMost(maxHealth)
                 player.foodLevel = (player.foodLevel + 4).coerceAtMost(20)
+                return true
             }
             action == "bait" -> next = before.claimBossBait()
-            action == "trophy" -> next = before.handInTrophy()
             action.startsWith("equip:") -> {
                 val gear = action.substringAfter(':').let { runCatching { FishingGear.valueOf(it) }.getOrNull() } ?: return false
                 if (gear.firearmId != null && !firearms.enabled) return false
@@ -572,17 +627,7 @@ class FishingAdventure(
         if (next === before) return false
         progress = next
         syncLoadout()
-        if (action == "feed") sendActionBar("fishing.fed", mapOf("value" to locale.text(next.coins - before.coins)))
         if (action == "bait") sendActionBar("fishing.bait-ready")
-        if (action == "trophy") {
-            if (progress.phase == FishingPhase.COMPLETE) {
-                message("fishing.complete")
-                signalCompletion()
-            } else if (progress.phase == FishingPhase.TRAVEL) {
-                message("fishing.travel-unlocked")
-                showTravelMarker()
-            }
-        }
         return true
     }
 
@@ -604,6 +649,18 @@ class FishingAdventure(
                     !issued(player.inventory.itemInMainHand, EventItemKind.FISHING_LIVE_CATCH)) return null
                 val species = progress.encounter?.species ?: return null
                 localized("fishing.card-release", mapOf("species" to localized("fishing.species.$species")))
+            }
+            FishingPhase.GROUNDED -> {
+                if (grounded?.display?.isValid != true) return null
+                val catch = progress.encounter ?: return null
+                localized("fishing.card-pickup", mapOf("species" to localized("fishing.species.${catch.species}")))
+            }
+            FishingPhase.CASTING, FishingPhase.TROPHY -> {
+                val catch = progress.carriedCatch ?: return null
+                if (player.inventory.heldItemSlot != 4 ||
+                    !items.isCarriedCatch(player.inventory.itemInMainHand, matchIdString, catch, carriedId)) return null
+                localized(if (catch.boss) "fishing.card-trophy" else "fishing.card-feed",
+                    mapOf("species" to localized("fishing.species.${catch.species}")))
             }
             else -> null
         }
@@ -907,21 +964,16 @@ class FishingAdventure(
             else -> Sound.ENTITY_COD_HURT
         }
         world.playSound(contact, sound, 0.85f, if (previousPhase == FishingPhase.BOSS) 0.85f else 1.0f)
-        if (progress.phase == FishingPhase.CASTING || progress.phase == FishingPhase.TROPHY ||
-            progress.phase == FishingPhase.TRAVEL || progress.phase == FishingPhase.COMPLETE
-        ) {
-            body.remove()
-            catchBody = null
-            syncLoadout()
+        if (progress.phase == FishingPhase.GROUNDED) {
             movement = null
             nextHitAcceptedAtMs = 0L
-            if (progress.phase == FishingPhase.TROPHY) {
+            grounded = GroundedCatch(target.location)
+            showGroundedCatch()
+            if (previousPhase == FishingPhase.BOSS) {
                 message("fishing.boss-defeated")
-                showTraderMarker()
             } else {
                 sendActionBar(if (progress.catchesOnStage >= rules.catchesPerIsland) "fishing.quest-ready" else "fishing.creature-defeated")
             }
-            if (progress.phase == FishingPhase.COMPLETE) signalCompletion()
         } else {
             if (progress.stage == 0 && progress.phase == FishingPhase.CREATURE && movement == null) {
                 nextMoveAtMs = minOf(nextMoveAtMs, clock() + 220L)
@@ -930,11 +982,82 @@ class FishingAdventure(
             target.health = progress.creatureHealth.coerceIn(1.0, visibleMax)
             sendActionBar("fishing.creature-hit", mapOf("health" to locale.text("%.1f".format(progress.creatureHealth))))
         }
-        if (previousPhase == FishingPhase.BOSS && progress.phase == FishingPhase.TROPHY) {
-            movement = null
-            nextMoveAtMs = 0L
-        }
         return true
+    }
+
+    /** Keep the defeated encounter until both its floor visual and its native right-click target exist. */
+    private fun showGroundedCatch() {
+        val ground = grounded ?: return
+        val catch = progress.encounter ?: return
+        if (!ground.reportedFailure && ground.display?.isValid == true && ground.hitbox?.let(::isCurrentEntity) == true) return
+        try {
+            val scale = if (catch.boss) 1f else 0.875f
+            val floor = ground.floor ?: sequenceOf(ground.droppedAt, encounterLanding, point(FishingArenaGenerator.catchLanding(stage())))
+                .filterNotNull().firstNotNullOfOrNull { supportedFloor(it, scale) }
+                ?: error("No supported floor for ${catch.species} near ${ground.droppedAt}")
+            ground.floor = floor
+            val display = ground.display?.takeIf { it.isValid }
+                ?: displays.spawnItem(floor, ItemStack.of(TttItems.fishingCatchMaterial(catch))).also { ground.display = it }
+            display.itemDisplayTransform = ItemDisplay.ItemDisplayTransform.NONE
+            // Generated item caps sit at ±1/32 in NONE. Lay the broad face flat with its lower cap on the support.
+            display.transformation = Transformation(Vector3f(0f, scale / 32f, 0f),
+                Quaternionf().rotationX((Math.PI / 2).toFloat()), Vector3f(scale), Quaternionf())
+            check(display.isValid) { "Fishing pickup display could not be shown" }
+            val box = ground.hitbox?.takeIf(::isCurrentEntity) ?: catchBody?.hitbox?.takeIf(::isCurrentEntity)
+                ?: world.spawn(floor, Interaction::class.java) { it.isPersistent = false; tag(it) }
+            ground.hitbox = box
+            check(box.teleport(floor) && isCurrentEntity(box)) { "Fishing pickup hitbox could not be placed" }
+            box.interactionWidth = 1.15f
+            box.interactionHeight = 0.55f
+            box.isResponsive = true
+            box.persistentDataContainer.set(groundedKey, PersistentDataType.BYTE, 1.toByte())
+            catchBody?.mob?.remove()
+            catchBody = null
+            ground.reportedFailure = false
+        } catch (failure: Exception) {
+            if (!ground.reportedFailure) plugin.logger.log(java.util.logging.Level.WARNING,
+                "Could not present defeated catch for fishing match $matchIdString; will retry", failure)
+            ground.reportedFailure = true
+        }
+    }
+
+    private fun supportedFloor(drop: Location, scale: Float): Location? {
+        if (!inStageBounds(drop)) return null
+        val center = Location(world, drop.blockX + 0.5, drop.y + 0.5, drop.blockZ + 0.5)
+        val hit = world.rayTraceBlocks(center, Vector(0, -1, 0), 8.0, FluidCollisionMode.NEVER, true) ?: return null
+        val block = hit.hitBlock ?: return null
+        if (hit.hitBlockFace != BlockFace.UP || block.isLiquid) return null
+        val top = hit.hitPosition.y - block.y
+        val margin = (1.0 - scale) / 2.0
+        val shape = block.collisionShape.boundingBoxes
+        if (shape.none { abs(it.maxY - top) < 0.0001 && it.minX <= margin && it.maxX >= 1.0 - margin &&
+                it.minZ <= margin && it.maxZ >= 1.0 - margin } || shape.any { it.maxY > top + 0.0001 }) return null
+        return Location(world, center.x, hit.hitPosition.y, center.z)
+    }
+
+    private fun pickUpCatch(candidate: Player, ground: GroundedCatch) {
+        val next = progress.pickUpCatch()
+        if (next === progress) return
+        val catch = requireNotNull(next.carriedCatch)
+        try {
+            replaceCarriedCatch(candidate, next)
+        } catch (failure: Exception) {
+            plugin.logger.log(java.util.logging.Level.WARNING, "Could not give fishing catch for match $matchIdString", failure)
+            return
+        }
+        candidate.inventory.heldItemSlot = 4
+        ground.hitbox?.remove()
+        ground.display?.remove()
+        grounded = null
+        sendActionBar("fishing.picked-up", mapOf("species" to localized("fishing.species.${catch.species}")))
+    }
+
+    private fun replaceCarriedCatch(candidate: Player, next: FishingProgress) {
+        val id = carriedId + 1
+        val stack = next.carriedCatch?.let { items.fishingCarriedCatch(candidate, matchIdString, it, id) } ?: ItemStack.empty()
+        candidate.inventory.setItem(4, stack)
+        carriedId = id
+        progress = next
     }
 
     private fun transitionStage() {
@@ -1022,10 +1145,8 @@ class FishingAdventure(
         player.inventory.setItem(4, when {
             progress.encounter != null && progress.phase == FishingPhase.CAUGHT ->
                 items.fishingLiveCatch(player, matchIdString, localized("fishing.species.${progress.encounter!!.species}"))
-            progress.phase in setOf(FishingPhase.CREATURE, FishingPhase.BOSS) -> ItemStack.empty()
-            progress.bag.isNotEmpty() ->
-                items.fishingCatchBag(player, matchIdString, progress.bag.size,
-                    localized("fishing.species.${progress.bag.first().species}"), progress.bag.first().value)
+            progress.carriedCatch != null ->
+                items.fishingCarriedCatch(player, matchIdString, requireNotNull(progress.carriedCatch), carriedId)
             else -> ItemStack.empty()
         })
         player.inventory.setItem(8, items.fishingLedger(player, matchIdString))
@@ -1099,7 +1220,7 @@ class FishingAdventure(
 
     private fun enforceStageBounds() {
         val location = player.location
-        val inside = if (progress.phase == FishingPhase.CREATURE || progress.phase == FishingPhase.BOSS) {
+        val inside = if (progress.phase in setOf(FishingPhase.CREATURE, FishingPhase.BOSS, FishingPhase.GROUNDED)) {
             inStageBounds(location)
         } else {
             location.world.uid == world.uid && stage().containsShore(location.x, location.y, location.z)
@@ -1170,7 +1291,7 @@ class FishingAdventure(
     private fun cleanupEntities(stale: Boolean): CompletableFuture<Unit> {
         var markerFailure: Throwable? = null
         if (!stale) {
-            listOfNotNull(travelMarker, traderMarker).forEach { marker ->
+            listOfNotNull(travelMarker, traderMarker, grounded?.display).forEach { marker ->
                 runCatching(marker::remove).onFailure { problem ->
                     if (markerFailure == null) markerFailure = problem else markerFailure!!.addSuppressed(problem)
                 }
@@ -1182,6 +1303,7 @@ class FishingAdventure(
             hookId?.let { plugin.server.getEntity(it)?.let(::add) }
             fuses.keys.forEach { plugin.server.getEntity(it)?.let(::add) }
             traderNpc?.let(::add)
+            grounded?.hitbox?.let(::add)
             catchBody?.let { add(it.mob); add(it.hitbox) }
         }
         hookId = null
