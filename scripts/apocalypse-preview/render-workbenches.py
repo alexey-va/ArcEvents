@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render the same block models, poses and native backing used by the six expedition stations."""
+"""Render the block models, poses and native backing used by expedition workbenches."""
 import argparse
 import hashlib
 import json
@@ -22,7 +22,7 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     atelier = args.ops_root / 'scripts/location-atelier'
     camera = {'position': [1.08, 1.62, 2.18], 'target': [0, .93, .22], 'fovDegrees': 62}
-    titles = {'T1': 'Полевой телеграф', 'T2': 'Оружейный верстак', 'T3': 'Высокоточный оружейный верстак',
+    titles = {'CRAFTING': 'Верстак', 'T1': 'Полевой телеграф', 'T2': 'Оружейный верстак', 'T3': 'Высокоточный оружейный верстак',
               'AMMO': 'Снаряжение патронов', 'PRESS': 'Механический пресс', 'REFINERY': 'Переработчик Пустоты'}
     states = []
     for kind, parts in models.items():
@@ -30,6 +30,8 @@ def main():
             continue
         pieces = [dict(key='native-dropper', material='minecraft:dropper[facing=south]', x=0, y=.5, z=0,
                        width=1, height=1, depth=1)]
+        if kind == 'CRAFTING':
+            pieces[0].update(key='native-crafting-table', material='minecraft:crafting_table')
         for part in parts:
             x, y, z = (value / 16 for value in part['center'])
             width, height, depth = (value / 16 for value in part['size'])
@@ -40,17 +42,18 @@ def main():
     if not states:
         parser.error(f'Unknown station {args.station}')
     if not args.station:
-        # South-facing workbenches placed flush west-to-east. Apply the same cabinet boundary as the runtime.
+        # The six specialist cabinets placed flush west-to-east, with the same boundary as the runtime.
+        cabinets = [state for state in states if state['id'] != 'CRAFTING']
         row = []
-        for index, state in enumerate(states):
-            offset = index - (len(states) - 1) / 2
+        for index, state in enumerate(cabinets):
+            offset = index - (len(cabinets) - 1) / 2
             for original in state['pieces']:
                 piece = dict(original, key=state['id'] + '-' + original['key'])
                 if piece['y'] <= 16.5 / 16:
                     left, right = piece['x'] - piece['width'] / 2, piece['x'] + piece['width'] / 2
                     if index:
                         left = max(left, -.5)
-                    if index + 1 < len(states):
+                    if index + 1 < len(cabinets):
                         right = min(right, .5)
                     if left >= right:
                         continue

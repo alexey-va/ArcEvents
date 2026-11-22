@@ -41,7 +41,9 @@ import org.bukkit.persistence.PersistentDataType
 import org.bukkit.plugin.Plugin
 import ru.ruscrafting.events.domain.apocalypse.ApocalypsePoint
 import ru.ruscrafting.events.domain.apocalypse.source.ApocalypseWorkbenchStation
+import ru.ruscrafting.events.paper.EventWork
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
 import java.util.logging.Level
 
 /** Native block entities carry station identity; no coordinate registry survives a changed block. */
@@ -85,6 +87,27 @@ internal class ApocalypseWorkbenchStations(
             chunk.getTileEntities({ it.type == Material.DROPPER }, false).forEach { state ->
                 station(state)?.let { put(ApocalypsePoint(state.x, state.y, state.z), it) }
             }
+        }
+    }
+
+    /** Ordinary crafting tables have no block entity. Scan only a captured, palette-positive chunk off-thread. */
+    fun findCraftingTables(chunk: Chunk, work: EventWork): CompletableFuture<List<ApocalypsePoint>?> {
+        val bottom = chunk.world.minHeight
+        val top = chunk.world.maxHeight
+        val snapshot = chunk.getChunkSnapshot(false, false, false, false)
+        return work.compute<List<ApocalypsePoint>?> {
+            buildList {
+                for (base in bottom until top step 16) {
+                    if (snapshot.isSectionEmpty((base - bottom) shr 4)) continue
+                    for (y in base until minOf(base + 16, top)) for (z in 0..15) for (x in 0..15) {
+                        if (snapshot.getBlockType(x, y, z) == Material.CRAFTING_TABLE)
+                            add(ApocalypsePoint((snapshot.x shl 4) + x, y, (snapshot.z shl 4) + z))
+                    }
+                }
+            }
+        }.exceptionally { failure ->
+            plugin.logger.log(Level.WARNING, "Apocalypse crafting table scan failed in ${snapshot.worldName} chunk ${snapshot.x},${snapshot.z}", failure)
+            null
         }
     }
 

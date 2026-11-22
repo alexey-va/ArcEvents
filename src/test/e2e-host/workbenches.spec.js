@@ -104,8 +104,17 @@ const isTelegraph = item => item?.name === 'dropper' && pdc(item, 'apocalypse_so
 const isRevolver = item => pdc(item, 'apocalypse_source_item') === 'tacz:modern_kinetic_gun' &&
   pdc(item, 'apocalypse_source_gun') === 'bf1:sw_model3';
 const isSource = source => item => pdc(item, 'apocalypse_source_item') === source;
-const stationDisplays = player => Object.values(player.bot.entities).filter(entity => entity.name === 'block_display' &&
-  entity.position.distanceTo(BENCH.offset(.5, 0, .5)) < 1).map(entity => entity.id);
+const displaysAt = (player, position) => Object.values(player.bot.entities).filter(entity => entity.name === 'block_display' &&
+  entity.position.distanceTo(position.offset(.5, 0, .5)) < 1);
+const stationDisplays = player => displaysAt(player, BENCH).map(entity => entity.id);
+
+async function workbenchOutline(player, position) {
+  const fields = player.bot.registry.entitiesByName.block_display.metadataKeys;
+  return until(() => displaysAt(player, position).find(entity =>
+    (entity.metadata[fields.indexOf('shared_flags')] & 0x40) !== 0 &&
+    entity.metadata[fields.indexOf('glow_color_override')] === 0xffc055),
+  `The workbench at ${position} did not send a colored native glowing outline`);
+}
 
 async function nativeStationDisplays(player) {
   return until(() => {
@@ -260,10 +269,22 @@ test('Apocalypse native workbenches craft exact source items, persist the gun an
     assert.equal((await qa(admin)).generation, 'apocalypse-original-v1');
     await teleport(admin, player, STARTER_TABLE.offset(.5, 1, 2.5));
     await until(() => player.bot.blockAt(STARTER_TABLE)?.name === 'crafting_table', 'Source starter crafting table is missing at -1,34,37');
+    const starterOutline = await workbenchOutline(player, STARTER_TABLE);
     await preparePad(admin, player);
 
     await grant(admin, player, 'minecraft:copper_ingot', 9);
     await grant(admin, player, 'minecraft:crafting_table', 1);
+    await teleport(admin, player, BENCH.offset(.5, 0, 2.5));
+    await player.bot.equip(player.bot.inventory.items().find(item => item.name === 'crafting_table'), 'hand');
+    await player.bot.placeBlock(player.bot.blockAt(BENCH.offset(0, -1, 0)), new Vec3(0, 1, 0));
+    await until(() => player.bot.blockAt(BENCH)?.name === 'crafting_table', 'Player-placed crafting table did not arrive');
+    const placedOutline = await workbenchOutline(player, BENCH);
+    await player.bot.equip(player.bot.inventory.items().find(item => item.name === 'iron_axe'), 'hand');
+    await player.bot.dig(player.bot.blockAt(BENCH));
+    await until(() => !player.bot.entities[placedOutline.id], 'Breaking the crafting table left its outline behind');
+    await teleport(admin, player, BENCH.offset(.5, 0, .5));
+    await until(() => materialCount(player, 'crafting_table') === 1, 'Broken crafting table was not recovered');
+    await teleport(admin, player, STARTER_TABLE.offset(.5, 1, 2.5));
     let catalog = await openBench(player, dialogs, STARTER_TABLE, /Assembly bench/);
     await craftCopperBlock(player, catalog);
     catalog = await openBench(player, dialogs, STARTER_TABLE, /Assembly bench/);
@@ -277,6 +298,7 @@ test('Apocalypse native workbenches craft exact source items, persist the gun an
     await until(() => stationDisplays(player).length === 0, 'Previous disposable workstation displays did not clear');
     await placeStation(player);
     await nativeStationDisplays(player);
+    await workbenchOutline(player, BENCH);
     // Two gun batches leave enough input to detect a duplicated accepted callback.
     await grant(admin, player, 'minecraft:oak_log', 8);
     await grant(admin, player, 'minecraft:iron_ingot', 32);
@@ -292,6 +314,7 @@ test('Apocalypse native workbenches craft exact source items, persist the gun an
     const expedition = inventory(player);
     player.chat('/arcevents leave');
     await waitOrigin(player, admin, original);
+    await until(() => !player.bot.entities[starterOutline.id], 'The native starter workbench outline remained after leaving Apocalypse');
     player.chat('/arcevents apocalypse');
     await activePlayers(admin, 1);
     await until(() => inventory(player) === expedition, 'Leave/re-entry changed the crafted expedition inventory');

@@ -11,8 +11,8 @@ import kotlin.math.abs
 class ApocalypseWorkbenchDisplaysTest : StringSpec({
     "every specialist encloses the native clickable cube after all four placement rotations" {
         val models = ApocalypseWorkbenchDisplayPart.models
-        models.keys shouldBe (ApocalypseWorkbenchStation.entries - ApocalypseWorkbenchStation.CRAFTING).toSet()
-        for (parts in models.values) {
+        models.keys shouldBe ApocalypseWorkbenchStation.entries.toSet()
+        for (parts in models.filterKeys { it != ApocalypseWorkbenchStation.CRAFTING }.values) {
             parts.map { it.key }.distinct().size shouldBe parts.size
             val cabinet = parts.first()
             for (face in listOf(BlockFace.SOUTH, BlockFace.EAST, BlockFace.NORTH, BlockFace.WEST)) {
@@ -26,6 +26,18 @@ class ApocalypseWorkbenchDisplaysTest : StringSpec({
                 (clipped.minOf { it.x } < -.5f) shouldBe true
             }
         }
+    }
+
+    "the ordinary table has one inset outline and leaves all six native faces exposed" {
+        val outline = ApocalypseWorkbenchDisplayPart.models.getValue(ApocalypseWorkbenchStation.CRAFTING).single()
+        outline.block shouldBe "crafting_table"
+        val vertices = corners(requireNotNull(outline.transform(BlockFace.SOUTH)))
+        vertices.minOf { it.x } shouldBe -.49609375f
+        vertices.maxOf { it.x } shouldBe .49609375f
+        vertices.minOf { it.y } shouldBe .00390625f
+        vertices.maxOf { it.y } shouldBe .99609375f
+        vertices.minOf { it.z } shouldBe -.49609375f
+        vertices.maxOf { it.z } shouldBe .49609375f
     }
 
     "a front-mounted control follows the player-facing cabinet and gives way to an adjoining machine" {

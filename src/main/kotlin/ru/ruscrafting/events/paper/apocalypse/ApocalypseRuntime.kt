@@ -143,7 +143,7 @@ class ApocalypseRuntime(
     private val atmosphere = ApocalypseAtmosphere(plugin)
     private val sourceShapes = ApocalypseSourceShapeRepairs(plugin, work) { chunk -> !atmosphere.isPending(chunk) }
     private val workbenchDisplays = packetDisplays?.let { displays ->
-        ApocalypseWorkbenchDisplays(displays, workbenches) { ready && isPlaying(it.uniqueId) }
+        ApocalypseWorkbenchDisplays(displays, workbenches, work) { ready && isPlaying(it.uniqueId) }
     }
     private val sourceMining = ApocalypseSourceMining(plugin, work, chunkTickets, { world },
         active = { ready && isPlaying(it.uniqueId) && !isBusy(it.uniqueId) && !checkpointPending },

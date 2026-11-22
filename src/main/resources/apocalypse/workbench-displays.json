@@ -1,4 +1,7 @@
 {
+  "CRAFTING": [
+    {"key":"crafting-table-outline","block":"crafting_table","center":[0,8,0],"size":[15.875,15.875,15.875]}
+  ],
   "T1": [
     {"key":"field-crate","block":"barrel[facing=up]","center":[0,8,0],"size":[16.16,16.12,16.16]},
     {"key":"wooden-lid","block":"stripped_spruce_wood","center":[0,16.18,0],"size":[17.1,1.15,16.85]},

@@ -4,6 +4,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import org.bukkit.Bukkit
 import org.bukkit.Chunk
+import org.bukkit.Color
 import org.bukkit.Material
 import org.bukkit.World
 import org.bukkit.block.Block
@@ -28,17 +29,21 @@ import ru.arc.paper.display.PacketDisplayAudienceGroup
 import ru.arc.paper.display.PaperPacketDisplays
 import ru.ruscrafting.events.domain.apocalypse.ApocalypsePoint
 import ru.ruscrafting.events.domain.apocalypse.source.ApocalypseWorkbenchStation
+import ru.ruscrafting.events.paper.EventWork
+import java.util.concurrent.CompletableFuture
 
 /** The closed cabinets cover the real, clickable dropper. All tools and cabinetry are client-only. */
 internal class ApocalypseWorkbenchDisplays(
     private val displays: PaperPacketDisplays,
     private val stations: ApocalypseWorkbenchStations,
+    private val work: EventWork,
     private val active: (Player) -> Boolean,
 ) : Listener, AutoCloseable {
     private data class Scene(val type: ApocalypseWorkbenchStation, val facing: BlockFace, val headroom: Boolean,
                              val neighbors: Set<BlockFace>, val parts: List<PacketBlockDisplay>)
 
-    private val chunks = mutableMapOf<Long, Map<ApocalypsePoint, ApocalypseWorkbenchStation>>()
+    private class ChunkStations(val installed: Set<ApocalypsePoint>, var tables: CompletableFuture<List<ApocalypsePoint>?>? = null)
+    private val chunks = mutableMapOf<Long, ChunkStations>()
     private val scenes = mutableMapOf<ApocalypsePoint, Scene>()
     private val blockData = mutableMapOf<String, BlockData>()
     private var world: World? = null
@@ -63,6 +68,8 @@ internal class ApocalypseWorkbenchDisplays(
 
         val visited = mutableSetOf<Long>()
         val wanted = linkedSetOf<ApocalypsePoint>()
+        val craftingTable = blockData.getOrPut("crafting_table") { Material.CRAFTING_TABLE.createBlockData() }
+        var scans = 0
         for (viewer in viewers) {
             if (viewer.world != current) continue
             val at = viewer.location
@@ -72,8 +79,14 @@ internal class ApocalypseWorkbenchDisplays(
                     if (!current.isChunkLoaded(cx, cz)) continue
                     val chunkKey = Chunk.getChunkKey(cx, cz)
                     visited += chunkKey
-                    val points = chunks.getOrPut(chunkKey) { stations.loadedStations(current.getChunkAt(cx, cz)) }
-                    for (point in points.keys) {
+                    val chunk = current.getChunkAt(cx, cz)
+                    val entry = chunks.getOrPut(chunkKey) { ChunkStations(stations.loadedStations(chunk).keys) }
+                    val tables = entry.tables?.getNow(emptyList())
+                    if (tables == null && scans < TABLE_SCANS_PER_REFRESH && chunk.contains(craftingTable)) {
+                        entry.tables = stations.findCraftingTables(chunk, work)
+                        scans++
+                    }
+                    for (point in entry.installed.asSequence() + tables.orEmpty()) {
                         val dx = point.x + .5 - at.x
                         val dy = point.y - at.y
                         val dz = point.z + .5 - at.z
@@ -91,13 +104,14 @@ internal class ApocalypseWorkbenchDisplays(
         for (point in wanted) {
             val block = current.getBlockAt(point.x, point.y, point.z)
             val type = stations.stationAt(block)
-            if (type == null || type == ApocalypseWorkbenchStation.CRAFTING) {
+            if (type == null) {
+                chunks.remove(Chunk.getChunkKey(point.x shr 4, point.z shr 4))
                 remove(point)
                 continue
             }
             val facing = (block.blockData as? Directional)?.facing ?: BlockFace.SOUTH
-            val headroom = point.y + 1 < current.maxHeight && block.getRelative(BlockFace.UP).isPassable
-            val neighbors = CARDINALS.filterTo(mutableSetOf()) { side ->
+            val headroom = type == ApocalypseWorkbenchStation.CRAFTING || point.y + 1 < current.maxHeight && block.getRelative(BlockFace.UP).isPassable
+            val neighbors = if (type == ApocalypseWorkbenchStation.CRAFTING) emptySet() else CARDINALS.filterTo(mutableSetOf()) { side ->
                 val x = point.x + side.modX
                 val z = point.z + side.modZ
                 !current.isChunkLoaded(x shr 4, z shr 4) || current.getBlockAt(x, point.y, z).type.let {
@@ -121,6 +135,8 @@ internal class ApocalypseWorkbenchDisplays(
                     displays.spawnBlock(anchor, data).also(parts::add).apply {
                         audienceGroup = audience
                         transformation = pose
+                        isGlowing = true
+                        glowColorOverride = OUTLINE_COLOR
                         viewRange = (if (part.detail) DETAIL_RANGE else RANGE) / 64f
                         pauseWhenNotObserved = part.detail
                     }
@@ -141,7 +157,7 @@ internal class ApocalypseWorkbenchDisplays(
     fun onBreak(event: BlockBreakEvent) = invalidate(event.block)
 
     private fun invalidate(block: Block) {
-        if (block.world != world || block.type != Material.DROPPER) return
+        if (block.world != world || block.type != Material.DROPPER && block.type != Material.CRAFTING_TABLE) return
         chunks.remove(Chunk.getChunkKey(block.x shr 4, block.z shr 4))
         remove(ApocalypsePoint(block.x, block.y, block.z))
     }
@@ -172,6 +188,8 @@ internal class ApocalypseWorkbenchDisplays(
 
     private companion object {
         val CARDINALS = listOf(BlockFace.NORTH, BlockFace.EAST, BlockFace.SOUTH, BlockFace.WEST)
+        val OUTLINE_COLOR = Color.fromRGB(0xffc055)
+        const val TABLE_SCANS_PER_REFRESH = 2
         const val RANGE = 24
         const val DETAIL_RANGE = 12
         const val NEAREST_PER_VIEWER = 12
