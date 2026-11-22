@@ -99,7 +99,7 @@ class ArcEventsMenu(
 
     private val dialogs = ArcEventsDialogMenu(dialogRuntime, service, locale, settings,
         { player, view, slot -> dispatchClick(player, view, slot, nativePresentation = true) },
-        escapeCloses = escapeCloses, apocalypseSlot = { element(EventsView.Main, "apocalypse") },
+        escapeCloses = escapeCloses, mainSlot = { element(EventsView.Main, it) },
         openAdmin = { player -> adminDialog?.let { it.open(player); true } ?: false },
     )
     private val fishingTrader = FishingTraderDialog(dialogRuntime, service, locale, settings, escapeCloses)
@@ -308,7 +308,7 @@ class ArcEventsMenu(
         inventory.setItem(element(view, "statistics"), item(Material.WRITABLE_BOOK, player, "menu.main.stats-name", "menu.main.stats-lore"))
         inventory.setItem(element(view, "help"), item(Material.KNOWLEDGE_BOOK, player, "menu.main.help-name", "menu.main.help-lore"))
         if (player.hasPermission("arcevents.admin")) {
-            inventory.setItem(element(view, "admin"), item(Material.COMMAND_BLOCK, player, "menu.main.admin-name", "menu.main.admin-lore"))
+            inventory.setItem(element(view, "admin"), item(Material.COMMAND_BLOCK, player, "menu.main.admin-panel-name", "menu.main.admin-lore"))
         }
         show(player, view, inventory)
     }

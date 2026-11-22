@@ -22,9 +22,7 @@ import ru.ruscrafting.events.domain.EventMode
 internal const val MIN_DIALOG_PROTOCOL = 771 // Minecraft Java 1.21.6
 internal const val TTT_DIALOG_ID = "events.ttt"
 internal const val FISHING_DIALOG_ID = "events.fishing"
-internal const val FISHING_MAIN_SLOT = 13
 internal const val FISHING_PRIMARY_SLOT = 2
-internal const val ZOMBIES_MAIN_SLOT = 15
 internal const val ZOMBIES_SOLO_SLOT = 1000
 internal const val LEAVE_QUEUE_SLOT = 1001
 internal const val LEAVE_MATCH_SLOT = 1002
@@ -91,7 +89,7 @@ private val NATIVE_DESTINATIONS = mapOf(
     "apocalypse.menu-name" to NativeButtonRole.ACTIVITY_DESTINATION,
     "menu.main.stats-name" to NativeButtonRole.PERSONAL_DESTINATION,
     "menu.main.help-name" to NativeButtonRole.HELP_DESTINATION,
-    "menu.main.admin-name" to NativeButtonRole.ROOT_DESTINATION,
+    "menu.main.admin-panel-name" to NativeButtonRole.ROOT_DESTINATION,
     "menu.event.arena-name" to NativeButtonRole.PERSONAL_DESTINATION,
     "menu.event.roster-name" to NativeButtonRole.PLAYER_DESTINATION,
     "menu.event.shop-name" to NativeButtonRole.TRADE_DESTINATION,
@@ -125,7 +123,7 @@ internal class ArcEventsDialogMenu(
     private val dispatch: (Player, EventsView, Int) -> Unit,
     private val protocols: ClientProtocolResolver = ClientProtocolResolver(),
     private val escapeCloses: (Player) -> Boolean = { false },
-    private val apocalypseSlot: () -> Int = { 11 },
+    private val mainSlot: (String) -> Int,
     private val openAdmin: (Player) -> Boolean = { false },
     private val present: (Player, PaperDialogScreen, (() -> Unit)?, () -> Unit, Boolean) -> Unit =
         { target, model, reopen, dismissed, closeOnEscape -> runtime.open(target, model, reopen, dismissed, closeOnEscape) },
@@ -190,20 +188,27 @@ internal class ArcEventsDialogMenu(
 
     private fun main(player: Player): PaperDialogScreen {
         val state = service.snapshot()
+        fun entry(element: String, key: String, values: Map<String, Component> = emptyMap(), actionKey: String = key): PaperDialogButton {
+            val name = "$key-name"
+            return styledButton(player, name, "$key-lore", NATIVE_DESTINATIONS.getValue(name), actionId("$actionKey-name"), values, 200) { actor ->
+                if (element == "admin" && !actor.hasPermission("arcevents.admin")) open(actor, EventsView.Main)
+                else dispatch(actor, EventsView.Main, mainSlot(element))
+            }
+        }
         val actions = buildList {
-            add(button(player, "menu.main.ttt-name", "menu.main.ttt-lore", EventsView.Main, 4,
+            add(entry("ttt", "menu.main.ttt",
                 mapOf("queue" to locale.text(state.queueSize), "minimum" to locale.text(settings().ttt.minimumPlayers),
                     "arena_state" to locale.render(if (state.arenaReady) "state.arena-ready" else "state.arena-unavailable", player))))
-            add(button(player, "arcade.gungame-name", "arcade.gungame-lore", EventsView.Main, 2,
+            add(entry("gungame", "arcade.gungame",
                 mapOf("queue" to locale.text(state.queueSize), "minimum" to locale.text(settings().arcade.rules(EventMode.GUN_GAME).minimumPlayers))))
-            add(button(player, "arcade.disasters-name", "arcade.disasters-lore", EventsView.Main, 6,
+            add(entry("disasters", "arcade.disasters",
                 mapOf("queue" to locale.text(state.queueSize), "minimum" to locale.text(settings().arcade.rules(EventMode.DISASTERS).minimumPlayers))))
-            add(button(player, "arcade.fishing-name", "arcade.fishing-lore", EventsView.Main, FISHING_MAIN_SLOT))
-            add(button(player, "arcade.zombies-name", "arcade.zombies-lore", EventsView.Main, ZOMBIES_MAIN_SLOT))
-            add(button(player, "apocalypse.menu-name", "apocalypse.menu-lore", EventsView.Main, apocalypseSlot()))
-            add(button(player, "menu.main.stats-name", "menu.main.stats-lore", EventsView.Main, 18))
-            add(button(player, "menu.main.help-name", "menu.main.help-lore", EventsView.Main, 22))
-            if (player.hasPermission("arcevents.admin")) add(button(player, "menu.main.admin-name", "menu.main.admin-lore", EventsView.Main, 26))
+            add(entry("fishing", "arcade.fishing"))
+            add(entry("zombies", "arcade.zombies"))
+            add(entry("apocalypse", "apocalypse.menu"))
+            add(entry("statistics", "menu.main.stats"))
+            add(entry("help", "menu.main.help"))
+            if (player.hasPermission("arcevents.admin")) add(entry("admin", "menu.main.admin-panel", actionKey = "menu.main.admin"))
         }
         val modes = EventMode.entries.map(service::modeUnavailable)
         val availability = when {
@@ -503,13 +508,24 @@ internal class ArcEventsDialogMenu(
 
     private fun button(player: Player, nameKey: String, loreKey: String, view: EventsView, slot: Int, values: Map<String, Component> = emptyMap(), width: Int = 200): PaperDialogButton {
         val role = nativeRole(nameKey, slot)
-        return PaperDialogButton(PaperDialogActionId.of(if (slot < 0) if (role == NativeButtonRole.CLOSE) "close" else "back" else "action_" + nameKey.replace(Regex("[^a-z0-9_]"), "_").take(38)), nativeLabel(player, locale.render(nameKey, player, values), role),
+        val id = when (role) {
+            NativeButtonRole.BACK -> PaperDialogActionId.of("back")
+            NativeButtonRole.CLOSE -> PaperDialogActionId.of("close")
+            else -> actionId(nameKey)
+        }
+        return styledButton(player, nameKey, loreKey, role, id, values, width) { actor ->
+            if (slot >= 0 && role != NativeButtonRole.UNAVAILABLE) dispatch(actor, view, slot)
+        }
+    }
+
+    private fun actionId(nameKey: String) = PaperDialogActionId.of("action_" + nameKey.replace(Regex("[^a-z0-9_]"), "_").take(38))
+
+    private fun styledButton(player: Player, nameKey: String, loreKey: String, role: NativeButtonRole, id: PaperDialogActionId,
+                             values: Map<String, Component>, width: Int, click: (Player) -> Unit): PaperDialogButton =
+        PaperDialogButton(id, nativeLabel(player, locale.render(nameKey, player, values), role),
             tooltip = Component.join(JoinConfiguration.newlines(), nativeLore(loreKey, player, values)), width = width,
             closeDialogBeforeAction = role == NativeButtonRole.CLOSE,
-            onClick = PaperDialogClickHandler { context ->
-                if (slot >= 0 && role != NativeButtonRole.UNAVAILABLE && context.player.isOnline) dispatch(context.player, view, slot)
-            })
-    }
+            onClick = PaperDialogClickHandler { context -> if (context.player.isOnline) click(context.player) })
 
     private fun checkButton(player: Player, view: EventsView, entry: EventEntryStatus, checkEntry: () -> Unit): PaperDialogButton =
         button(player, "${entry.checkKey}-name", "${entry.checkKey}-lore", view, 0)

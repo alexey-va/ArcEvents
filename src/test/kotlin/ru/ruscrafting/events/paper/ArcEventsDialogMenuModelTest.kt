@@ -52,7 +52,11 @@ class ArcEventsDialogMenuModelTest : StringSpec({
             every { service.isParticipant(any()) } returns false
             every { service.currentMode() } returns null
             val displayed = mutableListOf<PaperDialogScreen>()
-            val menu = ArcEventsDialogMenu(mockk<PaperDialogRuntime>(), service, locale, { settings }, { _, _, _ -> }, ClientProtocolResolver { 771 }, { false }) { _, screen, _, _, _ -> displayed += screen }
+            val layouts = ArcEventsMenuLayouts(root)
+            val rootClicks = mutableListOf<Int>()
+            val menu = ArcEventsDialogMenu(mockk<PaperDialogRuntime>(), service, locale, { settings },
+                { _, view, slot -> if (view == EventsView.Main) rootClicks += slot }, ClientProtocolResolver { 771 }, { false },
+                mainSlot = { layouts.slot(EventsView.Main, it) }) { _, screen, _, _, _ -> displayed += screen }
 
             menu.open(player, EventsView.Main) shouldBe true
             menu.open(player, EventsView.Help) shouldBe true
@@ -105,6 +109,23 @@ class ArcEventsDialogMenuModelTest : StringSpec({
             displayed.last().buttons.first().id.value shouldBe "action_menu_event_check_route_name"
             displayed.last().buttons.first().onClick.handle(click)
             checks shouldBe 2
+
+            val rootButtons = displayed.first().buttons
+            val admin = rootButtons.single { it.id.value == "action_menu_main_admin_name" }
+            plain.serialize(admin.label) shouldBe "Админ-панель ›"
+            plain.serialize(admin.tooltip) shouldContain "Апокалипсиса"
+            val file = root.resolve("config.yml")
+            Files.writeString(file, Files.readString(file).replace("statistics: {slot: 18}", "statistics: {slot: 26}")
+                .replace("admin: {slot: 26}", "admin: {slot: 18}"))
+            layouts.replace(layouts.prepare(root))
+            admin.onClick.handle(click)
+            rootButtons.single { it.id.value == "action_menu_main_stats_name" }.onClick.handle(click)
+            rootClicks shouldBe listOf(18, 26)
+            every { player.hasPermission("arcevents.admin") } returns false
+            admin.onClick.handle(click)
+            rootClicks shouldBe listOf(18, 26)
+            displayed.last().id shouldBe "events.main"
+            displayed.last().buttons.map { it.id } shouldBe rootButtons.filterNot { it.id == admin.id }.map { it.id }
         } finally {
             root.toFile().deleteRecursively()
         }

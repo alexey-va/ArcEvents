@@ -41,6 +41,10 @@ menu:
     admin-name: <#ffffff>Administration
     admin-lore:
     - <#e8dfd2>Matches, maps and player recovery.
+    admin-panel-name: <#ffffff>Admin panel
+    admin-panel-lore:
+    - <#e8dfd2>Start matches, choose maps and configure weapons.
+    - <#e8dfd2>Run diagnostics, recover players and reset the Apocalypse world.
   event:
     title: '<#20252b>Hidden Roles'
     loading-name: <#ffb277>Queue

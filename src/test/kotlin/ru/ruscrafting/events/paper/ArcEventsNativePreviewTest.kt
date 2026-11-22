@@ -64,7 +64,8 @@ class ArcEventsNativePreviewTest : StringSpec({
             every { service.isParticipant(any()) } returns false
             var last: PaperDialogScreen? = null
             val menu = ArcEventsDialogMenu(mockk<PaperDialogRuntime>(), service, locale, { config }, { _, _, _ -> },
-                ClientProtocolResolver { MIN_DIALOG_PROTOCOL }, { false }) { _, screen, _, _, _ -> last = screen }
+                ClientProtocolResolver { MIN_DIALOG_PROTOCOL }, { false },
+                mainSlot = { error("Unexpected root click on $it during export") }) { _, screen, _, _, _ -> last = screen }
             val trader = FishingTraderDialog(mockk<PaperDialogRuntime>(), service, locale, { config }, { false })
             val supply = ZombiesSupplyDialog(mockk<PaperDialogRuntime>(), service, locale)
             val workbenchRuntime = mockk<PaperDialogRuntime>(relaxed = true)
@@ -195,6 +196,7 @@ class ArcEventsNativePreviewTest : StringSpec({
                     }
                 }
                 every { player.hasPermission("arcevents.admin") } returns true
+                menu.open(player, EventsView.Main); save("$language-root-admin")
                 val ready = EventEntryStatus(null)
                 for (mode in EventMode.entries) {
                     when (mode) {

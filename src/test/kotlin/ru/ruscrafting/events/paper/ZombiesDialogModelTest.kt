@@ -30,7 +30,8 @@ class ZombiesDialogModelTest : StringSpec({
             every { service.snapshot() } returns ServiceSnapshot("test", NodeMode.HOST, "test", true, true, true, null, 1, null, null, 0, 0, 0, 0, 0, 0)
             val displayed = mutableListOf<PaperDialogScreen>()
             val menu = ArcEventsDialogMenu(mockk<PaperDialogRuntime>(), service, locale, { settings }, { _, _, _ -> },
-                ClientProtocolResolver { MIN_DIALOG_PROTOCOL }, { false }) { _, screen, _, _, _ -> displayed += screen }
+                ClientProtocolResolver { MIN_DIALOG_PROTOCOL }, { false },
+                mainSlot = { error("Unexpected root click on $it in Zombies") }) { _, screen, _, _, _ -> displayed += screen }
             val plain = PlainTextComponentSerializer.plainText()
             for (language in listOf(Locale.forLanguageTag("ru"), Locale.US)) {
                 every { player.locale() } returns language
