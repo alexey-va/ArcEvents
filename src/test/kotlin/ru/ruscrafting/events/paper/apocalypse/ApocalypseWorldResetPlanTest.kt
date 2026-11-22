@@ -35,6 +35,10 @@ class ApocalypseWorldResetPlanTest : StringSpec({
             Files.createSymbolicLink(f.root.resolve(NEXT), f.root.resolve("missing"))
             Files.createDirectory(f.journals.resolve("world-$NEXT"))
             f.report() shouldContain "blockers=target_directory,target_checkpoint"
+            val myWorlds = Files.createDirectory(f.root.resolve("plugins/My_Worlds"))
+            Files.writeString(myWorlds.resolve("worlds.yml"), "$OLD:\n  loaded: true\n$NEXT:\n  loaded: false\n")
+            f.report() shouldContain "blockers=target_directory,target_checkpoint,target_registered,source_autoload"
+            Files.delete(myWorlds.resolve("worlds.yml"))
             Files.writeString(f.root.resolve("$OLD/.arcevents-template"), "other-generator")
             f.report() shouldContain "blockers=source_marker"
             Files.move(f.journals, f.root.resolve("elsewhere"))
@@ -86,11 +90,29 @@ class ApocalypseWorldResetPlanTest : StringSpec({
         verify(exactly = 0) { runtime.planWorldReset(any(), any()) }
         every { sender.hasPermission("arcevents.admin") } returns true
         every { runtime.planWorldReset(NEXT, any()) } answers { secondArg<(String) -> Unit>().invoke("plan") }
-        cmd.onTabComplete(sender, command, "events", arrayOf("admin", "apoc")) shouldBe listOf("apocalypse-reset-plan")
+        cmd.onTabComplete(sender, command, "events", arrayOf("admin", "apoc")) shouldBe
+            listOf("apocalypse-reset", "apocalypse-reset-plan")
         cmd.onCommand(sender, command, "events", args + "extra") shouldBe true
         verify(exactly = 0) { runtime.planWorldReset(any(), any()) }
         cmd.onCommand(sender, command, "events", args) shouldBe true
         verify(exactly = 1) { sender.sendMessage(Component.text("plan")) }
+        val reset = arrayOf("admin", "apocalypse-reset", NEXT)
+        cmd.onCommand(sender, command, "events", reset) shouldBe true
+        cmd.onCommand(sender, command, "events", reset + arrayOf("confirm", "extra")) shouldBe true
+        verify(exactly = 0) { runtime.queueWorldReset(any(), any(), any()) }
+        cmd.onTabComplete(sender, command, "events", reset + "con") shouldBe listOf("confirm")
+        lateinit var authorized: () -> Boolean
+        every { runtime.queueWorldReset(NEXT, any(), any()) } answers {
+            authorized = secondArg()
+            thirdArg<(String) -> Unit>()("queued")
+        }
+        cmd.onCommand(sender, command, "events", reset + "confirm") shouldBe true
+        authorized() shouldBe true
+        verify(exactly = 1) { sender.sendMessage(Component.text("queued")) }
+        every { sender.hasPermission("arcevents.admin") } returns false
+        authorized() shouldBe false
+        cmd.onCommand(sender, command, "events", reset + "confirm") shouldBe true
+        verify(exactly = 1) { runtime.queueWorldReset(any(), any(), any()) }
     }
 })
 
@@ -120,7 +142,7 @@ private class ResetFixture : AutoCloseable {
                 error("No native capture expected")
             override fun isCurrent() = true
         }).join()
-        return plan.report(occupants, online, busy, checkpoint, registered, changed)
+        return plan.readout(occupants, online, busy, checkpoint, registered, changed).message
     }
 
     override fun close() {

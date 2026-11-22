@@ -66,6 +66,23 @@ class ArcEventsMenu(
     private val selectedArenas = mutableMapOf<UUID, String>()
     private val dialogRuntime = PaperDialogRuntime(plugin)
     private var firearmSettings: FirearmSettingsDialog? = null
+    private var adminDialog: ArcEventsAdminDialog? = null
+
+    internal fun bindAdminDialog(command: ArcEventsCommand, apocalypse: ru.ruscrafting.events.paper.apocalypse.ApocalypseRuntime) {
+        adminDialog = ArcEventsAdminDialog(dialogRuntime, service, locale, settings, command, apocalypse,
+            tuneGun = { openFirearmSettings(it, admin = true, quiet = true) },
+            arenaName = ::arenaName, escapeCloses = escapeCloses)
+    }
+
+    internal fun openAdminReset(player: Player, target: String?) {
+        val admin = adminDialog
+        if (admin == null || !dialogFrontendSupported(settings().ui.dialogsEnabled, ClientProtocolResolver().resolve(player), EventsView.Admin)) {
+            player.sendEventMessage(locale.render("admin-dialog.reset-usage", player))
+            return
+        }
+        dialogRuntime.beginFlow(player)
+        admin.openReset(player, target)
+    }
 
     internal fun bindFirearmSettings(firearms: TttFirearms, world: WorldFirearms) {
         val protocols = ClientProtocolResolver()
@@ -83,6 +100,7 @@ class ArcEventsMenu(
     private val dialogs = ArcEventsDialogMenu(dialogRuntime, service, locale, settings,
         { player, view, slot -> dispatchClick(player, view, slot, nativePresentation = true) },
         escapeCloses = escapeCloses, apocalypseSlot = { element(EventsView.Main, "apocalypse") },
+        openAdmin = { player -> adminDialog?.let { it.open(player); true } ?: false },
     )
     private val fishingTrader = FishingTraderDialog(dialogRuntime, service, locale, settings, escapeCloses)
     private val zombiesSupply = ZombiesSupplyDialog(dialogRuntime, service, locale)

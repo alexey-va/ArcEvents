@@ -50,7 +50,7 @@ use the existing coordinated-restart replacement barrier. Administrator commands
 `/arcevents apocalypse locate [kind]`, `day <n>`; scoped QA reads use `qa` and
 `markers [kind]`. Debug-only `time <absolute ticks>` moves the world clock forward.
 The western waterfront leads from the bunker bridge to a freight pier. Existing expeditions and player-edited lots survive this map update.
-For a fresh Apocalypse world, run `/events admin apocalypse-reset-plan <new-world>` on the host.
+For a fresh Apocalypse world, open `/events admin` on Parkour and choose Apocalypse → World reset. Review the checks and confirm to stage the new world for the next Parkour restart.
 The [world rotation runbook](docs/apocalypse-world-reset.md) covers the Parkour switch, recovery checks and rollback.
 After a failed transition, `/arcevents apocalypse recover` retries the recorded return. The host parks the expedition before transferring the player. The original backend acknowledges arrival against the return ticket in Redis (`arc:events:apocalypse:returns:v1`). Update the host and relays together for end-to-end acknowledgement. Read the
 [reference and fidelity limits](docs/apocalypse-reference.md),

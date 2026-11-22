@@ -102,7 +102,7 @@ class ArcEventsCommand(
                     settings().eventControls.creatorControlsEnabled || sender.hasPermission("arcevents.start") || sender.hasPermission("arcevents.admin") -> EventMode.entries.map(EventMode::id)
                     else -> listOf(EventMode.FISHING.id)
                 }
-                "admin" -> listOf("status", "player", "network", "arenas", "arena", "recovery", "start", "stop", "reload", "recover", "sound", "guide", "apocalypse-reset-plan") +
+                "admin" -> listOf("status", "player", "network", "arenas", "arena", "recovery", "start", "stop", "reload", "recover", "sound", "guide", "apocalypse-reset-plan", "apocalypse-reset") +
                     if (sender is Player) listOf("menu", "weapons", "gun", "solo") else emptyList()
                 "burst" -> if (sender is Player) listOf("1", "3", "6", "full", "default", "menu") else emptyList()
                 "qa" -> listOf("status", "player", "network", "arenas", "recovery")
@@ -128,6 +128,7 @@ class ArcEventsCommand(
             if (args.size == 4 && action == "arena") return EventMode.entries.map(EventMode::id)
             if (args.size == 3 && action == "weapons" && sender is Player) return ADMIN_WEAPON_ACTIONS
             if (args.size == 3 && action == "sound") return ADMIN_SOUND_PRESETS
+            if (args.size == 4 && action == "apocalypse-reset") return listOf("confirm")
         }
         if (root != "debug") return emptyList()
         return when (args.size) {
@@ -171,8 +172,8 @@ class ArcEventsCommand(
         service.teamChat(player, args.joinToString(" "))
     }
 
-    private fun admin(sender: CommandSender, args: List<String>) {
-        if (!sender.hasPermission("arcevents.admin")) return deny(sender)
+    internal fun admin(sender: CommandSender, args: List<String>, reply: (Component) -> Unit = sender::sendEventMessage) {
+        if (!sender.hasPermission("arcevents.admin")) return reply(locale.render("command.no-permission", sender))
         if (args.isEmpty() || args[0].equals("menu", true)) {
             if (sender is Player) menu.openRoot(sender, EventsView.Admin) else sender.sendEventMessage(locale.render("command.help", sender))
             return
@@ -188,10 +189,23 @@ class ArcEventsCommand(
                         sender.sendEventMessage(Component.text(result))
                 }
             }
+            "apocalypse-reset" -> {
+                val target = args.getOrNull(1)
+                if (sender is Player && args.size <= 2) {
+                    menu.openAdminReset(sender, target)
+                    return
+                }
+                if (target == null || args.size != 3 || !args[2].equals("confirm", true)) {
+                    return reply(locale.render("admin-dialog.reset-usage", sender))
+                }
+                val owner = apocalypse ?: return reply(Component.text(ApocalypseWorldResetPlan.blocked("host_unavailable")))
+                val authorized = { sender.hasPermission("arcevents.admin") && (sender !is Player || sender.isOnline) }
+                owner.queueWorldReset(target, authorized) { result -> if (authorized()) reply(Component.text(result)) }
+            }
             "guide" -> {
                 val target = args.getOrNull(1)?.let(plugin.server::getPlayerExact)
                 val given = target != null && apocalypse?.giveGuide(target, hold = true) == true
-                sender.sendEventMessage(locale.render("apocalypse.guide." + if (given) "item-given" else "item-unavailable", sender))
+                reply(locale.render("apocalypse.guide." + if (given) "item-given" else "item-unavailable", sender))
             }
             "status" -> sender.sendEventMessage(Component.text(service.qaStatus()))
             "player" -> sender.sendEventMessage(Component.text(service.qaPlayer(args.getOrNull(1).orEmpty().take(16))))
@@ -202,12 +216,12 @@ class ArcEventsCommand(
                 val mode = parseMode(args.getOrNull(2)) ?: EventMode.TTT
                 val accepted = arena == "auto" || arena in service.selectableArenaIds(mode)
                 if (accepted) selectedAdminArenas[senderSelectionKey(sender)] = arena
-                sender.sendEventMessage(locale.render(if (accepted) "admin.arena-selected" else "admin.arena-selection-failed", sender, mapOf(
+                reply(locale.render(if (accepted) "admin.arena-selected" else "admin.arena-selection-failed", sender, mapOf(
                     "arena" to locale.text(arena),
                 )))
             }
-            "weapons" -> editWeaponPoints(sender, args.drop(1))
-            "sound" -> selectFirearmSound(sender, args.drop(1))
+            "weapons" -> editWeaponPoints(sender, args.drop(1), reply)
+            "sound" -> selectFirearmSound(sender, args.drop(1), reply)
             "recovery" -> sender.sendEventMessage(Component.text(service.qaRecovery()))
             "solo" -> {
                 val tester = player(sender) ?: return
@@ -234,14 +248,14 @@ class ArcEventsCommand(
                     sender.sendEventMessage(locale.render("admin.arena-selection-failed", sender, mapOf("arena" to locale.text(arena))))
                 } else sendStartResult(sender, StartMessageAudience.ADMIN, arena, mode)
             }
-            "stop" -> sender.sendEventMessage(locale.render(stopMessage(service.stopByAdmin()), sender))
-            "reload" -> sendReload(sender)
-            "recover" -> sender.sendEventMessage(locale.render("admin.recovery-started", sender, mapOf("players" to locale.text(service.retryRecovery()))))
+            "stop" -> reply(locale.render(stopMessage(service.stopByAdmin()), sender))
+            "reload" -> sendReload(sender, reply)
+            "recover" -> reply(locale.render("admin.recovery-started", sender, mapOf("players" to locale.text(service.retryRecovery()))))
             else -> sender.sendEventMessage(locale.render("command.help", sender))
         }
     }
 
-    private fun selectFirearmSound(sender: CommandSender, args: List<String>) {
+    private fun selectFirearmSound(sender: CommandSender, args: List<String>, reply: (Component) -> Unit) {
         val input = args.singleOrNull()?.lowercase()
         val preset = when (input) {
             "1", "sharp" -> FirearmSoundPreset.SHARP
@@ -251,13 +265,13 @@ class ArcEventsCommand(
             else -> null
         }
         if (preset == null) {
-            sender.sendEventMessage(locale.render("weapon.sound-usage", sender))
+            reply(locale.render("weapon.sound-usage", sender))
             return
         }
         service.selectFirearmSound(preset).whenComplete { selected, failure ->
             if (plugin.isEnabled) Tasks.scheduler.runSync {
                 if (!plugin.isEnabled) return@runSync
-                sender.sendEventMessage(if (failure != null || selected == null) {
+                reply(if (failure != null || selected == null) {
                     locale.render("command.failed", sender, mapOf("reason" to locale.render("reason.network", sender)))
                 } else locale.render("weapon.sound-selection", sender,
                     mapOf("preset" to locale.render("weapon.sound-preset-${selected.name.lowercase()}", sender))))
@@ -265,13 +279,13 @@ class ArcEventsCommand(
         }
     }
 
-    private fun sendReload(sender: CommandSender) {
+    private fun sendReload(sender: CommandSender, reply: (Component) -> Unit = sender::sendEventMessage) {
         if (!sender.hasPermission("arcevents.admin")) return deny(sender)
         reload().whenComplete { outcome, failure ->
             if (plugin.isEnabled) Tasks.scheduler.runSync {
                 if (!plugin.isEnabled) return@runSync
                 val result = outcome ?: Result.failure(failure ?: IllegalStateException("Reload failed"))
-                sender.sendEventMessage(locale.render(if (result.isSuccess) "command.reload-ok" else "command.reload-failed", sender, mapOf(
+                reply(locale.render(if (result.isSuccess) "command.reload-ok" else "command.reload-failed", sender, mapOf(
                     "reason" to locale.text(result.exceptionOrNull()?.message ?: "unknown"),
                 )))
             }
@@ -458,14 +472,14 @@ class ArcEventsCommand(
             .forEach { sender.sendEventMessage(Component.text(it)) }
     }
 
-    private fun editWeaponPoints(sender: CommandSender, args: List<String>) {
+    private fun editWeaponPoints(sender: CommandSender, args: List<String>, reply: (Component) -> Unit) {
         val player = player(sender) ?: return
         val operation = when (args.firstOrNull()?.lowercase()) {
             "add" -> weaponPoints.addAsync(player)
             "remove" -> weaponPoints.removeAsync(player)
             "show" -> java.util.concurrent.CompletableFuture.completedFuture(weaponPoints.show(player))
             else -> {
-                sender.sendEventMessage(locale.render("admin.weapon-points.usage", sender))
+                reply(locale.render("admin.weapon-points.usage", sender))
                 return
             }
         }
@@ -473,14 +487,12 @@ class ArcEventsCommand(
             if (plugin.isEnabled) Tasks.scheduler.runSync {
                 if (!plugin.isEnabled || !player.isOnline) return@runSync
                 val feedback = value ?: ArenaWeaponPointFeedback(ArenaWeaponPointAdminResult.STORAGE_UNAVAILABLE)
-                sender.sendEventMessage(locale.render(
-            weaponPointMessage(feedback.result),
-            sender,
-            mapOf(
-                "arena" to locale.text(feedback.arenaId ?: "-"),
-                "count" to locale.text(feedback.count),
-                "target" to locale.text(feedback.target),
-            ),
+                reply(locale.render(
+                    weaponPointMessage(feedback.result), sender, mapOf(
+                        "arena" to locale.text(feedback.arenaId ?: "-"),
+                        "count" to locale.text(feedback.count),
+                        "target" to locale.text(feedback.target),
+                    ),
                 ))
             }
         }
@@ -527,6 +539,7 @@ class ArcEventsCommand(
     }.distinct()
     private fun senderSelectionKey(sender: CommandSender): String = (sender as? Player)?.uniqueId?.toString()
         ?: "console:${sender.name.lowercase()}"
+    internal fun selectedAdminArena(player: Player): String = selectedAdminArenas[senderSelectionKey(player)] ?: "auto"
     private fun servicePlayer(name: String): Player? = plugin.server.getPlayerExact(name)
     private fun parseMode(raw: String?): EventMode? = raw?.lowercase()?.let(EventMode::fromId)
 

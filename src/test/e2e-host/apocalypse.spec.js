@@ -182,6 +182,48 @@ function apocClick(player,screen,id) {
   assert.equal(wire.subarray(-2).toString('hex'),'0100');
   player.bot._client.write('custom_click_action',params);
 }
+
+test('Apocalypse admin dialog previews a world reset without scheduling it', async ({player}) => {
+  await ready();
+  await player.makeOp();
+  const dialogs = watchApocalypseDialogs(player);
+  const config = new URL('../../../build/plugwright-host/plugins/ArcEvents/apocalypse.yml', import.meta.url);
+  const original = await readFile(config, 'utf8');
+  async function next(action, id) {
+    const since = dialogs.screens.length;
+    action();
+    return until(() => dialogs.screens.slice(since).findLast(screen => apocButton(screen, id)),
+      `Admin dialog did not expose ${id}`);
+  }
+  try {
+    const home = await next(() => player.chat('/events admin'), 'matches');
+    const expedition = await next(() => apocClick(player, home, 'apocalypse'), 'reset');
+    const form = await next(() => apocClick(player, expedition, 'reset'), 'preview');
+    const field = form.inputs?.find(input => input.key === 'value');
+    assert.match(field?.initial ?? '', /^arcevents_apocalypse_[0-9_]+$/);
+    const target = 'arcevents_admin_dialog_smoke';
+    const id = apocButton(form, 'preview').action.id;
+    const client = player.bot._client;
+    // The fixture serializer encodes optional NBT with a boolean. Paper 1.21.11 uses a byte count.
+    // Keep its packet ID and resource key, then append the real native form response.
+    const withoutInput = client.serializer.createPacketBuffer({name: 'custom_click_action', params: {id}});
+    assert.equal(withoutInput.at(-1), 0);
+    const data = nbt.proto.createPacketBuffer('anonymousNbt', {type: 'compound', value: {
+      [field.key]: {type: 'string', value: target},
+    }});
+    assert.ok(data.length > 0 && data.length < 128);
+    const preview = await next(() => client.writeRaw(Buffer.concat([
+      withoutInput.subarray(0, -1), Buffer.from([data.length]), data,
+    ])), 'queue_reset');
+    assert.ok(JSON.stringify(preview.body).includes(target));
+    assert.ok(!apocButton(form, 'queue_reset'), 'The unchecked form offered a world reset');
+    const edited = await next(() => apocClick(player, preview, 'edit'), 'preview');
+    assert.equal(edited.inputs.find(input => input.key === field.key)?.initial, target);
+    assert.equal(await readFile(config, 'utf8'), original, 'Preview or editing scheduled a reset');
+  } finally {
+    dialogs.stop();
+  }
+});
 async function sourceMarkers(admin,kind) {
   const since=admin.getMessageBufferIndex();admin.chat(`/arcevents apocalypse markers ${kind}`);
   await expect(admin).toHaveReceivedMessage(/^ARCEVENTS_APOCALYPSE_MARKER /,{since,timeout:20000});

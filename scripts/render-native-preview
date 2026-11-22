@@ -62,7 +62,7 @@ def main():
     content = json.loads(export.read_text())
     sources = [ROOT / 'src/main/resources/lang' / f'{language}.yml' for language in ('ru', 'en')]
     sources += [ROOT / 'src/main/kotlin/ru/ruscrafting/events/paper' / name for name in
-                ('ArcEventsDialogMenu.kt', 'FishingTraderDialog.kt', 'ZombiesSupplyDialog.kt')]
+                ('ArcEventsDialogMenu.kt', 'ArcEventsAdminDialog.kt', 'FishingTraderDialog.kt', 'ZombiesSupplyDialog.kt')]
     sources += [ROOT / 'src/main/kotlin/ru/ruscrafting/events/paper/apocalypse' / name for name in
                 ('ApocalypseGuide.kt', 'ApocalypseWorkbenchMenu.kt')]
     sources.append(ROOT / 'src/main/resources/apocalypse/workbench-recipes.json')

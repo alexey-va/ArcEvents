@@ -332,6 +332,7 @@ open class ArcEventsPlugin : JavaPlugin() {
                 escapeCloses = { player -> server.servicesManager.load(LuckPerms::class.java)?.userManager?.getUser(player.uniqueId)?.cachedData?.metaData?.getMetaValue("arc-menu-escape")?.equals("close", true) == true })
             lifecycle.own(menu)
             val command = ArcEventsCommand(this, activeService, menu, weaponPointEditor, locale, { settings }, ::reloadPlugin, apocalypseRuntime)
+            menu.bindAdminDialog(command, apocalypseRuntime)
             requireNotNull(getCommand("arcevents")).apply {
                 setExecutor(command)
                 tabCompleter = command

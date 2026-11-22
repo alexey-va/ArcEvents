@@ -7,6 +7,7 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.mockk.every
 import io.mockk.mockk
+import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.serializer.gson.GsonComponentSerializer
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
@@ -36,6 +37,7 @@ import ru.ruscrafting.events.paper.apocalypse.ApocalypseWorkbenchCraftResult
 import ru.ruscrafting.events.paper.apocalypse.ApocalypseWorkbenchMenu
 import ru.ruscrafting.events.paper.apocalypse.ApocalypseGuide
 import ru.ruscrafting.events.paper.apocalypse.ApocalypseGuideSnapshot
+import ru.ruscrafting.events.paper.apocalypse.ApocalypseRuntime
 import ru.ruscrafting.events.paper.apocalypse.GuideRoute
 import ru.ruscrafting.events.paper.apocalypse.GuideTarget
 import ru.ruscrafting.events.domain.apocalypse.ApocalypseInfectionStage
@@ -86,6 +88,13 @@ class ArcEventsNativePreviewTest : StringSpec({
             every { player.inventory.storageContents } returns arrayOfNulls<ItemStack>(36)
             val workbench = ApocalypseWorkbenchMenu(mockk(), locale, schematics, crafting, workbenchRuntime) { true }
             val guide = ApocalypseGuide(plugin, locale, {}, { _, _ -> }, {}, dialogs = workbenchRuntime)
+            val expedition = mockk<ApocalypseRuntime>(relaxed = true)
+            val adminConfig = mockk<ArcEventsConfig> {
+                every { nodeMode } returns NodeMode.HOST
+                every { hostServer } returns "parkour"
+            }
+            val administration = ArcEventsAdminDialog(workbenchRuntime, service, locale, { adminConfig }, mockk(),
+                expedition, { false }, { id, _ -> Component.text(id) }, { false })
             val routes = ApocalypseGuideSnapshot(7, 10, ApocalypseInfectionStage.HEALTHY, false, 0, false,
                 listOf(GuideRoute(ApocalypsePoint(12, 37, -11), true)), GuideRoute(ApocalypsePoint(3, 72, 3)),
                 GuideRoute(ApocalypsePoint(-193, 78, 213)), GuideRoute(ApocalypsePoint(478, 48, -376)), GuideTarget.CITY,
@@ -206,6 +215,17 @@ class ArcEventsNativePreviewTest : StringSpec({
                 }
                 menu.open(player, EventsView.Apocalypse); save("$language-apocalypse-admin")
                 last!!.buttons.map { it.id.value } shouldBe listOf("action_apocalypse_test_name", "rules_apocalypse")
+                every { player.hasPermission("arcevents.play") } returns true
+                administration.open(player); save("$language-admin-home")
+                val target = "arcevents_apocalypse_20261122_154200"
+                every { click.text(any()) } returns target
+                every { expedition.planWorldReset(target, any()) } answers {
+                    secondArg<(String) -> Unit>()("ARCEVENTS_APOCALYPSE_RESET_PLAN arc_ready=true current=arcevents_apocalypse_v2 target=$target blockers=-")
+                }
+                administration.openReset(player, target)
+                last!!.buttons.single().onClick.handle(click)
+                last!!.buttons.map { it.id.value } shouldBe listOf("queue_reset", "edit")
+                save("$language-admin-reset-preview")
             }
             val output = Path.of("build/reports/native-ui/content.json")
             Files.createDirectories(output.parent)

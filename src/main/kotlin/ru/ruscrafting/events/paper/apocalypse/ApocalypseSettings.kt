@@ -1,7 +1,9 @@
 package ru.ruscrafting.events.paper.apocalypse
 
 import org.bukkit.configuration.file.YamlConfiguration
+import ru.arc.persistence.AtomicFileStore
 import java.io.File
+import java.nio.file.Path
 
 data class ApocalypseSettings(
     val world: String,
@@ -18,8 +20,9 @@ data class ApocalypseSettings(
     val ammoMaximum: Int,
 ) {
     companion object {
-        fun load(file: File): ApocalypseSettings {
-            val c = YamlConfiguration.loadConfiguration(file)
+        fun load(file: File): ApocalypseSettings = parse(YamlConfiguration.loadConfiguration(file))
+
+        private fun parse(c: YamlConfiguration): ApocalypseSettings {
             val world = c.getString("world", "arcevents_apocalypse_v2")!!.let {
                 // The prototype world's chunks and player data are preserved, never overwritten by a new generator.
                 if (it == "arcevents_apocalypse_v1") "arcevents_apocalypse_v2" else it
@@ -36,6 +39,25 @@ data class ApocalypseSettings(
                 require(it.maximumEnemies in 8..256)
                 require(it.infectionChance in 0.0..1.0 && it.infectionStage in 200..72000 && it.immunity in 200..72000)
                 require(it.ammoMinimum in 1..64 && it.ammoMaximum in it.ammoMinimum..64)
+            }
+        }
+
+        internal fun stageWorldReset(root: Path, current: ApocalypseSettings, target: String, log: (Throwable) -> Unit): String? {
+            check(ApocalypseWorldResetPlan.targetProblem(current.world, target) == null)
+            val store = AtomicFileStore(root, Path.of("apocalypse.yml"), 64 * 1024L,
+                { yaml: YamlConfiguration -> yaml.saveToString().toByteArray(Charsets.UTF_8) },
+                { bytes -> YamlConfiguration().apply { loadFromString(bytes.toString(Charsets.UTF_8)) } })
+            val yaml = store.loadOrNull() ?: return "settings_changed"
+            val before = parse(yaml)
+            if (before.world != current.world || before.seed != current.seed) return "settings_changed"
+            yaml.set("world", target)
+            return try {
+                check(parse(store.write(yaml)) == before.copy(world = target))
+                null
+            } catch (failure: Exception) {
+                log(failure)
+                val restored = runCatching { store.loadOrNull()?.let(::parse) == before }.getOrDefault(false)
+                if (restored) "write_failed" else "commit_unknown"
             }
         }
     }

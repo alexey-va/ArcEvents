@@ -98,7 +98,6 @@ private val NATIVE_DESTINATIONS = mapOf(
     "menu.event.report-name" to NativeButtonRole.PERSONAL_DESTINATION,
     "menu.report.combat-name" to NativeButtonRole.PERSONAL_DESTINATION,
     "menu.event.help-name" to NativeButtonRole.HELP_DESTINATION,
-    "menu.admin.arenas-name" to NativeButtonRole.PERSONAL_DESTINATION,
 )
 
 private val NATIVE_TITLE_COLORS = mapOf(
@@ -106,7 +105,6 @@ private val NATIVE_TITLE_COLORS = mapOf(
     "menu.stats.title" to VIOLET_COLOR,
     "menu.report.title" to VIOLET_COLOR,
     "menu.help.title" to CYAN_COLOR,
-    "menu.admin.title" to WHITE_COLOR,
 )
 
 private val INVENTORY_ACTION_FOOTER = Regex("^\\s*\\[\\s*▶\\s*]\\s*(?:Нажмите|Click)(?=\\s|[.,!]|$)", RegexOption.IGNORE_CASE)
@@ -128,19 +126,19 @@ internal class ArcEventsDialogMenu(
     private val protocols: ClientProtocolResolver = ClientProtocolResolver(),
     private val escapeCloses: (Player) -> Boolean = { false },
     private val apocalypseSlot: () -> Int = { 11 },
+    private val openAdmin: (Player) -> Boolean = { false },
     private val present: (Player, PaperDialogScreen, (() -> Unit)?, () -> Unit, Boolean) -> Unit =
         { target, model, reopen, dismissed, closeOnEscape -> runtime.open(target, model, reopen, dismissed, closeOnEscape) },
 ) {
     fun open(player: Player, view: EventsView): Boolean {
         if (!settings().ui.dialogsEnabled || !dialogFrontendSupported(true, protocols.resolve(player), view)) return false
-        if (view == EventsView.Admin && !player.hasPermission("arcevents.admin")) return true
+        if (view == EventsView.Admin) return !player.hasPermission("arcevents.admin") || openAdmin(player)
         val screen = when (view) {
             EventsView.Main -> main(player)
             EventsView.Help -> help(player)
             EventsView.EventHelp -> { openRules(player, EventMode.TTT); return true }
             EventsView.Statistics -> statistics(player)
             EventsView.Apocalypse -> apocalypse(player)
-            EventsView.Admin -> admin(player)
             else -> return false
         }
         show(player, view, screen)
@@ -438,18 +436,6 @@ internal class ArcEventsDialogMenu(
             })))), headers = null, width = 340,
             columnWeights = listOf(1), skin = skin)
 
-    private fun admin(player: Player): PaperDialogScreen {
-        val state = service.snapshot()
-        return screen(player, "menu.admin.title", listOf(body(player, "menu.admin.status-name", "menu.admin.status-lore", mapOf(
-            "phase" to locale.render("phase.${state.phase?.name?.lowercase() ?: "idle"}", player), "match" to locale.text(state.matchId?.toString()?.take(8) ?: "—"),
-            "queue" to locale.text(state.queueSize), "recovery" to locale.text(state.recoveryPending), "server" to locale.text(state.serverId),
-            "node_mode" to locale.render("state.mode-${state.nodeMode.name.lowercase()}", player), "host" to locale.text(state.hostServer),
-            "network_state" to locale.render(if (state.hostAvailable) "state.network-ready" else "state.network-degraded", player)))),
-            listOf(button(player, "menu.admin.arenas-name", "menu.admin.arenas-lore", EventsView.Admin, 20), button(player, "menu.admin.start-name", "menu.admin.start-lore", EventsView.Admin, 29),
-                button(player, "menu.admin.stop-name", "menu.admin.stop-lore", EventsView.Admin, 31), button(player, "menu.admin.reload-name", "menu.admin.reload-lore", EventsView.Admin, 33),
-                button(player, "menu.admin.recover-name", "menu.admin.recover-lore", EventsView.Admin, 40)), 2, "events.admin")
-    }
-
     private fun screen(player: Player, titleKey: String, bodies: List<PaperDialogBody>, buttons: List<PaperDialogButton>, columns: Int, id: String): PaperDialogScreen {
         val closes = id == "events.main" || escapeCloses(player)
         val title = locale.render(titleKey, player)
@@ -466,7 +452,6 @@ internal class ArcEventsDialogMenu(
             "menu.main.title", "menu.event.overview-name" -> DialogTables.filledBody(
                 rows = listOf(listOf(content)), headers = null, width = 400, columnWeights = listOf(1))
             "menu.stats.summary-name" -> DialogTables.filledBody(listOf(listOf(content)), null, 320, listOf(1), DialogTables.PanelSkin.PLUM)
-            "menu.admin.status-name" -> DialogTables.filledBody(listOf(listOf(content)), null, 340, listOf(1), DialogTables.PanelSkin.NAVY)
             "arcade.fishing-guide-name" -> DialogTables.framedBody(content, frame = DialogTables.Frame.UNCOMMON, width = 400)
             else -> PaperDialogBody(content, 468)
         }

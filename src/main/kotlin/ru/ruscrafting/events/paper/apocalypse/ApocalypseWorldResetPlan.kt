@@ -2,6 +2,7 @@ package ru.ruscrafting.events.paper.apocalypse
 
 import ru.arc.paper.playerstate.PaperLocationSnapshot
 import ru.arc.paper.playerstate.PaperPlayerStateCodec
+import org.bukkit.configuration.file.YamlConfiguration
 import ru.ruscrafting.events.paper.EventWork
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
@@ -26,7 +27,7 @@ internal class ApocalypseWorldResetPlan(
     /** Only one origin envelope is prepared and bound at a time. Native item binding uses Paper's budgeted queue. */
     fun inspect(worlds: Path, pluginRoot: Path, work: EventWork): CompletableFuture<Unit> {
         check(targetProblem(current, target) == null)
-        var inspected = work.compute { inspectPaths(worlds, pluginRoot) }
+        var inspected = work.compute { pathProblems.addAll(inspectPaths(worlds, pluginRoot)); Unit }
         val codec = PaperPlayerStateCodec()
         for (record in records) {
             val envelope = record.origin ?: continue
@@ -54,22 +55,30 @@ internal class ApocalypseWorldResetPlan(
         return inspected
     }
 
-    private fun inspectPaths(worlds: Path, pluginRoot: Path) {
+    fun inspectPaths(worlds: Path, pluginRoot: Path): List<String> = buildList {
         val source = worlds.resolve(current)
         val journalRoot = pluginRoot.resolve("data/apocalypse")
         if (listOf(worlds, source, pluginRoot, pluginRoot.resolve("data"), journalRoot)
                 .any { !Files.isDirectory(it, NOFOLLOW_LINKS) }) {
-            pathProblems += "unsafe_directory"
-            return
+            add("unsafe_directory")
+            return@buildList
         }
         val marker = source.resolve(".arcevents-template")
         if (!Files.isRegularFile(marker, NOFOLLOW_LINKS) || Files.newInputStream(marker, NOFOLLOW_LINKS).use {
                 val bytes = it.readNBytes(129)
                 bytes.size > 128 || bytes.toString(Charsets.UTF_8).trim() != "${ApocalypseOriginalGenerator.TEMPLATE}:$seed"
-            }) pathProblems += "source_marker"
+            }) add("source_marker")
         // notExists also refuses an inaccessible path and treats dangling links as existing entries.
-        if (!Files.notExists(worlds.resolve(target), NOFOLLOW_LINKS)) pathProblems += "target_directory"
-        if (!Files.notExists(journalRoot.resolve("world-$target"), NOFOLLOW_LINKS)) pathProblems += "target_checkpoint"
+        if (!Files.notExists(worlds.resolve(target), NOFOLLOW_LINKS)) add("target_directory")
+        if (!Files.notExists(journalRoot.resolve("world-$target"), NOFOLLOW_LINKS)) add("target_checkpoint")
+        val registry = pluginRoot.resolveSibling("My_Worlds").resolve("worlds.yml")
+        if (!Files.notExists(registry, NOFOLLOW_LINKS)) {
+            require(Files.isRegularFile(registry, NOFOLLOW_LINKS) && Files.size(registry) <= 4 * 1024 * 1024)
+            val storedWorlds = YamlConfiguration().apply { load(registry.toFile()) }
+            if (storedWorlds.getKeys(false).any { it.equals(target, true) }) add("target_registered")
+            if (storedWorlds.getKeys(false).any { it.equals(current, true) && storedWorlds.getBoolean("$it.loaded", true) })
+                add("source_autoload")
+        }
     }
 
     private fun PaperLocationSnapshot.referencesCurrent() = worldId == this@ApocalypseWorldResetPlan.worldId || worldName == current
@@ -78,7 +87,7 @@ internal class ApocalypseWorldResetPlan(
         if (affected.size < 5) affected += id
     }
 
-    fun report(occupants: Int, onlineActive: Int, busy: Int, checkpointPending: Boolean, targetRegistered: Boolean, changed: Boolean): String {
+    fun readout(occupants: Int, onlineActive: Int, busy: Int, checkpointPending: Boolean, targetRegistered: Boolean, changed: Boolean): Readout {
         val blockers = buildList {
             addAll(pathProblems)
             if (originLocations > 0 || originCompasses > 0) add("origin_references_world")
@@ -90,12 +99,15 @@ internal class ApocalypseWorldResetPlan(
         }
         val active = records.count { it.phase == ApocalypsePlayerPhase.ACTIVE }
         val returning = records.count { it.phase == ApocalypsePlayerPhase.RETURNING }
-        return "$PREFIX arc_ready=${blockers.isEmpty()} current=$current target=$target seed=$seed" +
+        val message = "$PREFIX arc_ready=${blockers.isEmpty()} current=$current target=$target seed=$seed" +
             " occupants=$occupants online_active=$onlineActive busy=$busy checkpoint_pending=$checkpointPending" +
             " active_records=$active returning_records=$returning pending_returns=${records.count { it.returnPending }}" +
             " origin_locations=$originLocations origin_compasses=$originCompasses unreadable_origins=$unreadableOrigins" +
-            " affected_sample=${affected.joinToString(",").ifEmpty { "-" }} blockers=${blockers.joinToString(",").ifEmpty { "-" }}"
+            " affected_sample=${affected.joinToString(",").ifEmpty { "-" }} blockers=${blockers.distinct().joinToString(",").ifEmpty { "-" }}"
+        return Readout(blockers.isEmpty(), message)
     }
+
+    data class Readout(val ready: Boolean, val message: String)
 
     companion object {
         private const val PREFIX = "ARCEVENTS_APOCALYPSE_RESET_PLAN"
@@ -109,5 +121,8 @@ internal class ApocalypseWorldResetPlan(
         }
 
         fun blocked(reason: String) = "$PREFIX arc_ready=false blockers=$reason"
+
+        fun blocked(reason: String, current: String, target: String) =
+            "$PREFIX arc_ready=false current=$current target=$target blockers=$reason"
     }
 }

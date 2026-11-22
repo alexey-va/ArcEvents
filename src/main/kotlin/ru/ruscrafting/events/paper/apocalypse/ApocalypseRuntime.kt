@@ -169,13 +169,14 @@ class ApocalypseRuntime(
     private var checkpointPending = false
     private var checkpointQueued = false
     private var inspectingWorldReset = false
+    private var resetTarget: String? = null
     private val checkpointWrites = ApocalypseCheckpointWrites(work, { retry -> tasks.runLater(100) { retry() } }) { failure ->
         if (failure != null) log("world-checkpoint", failure) else plugin.logger.info("ArcEvents apocalypse world checkpoint recovered")
     }
     private var saving = CompletableFuture.completedFuture(Unit)
     var closeCompletion: CompletableFuture<Unit> = CompletableFuture.completedFuture(Unit)
         private set
-    val ready: Boolean get() = opened && !checkpointWrites.failed && (!host || world != null)
+    val ready: Boolean get() = opened && !checkpointWrites.failed && resetTarget == null && (!host || world != null)
     fun isPlaying(id: UUID): Boolean = id in active
     fun isBusy(id: UUID): Boolean = id in busy
     fun allowsRecoveryCommand(player: Player, command: String): Boolean {
@@ -445,15 +446,24 @@ class ApocalypseRuntime(
     }
 
     /** Admin diagnostic. Source records remain under the HOST's normal recovery lifecycle. */
-    fun planWorldReset(target: String, reply: (String) -> Unit) {
+    fun planWorldReset(target: String, reply: (String) -> Unit) = inspectWorldReset(target, null, reply)
+
+    /** Stage a new generation for the normal server restart, retaining the old generation and player records. */
+    fun queueWorldReset(target: String, authorized: () -> Boolean, reply: (String) -> Unit) =
+        inspectWorldReset(target, authorized, reply)
+
+    private fun inspectWorldReset(target: String, authorized: (() -> Boolean)?, reply: (String) -> Unit) {
         if (!host) return reply(ApocalypseWorldResetPlan.blocked("not_host"))
+        resetTarget?.let { return reply(ApocalypseWorldResetPlan.blocked("reset_already_queued", options.world, it)) }
         val source = world?.takeIf { ready } ?: return reply(ApocalypseWorldResetPlan.blocked("host_unavailable"))
         if (inspectingWorldReset) return reply(ApocalypseWorldResetPlan.blocked("scan_running"))
         ApocalypseWorldResetPlan.targetProblem(source.name, target)?.let { return reply(ApocalypseWorldResetPlan.blocked(it)) }
         val snapshot = players.toMap()
         val plan = ApocalypseWorldResetPlan(source.name, source.uid, options.seed, target, snapshot.values)
+        val worlds = plugin.server.worldContainer.toPath()
+        val root = plugin.dataFolder.toPath()
         inspectingWorldReset = true
-        plan.inspect(plugin.server.worldContainer.toPath(), plugin.dataFolder.toPath(), work).whenComplete { _, failure -> work.onMain {
+        plan.inspect(worlds, root, work).whenComplete { _, failure -> work.onMain {
             inspectingWorldReset = false
             if (!opened) return@onMain
             if (failure != null) {
@@ -463,8 +473,33 @@ class ApocalypseRuntime(
                 val pendingSaves = playerSaves.filterValues { !it.isDone || it.isCompletedExceptionally }.keys
                 val busyPlayers = busy + joining + playerOperations + recoveryOperations + returnOperations.keys + pendingSaves
                 val targetUsed = plugin.server.getWorld(target) != null || config().arenas.any { it.world.equals(target, true) }
-                reply(plan.report(source.players.size, active.size, busyPlayers.size, checkpointPending, targetUsed,
-                    changed = !ready || world !== source || players != snapshot))
+                val readout = plan.readout(source.players.size, active.size, busyPlayers.size, checkpointPending, targetUsed,
+                    changed = !ready || world !== source || players != snapshot)
+                if (!readout.ready || authorized == null) reply(readout.message)
+                else if (authorized()) stageWorldReset(target, plan, worlds, root, reply)
+            }
+        } }
+    }
+
+    private fun stageWorldReset(target: String, plan: ApocalypseWorldResetPlan, worlds: Path, root: Path, reply: (String) -> Unit) {
+        // The final main-thread check and admission fence are contiguous. No new expedition may capture an origin
+        // against the retiring generation while the worker persists the setting or the host awaits its restart.
+        resetTarget = target
+        work.compute {
+            val blockers = plan.inspectPaths(worlds, root)
+            if (blockers.isNotEmpty()) blockers.joinToString(",")
+            else ApocalypseSettings.stageWorldReset(root, options, target) { log("reset-config-commit", it) }
+        }.whenComplete { blocker, failure -> work.onMain {
+            if (!opened) return@onMain
+            if (failure != null) log("reset-config", failure)
+            val problem = if (failure != null) "write_failed" else blocker
+            if (problem != null) {
+                if (problem != "commit_unknown") resetTarget = null
+                reply(ApocalypseWorldResetPlan.blocked(problem, options.world, target))
+            } else {
+                val message = "ARCEVENTS_APOCALYPSE_RESET_QUEUED current=${options.world} target=$target"
+                plugin.logger.info(message)
+                reply(message)
             }
         } }
     }
@@ -901,7 +936,7 @@ class ApocalypseRuntime(
             !player.hasPermission("arcevents.admin") || data.has(nativeSession)
     }
 
-    private fun canVisit(player: Player, destination: Location? = null): Boolean = player.hasPermission("arcevents.admin") &&
+    private fun canVisit(player: Player, destination: Location? = null): Boolean = resetTarget == null && player.hasPermission("arcevents.admin") &&
         !isPlaying(player.uniqueId) && !isBusy(player.uniqueId) && player.uniqueId !in joining &&
         players[player.uniqueId]?.returnPending != true && !pendingApocalypseInventory(player) &&
         // An arcade recovery still owns its escrow when it teleports back to the staff visit it captured.

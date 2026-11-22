@@ -2,6 +2,7 @@ package ru.ruscrafting.events.paper.apocalypse
 
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -39,6 +40,77 @@ import java.util.UUID
 import java.util.concurrent.CompletableFuture
 
 class ApocalypseColdStartTest : FunSpec({
+    test("confirmed reset stages a fresh generation while keeping the active world and recovery data intact") {
+        MockBukkitTestRuntime.open().use { paper ->
+            val plugin = paper.createSimplePlugin("WorldReset")
+            val home = paper.addSimpleWorld("world")
+            val old = paper.addSimpleWorld("arcevents_apocalypse_v2")
+            val target = "arcevents_apocalypse_test_next"
+            val admin = paper.addPlayer("ResetAdmin")
+            admin.addAttachment(plugin, "arcevents.admin", true)
+            val root = Files.createTempDirectory(plugin.dataFolder.toPath(), "worlds")
+            val oldFolder = Files.createDirectory(root.resolve(old.name))
+            val marker = Files.writeString(oldFolder.resolve(".arcevents-template"), "${ApocalypseOriginalGenerator.TEMPLATE}:42")
+            val file = plugin.dataFolder.resolve("apocalypse.yml")
+            file.writeText("# Operator settings\nworld: ${old.name}\nseed: 42\nmaximum-players: 12\ncustom: keep\n")
+            PaperArcRuntime.installScheduling(plugin)
+            val work = ColdStartWork()
+            try {
+                val settings = coldSettings(NodeMode.HOST)
+                every { settings.arenas } returns emptyList()
+                val journal = ApocalypseStorage(plugin.dataFolder.toPath())
+                val origin = PaperPlayerStateService().captureEnvelope(admin, 1)
+                val record = ApocalypsePlayerRecord(admin.uniqueId.toString(), "parkour", ApocalypsePlayerPhase.PARKED, origin, null)
+                journal.save(record)
+                ApocalypseRuntime(plugin, { settings }, coldLocale(), mockk(), work, InMemoryRedis(), mockk(),
+                    occupied = { false }, queued = { error("The reset fence must reject new admissions") },
+                    returnToOrigin = { _, _ -> false }, sourceLayout = testLayout(), chunkTickets = mockk()).use { runtime ->
+                    runtime.start()
+                    runtime.useTestWorld(old)
+                    paper.awaitHostJoins(runtime)
+                    mockkObject(paper.server) {
+                        every { paper.server.worldContainer } returns root.toFile()
+                        val results = mutableListOf<String>()
+                        admin.teleport(old.spawnLocation) shouldBe true
+                        runtime.queueWorldReset(target, { true }, results::add)
+                        paper.advanceUntil("occupied world reset check") { results.isNotEmpty() }
+                        results.single() shouldContain "blockers=world_occupied"
+                        results.clear()
+                        admin.teleport(home.spawnLocation) shouldBe true
+                        var checkedPermission = false
+                        runtime.queueWorldReset(target, { checkedPermission = true; false }, results::add)
+                        paper.advanceUntil("permission recheck after inspecting the reset") { checkedPermission }
+                        results shouldBe emptyList()
+                        runtime.planWorldReset(target, results::add)
+                        paper.advanceUntil("read-only reset plan") { results.isNotEmpty() }
+                        results.single() shouldContain "arc_ready=true"
+                        ApocalypseSettings.load(file).world shouldBe old.name
+                        results.clear()
+                        runtime.queueWorldReset(target, { true }, results::add)
+                        paper.advanceUntil("durable reset configuration") { results.isNotEmpty() }
+                        results.single() shouldBe "ARCEVENTS_APOCALYPSE_RESET_QUEUED current=${old.name} target=$target"
+                        ApocalypseSettings.load(file).let {
+                            it.world shouldBe target
+                            it.seed shouldBe 42L
+                            it.maximumPlayers shouldBe 12
+                        }
+                        file.readText() shouldContain "custom: keep"
+                        file.readText() shouldContain "# Operator settings"
+                        Files.exists(root.resolve(target)) shouldBe false
+                        Files.exists(marker) shouldBe true
+                        paper.server.getWorld(old.name) shouldBe old
+                        journal.load(admin.uniqueId) shouldBe record
+                        runtime.ready shouldBe false
+                        runtime.enter(admin)
+                        admin.teleport(old.spawnLocation) shouldBe false
+                        runtime.queueWorldReset("arcevents_apocalypse_other", { true }, results::add)
+                        results.last() shouldContain "blockers=reset_already_queued"
+                    }
+                }
+            } finally { work.close(); Tasks.reset() }
+        }
+    }
+
     test("staff may visit the expedition with their own inventory and a later login still reconciles real escrow") {
         MockBukkitTestRuntime.open().use { paper ->
             val plugin = paper.createSimplePlugin("ExpeditionVisit")

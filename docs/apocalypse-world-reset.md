@@ -1,16 +1,20 @@
 # Rotate the Apocalypse world on Parkour
 
-`/events admin apocalypse-reset-plan arcevents_apocalypse_s2` is a read-only check for a proposed name. Run it on the Parkour HOST as an administrator or from its console. It inspects the running ArcEvents state and the two destination paths.
+On Parkour, open `/events admin` → Apocalypse → World reset. Enter an unused world name, review the checks, and confirm. From the Parkour console, run `arcevents admin apocalypse-reset-plan arcevents_apocalypse_s2`, then `arcevents admin apocalypse-reset arcevents_apocalypse_s2 confirm` to stage that name. Confirmation repeats the checks and atomically replaces the `world` setting in `plugins/ArcEvents/apocalypse.yml`. The HOST closes admissions to the old expedition until the normal Parkour restart.
 
 ## Read the plan
 
-- `arc_ready=true` means the ArcEvents checks passed at the time of inspection. Verify the separate My_Worlds checks below before switching.
+- `arc_ready=true` means the checks passed at the time of inspection. `source_autoload` means My_Worlds is still configured to load the previous world at startup. Run `/my_worlds:world setautoload no <old-world>` on Parkour with My_Worlds permission and check again. The old world stays loaded until restart. ArcEvents still owns generation of the currently configured world on startup.
 - `occupants` includes staff visiting with their regular inventory. Ask participants to use `/events leave` and move visitors back to an ordinary world. Let transitions and checkpoint writes finish, then repeat the plan.
 - `active_records`, `returning_records` and `pending_returns` include offline players. Keep their records. A matching native session resumes with its expedition gear in the new bunker. Pending origin restores and transfers use the saved receipt and the existing Redis nonce. A parked expedition keeps its equipment and starts at the new bunker on its next entry.
 - `origin_locations` and `origin_compasses` count normal-state receipts that still need the retiring world. The check includes PARKED receipts because a stale native session can replay them. Up to five affected UUIDs appear in `affected_sample`. For a staff visit, restore or leave normally, move to an ordinary Parkour world with a compass target outside the expedition, and complete one normal entry and return. Repeat the plan. Investigate unreadable receipts using their recovery records.
-- Resolve every listed blocker. An existing world directory, checkpoint directory, loaded world or configured arcade arena needs a different, unused name. The V1 name is a compatibility alias for V2. An unsafe directory, an incorrect source marker or a changing player snapshot requires investigation or a fresh reading.
+- Resolve every listed blocker. An existing world directory, checkpoint directory, My_Worlds registration, loaded world or configured arcade arena needs a different, unused name. The V1 name is a compatibility alias for V2. An unsafe directory, an incorrect source marker or a changing player snapshot requires investigation or a fresh reading.
 
-## Apply an owner-approved rotation
+## Restart and verify
+
+`ARCEVENTS_APOCALYPSE_RESET_QUEUED` confirms the name persisted. Record the old and new names. Run the normal supported Parkour restart. Confirm the new world, unchanged seed and generator in the startup logs, check that My_Worlds left the previous world unloaded, then follow the player verification below. If the command reports `commit_unknown`, inspect the actual `world` setting and resolve it before restarting.
+
+## Maintenance rotation with a different seed
 
 1. Choose the new name and seed. Keeping the seed rebuilds the same layout with fresh terrain, containers and progress. Changing it selects a different generated layout. Record the current name, seed, generator marker and My_Worlds autoload setting for rollback.
 2. Confirm the new name has no existing My_Worlds registration or startup binding. Inspect the native world list and the HOST's current `plugins/My_Worlds/worlds.yml`. Set `my_worlds:world setautoload no <old-world>` and verify the setting. Leave the active world loaded until normal shutdown. A fresh, unregistered name lets ArcEvents install its generator marker before creating the world.
