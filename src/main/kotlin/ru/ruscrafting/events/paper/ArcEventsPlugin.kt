@@ -271,7 +271,8 @@ open class ArcEventsPlugin : JavaPlugin() {
             lifecycle.own(coordinator)
             val shotRuntime = FirearmShots(packetDisplays, { settings.ui.particles }, { settings.ui.sounds },
                 scopedModel = scopeRuntime::hasViewmodel, scopeZoom = scopeRuntime::projectedZoom,
-                soundPreset = coordinator::firearmSoundPreset)
+                soundPreset = coordinator::firearmSoundPreset,
+                eventFeedback = { player -> activeService.isParticipant(player.uniqueId) || apocalypse?.isPlaying(player.uniqueId) == true })
             val nameplateRuntime = lifecycle.own(TttNameplateRuntime(
                 locale = locale,
                 statistics = coordinator::stats,

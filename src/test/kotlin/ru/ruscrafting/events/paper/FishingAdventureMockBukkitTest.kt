@@ -13,7 +13,10 @@ import org.bukkit.Material
 import org.bukkit.block.BlockFace
 import org.bukkit.damage.DamageSource
 import org.bukkit.damage.DamageType
+import org.bukkit.entity.Entity
+import org.bukkit.entity.EntityType
 import org.bukkit.entity.FishHook
+import org.bukkit.entity.Interaction
 import org.bukkit.entity.Item
 import org.bukkit.entity.LivingEntity
 import org.bukkit.entity.Mob
@@ -24,12 +27,24 @@ import org.bukkit.event.entity.EntityDamageByEntityEvent
 import org.bukkit.event.entity.EntityDamageEvent.DamageCause
 import org.bukkit.event.entity.CreatureSpawnEvent
 import org.bukkit.event.player.PlayerFishEvent
+import org.bukkit.event.player.PlayerInteractAtEntityEvent
 import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.event.player.PlayerInteractEntityEvent
 import org.bukkit.inventory.EquipmentSlot
 import org.bukkit.util.RayTraceResult
 import org.bukkit.util.Vector
+import org.mockbukkit.mockbukkit.entity.CodMock
+import org.mockbukkit.mockbukkit.entity.DrownedMock
+import org.mockbukkit.mockbukkit.entity.ElderGuardianMock
+import org.mockbukkit.mockbukkit.entity.GuardianMock
+import org.mockbukkit.mockbukkit.entity.InteractionMock
+import org.mockbukkit.mockbukkit.entity.PhantomMock
 import org.mockbukkit.mockbukkit.entity.PlayerMock
+import org.mockbukkit.mockbukkit.entity.PufferFishMock
+import org.mockbukkit.mockbukkit.entity.SalmonMock
+import org.mockbukkit.mockbukkit.entity.SilverfishMock
+import org.mockbukkit.mockbukkit.entity.SpiderMock
+import org.mockbukkit.mockbukkit.entity.TropicalFishMock
 import ru.arc.paper.testing.failOnUnsupportedMockBukkitOperation
 import ru.ruscrafting.events.domain.EventMode
 import ru.ruscrafting.events.domain.FishingGear
@@ -46,6 +61,7 @@ internal class FishingTestWorld(private val server: org.mockbukkit.mockbukkit.Se
 
     // MockBukkit lacks the block collision ray. Supply the Paper result for a clear or obstructed swing.
     var meleeObstruction: RayTraceResult? = null
+    val hurtAnimations = mutableListOf<UUID>()
 
     override fun rayTraceBlocks(start: Location, direction: Vector, maxDistance: Double,
         fluidCollisionMode: FluidCollisionMode, ignorePassableBlocks: Boolean): RayTraceResult? = meleeObstruction
@@ -88,8 +104,38 @@ internal class FishingTestWorld(private val server: org.mockbukkit.mockbukkit.Se
             function?.accept(display)
             return display
         }
-        // MockBukkit 4.116.3 does not implement Mob.setDespawnInPeacefulOverride.
-        // Keep the encounter simulation; the real Paper override is checked in live QA.
+        if (type == Interaction::class.java) {
+            // MockBukkit stores the dimensions but does not apply them to the AABB.
+            val target = object : InteractionMock(server, UUID.randomUUID()) {
+                override fun getWidth() = interactionWidth.toDouble()
+                override fun getHeight() = interactionHeight.toDouble()
+            }
+            target.location = location
+            function?.accept(type.cast(target))
+            server.registerEntity(target)
+            return type.cast(target)
+        }
+        if (Mob::class.java.isAssignableFrom(type) && type != Villager::class.java) {
+            // Only the unimplemented native hurt packet is replaced. Each species keeps its own MockBukkit body.
+            val id = UUID.randomUUID()
+            fun hurt() { hurtAnimations += id }
+            val mob = when (type) {
+                EntityType.SILVERFISH.entityClass -> object : SilverfishMock(server, id) { override fun playHurtAnimation(yaw: Float) = hurt() }
+                EntityType.SPIDER.entityClass -> object : SpiderMock(server, id) { override fun playHurtAnimation(yaw: Float) = hurt() }
+                EntityType.COD.entityClass -> object : CodMock(server, id) { override fun playHurtAnimation(yaw: Float) = hurt() }
+                EntityType.SALMON.entityClass -> object : SalmonMock(server, id) { override fun playHurtAnimation(yaw: Float) = hurt() }
+                EntityType.DROWNED.entityClass -> object : DrownedMock(server, id) { override fun playHurtAnimation(yaw: Float) = hurt() }
+                EntityType.PUFFERFISH.entityClass -> object : PufferFishMock(server, id) { override fun playHurtAnimation(yaw: Float) = hurt() }
+                EntityType.TROPICAL_FISH.entityClass -> object : TropicalFishMock(server, id) { override fun playHurtAnimation(yaw: Float) = hurt() }
+                EntityType.GUARDIAN.entityClass -> object : GuardianMock(server, id) { override fun playHurtAnimation(yaw: Float) = hurt() }
+                EntityType.ELDER_GUARDIAN.entityClass -> object : ElderGuardianMock(server, id) { override fun playHurtAnimation(yaw: Float) = hurt() }
+                EntityType.PHANTOM.entityClass -> object : PhantomMock(server, id) { override fun playHurtAnimation(yaw: Float) = hurt() }
+                else -> error("Unsupported fishing test mob ${type.name}")
+            }
+            mob.location = location
+            server.registerEntity(mob)
+            return type.cast(mob)
+        }
         if (Mob::class.java.isAssignableFrom(type)) return super.spawn(location, type, null, reason)
         return super.spawn(location, type, function, reason)
     }
@@ -206,11 +252,25 @@ class FishingAdventureMockBukkitTest : FunSpec({
                     boss.location.y shouldBe FishingArenaGenerator.SPAWN_Y.toDouble()
                 }
                 if (stage == 1) {
+                    val hitbox = world.entities.filterIsInstance<Interaction>().single()
+                    player.inventory.heldItemSlot = 3
+                    fixture.paper.callEvent(PlayerInteractAtEntityEvent(player, hitbox, Vector(), EquipmentSlot.HAND))
+                    adventure.snapshot().dynamite shouldBe 1
+                    fixture.paper.callEvent(PlayerInteractEntityEvent(player, hitbox, EquipmentSlot.HAND)).isCancelled shouldBe true
+                    adventure.snapshot().dynamite shouldBe 0
                     adventure.isFirearmTarget(player, boss, "stale-match") shouldBe false
                     adventure.isFirearmTarget(fixture.players[1], boss, matchId) shouldBe false
                     player.inventory.heldItemSlot = 2
                     adventure.isFirearmTarget(player, boss, matchId) shouldBe true
-                    adventure.hitByFirearm(player, boss, 100.0, matchId) shouldBe true
+                    adventure.isFirearmTarget(player, hitbox, matchId) shouldBe true
+                    fixture.paper.callEvent(PlayerInteractEntityEvent(player, hitbox, EquipmentSlot.HAND)).isCancelled shouldBe true
+                    val edge = hitbox.boundingBox.center.setX(hitbox.boundingBox.maxX)
+                    val fishingWorld = world as FishingTestWorld
+                    fishingWorld.meleeObstruction = RayTraceResult(edge)
+                    adventure.hitByFirearm(player, hitbox, 100.0, matchId, edge) shouldBe false
+                    fishingWorld.meleeObstruction = null
+                    adventure.hitByFirearm(player, hitbox, 100.0, matchId, edge) shouldBe true
+                    adventure.hitByFirearm(player, hitbox, 100.0, matchId, edge) shouldBe false
                 } else {
                     strike(fixture, player, boss)
                 }
@@ -241,6 +301,7 @@ class FishingAdventureMockBukkitTest : FunSpec({
             adventure.snapshot().coins shouldBe 0
             adventure.snapshot().bag.isEmpty() shouldBe true
             world.entities.filterIsInstance<LivingEntity>().count { it !is Player } shouldBe 0
+            world.entities.filterIsInstance<Interaction>().size shouldBe 0
             world.entities.filterIsInstance<org.bukkit.entity.TextDisplay>().size shouldBe 0
             fixture.packetVisuals.isNotEmpty() shouldBe true
             fixture.packetVisuals.none { it.isValid } shouldBe true
@@ -253,7 +314,7 @@ class FishingAdventureMockBukkitTest : FunSpec({
         } }
     }
 
-    test("a close attack or narrowly aimed empty swing hits the owned catch once within reach and sight") {
+    test("the smaller catch has a wider target and gives hurt feedback once per visible accepted hit") {
         failOnUnsupportedMockBukkitOperation { TttRoundFixture().use { fixture ->
             fixture.reloadRuntime { it.replace("creature-health: 4.0", "creature-health: 12.0").replace("boss-health: 4.0", "boss-health: 12.0") }
             fixture.startActiveArcade(EventMode.FISHING)
@@ -263,6 +324,12 @@ class FishingAdventureMockBukkitTest : FunSpec({
             placeCatch(fixture, player, adventure)
             val world = player.world as FishingTestWorld
             val creature = world.entities.filterIsInstance<org.bukkit.entity.Silverfish>().single()
+            val hitbox = world.entities.filterIsInstance<Interaction>().single()
+            // MockBukkit does not register SCALE on silverfish. The native Fishing case checks its client value.
+            hitbox.interactionWidth shouldBe 1.8f
+            hitbox.interactionHeight shouldBe 1.35f
+            hitbox.isResponsive shouldBe true
+            fun hurtSounds() = player.heardSounds.count { it.sound == "entity.cod.hurt" }
             val close = player.location
             player.simulatePlayerMove(close.clone().add(0.0, 0.0, 4.0))
             fixture.paper.callEvent(PrePlayerAttackEntityEvent(player, creature, true))
@@ -278,21 +345,25 @@ class FishingAdventureMockBukkitTest : FunSpec({
             adventure.snapshot().creatureHealth shouldBe 12.0
             player.inventory.setItemInMainHand(issued)
             adventure.melee(fixture.players[1], creature) shouldBe false
+            hurtSounds() shouldBe 0
 
             fixture.paper.callEvent(PrePlayerAttackEntityEvent(player, creature, true)).isCancelled shouldBe true
             fixture.paper.callEvent(fishingHit(player, creature, 100.0)).isCancelled shouldBe true
             fixture.paper.callEvent(PrePlayerAttackEntityEvent(player, creature, true))
             adventure.snapshot().creatureHealth shouldBe 8.0
+            hurtSounds() shouldBe 1
 
             fixture.advanceTime(700)
             val box = creature.boundingBox
-            val beside = Vector(box.maxX + 0.15, box.centerY, box.centerZ)
+            val beside = Vector(box.maxX + 0.55, box.centerY, box.centerZ)
             player.simulatePlayerMove(close.clone().setDirection(beside.subtract(player.eyeLocation.toVector())))
-            box.rayTrace(player.eyeLocation.toVector(), player.eyeLocation.direction, 3.0) shouldBe null
+            box.clone().expand(0.25).rayTrace(player.eyeLocation.toVector(), player.eyeLocation.direction, 3.0) shouldBe null
             fun swing() = PlayerInteractEvent(player, Action.LEFT_CLICK_AIR, issued, null, BlockFace.SELF, EquipmentSlot.HAND)
             world.meleeObstruction = RayTraceResult(close.toVector())
             fixture.paper.callEvent(swing())
+            fixture.paper.callEvent(PrePlayerAttackEntityEvent(player, hitbox, true))
             adventure.snapshot().creatureHealth shouldBe 8.0
+            hurtSounds() shouldBe 1
             world.meleeObstruction = null
             fixture.paper.callEvent(swing()).isCancelled shouldBe true
             adventure.snapshot().creatureHealth shouldBe 4.0
@@ -302,9 +373,14 @@ class FishingAdventureMockBukkitTest : FunSpec({
             fixture.paper.callEvent(swing())
             adventure.snapshot().creatureHealth shouldBe 4.0
             player.simulatePlayerMove(pursuit.clone().setDirection(creature.boundingBox.center.subtract(player.eyeLocation.toVector())))
-            fixture.paper.callEvent(PrePlayerAttackEntityEvent(player, creature, true))
+            fixture.paper.callEvent(fishingHit(player, hitbox, 1.0)).isCancelled shouldBe false
+            adventure.snapshot().creatureHealth shouldBe 4.0
+            fixture.paper.callEvent(PrePlayerAttackEntityEvent(player, hitbox, true))
             fixture.paper.callEvent(fishingHit(player, creature, 100.0))
             adventure.snapshot().bag.size shouldBe 1
+            world.entities.filterIsInstance<Interaction>().size shouldBe 0
+            hurtSounds() shouldBe 3
+            world.hurtAnimations.count { it == creature.uniqueId } shouldBe 3
         } }
     }
 
@@ -316,6 +392,7 @@ class FishingAdventureMockBukkitTest : FunSpec({
             castCatch(fixture, player, adventure)
             placeCatch(fixture, player, adventure)
             val clam = player.world.entities.filterIsInstance<org.bukkit.entity.Silverfish>().single()
+            val hitbox = player.world.entities.filterIsInstance<Interaction>().single()
             val anchor = clam.location
             layCombatFloor(anchor)
             val health = player.health
@@ -326,6 +403,7 @@ class FishingAdventureMockBukkitTest : FunSpec({
                 fixture.advanceTime(1_100)
                 fixture.advanceTime(395)
                 (clam.location.y > start.y + 0.7) shouldBe true
+                hitbox.location.toVector() shouldBe clam.location.toVector()
                 fixture.advanceTime(265)
                 val landing = clam.location
                 if (it == 0) (landing.distanceSquared(player.location) > start.distanceSquared(player.location)) shouldBe true
@@ -626,7 +704,7 @@ private fun rightClick(player: PlayerMock, item: org.bukkit.inventory.ItemStack?
     PlayerInteractEvent(player, Action.RIGHT_CLICK_AIR, item, null, BlockFace.SELF, EquipmentSlot.HAND)
 
 @Suppress("DEPRECATION")
-private fun fishingHit(player: Player, creature: LivingEntity, damage: Double): EntityDamageByEntityEvent =
+private fun fishingHit(player: Player, creature: Entity, damage: Double): EntityDamageByEntityEvent =
     EntityDamageByEntityEvent(
         player,
         creature,

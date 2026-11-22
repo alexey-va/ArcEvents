@@ -42,4 +42,6 @@ data class RoundReportView(
 
 data class RosterView(val entries: List<RosterEntry>)
 
-data class PendingHitContext(val attackerId: UUID, val victimId: UUID, val firearmId: FirearmId, val headshot: Boolean)
+data class PendingHitContext(val attackerId: UUID, val victimId: UUID, val firearmId: FirearmId, val headshot: Boolean) {
+    var lethalElimination = false
+}

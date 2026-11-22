@@ -142,7 +142,7 @@ class ArcadeRoundLifecycleMockBukkitTest : FunSpec({
     test("two delayed hits from one GunGame weapon cannot skip the next weapon") {
         failOnUnsupportedMockBukkitOperation {
             val shots = mockk<FirearmShots>(relaxed = true)
-            val impact = slot<(Entity, FirearmHit, Double) -> Unit>()
+            val impact = slot<(Entity, FirearmHit, Double) -> Boolean>()
             every { shots.fire(any(), any(), any(), any(), any(), any(), any(), capture(impact)) } returns true
             TttRoundFixture(shots = shots).use { fixture ->
                 fixture.reloadRuntime { it.replace("weapons:\n  enabled: false", "weapons:\n  enabled: true") }
@@ -160,7 +160,7 @@ class ArcadeRoundLifecycleMockBukkitTest : FunSpec({
                     every { target.damage(any<Double>(), shooter) } answers {
                         fixture.meleeHit(shooter, target, firstArg()).isCancelled shouldBe true
                     }
-                    impact.captured(target, FirearmHit(opponent.eyeLocation.toVector(), false), 40.0)
+                    impact.captured(target, FirearmHit(opponent.eyeLocation.toVector(), false), 40.0) shouldBe true
                 }
 
                 fixture.paper.performTicks(1)

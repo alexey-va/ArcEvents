@@ -386,6 +386,13 @@ class ArcEventsListener(
 
     @EventHandler(ignoreCancelled = true)
     fun onInteractEntity(event: PlayerInteractEntityEvent) {
+        // An Interaction consumes RMB on the client. Its general interact packet owns the item action once.
+        if (event.hand == EquipmentSlot.HAND &&
+            service.fishingAdventure(event.player)?.handleHitboxUse(event.player, event.rightClicked, service::toggleFirearmScope) == true
+        ) {
+            event.isCancelled = true
+            return
+        }
         interactEntity(event.player, event.rightClicked, event.hand) { event.isCancelled = true }
     }
 

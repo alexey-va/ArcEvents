@@ -39,6 +39,7 @@ import ru.arc.core.Tasks
 import ru.arc.core.TestTaskScheduler
 import ru.arc.paper.display.PaperPacketDisplays
 import ru.arc.paper.display.PacketBlockDisplay
+import ru.arc.paper.display.PacketTextDisplay
 import ru.ruscrafting.events.domain.FirearmProjectile
 import ru.ruscrafting.events.domain.FirearmId
 import ru.ruscrafting.events.domain.FirearmSoundPreset
@@ -58,7 +59,7 @@ class FirearmShotsTest : StringSpec({
             val burst = FirearmBurst(48, 2, 0) {
                 if (releases.size >= stopAfter) false else { releases += f.tick; true }
             }
-            f.shots.fireBurst(f.player, spec, { false }, { true }, { false }, 1.0, burst, completed::add) { _, _, _ -> } shouldBe true
+            f.shots.fireBurst(f.player, spec, { false }, { true }, { false }, 1.0, burst, completed::add) { _, _, _ -> false } shouldBe true
             releases shouldBe listOf(0)
             f.until(180) { completed.isNotEmpty() }
             releases.size shouldBe stopAfter
@@ -429,7 +430,7 @@ class FirearmShotsTest : StringSpec({
             val deltas = f.observeRecoil()
             val rifle = TttFirearmCatalog.specs.getValue(FirearmId.G36)
             f.shots.fireBurst(f.player, rifle, { f.zoom != null }, { true }, { false }, 1.0,
-                FirearmBurst(3, 2, null) { true }, {}) { _, _, _ -> } shouldBe true
+                FirearmBurst(3, 2, null) { true }, {}) { _, _, _ -> false } shouldBe true
             f.zoom = 1.15f // Raise the sight after the first muzzle, before the two queued rounds.
             f.until { f.scheduler.timerCount() == 0 }
             val kicks = deltas.filter { it.second.pitch < 0f }
@@ -456,7 +457,7 @@ class FirearmShotsTest : StringSpec({
             val deltas = f.observeRecoil()
             val gun = TttFirearmCatalog.specs.getValue(FirearmId.RPL_20)
             f.shots.fireBurst(f.player, gun, { false }, { true }, { false }, 1.0,
-                FirearmBurst(20, 2, null) { true }, {}) { _, _, _ -> } shouldBe true
+                FirearmBurst(20, 2, null) { true }, {}) { _, _, _ -> false } shouldBe true
             f.until(100) { f.scheduler.timerCount() == 0 }
             deltas.count { it.second.pitch < 0f } shouldBe 20
             var offset = 0.0
@@ -697,6 +698,101 @@ class FirearmShotsTest : StringSpec({
         }
     }
 
+    "event muzzle reports retain a single positional sample and an audible falloff beyond thirty blocks" {
+        for ((id, range) in listOf(FirearmId.FIVE_SEVEN to 96, FirearmId.G36 to 128, FirearmId.HAND_CANNON to 144,
+            FirearmId.FLINTLOCK to 112, FirearmId.VSS_VINTOREZ to 80)) withShotFixture { f ->
+            f.eventFeedback = true
+            f.soundsEnabled = true
+            val gun = TttFirearmCatalog.specs.getValue(id)
+            val cue = FirearmSoundPreset.ORIGINAL.soundKey(id)
+            val muzzle = f.eye.clone().add(firearmMuzzleOffset(id, f.eye.direction, f.eye.yaw,
+                aiming = false, leftHand = false))
+            var finished = false
+            f.fire(gun, afterFiring = { finished = it }) shouldBe true
+            f.until { finished }
+            verify(exactly = firearmRoundPellets(gun).size) {
+                f.world.playSound(match<Location> { it.world === f.world && it.distanceSquared(muzzle) < 1e-8 },
+                    cue, SoundCategory.PLAYERS, range / 16f, firearmFlightProfile(id).pitch)
+            }
+        }
+    }
+
+    "a private marker and snare require accepted damage and coalesce a shotgun volley hitting two targets" {
+        for ((contact, accepted, particles) in listOf(Triple(false, false, true), Triple(true, false, true),
+            Triple(true, true, true), Triple(true, true, false))) withShotFixture { f ->
+            f.eventFeedback = true
+            f.soundsEnabled = true
+            if (particles) f.enableVisuals()
+            val marker = mockk<PacketTextDisplay>(relaxed = true)
+            every { f.displays.spawnText(any(), any()) } returns marker
+            val other = f.listener(f.eye.clone().add(0.0, 0.0, 8.0))
+            var pellets = 0
+            f.ray = { origin, direction, _ ->
+                if (!contact) null else RayTraceResult(origin.toVector().add(direction.clone()),
+                    if (pellets++ % 2 == 0) f.target else other)
+            }
+            var damageCalls = 0
+            val shotgun = TttFirearmCatalog.specs.getValue(FirearmId.DOUBLE_BARREL).copy(spreadDegrees = 0.0)
+            f.shots.fire(f.player, shotgun, { false }, { true }, { it === other || it === f.target }) { _, _, _ ->
+                damageCalls++
+                accepted
+            } shouldBe true
+            f.until { f.scheduler.timerCount() == 0 }
+            damageCalls shouldBe if (contact) 2 else 0
+            val expected = if (accepted) 1 else 0
+            verify(exactly = expected) {
+                marker.showTo(f.player)
+                marker.attachTo(f.player)
+                marker.remove()
+                f.player.playSound(any<Location>(), Sound.BLOCK_NOTE_BLOCK_SNARE, SoundCategory.PLAYERS, .64f, any<Float>())
+            }
+            verify(exactly = 0) {
+                marker.showTo(other)
+                other.playSound(any<Location>(), Sound.BLOCK_NOTE_BLOCK_SNARE, any<SoundCategory>(), any<Float>(), any<Float>())
+            }
+        }
+    }
+
+    "a mark refreshes in place, fits the scoped camera and ends after four ticks or a world change" {
+        withShotFixture { f ->
+            val display = mockk<PacketTextDisplay>(relaxed = true)
+            val poses = mutableListOf<Transformation>()
+            every { f.displays.spawnText(any(), any()) } returns display
+            every { display.transformation = any() } answers { poses += firstArg<Transformation>() }
+            val marks = FirearmHitMarkers(f.displays) { f.zoom }
+            marks.show(f.player, 10)
+            val hip = poses.last()
+            hip.translation.z shouldBe -4f
+            f.zoom = 3f
+            marks.show(f.player, 12)
+            marks.advance(15) shouldBe true
+            (poses.last().scale.x * 3).toDouble() shouldBe (hip.scale.x.toDouble() plusOrMinus 1e-6)
+            verify(exactly = 1) { f.displays.spawnText(any(), any()); display.textOpacity = 115 }
+            marks.advance(16) shouldBe false
+            marks.show(f.player, 20)
+            every { f.player.world } returns mockk(relaxed = true)
+            marks.advance(21) shouldBe false
+            verify(exactly = 2) { display.remove() }
+        }
+    }
+
+    "ordinary-world distant confirmation keeps its previous range and only follows real damage" {
+        for ((distance, accepted) in listOf(4 to true, 30 to false, 30 to true)) withShotFixture { f ->
+            f.soundsEnabled = true
+            f.acceptsDamage = accepted
+            f.ray = { origin, direction, length ->
+                val travel = (distance - origin.z) / direction.z
+                if (travel !in 0.0..length) null else RayTraceResult(origin.toVector().add(direction.clone().multiply(travel)), f.target)
+            }
+            f.fire() shouldBe true
+            f.until { f.scheduler.timerCount() == 0 }
+            verify(exactly = if (distance > 16 && accepted) 1 else 0) {
+                f.player.playSound(any<Location>(), Sound.BLOCK_NOTE_BLOCK_HAT, SoundCategory.PLAYERS, .32f, 1.45f)
+            }
+            verify(exactly = 0) { f.player.playSound(any<Location>(), Sound.BLOCK_NOTE_BLOCK_SNARE, any<SoundCategory>(), any<Float>(), any<Float>()) }
+        }
+    }
+
     "VSS fires its recorded rifle sample once at the muzzle independently of particles and hits" {
         withShotFixture { f ->
             f.soundsEnabled = true
@@ -787,7 +883,7 @@ class FirearmShotsTest : StringSpec({
                 var completed = 0
                 f.fire(afterFiring = { if (it) completed++ }) shouldBe true
                 f.shots.fire(other, f.spec, { false }, { true }, { false },
-                    afterFiring = { if (it) completed++ }) { _, _, _ -> } shouldBe true
+                    afterFiring = { if (it) completed++ }) { _, _, _ -> false } shouldBe true
                 f.until { completed == 2 }
                 verify(exactly = 2) {
                     f.world.playSound(any<Location>(), preset.soundKey(f.spec.id), SoundCategory.PLAYERS, any<Float>(), 1f)
@@ -1068,8 +1164,10 @@ private class ShotFixture(val scheduler: TestTaskScheduler) : AutoCloseable {
     var scopedViewmodel = false
     var zoom: Float? = null
     var preset = FirearmSoundPreset.ORIGINAL
+    var eventFeedback = false
+    var acceptsDamage = true
     private var mockedBukkit = false
-    val shots = FirearmShots(displays, { particlesEnabled }, { soundsEnabled }, { scopedViewmodel }, { zoom }, { preset })
+    val shots = FirearmShots(displays, { particlesEnabled }, { soundsEnabled }, { scopedViewmodel }, { zoom }, { preset }, { eventFeedback })
     val spec: FirearmSpec = TttFirearmCatalog.specs.getValue(FirearmId.VSS_VINTOREZ).copy(spreadDegrees = 0.0)
     var eye = Location(world, 0.0, 64.0, 0.0)
     var valid = true
@@ -1105,6 +1203,9 @@ private class ShotFixture(val scheduler: TestTaskScheduler) : AutoCloseable {
         every { player.isDead } returns false
         every { player.world } returns world
         every { player.eyeLocation } answers { eye.clone() }
+        every { player.location } answers { eye.clone().subtract(0.0, 1.62, 0.0) }
+        every { player.height } returns 1.8
+        every { player.eyeHeight } returns 1.62
         every { player.mainHand } returns MainHand.RIGHT
         every { target.uniqueId } returns UUID.randomUUID()
         every { target.isValid } returns true
@@ -1176,6 +1277,7 @@ private class ShotFixture(val scheduler: TestTaskScheduler) : AutoCloseable {
         shots.fire(player, spec, { aiming && zoom != null }, { valid }, { it === target }, headshotMultiplier, afterFiring) { _, details, damage ->
         hits += details.position.clone() to damage
         hitDetails += details
+        acceptsDamage
     }
 
     fun until(maximumTicks: Int = 35, done: () -> Boolean) {

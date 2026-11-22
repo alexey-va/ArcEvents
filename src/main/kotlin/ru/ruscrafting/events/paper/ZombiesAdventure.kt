@@ -379,12 +379,13 @@ class ZombiesAdventure(
         expectedMatch == matchId.toString() && standing(player) && enemies[entity.uniqueId]?.mob === entity &&
             entity.world.uid == world.uid && !entity.isDead && entity.isValid
 
-    fun hitByFirearm(player: Player, entity: Entity, impact: FirearmHit, amount: Double, expectedMatch: String) {
-        if (!isFirearmTarget(player, entity, expectedMatch) || !amount.isFinite() || amount <= 0) return
+    fun hitByFirearm(player: Player, entity: Entity, impact: FirearmHit, amount: Double, expectedMatch: String): Boolean {
+        if (!isFirearmTarget(player, entity, expectedMatch) || !amount.isFinite() || amount <= 0) return false
         val enemy = enemies.getValue(entity.uniqueId)
         val headshot = impact.position.y >= enemy.mob.eyeLocation.y - .35
         val power = director.players.getValue(player.uniqueId).power
         damage(player, enemy, amount * (1 + power * .35) * if (headshot) 1.75 else 1.0, headshot)
+        return true
     }
 
     private fun damage(player: Player, enemy: Enemy, amount: Double, headshot: Boolean) {

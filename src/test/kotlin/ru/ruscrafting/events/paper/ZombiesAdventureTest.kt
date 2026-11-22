@@ -50,10 +50,11 @@ class ZombiesAdventureTest : StringSpec({
             f.game.isFirearmTarget(outsider, mob, f.match.toString()) shouldBe false
             f.game.isFirearmTarget(f.player, mob, UUID.randomUUID().toString()) shouldBe false
             val hit = FirearmHit(mob.location.toVector(), false)
-            f.game.hitByFirearm(f.player, mob, hit, 1.0, f.match.toString())
+            f.game.hitByFirearm(outsider, mob, hit, 1.0, f.match.toString()) shouldBe false
+            f.game.hitByFirearm(f.player, mob, hit, 1.0, f.match.toString()) shouldBe true
             verify(exactly = 1) { mob.playHurtAnimation(any()) }
-            f.game.hitByFirearm(f.player, mob, hit, 1000.0, f.match.toString())
-            f.game.hitByFirearm(f.player, mob, hit, 1000.0, f.match.toString())
+            f.game.hitByFirearm(f.player, mob, hit, 1000.0, f.match.toString()) shouldBe true
+            f.game.hitByFirearm(f.player, mob, hit, 1000.0, f.match.toString()) shouldBe false
             verify(exactly = 1) { mob.remove() }
             verify(exactly = 0) { mob.health = any() }
             verify(exactly = 0) { mob.damage(any<Double>()) }

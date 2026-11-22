@@ -171,21 +171,10 @@ class WorldFirearms(
                 feedback(player, "world-empty-actionbar")
                 if (reloadSounds()) player.playSound(player.location, Sound.BLOCK_LEVER_CLICK, SoundCategory.PLAYERS, .7f, 1.7f)
             },
-            busy = { feedback(player, "world-busy-actionbar") }) { entity, impact, amount ->
-            if (amount.isFinite() && amount > 0.0 && valid() && target(entity) &&
-                (entity !is Player || entity.world.pvp) && canTarget(player, entity)
-            ) {
-                // Preserve native armour, hurt immunity and cancellable region/team protection listeners.
-                val victim = entity as LivingEntity
-                val healthBefore = victim.health + victim.absorptionAmount
-                victim.damage(amount, player)
-                // Beyond normal hurt-sound range give only the shooter a short confirmed-hit tick.
-                if (reloadSounds() && player.world.uid == worldId &&
-                    player.eyeLocation.toVector().distanceSquared(impact.position) > 16.0 * 16.0 &&
-                    (victim.isDead || victim.health + victim.absorptionAmount < healthBefore)) {
-                    player.playSound(player.location, Sound.BLOCK_NOTE_BLOCK_HAT, SoundCategory.PLAYERS, .32f, 1.45f)
-                }
-            }
+            busy = { feedback(player, "world-busy-actionbar") }) { entity, _, amount ->
+            amount.isFinite() && amount > 0.0 && valid() && target(entity) &&
+                (entity !is Player || entity.world.pvp) && canTarget(player, entity) &&
+                (entity as LivingEntity).takeFirearmDamage(amount, player)
         }
     }
 

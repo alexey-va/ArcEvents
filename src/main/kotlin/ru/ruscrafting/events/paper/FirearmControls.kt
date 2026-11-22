@@ -42,7 +42,7 @@ internal class FirearmControls(private val shots: FirearmShots, private val cloc
         valid: () -> Boolean, target: (Entity) -> Boolean, headshotMultiplier: Double = 1.0,
         withLoaded: (ItemStack, Int) -> ItemStack, hasReserve: () -> Boolean, reload: () -> Boolean,
         empty: () -> Unit, busy: () -> Unit,
-        hit: (Entity, FirearmHit, Double) -> Unit,
+        hit: (Entity, FirearmHit, Double) -> Boolean,
     ): Boolean {
         val id = player.uniqueId
         val now = clock()

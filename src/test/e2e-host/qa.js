@@ -55,6 +55,25 @@ export function observe(player) {
   return observed;
 }
 
+export function observeSounds(player) {
+  const { bot } = player;
+  const sounds = [];
+  const capture = (packet) => {
+    const { sound, volume, pitch, x, y, z } = packet;
+    const name = sound?.data?.soundName ?? bot.registry.sounds?.[sound?.soundId]?.name;
+    if (name || Number.isInteger(sound?.soundId)) sounds.push({ name: name ?? '', id: sound?.soundId, volume, pitch, x, y, z });
+  };
+  bot._client.on('sound_effect', capture);
+  bot._client.on('entity_sound_effect', capture);
+  return {
+    sounds,
+    stop() {
+      bot._client.removeListener('sound_effect', capture);
+      bot._client.removeListener('entity_sound_effect', capture);
+    },
+  };
+}
+
 export const button = (screen, id) => screen.actions?.find((action) => action.action?.id?.endsWith(`/${id}`));
 export const nextScreen = (observed, since, id) => until(
   () => observed.screens.slice(since).findLast((screen) => button(screen, id)), `Native dialog did not expose ${id}`,

@@ -616,29 +616,26 @@ class WorldFirearmsTest : FunSpec({
         }
     }
 
-    test("the distant shooter hears a hit only after the target loses health") {
+    test("impact confirms native health and absorption losses and rejects cancelled or zero damage") {
         WorldFirearmFixture().use { f ->
             f.player.inventory.setItemInMainHand(f.gun(loaded = 6))
             f.click()
             val shot = f.accepted.single()
             val target = mockk<LivingEntity>(relaxed = true)
             var health = 20.0
+            var absorption = 4.0
             every { target.uniqueId } returns UUID.randomUUID()
             every { target.world } returns f.world
             every { target.isValid } returns true
             every { target.health } answers { health }
-            val near = FirearmHit(f.player.eyeLocation.toVector().add(Vector(0, 0, 5)), false)
-            val far = FirearmHit(f.player.eyeLocation.toVector().add(Vector(0, 0, 35)), false)
-            val heard = f.player.heardSounds.size
-
-            shot.hit(target, far, 2.0)
-            f.player.heardSounds.size shouldBe heard
+            every { target.absorptionAmount } answers { absorption }
+            val impact = FirearmHit(f.player.eyeLocation.toVector().add(Vector(0, 0, 5)), false)
+            shot.hit(target, impact, 2.0) shouldBe false
+            shot.hit(target, impact, 0.0) shouldBe false
+            every { target.damage(2.0, f.player) } answers { absorption -= 2.0 }
+            shot.hit(target, impact, 2.0) shouldBe true
             every { target.damage(2.0, f.player) } answers { health -= 2.0 }
-            shot.hit(target, near, 2.0)
-            f.player.heardSounds.size shouldBe heard
-            shot.hit(target, far, 2.0)
-            f.player.heardSounds.size shouldBe heard + 1
-            f.player.heardSounds.last().volume shouldBe .32f
+            shot.hit(target, impact, 2.0) shouldBe true
         }
     }
 
@@ -778,7 +775,7 @@ private data class WorldShot(
     val valid: () -> Boolean,
     val target: (Entity) -> Boolean,
     val afterFiring: (Boolean) -> Unit,
-    val hit: (Entity, FirearmHit, Double) -> Unit,
+    val hit: (Entity, FirearmHit, Double) -> Boolean,
 )
 
 private class WorldFirearmFixture : AutoCloseable {

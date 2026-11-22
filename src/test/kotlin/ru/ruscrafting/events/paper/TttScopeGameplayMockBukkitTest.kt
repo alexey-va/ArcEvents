@@ -353,7 +353,7 @@ class TttScopeGameplayMockBukkitTest : StringSpec({
 
     "physical entity attack reserves one shot and its later impact reaches the match damage lifecycle" {
         val shots = mockk<FirearmShots>(relaxed = true)
-        val impact = slot<(Entity, FirearmHit, Double) -> Unit>()
+        val impact = slot<(Entity, FirearmHit, Double) -> Boolean>()
         every { shots.fire(any(), any(), any(), any(), any(), any(), any(), capture(impact)) } returns true
         TttRoundFixture(shots = shots).use { f ->
             f.reloadRuntime { it.replace("weapons:\n  enabled: false", "weapons:\n  enabled: true") }
@@ -376,10 +376,12 @@ class TttScopeGameplayMockBukkitTest : StringSpec({
             every { target.name } returns originalTarget.name
             every { target.location } returns originalTarget.location
             every { target.eyeLocation } returns originalTarget.eyeLocation
-            every { target.health } returns 20.0
+            var targetHealth = 20.0
+            every { target.health } answers { targetHealth }
             var damageEvent: EntityDamageByEntityEvent? = null
             every { target.damage(any<Double>(), shooter) } answers {
                 damageEvent = f.meleeHit(shooter, target, firstArg())
+                if (!requireNotNull(damageEvent).isCancelled) targetHealth -= requireNotNull(damageEvent).finalDamage
             }
             val attack = f.paper.callEvent(PrePlayerAttackEntityEvent(shooter, target, true))
 
@@ -390,7 +392,7 @@ class TttScopeGameplayMockBukkitTest : StringSpec({
             weapon.loaded shouldBe f.firearms.spec(FirearmId.VSS_VINTOREZ).magazineSize - 1
             // Changing the held weapon while a bullet travels cannot turn its impact into an instant knife kill.
             originalShooter.inventory.setItemInMainHand(f.items.purchasedItem(EventItemKind.TRAITOR_BLADE, originalShooter, matchId))
-            impact.captured(target, FirearmHit(originalTarget.eyeLocation.toVector(), true), 8.5)
+            impact.captured(target, FirearmHit(originalTarget.eyeLocation.toVector(), true), 8.5) shouldBe true
             verify(exactly = 1) { target.damage(any<Double>(), shooter) }
             requireNotNull(damageEvent).isCancelled shouldBe false
             requireNotNull(f.service.participant(originalTarget.uniqueId)).status shouldBe

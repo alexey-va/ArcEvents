@@ -802,6 +802,8 @@ class ArcEventsService(
         val bot = pendingPracticeAttack?.takeIf { it.second == victim.uniqueId }?.first
         val attackerId = attacker?.uniqueId ?: bot
         val hit = pendingFirearmHit(attackerId, victim.uniqueId)
+        // The match accepts a lethal hit by scheduling elimination and cancelling native death.
+        if (lethal && hit != null) hit.lethalElimination = true
         recordTttDamage(victim.uniqueId, attackerId, finalDamage, lethal,
             hit?.let { "firearm.${it.firearmId.name.lowercase()}" } ?: if (bot != null) "melee" else weaponKey(attacker), hit?.headshot == true)
     }
@@ -2710,21 +2712,21 @@ class ArcEventsService(
     }
 
     private fun damagePracticeFighter(victim: UUID, attacker: UUID, amount: Double, weapon: FirearmId?,
-        headshot: Boolean = false, blade: Boolean = false) {
-        val fighters = practiceFighters ?: return
+        headshot: Boolean = false, blade: Boolean = false): Boolean {
+        val fighters = practiceFighters ?: return false
         if (fighters.roster.matchId != matchIdentity() || phase() != MatchPhase.ACTIVE ||
-            !amount.isFinite() || amount <= 0.0 || !isAlive(attacker) || !isAlive(victim)) return
-        val at = fighters.actor(victim)?.location ?: return
-        val availableHealth = fighters.health(victim) ?: return
-        if (arcade.current?.mode == EventMode.GUN_GAME && arcade.shouldCancelDamage(victim, attacker, false, null)) return
+            !amount.isFinite() || amount <= 0.0 || !isAlive(attacker) || !isAlive(victim)) return false
+        val at = fighters.actor(victim)?.location ?: return false
+        val availableHealth = fighters.health(victim) ?: return false
+        if (arcade.current?.mode == EventMode.GUN_GAME && arcade.shouldCancelDamage(victim, attacker, false, null)) return false
         val weaponKey = weapon?.let { "firearm.${it.name.lowercase()}" } ?: if (blade) "traitor-blade" else "melee"
         recordTttDamage(victim, attacker, minOf(availableHealth, amount), amount >= availableHealth, weaponKey, headshot)
-        if (!fighters.damage(victim, attacker, amount)) return
+        if (!fighters.damage(victim, attacker, amount)) return (fighters.health(victim) ?: availableHealth) < availableHealth
         val ttt = match
         if (ttt == null) {
             arcade.eliminatePracticeFighter(victim, attacker, weapon)
             if (phase() != MatchPhase.ACTIVE) closePracticeFighters()
-            return
+            return true
         }
         val eliminated = runtime.eliminate(victim, attacker)
         runCatching { bodyRegistry.spawn(ttt.matchId, at, requireNotNull(ttt.participant(victim)), attacker,
@@ -2732,6 +2734,7 @@ class ArcEventsService(
             privateViewer = plugin.server.getPlayer(fighters.roster.ownerId)) }
             .onFailure { plugin.logger.log(Level.WARNING, "ArcEvents could not show practice body for $victim", it) }
         if (eliminated.outcome is MatchOutcome.Finished) resolve(eliminated.match)
+        return true
     }
 
     private fun closePracticeFighters() {
@@ -2760,30 +2763,26 @@ class ArcEventsService(
         impact: FirearmHit,
         baseDamage: Double,
         matchId: String,
-    ) {
-        if (!eventFirearmTarget(shooter, entity, matchId)) return
+    ): Boolean {
+        if (!baseDamage.isFinite() || baseDamage <= 0.0 || !eventFirearmTarget(shooter, entity, matchId)) return false
         val bot = practiceFighters?.identity(entity)
         if (bot != null) {
-            damagePracticeFighter(bot, shooter.uniqueId, baseDamage, firearmId, impact.headshot)
-            return
+            return damagePracticeFighter(bot, shooter.uniqueId, baseDamage, firearmId, impact.headshot)
         }
         if (currentMode() == EventMode.ZOMBIES) {
-            zombiesAdventure(shooter)?.hitByFirearm(shooter, entity, impact, baseDamage, matchId)
-            return
+            return zombiesAdventure(shooter)?.hitByFirearm(shooter, entity, impact, baseDamage, matchId) == true
         }
         if (currentMode() == EventMode.FISHING) {
-            fishingAdventure(shooter)?.hitByFirearm(shooter, entity, baseDamage, matchId)
-            return
+            return fishingAdventure(shooter)?.hitByFirearm(shooter, entity, baseDamage, matchId, impact.position) == true
         }
-        val target = entity as? Player ?: return
-        val headshot = impact.headshot
-        pendingHit = PendingHitContext(shooter.uniqueId, target.uniqueId, firearmId, headshot)
-        try {
-            target.damage(baseDamage, shooter)
+        val target = entity as? Player ?: return false
+        val context = PendingHitContext(shooter.uniqueId, target.uniqueId, firearmId, impact.headshot)
+        pendingHit = context
+        return try {
+            target.takeFirearmDamage(baseDamage, shooter) || context.lethalElimination
         } finally {
             pendingHit = null
         }
-        if (headshot && settings().ui.sounds) shooter.playSound(shooter.location, Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.45f, 1.8f)
     }
 
     private fun weaponKey(attacker: Player?): String {

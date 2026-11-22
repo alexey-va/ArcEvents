@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { expect, test } from '@drownek/plugwright';
-import { waitForQa } from './qa.js';
+import { observeSounds, until, waitForQa } from './qa.js';
 
 function snapshot(player) {
   const item = (entry) => entry ? {
@@ -196,6 +196,67 @@ async function shoot(attacker, victim) {
   await expect(victim).toHaveReceivedMessage(/Back in action/, { since: respawnSince, timeout: 10000 });
   await pause(250);
 }
+
+test('Gun Game confirms only a hit and plays positional shots beyond 30 blocks', async ({ player, createPlayer }) => {
+  await waitForEventsReady();
+  const rival = await createConnected(createPlayer, 'HitRival');
+  const listener = await createConnected(createPlayer, 'FarAudio');
+  await listener.makeOp();
+  const nearSounds = observeSounds(player);
+  const farSounds = observeSounds(listener);
+  const markers = new Set();
+  const rivalMarkers = new Set();
+  const receivedDisplays = new Map();
+  const textIndex = player.bot.registry.entitiesByName.text_display.metadataKeys.indexOf('text');
+  const isMarker = (entity) => entity.name === 'text_display' && /[×✕]/.test(JSON.stringify(entity.metadata[textIndex]));
+  const mark = (entity) => {
+    if (entity.name === 'text_display') receivedDisplays.set(entity.id, entity.metadata[textIndex]);
+    if (isMarker(entity)) markers.add(entity.id);
+  };
+  const rivalMark = (entity) => { if (isMarker(entity)) rivalMarkers.add(entity.id); };
+  const isShot = ({ name }) => name.startsWith('arc:weapon_') && name.endsWith('_fire');
+  // Mineflayer's 1.21.11 lookup drifts for some vanilla sound IDs; the fixture has a unique gain/pitch pair for this cue.
+  const isHitCue = ({ name, volume, pitch }) => name.endsWith('block.note_block.snare') ||
+    (Math.abs(volume - .64) < .001 && [1.65, 1.95].some((value) => Math.abs(pitch - value) < .001));
+  player.bot.on('entityUpdate', mark);
+  rival.bot.on('entityUpdate', rivalMark);
+  try {
+    await startGunGame([player, rival], listener);
+    listener.chat(`/gamemode spectator ${listener.username}`);
+    listener.chat(`/execute in minecraft:arcevents_e2e run tp ${listener.username} 35.5 16 -12.5`);
+    await until(() => listener.bot.entity.position.x > 34, 'Distant listener did not arrive in the arena');
+    await teleportTo(player, player, -12.5, 16, -12.5);
+    await teleportTo(player, rival, -10.5, 16, -12.5);
+    await waitForFiringPosition(player, rival);
+    assert.ok(listener.bot.entity.position.distanceTo(player.bot.entity.position) >= 45);
+    player.bot.setQuickBarSlot(0);
+    await pause(250);
+    await player.bot.lookAt(player.bot.entity.position.offset(0, 20, 0), true);
+    player.bot.swingArm();
+    const farShot = await until(() => farSounds.sounds.find(isShot), 'No gunshot reached the distant same-world listener');
+    const nearShot = await until(() => nearSounds.sounds.find(isShot), 'No shot was played for the shooter');
+    assert.ok(farShot.volume > 0);
+    assert.ok(Math.abs(farShot.x / 8 - player.bot.entity.position.x) <= 2, 'Distant shot stopped being positional at the muzzle');
+    assert.ok(nearShot.volume > 0);
+    await pause(700);
+    assert.equal(markers.size, 0, 'A miss displayed the hit marker');
+    assert.ok(!nearSounds.sounds.some(isHitCue), 'A miss sounded like a confirmed hit');
+
+    await shoot(player, rival);
+    await until(() => markers.size === 1,
+      `A confirmed hit did not send one hit marker to the shooter; observed displays=${JSON.stringify([...receivedDisplays])}, sounds=${JSON.stringify(nearSounds.sounds.slice(-12))}`);
+    await until(() => nearSounds.sounds.filter(isHitCue).length === 1, 'A confirmed hit did not play one distinct hit sound');
+    assert.equal(rivalMarkers.size, 0, 'The victim received the shooter-only hit marker');
+    assert.ok(!farSounds.sounds.some(isHitCue), 'The distant listener received the shooter-only hit sound');
+  } finally {
+    player.bot.removeListener('entityUpdate', mark);
+    rival.bot.removeListener('entityUpdate', rivalMark);
+    nearSounds.stop();
+    farSounds.stop();
+    await cleanup([player, rival]);
+    listener.bot.quit();
+  }
+});
 
 test('Gun Game advances through every firearm and finishes on the real knife hit', async ({ player, createPlayer }) => {
   await waitForEventsReady();

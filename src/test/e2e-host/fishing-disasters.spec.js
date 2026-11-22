@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { expect, test } from '@drownek/plugwright';
 import { Vec3 } from 'vec3';
-import { click, nextScreen, observe, ready, restoreObserved, seed, until, waitForQa, walkTo } from './qa.js';
+import { click, nextScreen, observe, observeSounds, ready, restoreObserved, seed, until, waitForQa, walkTo } from './qa.js';
 
 const mainMenu = '/arcevents menu';
 const idle = { phase: 'idle', participants: 0, queue: 0 };
@@ -29,8 +29,18 @@ test('Fishing enters through the public menu, lands a bite, pursues its fleeing 
   const admin = await createPlayer();
   await admin.makeOp();
   const observed = observe(player);
+  const observedSounds = observeSounds(player);
   const { bot } = player;
   const displayText = bot.registry.entitiesByName.text_display.metadataKeys.indexOf('text');
+  const interactionKeys = bot.registry.entitiesByName.interaction.metadataKeys;
+  const hurtEntities = new Set();
+  const injuryParticles = [];
+  const markHurt = ({ entityId }) => hurtEntities.add(entityId);
+  const markInjury = (packet) => {
+    if (packet.particle?.type === 'damage_indicator') injuryParticles.push(packet);
+  };
+  bot._client.on('hurt_animation', markHurt);
+  bot._client.on('world_particles', markInjury);
   let reeled = false;
   let releaseHint = false;
   let restored = false;
@@ -83,11 +93,15 @@ test('Fishing enters through the public menu, lands a bite, pursues its fleeing 
     assert.equal(catchEntity.name, 'silverfish', 'The first landed camp catch was not the clam');
     const attributeSince = admin.getMessageBufferIndex();
     admin.chat(`/execute in minecraft:arcevents_fishing_archipelago_v2 run attribute ${catchEntity.uuid} minecraft:scale base get`);
-    await expect(admin).toHaveReceivedMessage(/scale.*2\.75/i, { since: attributeSince, timeout: 5000 });
+    await expect(admin).toHaveReceivedMessage(/scale.*1\.8/i, { since: attributeSince, timeout: 5000 });
     // This Mineflayer decoder misnames several 1.21.11 attribute IDs. Match the independently verified native value on this entity.
-    const [decodedKey] = await until(() => Object.entries(catchEntity.attributes ?? {}).find(([, property]) => property.value === 2.75),
-      'The client did not receive the verified 2.75 attribute on the camp clam');
-    console.info(`[Fishing] Clam ${catchEntity.id} minecraft:scale=2.75, client attribute key=${decodedKey}`);
+    await until(() => Object.values(catchEntity.attributes ?? {}).some(({ value }) => Math.abs(value - 1.8) < .001),
+      'The client did not receive the smaller visual scale on the camp clam');
+    const hitbox = await until(() => bot.nearestEntity((entity) => entity.name === 'interaction' &&
+      entity.position.distanceTo(catchEntity.position) < .75 &&
+      Math.abs(entity.metadata[interactionKeys.indexOf('width')] - 1.8) < .001 &&
+      Math.abs(entity.metadata[interactionKeys.indexOf('height')] - 1.35) < .001),
+    'The clam did not receive its separate, larger client hitbox');
     const startingHealth = bot.health;
     await until(() => bot.entities[catchEntity.id]?.position.distanceTo(landing) > 1,
       'The first island catch never fled from the angler');
@@ -96,12 +110,13 @@ test('Fishing enters through the public menu, lands a bite, pursues its fleeing 
       await until(async () => {
         if (tagged(bot.inventory.slots[40], 'FISHING_CATCH_BAG', match)) return true;
         const target = bot.entities[catchEntity.id];
-        if (!target) return false;
+        const clickable = bot.entities[hitbox.id];
+        if (!target || !clickable) return false;
         const distance = target.position.distanceTo(bot.entity.position);
-        await bot.lookAt(target.position.offset(0, 0.42, 0), true);
+        await bot.lookAt(target.position.offset(0, 0.8, 0), true);
         bot.setControlState('forward', distance > 2.0);
         if (distance <= 2.7 && Date.now() - lastStrike >= 800) {
-          bot.attack(target);
+          bot.attack(clickable);
           lastStrike = Date.now();
         }
         return false;
@@ -110,6 +125,13 @@ test('Fishing enters through the public menu, lands a bite, pursues its fleeing 
       bot.setControlState('forward', false);
     }
     await until(() => !bot.entities[catchEntity.id], 'The defeated catch remained in the world');
+    await until(() => !bot.entities[hitbox.id], 'The defeated catch left a clickable hitbox');
+    assert.ok(hurtEntities.has(catchEntity.id), 'No hurt animation was sent for the damaged catch');
+    assert.ok(injuryParticles.length > 0, 'The accepted melee attack did not produce a visible damage particle');
+    // The JVM check covers the sound key. Confirm the unique encounter hurt gain and pitch on the wire.
+    assert.ok(observedSounds.sounds.some(({ name, volume, pitch }) => name.endsWith('entity.cod.hurt') ||
+      (Math.abs(volume - .85) < .001 && Math.abs(pitch - 1) < .001)),
+      `The accepted melee attack did not play the catch hurt sound; heard=${JSON.stringify(observedSounds.sounds.slice(-12))}`);
     assert.ok(bot.health >= startingHealth, 'A fleeing camp catch hurt its pursuer');
 
     const since = observed.screens.length;
@@ -123,6 +145,9 @@ test('Fishing enters through the public menu, lands a bite, pursues its fleeing 
   } finally {
     if (!restored && bot.entity) player.chat('/arcevents leave');
     bot.removeListener('entityUpdate', handleHint);
+    bot._client.removeListener('hurt_animation', markHurt);
+    bot._client.removeListener('world_particles', markInjury);
+    observedSounds.stop();
     observed.stop();
   }
 });

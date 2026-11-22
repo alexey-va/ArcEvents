@@ -42,6 +42,12 @@ import kotlin.random.Random
 
 data class FirearmHit(val position: Vector, val headshot: Boolean)
 
+internal fun LivingEntity.takeFirearmDamage(amount: Double, shooter: Player): Boolean {
+    val before = health + absorptionAmount
+    damage(amount, shooter)
+    return isDead || health + absorptionAmount < before
+}
+
 /** Main-thread flight owner. Callers retain admission, ammunition and native damage/protection rules. */
 class FirearmShots(
     private val displays: PaperPacketDisplays,
@@ -50,16 +56,18 @@ class FirearmShots(
     private val scopedModel: (UUID) -> Boolean = { false },
     private val scopeZoom: (UUID) -> Float? = { null },
     private val soundPreset: () -> FirearmSoundPreset = { FirearmSoundPreset.ORIGINAL },
+    private val eventFeedback: (Player) -> Boolean = { true },
 ) : AutoCloseable {
     private class Shot(
         val shooter: Player,
         val spec: FirearmSpec,
         val aiming: () -> Boolean,
         val soundKey: String,
+        val eventFeedback: Boolean,
         val valid: () -> Boolean,
         val target: (Entity) -> Boolean,
         val headshotMultiplier: Double,
-        val hit: (Entity, FirearmHit, Double) -> Unit,
+        val hit: (Entity, FirearmHit, Double) -> Boolean,
         val afterFiring: (Boolean) -> Unit,
         var pendingRounds: Int,
         val expires: Long,
@@ -83,6 +91,7 @@ class FirearmShots(
         val impacts = linkedMapOf<UUID, Impact>()
         val contacts = mutableListOf<Vector>()
         val heardFlyby = mutableSetOf<UUID>()
+        var confirmed = false
     }
     private class Bullet(val round: Round, val position: Vector, val velocity: Vector, val born: Long) {
         var remaining = round.shot.spec.range
@@ -105,6 +114,7 @@ class FirearmShots(
     private val blasts = ArrayDeque<Blast>()
     private val retired = ArrayDeque<Retired>()
     private val impactMarks = FirearmImpactMarks(displays, particles)
+    private val hitMarkers = FirearmHitMarkers(displays, scopeZoom)
     private val completed = ArrayDeque<Round>()
     private val recoils = linkedMapOf<UUID, Recoil>()
     private var reserved = 0
@@ -128,19 +138,19 @@ class FirearmShots(
         target: (Entity) -> Boolean,
         headshotMultiplier: Double = 1.0,
         afterFiring: (Boolean) -> Unit = {},
-        hit: (Entity, FirearmHit, Double) -> Unit,
+        hit: (Entity, FirearmHit, Double) -> Boolean,
     ): Boolean = submit(shooter, spec, aiming, valid, target, headshotMultiplier, null, afterFiring, hit)
 
     internal fun fireBurst(
         shooter: Player, spec: FirearmSpec, aiming: () -> Boolean, valid: () -> Boolean, target: (Entity) -> Boolean,
         headshotMultiplier: Double, burst: FirearmBurst, afterFiring: (Boolean) -> Unit,
-        hit: (Entity, FirearmHit, Double) -> Unit,
+        hit: (Entity, FirearmHit, Double) -> Boolean,
     ): Boolean = submit(shooter, spec, aiming, valid, target, headshotMultiplier, burst, afterFiring, hit)
 
     private fun submit(
         shooter: Player, spec: FirearmSpec, aiming: () -> Boolean, valid: () -> Boolean, target: (Entity) -> Boolean,
         headshotMultiplier: Double, burst: FirearmBurst?, afterFiring: (Boolean) -> Unit,
-        hit: (Entity, FirearmHit, Double) -> Unit,
+        hit: (Entity, FirearmHit, Double) -> Boolean,
     ): Boolean {
         if (closed || spec.pellets !in 1..16 ||
             burst != null && (burst.size !in 1..spec.magazineSize || burst.intervalTicks !in 1..100) ||
@@ -151,7 +161,7 @@ class FirearmShots(
         if (reserved + count > MAX_BULLETS) return false
         val eye = shooter.eyeLocation
         if (!eye.world.isChunkLoaded(eye.blockX shr 4, eye.blockZ shr 4)) return false
-        val shot = Shot(shooter, spec, aiming, soundPreset().soundKey(spec.id),
+        val shot = Shot(shooter, spec, aiming, soundPreset().soundKey(spec.id), eventFeedback(shooter),
             valid, target, headshotMultiplier, hit, afterFiring, if (burst == null) pattern.size else 1,
             tick + MAX_LIFETIME_TICKS + (burst?.let { (it.size - 1) * it.intervalTicks } ?: 0), burst)
         // Start the scheduler before accepting anything, so a scheduling failure cannot debit ammo.
@@ -242,15 +252,41 @@ class FirearmShots(
             try {
                 if (authorized(impact.shot) && impact.entity.isValid && !impact.entity.isDead && impact.shot.target(impact.entity)) {
                     // One volley/target produces one native damage call even when the work budget split its pellets.
-                    impact.shot.hit(impact.entity, FirearmHit(impact.position.clone(), impact.headshot), impact.damage)
+                    if (impact.shot.hit(impact.entity, FirearmHit(impact.position.clone(), impact.headshot), impact.damage)) {
+                        confirmImpact(round, impact)
+                    }
                 }
             } catch (failure: Exception) { fail(impact.shot, "impact", failure) }
         }
         recoverRecoil()
         val marksAlive = impactMarks.advance(tick)
-        if (!marksAlive && inputCompletions.isEmpty() && rounds.isEmpty() && bullets.isEmpty() && blasts.isEmpty() && completed.isEmpty() && retired.isEmpty() && recoils.isEmpty()) {
+        val hitMarkersAlive = hitMarkers.advance(tick)
+        if (!marksAlive && !hitMarkersAlive && inputCompletions.isEmpty() && rounds.isEmpty() && bullets.isEmpty() && blasts.isEmpty() && completed.isEmpty() && retired.isEmpty() && recoils.isEmpty()) {
             task?.cancel()
             task = null
+        }
+    }
+
+    private fun confirmImpact(round: Round, impact: Impact) {
+        val shot = round.shot
+        val player = shot.shooter
+        if (!player.isOnline || player.entityId != shot.entityId || player.world.uid != shot.world.uid) return
+        if (!shot.eventFeedback) {
+            // Ordinary-world guns keep their existing distant hit tick.
+            if (sounds() && player.eyeLocation.toVector().distanceSquared(impact.position) > 16.0 * 16.0) {
+                cosmetic(shot, "distant-hit") {
+                    player.playSound(player.location, Sound.BLOCK_NOTE_BLOCK_HAT, SoundCategory.PLAYERS, .32f, 1.45f)
+                }
+            }
+            return
+        }
+        if (round.confirmed) return
+        round.confirmed = true
+        // Like the ammo HUD, this private mark stays readable with world particles disabled.
+        cosmetic(shot, "hit-marker") { hitMarkers.show(player, tick) }
+        if (sounds()) cosmetic(shot, "hit-sound") {
+            player.playSound(player.eyeLocation, Sound.BLOCK_NOTE_BLOCK_SNARE, SoundCategory.PLAYERS,
+                .64f, if (impact.headshot) 1.95f else 1.65f)
         }
     }
 
@@ -515,7 +551,10 @@ class FirearmShots(
                 if (powder) .035 else .012)
         }
         if (sounds()) {
-            shot.world.playSound(location, shot.soundKey, SoundCategory.PLAYERS, shot.profile.volume, shot.profile.pitch)
+            // Paper broadcasts within 16 * volume. Pack clips use attenuation_distance=16;
+            // 1.21.11 clamps source gain before applying the player's volume slider.
+            val volume = if (shot.eventFeedback) shot.profile.muzzle.eventSoundRange / 16f else shot.profile.volume
+            shot.world.playSound(location, shot.soundKey, SoundCategory.PLAYERS, volume, shot.profile.pitch)
         }
     }
 
@@ -646,6 +685,7 @@ class FirearmShots(
         task?.cancel()
         task = null
         impactMarks.close()
+        hitMarkers.close()
         bullets.forEach { it.display?.remove() }
         retired.forEach { it.display.remove() }
         bullets.clear()
@@ -683,7 +723,9 @@ class FirearmShots(
     }
 }
 
-internal enum class FirearmMuzzleStyle { COMPACT, RIFLE, BLAST, BLACK_POWDER, SUPPRESSED }
+internal enum class FirearmMuzzleStyle(val eventSoundRange: Int) {
+    COMPACT(96), RIFLE(128), BLAST(144), BLACK_POWDER(112), SUPPRESSED(80),
+}
 
 internal data class FirearmSurfaceSound(val sound: Sound, val volume: Float, val pitch: Float)
 
