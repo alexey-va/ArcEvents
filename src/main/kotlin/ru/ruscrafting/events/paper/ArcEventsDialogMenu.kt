@@ -27,6 +27,7 @@ internal const val ZOMBIES_SOLO_SLOT = 1000
 internal const val LEAVE_QUEUE_SLOT = 1001
 internal const val LEAVE_MATCH_SLOT = 1002
 internal const val ADMIN_SOLO_SLOT = 1003
+internal const val MODE_ADMIN_SLOT = 1004
 private val WHITE_COLOR = TextColor.fromHexString("#ffffff")!!
 private val GREEN_COLOR = TextColor.fromHexString("#9bd48d")!!
 private val BLUE_COLOR = TextColor.fromHexString("#92bed8")!!
@@ -51,7 +52,7 @@ private enum class NativeButtonRole(
     PERSONAL_DESTINATION(VIOLET_COLOR, suffix = " ›"),
     TEST(VIOLET_COLOR),
     TRADE_DESTINATION(TRADE_COLOR, suffix = " ›"),
-    ROOT_DESTINATION(WHITE_COLOR, suffix = " ›"),
+    ADMIN_DESTINATION(WHITE_COLOR, suffix = " ›"),
     DESTRUCTIVE(RED_COLOR),
     UNAVAILABLE(WHITE_COLOR),
     BACK(WHITE_COLOR, prefix = "‹ "),
@@ -60,7 +61,7 @@ private enum class NativeButtonRole(
 }
 
 /** Apocalypse shares the catalog with the timed matches but has its own persistent world. */
-private enum class CatalogMode(val match: EventMode?, val skin: PanelSkin) {
+internal enum class CatalogMode(val match: EventMode?, val skin: PanelSkin) {
     TTT(EventMode.TTT, PanelSkin.PLUM),
     GUN_GAME(EventMode.GUN_GAME, PanelSkin.COCOA),
     DISASTERS(EventMode.DISASTERS, PanelSkin.NAVY),
@@ -89,7 +90,7 @@ private val NATIVE_DESTINATIONS = mapOf(
     "apocalypse.menu-name" to NativeButtonRole.ACTIVITY_DESTINATION,
     "menu.main.stats-name" to NativeButtonRole.PERSONAL_DESTINATION,
     "menu.main.help-name" to NativeButtonRole.HELP_DESTINATION,
-    "menu.main.admin-panel-name" to NativeButtonRole.ROOT_DESTINATION,
+    "menu.event.admin-panel-name" to NativeButtonRole.ADMIN_DESTINATION,
     "menu.event.arena-name" to NativeButtonRole.PERSONAL_DESTINATION,
     "menu.event.roster-name" to NativeButtonRole.PLAYER_DESTINATION,
     "menu.event.shop-name" to NativeButtonRole.TRADE_DESTINATION,
@@ -110,7 +111,7 @@ private val INVENTORY_ACTION_FOOTER = Regex("^\\s*\\[\\s*▶\\s*]\\s*(?:Нажм
 internal fun dialogFrontendSupported(enabled: Boolean, protocolVersion: Int, view: EventsView): Boolean =
     enabled && protocolVersion >= MIN_DIALOG_PROTOCOL && view in setOf(
         EventsView.Main, EventsView.Help, EventsView.EventHelp, EventsView.Ttt,
-        EventsView.Statistics, EventsView.Admin, EventsView.Fishing, EventsView.Apocalypse, EventsView.Report,
+        EventsView.Statistics, EventsView.Fishing, EventsView.Apocalypse, EventsView.Report,
         EventsView.Arcade(EventMode.ZOMBIES), EventsView.Arcade(EventMode.GUN_GAME), EventsView.Arcade(EventMode.DISASTERS),
     )
 
@@ -124,13 +125,11 @@ internal class ArcEventsDialogMenu(
     private val protocols: ClientProtocolResolver = ClientProtocolResolver(),
     private val escapeCloses: (Player) -> Boolean = { false },
     private val mainSlot: (String) -> Int,
-    private val openAdmin: (Player) -> Boolean = { false },
     private val present: (Player, PaperDialogScreen, (() -> Unit)?, () -> Unit, Boolean) -> Unit =
         { target, model, reopen, dismissed, closeOnEscape -> runtime.open(target, model, reopen, dismissed, closeOnEscape) },
 ) {
     fun open(player: Player, view: EventsView): Boolean {
         if (!settings().ui.dialogsEnabled || !dialogFrontendSupported(true, protocols.resolve(player), view)) return false
-        if (view == EventsView.Admin) return !player.hasPermission("arcevents.admin") || openAdmin(player)
         val screen = when (view) {
             EventsView.Main -> main(player)
             EventsView.Help -> help(player)
@@ -188,11 +187,10 @@ internal class ArcEventsDialogMenu(
 
     private fun main(player: Player): PaperDialogScreen {
         val state = service.snapshot()
-        fun entry(element: String, key: String, values: Map<String, Component> = emptyMap(), actionKey: String = key): PaperDialogButton {
+        fun entry(element: String, key: String, values: Map<String, Component> = emptyMap()): PaperDialogButton {
             val name = "$key-name"
-            return styledButton(player, name, "$key-lore", NATIVE_DESTINATIONS.getValue(name), actionId("$actionKey-name"), values, 200) { actor ->
-                if (element == "admin" && !actor.hasPermission("arcevents.admin")) open(actor, EventsView.Main)
-                else dispatch(actor, EventsView.Main, mainSlot(element))
+            return styledButton(player, name, "$key-lore", NATIVE_DESTINATIONS.getValue(name), actionId(name), values, 200) { actor ->
+                dispatch(actor, EventsView.Main, mainSlot(element))
             }
         }
         val actions = buildList {
@@ -208,7 +206,6 @@ internal class ArcEventsDialogMenu(
             add(entry("apocalypse", "apocalypse.menu"))
             add(entry("statistics", "menu.main.stats"))
             add(entry("help", "menu.main.help"))
-            if (player.hasPermission("arcevents.admin")) add(entry("admin", "menu.main.admin-panel", actionKey = "menu.main.admin"))
         }
         val modes = EventMode.entries.map(service::modeUnavailable)
         val availability = when {
@@ -245,6 +242,7 @@ internal class ArcEventsDialogMenu(
             add(rulesButton(player, CatalogMode.FISHING))
             if (entry.canStartSoloTest(participant) && player.hasPermission("arcevents.admin"))
                 add(soloButton(player, EventsView.Fishing, EventMode.FISHING))
+            addAdminPanel(player, EventsView.Fishing)
         }
         val summary = values + ("minutes" to locale.text(((if (participant) state.secondsRemaining else settings().arcade.fishing.roundSeconds.toLong()) + 59) / 60))
         return screen(player, CatalogMode.FISHING.nameKey, listOfNotNull(panel(player, buildList {
@@ -269,6 +267,7 @@ internal class ArcEventsDialogMenu(
                 else add(button(player, "apocalypse.enter-name", "apocalypse.enter-lore", EventsView.Apocalypse, 0))
             }
             add(rulesButton(player, CatalogMode.APOCALYPSE))
+            addAdminPanel(player, EventsView.Apocalypse)
         }
         return screen(player, CatalogMode.APOCALYPSE.nameKey, listOf(panel(player, content, skin = CatalogMode.APOCALYPSE.skin)),
             actions, 2, "events.apocalypse")
@@ -276,6 +275,11 @@ internal class ArcEventsDialogMenu(
 
     private fun soloButton(player: Player, view: EventsView, mode: EventMode) =
         button(player, "menu.admin.solo-test-name", "menu.admin.solo-test-lore", view, ADMIN_SOLO_SLOT, locale.soloTestText(player, mode))
+
+    private fun MutableList<PaperDialogButton>.addAdminPanel(player: Player, view: EventsView) {
+        if (player.canManageEventMenus())
+            add(button(player, "menu.event.admin-panel-name", "menu.event.admin-panel-lore", view, MODE_ADMIN_SLOT))
+    }
 
     fun openArcade(player: Player, mode: EventMode, entry: EventEntryStatus, canStart: Boolean, participating: Boolean, arena: Component,
                    joinSlot: Int, startSlot: Int, reopen: () -> Unit, feedback: String? = null, queueSize: Int = 0,
@@ -298,6 +302,7 @@ internal class ArcEventsDialogMenu(
             add(rulesButton(player, catalog))
             if (entry.canStartSoloTest(participating) && player.hasPermission("arcevents.admin"))
                 add(soloButton(player, view, mode))
+            addAdminPanel(player, view)
         }
         val content = buildList {
             add("dialog.${mode.id}-overview")
@@ -341,6 +346,7 @@ internal class ArcEventsDialogMenu(
             if (plan.showEvacuate) add(button(player, "menu.event.evacuate-name", "menu.event.evacuate-lore", EventsView.Ttt, 40))
             if (entry.canStartSoloTest(plan.showEvacuate) && player.hasPermission("arcevents.admin"))
                 add(soloButton(player, EventsView.Ttt, EventMode.TTT))
+            addAdminPanel(player, EventsView.Ttt)
         }
         return screen(player, CatalogMode.TTT.nameKey, bodies, actions, 2, TTT_DIALOG_ID)
     }

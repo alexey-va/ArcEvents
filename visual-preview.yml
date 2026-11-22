@@ -37,6 +37,12 @@ sources:
       - arcade.disasters-lore
       - arcade.disasters-guide
       - arcade.disasters-guide-name
+      - arcade.fishing-name
+      - arcade.fishing-lore
+      - arcade.zombies-name
+      - arcade.zombies-lore
+      - apocalypse.menu-name
+      - apocalypse.menu-lore
       - arcade.gungame-hud
       - arcade.disasters-hud
       - arcade.knife-name
@@ -47,7 +53,7 @@ sources:
       - menu.event-arenas.*
       - menu.stats.*
       - menu.help.*
-      - menu.admin.*
+      - menu.admin.solo-test-*
       - menu.common.back-name
       - menu.common.back-lore
       - arena.inferno.name
@@ -103,6 +109,8 @@ placeholders:
   health: '17'
   max_health: '20'
   mode: '<#e3b341>Гонка вооружений'
+  action: Тест с ботами
+  roster: Боты заполнят свободные роли в раунде.
   score: '8'
   stage: '9'
   total: '13'
@@ -154,21 +162,11 @@ surfaces:
         - {slot: 4, material: SPYGLASS, name: events:menu.main.ttt-name, lore: events:menu.main.ttt-lore}
         - {slot: 2, material: IRON_SWORD, name: events:arcade.gungame-name, lore: events:arcade.gungame-lore}
         - {slot: 6, material: LIGHTNING_ROD, name: events:arcade.disasters-name, lore: events:arcade.disasters-lore}
+        - {slot: 13, material: FISHING_ROD, name: events:arcade.fishing-name, lore: events:arcade.fishing-lore}
+        - {slot: 15, material: ZOMBIE_HEAD, name: events:arcade.zombies-name, lore: events:arcade.zombies-lore}
+        - {slot: 11, material: COPPER_GRATE, name: events:apocalypse.menu-name, lore: events:apocalypse.menu-lore}
         - {slot: 18, material: WRITABLE_BOOK, name: events:menu.main.stats-name, lore: events:menu.main.stats-lore}
         - {slot: 22, material: KNOWLEDGE_BOOK, name: events:menu.main.help-name, lore: events:menu.main.help-lore}
-
-    - id: event-catalog-admin
-      title: events:menu.main.title
-      rows: 3
-      filler: GRAY_STAINED_GLASS_PANE
-      background-item: arc:background
-      items:
-        - {slot: 4, material: SPYGLASS, name: events:menu.main.ttt-name, lore: events:menu.main.ttt-lore}
-        - {slot: 2, material: IRON_SWORD, name: events:arcade.gungame-name, lore: events:arcade.gungame-lore}
-        - {slot: 6, material: LIGHTNING_ROD, name: events:arcade.disasters-name, lore: events:arcade.disasters-lore}
-        - {slot: 18, material: WRITABLE_BOOK, name: events:menu.main.stats-name, lore: events:menu.main.stats-lore}
-        - {slot: 22, material: KNOWLEDGE_BOOK, name: events:menu.main.help-name, lore: events:menu.main.help-lore}
-        - {slot: 26, material: COMMAND_BLOCK, name: events:menu.main.admin-name, lore: events:menu.main.admin-lore}
 
     - &event_idle
       id: hidden-roles-idle
@@ -178,9 +176,19 @@ surfaces:
       background-item: arc:background
       items:
         - &event_overview {slot: 13, material: SPYGLASS, name: events:menu.event.overview-name, lore: events:menu.event.overview-lore}
-        - {slot: 22, material: LIME_DYE, name: events:menu.event.join-name, lore: events:menu.event.join-lore}
+        - &event_join {slot: 22, material: LIME_DYE, name: events:menu.event.join-name, lore: events:menu.event.join-lore}
         - &event_help {slot: 31, material: KNOWLEDGE_BOOK, name: events:menu.event.help-name, lore: events:menu.event.help-lore}
         - &event_back {slot: 36, material: BLUE_STAINED_GLASS_PANE, itemsadder: 'arc:left_gray', name: events:menu.common.back-name, lore: events:menu.common.back-lore}
+
+    - <<: *event_idle
+      id: hidden-roles-idle-admin
+      items:
+        - *event_overview
+        - *event_join
+        - *event_help
+        - *event_back
+        - {slot: 40, material: COMPARATOR, name: events:menu.admin.solo-test-name, lore: events:menu.admin.solo-test-lore}
+        - &event_admin {slot: 44, material: COMMAND_BLOCK, name: events:menu.event.admin-panel-name, lore: events:menu.event.admin-inventory-lore}
 
     - id: hidden-roles-unavailable
       title: events:menu.event.title
@@ -253,7 +261,7 @@ surfaces:
       items:
         - *event_overview
         - &event_roster {slot: 20, material: PLAYER_HEAD, itemsadder: 'arc:player_profile_preview', name: events:menu.event.roster-name, lore: events:menu.event.roster-lore}
-        - {slot: 22, material: NETHER_STAR, name: events:menu.event.shop-name, lore: events:menu.event.shop-lore}
+        - &event_shop {slot: 22, material: NETHER_STAR, name: events:menu.event.shop-name, lore: events:menu.event.shop-lore}
         - *event_help
         - *event_back
         - *event_evacuate
@@ -333,25 +341,25 @@ surfaces:
         - {slot: 33, material: COMMAND_BLOCK, name: events:menu.help.controls-name, lore: events:menu.help.controls-lore}
         - *event_back
 
-    - id: event-administration
-      title: events:menu.admin.title
-      rows: 6
+    - id: hidden-roles-active-admin
+      title: events:menu.event.title
+      rows: 5
       filler: GRAY_STAINED_GLASS_PANE
       background-item: arc:background
       items:
-        - {slot: 13, material: OBSERVER, name: events:menu.admin.status-name, lore: events:menu.admin.status-lore}
-        - {slot: 20, material: FILLED_MAP, name: events:menu.admin.arenas-name, lore: events:menu.admin.arenas-lore}
-        - {slot: 29, material: LIME_CONCRETE, name: events:menu.admin.start-name, lore: events:menu.admin.start-lore}
-        - {slot: 31, material: RED_CONCRETE, name: events:menu.admin.stop-name, lore: events:menu.admin.stop-lore}
-        - {slot: 33, material: CLOCK, name: events:menu.admin.reload-name, lore: events:menu.admin.reload-lore}
-        - {slot: 40, material: TOTEM_OF_UNDYING, name: events:menu.admin.recover-name, lore: events:menu.admin.recover-lore}
-        - {slot: 45, material: BLUE_STAINED_GLASS_PANE, itemsadder: 'arc:left_gray', name: events:menu.common.back-name, lore: events:menu.common.back-lore}
+        - *event_overview
+        - *event_roster
+        - *event_shop
+        - *event_help
+        - *event_back
+        - *event_evacuate
+        - *event_admin
 
   fragments:
     - source: events
       include: [arcade.knife-name, arcade.knife-lore]
     - source: events
-      include: [menu.event.state.*]
+      include: [menu.main.main-body, menu.event.state.*, menu.event.check-route-*, menu.event.refresh-*, menu.event.loading-*, menu.event.admin-panel-lore]
     - source: events
       include: [arena.inferno.name, arena.mirage.name, arena.nuke.name, arena.ttt-minecraft-b5.name]
     - source: events
@@ -360,6 +368,11 @@ surfaces:
   world:
     - id: event-player-nameplate
       text: events:nameplate.lines
+
+  chat-blocks:
+    - id: disasters-admin-commands
+      text: events:menu.event.admin-commands
+      placeholders: {event: Катастрофы, mode: disasters}
 
   chat:
     - source: events

@@ -18,7 +18,9 @@ import ru.arc.paper.testing.failOnUnsupportedMockBukkitOperation
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.config.NodeMode
+import ru.ruscrafting.events.domain.ArcadePlayer
 import ru.ruscrafting.events.domain.EventMode
+import ru.ruscrafting.events.domain.ParticipantStatus
 import ru.ruscrafting.events.network.QueueState
 import java.util.concurrent.CompletableFuture
 import java.nio.file.Files
@@ -64,7 +66,6 @@ class ArcEventsMenuMockBukkitTest : FunSpec({
                     mockk<TttItems>(),
                     locale,
                     { settings },
-                    { java.util.concurrent.CompletableFuture.completedFuture(Result.success(Unit)) },
                     layouts,
                 ).use { menu ->
                     menu.open(player)
@@ -107,7 +108,7 @@ class ArcEventsMenuMockBukkitTest : FunSpec({
                     every { queueControl(player.uniqueId) } returns CompletableFuture.completedFuture(QueueControlSnapshot(null, null))
                     every { arcadeSnapshot() } returns null
                 }
-                ArcEventsMenu(plugin, service, mockk<TttItems>(), locale, { settings }, { java.util.concurrent.CompletableFuture.completedFuture(Result.success(Unit)) }, layouts).use { menu ->
+                ArcEventsMenu(plugin, service, mockk<TttItems>(), locale, { settings }, layouts).use { menu ->
                     menu.open(player)
                     for ((slot, mode) in listOf(2 to EventMode.GUN_GAME, 6 to EventMode.DISASTERS)) {
                         paper.callEvent(InventoryClickEvent(player.openInventory, InventoryType.SlotType.CONTAINER, slot, ClickType.LEFT, InventoryAction.PICKUP_ALL)); paper.performTicks(2)
@@ -141,11 +142,13 @@ class ArcEventsMenuMockBukkitTest : FunSpec({
         } }
     }
 
-    test("participant root opens the current arcade mode instead of TTT status") {
+    test("participant shortcut shows only its mode administration in the legacy inventory and rechecks permission") {
         failOnUnsupportedMockBukkitOperation { MockBukkitTestRuntime.open().use { paper ->
             val plugin = paper.createSimplePlugin("ArcEventsParticipantRootTest"); PaperArcRuntime.installScheduling(plugin)
             val player = paper.addPlayer("ParticipantQA"); val root = Files.createTempDirectory("arcevents-participant-root-")
             try {
+                player.addAttachment(plugin, "arcevents.play", true)
+                val grant = requireNotNull(player.addAttachment(plugin, "arcevents.admin", true))
                 Files.createDirectories(root.resolve("lang")); copyResource("config.yml", root.resolve("config.yml")); copyResource("lang/ru.yml", root.resolve("lang/ru.yml")); copyResource("lang/en.yml", root.resolve("lang/en.yml"))
                 val settings = ArcEventsConfig.load(root); val locale = ArcEventsLocale(root) { settings }; val layouts = ArcEventsMenuLayouts(root)
                 val service = mockk<ArcEventsService> {
@@ -155,11 +158,39 @@ class ArcEventsMenuMockBukkitTest : FunSpec({
                     every { modeAvailable(any()) } returns true
                     every { modeUnavailable(any()) } returns null
                     every { queueControl(player.uniqueId) } returns CompletableFuture.completedFuture(QueueControlSnapshot(null, null))
-                    every { arcadeSnapshot() } returns null
+                    every { arcadeSnapshot() } returns mockk {
+                        every { mode } returns EventMode.DISASTERS
+                        every { participants } returns mapOf(player.uniqueId to ArcadePlayer(player.uniqueId, player.name, "test", ParticipantStatus.ALIVE))
+                    }
                 }
-                ArcEventsMenu(plugin, service, mockk<TttItems>(), locale, { settings }, { java.util.concurrent.CompletableFuture.completedFuture(Result.success(Unit)) }, layouts).use { menu ->
+                ArcEventsMenu(plugin, service, mockk<TttItems>(), locale, { settings }, layouts).use { menu ->
+                    menu.open(player)
+                    player.openInventory.topInventory.contents.filterNotNull().none { it.type == Material.COMMAND_BLOCK } shouldBe true
+                    val view = EventsView.Arcade(EventMode.DISASTERS)
+                    val slot = layouts.slot(view, "admin")
+                    fun clickAdmin() {
+                        paper.callEvent(InventoryClickEvent(player.openInventory, InventoryType.SlotType.CONTAINER,
+                            slot, ClickType.LEFT, InventoryAction.PICKUP_ALL))
+                        paper.performTicks(2)
+                    }
                     menu.openRoot(player); paper.performTicks(2)
-                    player.openInventory.topInventory.getItem(layouts.slot(EventsView.Arcade(EventMode.DISASTERS), "overview"))?.type shouldBe Material.LIGHTNING_ROD
+                    val inventory = player.openInventory.topInventory
+                    inventory.getItem(layouts.slot(view, "overview"))?.type shouldBe Material.LIGHTNING_ROD
+                    inventory.getItem(layouts.slot(view, "center"))?.type shouldBe Material.ENDER_PEARL
+                    inventory.getItem(slot)?.type shouldBe Material.COMMAND_BLOCK
+                    grant.setPermission("arcevents.admin", false)
+                    clickAdmin()
+                    val denied = generateSequence { player.nextMessage() }.joinToString()
+                    denied.contains("У вас нет доступа") shouldBe true
+                    denied.contains("/events admin") shouldBe false
+                    menu.openRoot(player); paper.performTicks(2)
+                    (player.openInventory.topInventory.getItem(slot)?.type == Material.COMMAND_BLOCK) shouldBe false
+                    grant.setPermission("arcevents.admin", true)
+                    menu.openRoot(player); paper.performTicks(2)
+                    clickAdmin()
+                    val commands = generateSequence { player.nextMessage() }.joinToString()
+                    commands.contains("/events admin start disasters") shouldBe true
+                    commands.contains("/events admin solo disasters") shouldBe true
                 }
             } finally { Tasks.reset(); root.toFile().deleteRecursively() }
         } }
@@ -182,7 +213,7 @@ class ArcEventsMenuMockBukkitTest : FunSpec({
                     every { defaultArenaId(EventMode.TTT) } returns "riot-in-prison"
                 }
                 ArcEventsMenu(plugin, service, mockk<TttItems>(), locale, { settings },
-                    { CompletableFuture.completedFuture(Result.success(Unit)) }, layouts).use { menu ->
+                    layouts).use { menu ->
                     val view = EventsView.EventArenas
                     val (inferno, prison, custom) = layouts.region(view, "arenas")
                     menu.open(player, view)
@@ -219,7 +250,7 @@ class ArcEventsMenuMockBukkitTest : FunSpec({
                     every { arcadeSnapshot() } returns null
                     every { startFromQueue(any(), any(), EventMode.GUN_GAME) } returns CompletableFuture.completedFuture(ReservationStartResult.STARTED)
                 }
-                ArcEventsMenu(plugin, service, mockk<TttItems>(), locale, { settings }, { java.util.concurrent.CompletableFuture.completedFuture(Result.success(Unit)) }, layouts).use { menu ->
+                ArcEventsMenu(plugin, service, mockk<TttItems>(), locale, { settings }, layouts).use { menu ->
                     menu.open(player, EventsView.Arcade(EventMode.GUN_GAME)); paper.performTicks(1); deferred.complete(QueueControlSnapshot(QueueState.QUEUED, player.uniqueId, 3)); paper.performTicks(2)
                     paper.callEvent(InventoryClickEvent(player.openInventory, InventoryType.SlotType.CONTAINER, layouts.slot(EventsView.Arcade(EventMode.GUN_GAME), "right"), ClickType.LEFT, InventoryAction.PICKUP_ALL)); paper.performTicks(3)
                     verify(exactly = 1) { service.startFromQueue(player, null, EventMode.GUN_GAME) }

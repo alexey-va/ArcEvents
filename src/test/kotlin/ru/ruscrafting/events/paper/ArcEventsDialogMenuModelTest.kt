@@ -14,6 +14,9 @@ import ru.arc.paper.menu.PaperDialogClickContext
 import ru.arc.paper.menu.PaperDialogScreen
 import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
+import ru.ruscrafting.events.domain.ArcadePlayer
+import ru.ruscrafting.events.domain.EventMode
+import ru.ruscrafting.events.domain.ParticipantStatus
 import java.nio.file.Files
 import java.util.Locale
 import java.util.UUID
@@ -45,7 +48,7 @@ class ArcEventsDialogMenuModelTest : StringSpec({
             every { player.uniqueId } returns UUID.randomUUID()
             every { player.isOnline } returns true
             every { player.locale() } returns Locale.US
-            every { player.hasPermission(any<String>()) } returns true
+            every { player.hasPermission("arcevents.play") } returns true
             val service = mockk<ArcEventsService>(relaxed = true)
             every { service.snapshot() } returns ServiceSnapshot("test", ru.ruscrafting.events.config.NodeMode.HOST, "test", true, true, true, null, 0, null, null, 0, 0, 0, 0, 0, 0)
             every { service.modeUnavailable(any()) } returns null
@@ -53,9 +56,9 @@ class ArcEventsDialogMenuModelTest : StringSpec({
             every { service.currentMode() } returns null
             val displayed = mutableListOf<PaperDialogScreen>()
             val layouts = ArcEventsMenuLayouts(root)
-            val rootClicks = mutableListOf<Int>()
+            val clicks = mutableListOf<Pair<EventsView, Int>>()
             val menu = ArcEventsDialogMenu(mockk<PaperDialogRuntime>(), service, locale, { settings },
-                { _, view, slot -> if (view == EventsView.Main) rootClicks += slot }, ClientProtocolResolver { 771 }, { false },
+                { _, view, slot -> clicks += view to slot }, ClientProtocolResolver { 771 }, { false },
                 mainSlot = { layouts.slot(EventsView.Main, it) }) { _, screen, _, _, _ -> displayed += screen }
 
             menu.open(player, EventsView.Main) shouldBe true
@@ -111,21 +114,54 @@ class ArcEventsDialogMenuModelTest : StringSpec({
             checks shouldBe 2
 
             val rootButtons = displayed.first().buttons
-            val admin = rootButtons.single { it.id.value == "action_menu_main_admin_name" }
-            plain.serialize(admin.label) shouldBe "Админ-панель ›"
-            plain.serialize(admin.tooltip) shouldContain "Апокалипсиса"
             val file = root.resolve("config.yml")
             Files.writeString(file, Files.readString(file).replace("statistics: {slot: 18}", "statistics: {slot: 26}")
-                .replace("admin: {slot: 26}", "admin: {slot: 18}"))
+                .replace("help: {slot: 22}", "help: {slot: 18}"))
             layouts.replace(layouts.prepare(root))
-            admin.onClick.handle(click)
+            rootButtons.single { it.id.value == "action_menu_main_help_name" }.onClick.handle(click)
             rootButtons.single { it.id.value == "action_menu_main_stats_name" }.onClick.handle(click)
-            rootClicks shouldBe listOf(18, 26)
-            every { player.hasPermission("arcevents.admin") } returns false
-            admin.onClick.handle(click)
-            rootClicks shouldBe listOf(18, 26)
-            displayed.last().id shouldBe "events.main"
-            displayed.last().buttons.map { it.id } shouldBe rootButtons.filterNot { it.id == admin.id }.map { it.id }
+            clicks shouldBe listOf(EventsView.Main to 18, EventsView.Main to 26)
+
+            every { player.hasPermission("arcevents.admin") } returns true
+            menu.open(player, EventsView.Main)
+            displayed.last().buttons.map { it.id } shouldBe rootButtons.map { it.id }
+            val panel = "action_menu_event_admin_panel_name"
+            val arena = Component.text("Arena")
+            every { service.isParticipant(player.uniqueId) } returns true
+            every { service.arcadeSnapshot() } returns mockk {
+                every { participants } returns mapOf(player.uniqueId to ArcadePlayer(player.uniqueId, "Tester", "host", ParticipantStatus.ALIVE))
+            }
+            for (mode in EventMode.entries) {
+                every { service.currentMode() } returns mode
+                val view = when (mode) {
+                    EventMode.TTT -> EventsView.Ttt
+                    EventMode.FISHING -> EventsView.Fishing
+                    else -> EventsView.Arcade(mode)
+                }
+                fun openMode() = when (mode) {
+                    EventMode.TTT -> menu.openTtt(player, route, eventMenuPlan(reserved, true, false,
+                        true, true, false, true, false, false), arena)
+                    EventMode.FISHING -> menu.openFishing(player, route, {})
+                    else -> menu.openArcade(player, mode, route, false, true, arena, 22, 24, {})
+                }
+                every { player.hasPermission("arcevents.admin") } returns false
+                openMode() shouldBe true
+                val gameplay = displayed.last().buttons.map { it.id.value }
+                gameplay.contains("action_menu_event_evacuate_name") shouldBe true
+                gameplay.contains(panel) shouldBe false
+                every { player.hasPermission("arcevents.admin") } returns true
+                openMode() shouldBe true
+                displayed.last().buttons.map { it.id.value } shouldBe gameplay + panel
+                val manage = displayed.last().buttons.last()
+                plain.serialize(manage.label) shouldBe "Админ-панель ›"
+                plain.serialize(manage.tooltip) shouldBe "Открыть управление этим режимом."
+                manage.closeDialogBeforeAction shouldBe false
+                manage.onClick.handle(click)
+                clicks.last() shouldBe (view to MODE_ADMIN_SLOT)
+            }
+            menu.open(player, EventsView.Apocalypse) shouldBe true
+            displayed.last().buttons.single { it.id.value == panel }.onClick.handle(click)
+            clicks.last() shouldBe (EventsView.Apocalypse to MODE_ADMIN_SLOT)
         } finally {
             root.toFile().deleteRecursively()
         }

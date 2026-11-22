@@ -4,9 +4,12 @@ import ru.arc.config.Config
 import ru.arc.menu.MenuCatalog
 import ru.arc.menu.MenuContract
 import ru.arc.menu.MenuElementId
+import ru.arc.menu.MenuElementLayout
 import ru.arc.menu.MenuId
+import ru.arc.menu.MenuLayout
 import ru.arc.menu.MenuLayoutParser
 import ru.arc.menu.MenuRegionId
+import ru.arc.menu.MenuSlot
 import ru.arc.paper.menu.PaperMenuConfiguration
 import java.nio.file.Path
 
@@ -23,6 +26,8 @@ class ArcEventsMenuLayouts(dataRoot: Path) {
         configuration.catalog.require(menu(view)).slot(MenuElementId.of(element)).index
     fun region(view: EventsView, region: String): List<Int> =
         configuration.catalog.require(menu(view)).region(MenuRegionId.of(region)).map { it.index }
+    fun modeAdminSlot(view: EventsView): Int? =
+        configuration.catalog.require(menu(view)).elements[ADMIN_ELEMENT]?.slots?.singleOrNull()?.index
 
     companion object {
         val MAIN = MenuId.of("main")
@@ -37,15 +42,19 @@ class ArcEventsMenuLayouts(dataRoot: Path) {
         val BODY = MenuId.of("body")
         val REPORT = MenuId.of("report")
         val COMBAT = MenuId.of("combat")
+        private val ADMIN_ELEMENT = MenuElementId.of("admin")
 
         private fun elements(vararg ids: String) = ids.mapTo(linkedSetOf(), MenuElementId::of)
         private fun regions(vararg ids: String) = ids.mapTo(linkedSetOf(), MenuRegionId::of)
 
+        private val modeContract = MenuContract(requiredElements = elements("overview", "left", "center", "right", "arena", "help", "back", "evacuate"),
+            optionalElements = setOf(ADMIN_ELEMENT))
         val CONTRACTS = linkedMapOf(
-            MAIN to MenuContract(requiredElements = elements("ttt", "gungame", "disasters", "fishing", "zombies", "apocalypse", "statistics", "help", "admin")),
+            MAIN to MenuContract(requiredElements = elements("ttt", "gungame", "disasters", "fishing", "zombies", "apocalypse", "statistics", "help"),
+                optionalElements = setOf(ADMIN_ELEMENT)),
             HELP to MenuContract(requiredElements = elements("innocent", "traitor", "detective", "flow", "evidence", "weapons", "controls", "back")),
-            TTT to MenuContract(requiredElements = elements("overview", "left", "center", "right", "arena", "help", "back", "evacuate")),
-            ARCADE to MenuContract(requiredElements = elements("overview", "left", "center", "right", "arena", "help", "back", "evacuate")),
+            TTT to modeContract,
+            ARCADE to modeContract,
             STATISTICS to MenuContract(requiredElements = elements("summary", "back")),
             ADMIN to MenuContract(requiredElements = elements("status", "arenas", "start", "stop", "reload", "recover", "back")),
             ARENAS to MenuContract(requiredElements = elements("auto", "back"), requiredRegions = regions("arenas")),
@@ -64,7 +73,6 @@ class ArcEventsMenuLayouts(dataRoot: Path) {
             EventsView.Apocalypse -> error("Apocalypse opens directly when native dialogs are unavailable")
             is EventsView.Arcade -> ARCADE
             EventsView.Statistics -> STATISTICS
-            EventsView.Admin -> ADMIN
             EventsView.Arenas, EventsView.EventArenas -> ARENAS
             EventsView.Shop -> SHOP
             EventsView.Roster -> ROSTER
@@ -82,6 +90,18 @@ class ArcEventsMenuLayouts(dataRoot: Path) {
                         "ArcEvents menu '$menu' region '${requirement.first}' needs at least ${requirement.second} slots, got $actual"
                     }
                 }
+            }.let { catalog ->
+                catalog.copy(layouts = catalog.layouts.mapValues { (id, layout) ->
+                    if (id == TTT || id == ARCADE) withModeAdminSlot(layout) else layout
+                })
             }
+
+        /** Profiles saved before mode panels used the last row for navigation and left its right edge free. */
+        private fun withModeAdminSlot(layout: MenuLayout): MenuLayout {
+            if (ADMIN_ELEMENT in layout.elements) return layout
+            val occupied = layout.elements.values.flatMap { it.slots }.toSet()
+            val slot = (0 until layout.rows * MenuSlot.COLUMNS).map(MenuSlot::of).lastOrNull { it !in occupied } ?: return layout
+            return layout.copy(elements = layout.elements + (ADMIN_ELEMENT to MenuElementLayout.button(ADMIN_ELEMENT, slot)))
+        }
     }
 }

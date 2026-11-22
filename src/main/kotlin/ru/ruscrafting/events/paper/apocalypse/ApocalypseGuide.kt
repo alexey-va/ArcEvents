@@ -23,13 +23,16 @@ import ru.ruscrafting.events.domain.apocalypse.ApocalypseInfectionStage
 import ru.ruscrafting.events.domain.apocalypse.ApocalypsePoint
 import ru.ruscrafting.events.paper.ClientProtocolResolver
 import ru.ruscrafting.events.paper.MIN_DIALOG_PROTOCOL
+import ru.ruscrafting.events.paper.canManageEventMenus
 import kotlin.math.atan2
 import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 
 internal enum class GuideTarget { SUPPLIES, WORKBENCH, EXIT, CITY, STRUCTURE, WEAPONS }
-internal data class GuideRoute(val point: ApocalypsePoint, val claimed: Boolean = false)
+internal data class GuideRoute(val point: ApocalypsePoint, val claimed: Boolean = false, val available: Boolean = true) {
+    val unopenedSupply: Boolean get() = available && !claimed
+}
 
 internal data class ApocalypseGuideSnapshot(
     val day: Long,
@@ -47,7 +50,7 @@ internal data class ApocalypseGuideSnapshot(
     val structure: GuideRoute? = null,
 ) {
     fun route(target: GuideTarget, from: ApocalypsePoint): GuideRoute? = when (target) {
-        GuideTarget.SUPPLIES -> supplies.minWithOrNull(compareBy<GuideRoute> { it.claimed }
+        GuideTarget.SUPPLIES -> supplies.filter { it.available }.minWithOrNull(compareBy<GuideRoute> { it.claimed }
             .thenBy { hypot(it.point.x.toDouble() - from.x, it.point.z.toDouble() - from.z) })
         GuideTarget.EXIT -> exit
         GuideTarget.CITY -> city
@@ -63,9 +66,15 @@ internal data class ApocalypseGuideSnapshot(
         else -> null
     }
 
+    fun automaticTarget(): GuideTarget? = when {
+        !inStarter -> surfaceTarget()
+        supplies.any(GuideRoute::unopenedSupply) -> GuideTarget.SUPPLIES
+        else -> GuideTarget.EXIT
+    }
+
     fun nextStep() = when {
         infection != ApocalypseInfectionStage.HEALTHY -> "cure"
-        inStarter && supplies.any { !it.claimed } -> "supplies"
+        inStarter && supplies.any(GuideRoute::unopenedSupply) -> "supplies"
         inStarter && exit != null -> "exit"
         !hasGun && city != null -> "city"
         !hasGun && structure != null -> "structure"
@@ -86,6 +95,8 @@ internal class ApocalypseGuide(
     private val canFly: (Player) -> Boolean = { false },
     private val toggleFly: (Player) -> Unit = {},
     private val dialogs: PaperDialogRuntime = PaperDialogRuntime(plugin),
+    private val onAdmin: (Player) -> Unit = {},
+    private val ownsDialogs: Boolean = true,
 ) : AutoCloseable {
     private val protocols = ClientProtocolResolver()
     private val itemKey = NamespacedKey(plugin, "apocalypse_guide")
@@ -118,6 +129,12 @@ internal class ApocalypseGuide(
         player.sendMessage(notice)
     }
 
+    fun beginFlow(player: Player) {
+        if (supportsDialogs(player)) dialogs.beginFlow(player)
+    }
+
+    private fun supportsDialogs(player: Player) = dialogsEnabled() && protocols.resolve(player) >= MIN_DIALOG_PROTOCOL
+
     fun show(player: Player, snapshot: ApocalypseGuideSnapshot) {
         if (!player.isOnline) return
         val location = player.location
@@ -129,13 +146,17 @@ internal class ApocalypseGuide(
         val order = if (snapshot.inStarter) GuideTarget.entries else listOf(GuideTarget.CITY, GuideTarget.STRUCTURE,
             GuideTarget.WEAPONS, GuideTarget.WORKBENCH, GuideTarget.EXIT, GuideTarget.SUPPLIES)
         val routes = order.mapNotNull { target -> snapshot.route(target, from)?.let { target to it } }
-        if (!dialogsEnabled() || protocols.resolve(player) < MIN_DIALOG_PROTOCOL) {
+        val admin = player.canManageEventMenus()
+        if (!supportsDialogs(player)) {
             // Books use dark ink on parchment and short pages to preserve vanilla's 114 px text width.
             val leaveLink = page("book.leave").clickEvent(ClickEvent.runCommand("/arcevents leave"))
+            val adminLink = if (admin) page("book.admin-panel").clickEvent(ClickEvent.runCommand("/events admin apocalypse")) else null
             val pages = buildList {
-                add(lines(page("book.title"), page("book.status", "day" to locale.text(snapshot.day), "next" to locale.text(snapshot.nextHordeDay)),
+                add(lines(listOfNotNull(
+                    page("book.title"), page("book.status", "day" to locale.text(snapshot.day), "next" to locale.text(snapshot.nextHordeDay)),
                     Component.empty(), if (nextStep == "supplies") page("book-step.check-barrels", *supplyCounts) else page("book-step.$nextStep"),
-                    Component.empty(), leaveLink))
+                    Component.empty(), adminLink, leaveLink,
+                )))
                 for ((target, route) in routes) {
                     val id = target.name.lowercase()
                     val p = route.point
@@ -160,7 +181,6 @@ internal class ApocalypseGuide(
             return
         }
 
-        dialogs.beginFlow(player)
         val status = page("status", "day" to locale.text(snapshot.day),
             "infection" to locale.render("apocalypse.infection.${snapshot.infection.name.lowercase()}", player))
         val next = if (nextStep == "supplies") page("step.check-barrels", *supplyCounts) else page("step.$nextStep")
@@ -169,6 +189,12 @@ internal class ApocalypseGuide(
             add(chapterButton(player, "equipment") { openEquipment(it, snapshot) })
             add(chapterButton(player, "hazards") { openHazards(it, snapshot) })
             add(leaveButton(player))
+            if (admin) {
+                add(button("admin", page("page-link", "title" to locale.render("menu.event.admin-panel-name", player)),
+                    lines(locale.lore("menu.event.admin-panel-lore", player))) {
+                    if (it.canManageEventMenus()) onAdmin(it) else show(it, snapshot)
+                })
+            }
         }
         dialogs.open(player, PaperDialogScreen(title = page("title"), body = listOf(note(lines(status, Component.empty(), next))),
             buttons = rootButtons, exitButton = closeButton(player), columns = 2, id = "events.apocalypse.guide"),
@@ -198,7 +224,7 @@ internal class ApocalypseGuide(
             add(text(player, "address", "x" to locale.text(position.x),
                 "y" to locale.text(position.y), "z" to locale.text(position.z)))
             if (target == GuideTarget.SUPPLIES) {
-                snapshot.supplies.filter { it.point != position }.forEach { barrel ->
+                snapshot.supplies.filter { it.point != position && (it.available || it.claimed) }.forEach { barrel ->
                     val p = barrel.point
                     add(text(player, if (barrel.claimed) "barrel-visited" else "barrel",
                         "x" to locale.text(p.x), "y" to locale.text(p.y), "z" to locale.text(p.z)))
@@ -274,7 +300,9 @@ internal class ApocalypseGuide(
     private fun lines(vararg components: Component) = lines(components.toList())
     private fun lines(components: List<Component>) = Component.join(JoinConfiguration.newlines(), components)
 
-    override fun close() = dialogs.close()
+    override fun close() {
+        if (ownsDialogs) dialogs.close()
+    }
 
     companion object {
         private const val WIDTH = 310

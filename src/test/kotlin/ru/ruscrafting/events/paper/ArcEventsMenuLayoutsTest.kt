@@ -31,7 +31,7 @@ class ArcEventsMenuLayoutsTest : StringSpec({
         val root = Files.createTempDirectory("arcevents-overlap-")
         val source = requireNotNull(ArcEventsMenuLayoutsTest::class.java.classLoader.getResourceAsStream("config.yml"))
         val yaml = source.bufferedReader().use { it.readText() }
-            .replace("admin: {slot: 26}", "admin: {slot: 22}")
+            .replace("statistics: {slot: 18}", "statistics: {slot: 22}")
         Files.writeString(root.resolve("config.yml"), yaml)
 
         runCatching { ArcEventsMenuLayouts.loadConfiguration(root) }.exceptionOrNull()?.message.orEmpty() shouldContain

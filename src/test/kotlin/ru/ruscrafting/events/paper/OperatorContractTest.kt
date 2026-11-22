@@ -112,7 +112,6 @@ class OperatorContractTest : StringSpec({
         dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL, EventsView.Ttt) shouldBe true
         dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL, EventsView.Statistics) shouldBe true
         dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL, EventsView.Help) shouldBe true
-        dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL, EventsView.Admin) shouldBe true
         dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL, EventsView.Fishing) shouldBe true
         dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL, EventsView.Shop) shouldBe false
         dialogFrontendSupported(true, MIN_DIALOG_PROTOCOL, EventsView.Roster) shouldBe false
@@ -135,7 +134,7 @@ class OperatorContractTest : StringSpec({
             "item", "kill", "revive", "discover", "dna", "call", "loot", "menu", "cleanup",
         )) shouldBe true
         ArcEventsCommand.DEBUG_ITEMS.size shouldBe 6
-        ArcEventsCommand.DEBUG_VIEWS shouldBe listOf("main", "event", "zombies", "stats", "help", "admin", "arenas", "shop", "roster", "report")
+        ArcEventsCommand.DEBUG_VIEWS shouldBe listOf("main", "event", "zombies", "stats", "help", "arenas", "shop", "roster", "report")
         ArcEventsCommand.validOptionalInteger(null) shouldBe true
         ArcEventsCommand.validOptionalInteger("0") shouldBe true
         ArcEventsCommand.validOptionalInteger("full") shouldBe false

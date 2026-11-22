@@ -1,5 +1,6 @@
 prefix: '<white></white>'
 command:
+  admin-mode-usage: '<prefix> <#e8dfd2>In an event, press Shift+F and choose Admin panel.<newline>  <#92bed8>/events admin <#e8dfd2>mode<newline>  ttt, gungame, disasters, fishing, zombies, apocalypse'
   player-only: '<prefix> <#c42323>This command is only available to players.'
   no-permission: '<prefix> <#c42323>You do not have access to this action.'
   help: |-
@@ -38,15 +39,18 @@ menu:
     help-name: <#86dcf1>Rules
     help-lore:
     - <#e8dfd2>Choose a mode and learn how to play.
-    admin-name: <#ffffff>Administration
-    admin-lore:
-    - <#e8dfd2>Matches, maps and player recovery.
-    admin-panel-name: <#ffffff>Admin panel
-    admin-panel-lore:
-    - <#e8dfd2>Start matches, choose maps and configure weapons.
-    - <#e8dfd2>Run diagnostics, recover players and reset the Apocalypse world.
   event:
     title: '<#20252b>Hidden Roles'
+    admin-panel-name: <#ffffff>Admin panel
+    admin-panel-lore:
+    - <#e8dfd2>Manage this event mode.
+    admin-inventory-lore:
+    - ''
+    - '<#8c8c8c>[<#92bed8>▶<#8c8c8c>] <#92bed8>Left-click <#e8dfd2>to show this mode’s commands'
+    admin-commands: |-
+      <prefix> <#ffffff><event>
+      <#e8dfd2>Start from the queue · <#92bed8>/events admin start <mode>
+      <#e8dfd2>Solo practice · <#92bed8>/events admin solo <mode>
     loading-name: <#ffb277>Queue
     loading-lore:
     - <#e8dfd2>Checking available actions…
@@ -697,45 +701,48 @@ admin:
     storage-unavailable: '<prefix> <#c42323>Points unavailable: check the log.'
 
 admin-dialog:
-  title: 'Event administration'
-  summary: 'Node <server> · <phase><newline>Queued <queue> · Awaiting recovery <recoveries>'
-  apocalypse: 'Apocalypse'
-  matches: 'Matches and maps'
-  weapons: 'Weapons'
-  diagnostics: 'Diagnostics and maintenance'
-  start: 'Start from queue'
-  start-on: 'Start on <arena>'
-  solo: 'Solo practice'
-  arena: 'Map for the next match'
+  heading: '<mode><white> · <section>'
+  management: 'Administration'
+  status: 'Status'
+  ready: 'Ready to start'
+  busy: 'Arena in use'
+  unavailable: 'Arena unavailable'
+  active-map: 'Current map'
+  next-map: 'Your map selection'
+  map: 'Map'
+  participants: 'Players in match'
+  queue: 'In the shared queue'
+  waves: 'Waves per match'
+  disaster-rounds: 'Rounds per match'
+  expedition-size: 'Expedition size'
+  one-player: 'One player'
+  start: 'Start match from queue'
+  start-fishing: 'Start personal expedition'
+  arena: 'Choose a map for launch'
   stop: 'End match'
+  cancel-reservation: 'Cancel reservation'
   stop-detail: 'Match <match> will be cancelled and player recovery will begin.'
-  match-changed: 'This match has ended. Open the match list again.'
+  reservation-detail: 'Reservation <match> will be cancelled. Players who have arrived will be sent back.'
+  match-changed: 'The match has changed. Return to this mode’s administration screen.'
   previous: '‹ Previous page'
   next: 'Next page ›'
-  status: 'Event status'
-  player: 'Player status'
-  network: 'Network nodes'
-  arenas: 'Map status'
-  recovery: 'Recovery records'
-  recover: 'Retry recovery'
-  reload: 'Reload configuration'
-  empty: 'No entries.'
   enter-player: 'Enter a player name.'
   player-name: 'Player name'
   give: 'Give field guide'
-  show: 'Show status'
-  gun: 'Held firearm'
+  gun: 'Tune held firearm'
   hold-gun: 'Hold an event firearm in your main hand and open its settings again.'
-  sound: 'Gunshot sound'
+  sound: 'Network gunshot sound'
   sound-detail: 'Shooters and nearby players on every server will hear the selected sound.'
   points: 'Weapon placements'
-  points-detail: 'Stand at the desired position inside the arena. Markers show its existing weapon placements.'
+  points-detail: 'Map · <arena><newline>Stand where the firearm should appear. Markers show existing placements.'
+  points-outside: 'Open this section on a Hidden Roles map with firearm spawns.'
   show-points: 'Show markers in the world'
   add-point: 'Add placement here'
   remove-point: 'Remove nearest placement'
   remove-detail: 'The nearest weapon placement within three blocks of <position> will be removed.'
   position-changed: 'Your position changed. Select the placement again.'
   host-only: 'World resets and expedition controls are available on <host>.'
+  enter: 'Enter the expedition'
   guide: 'Give a player the field guide'
   locate: 'Locate a structure'
   nearest: 'Nearest structure'
@@ -750,6 +757,8 @@ admin-dialog:
   day-number: 'Day number'
   day-detail: 'Enter a day from 1 to 10,000. Expedition time can only move forward.'
   day-error: 'Enter a whole day number from 1 to 10,000.'
+  review-day: 'Review day change'
+  day-confirm: 'The shared world will advance to the start of day <day> if it is still ahead. This changes the time for every survivor.'
   set-day: 'Apply day'
   fly-off: 'Turn flight off'
   fly-on: 'Turn flight on'
@@ -1435,6 +1444,7 @@ apocalypse:
       health: '<#382b21>A vaccine or golden apple cures all 4 stages. A vaccine gives brief immunity.<newline>Craft a vaccine at a crafting table with 1 glass bottle, 1 gold ingot and 2 redstone dust.'
       horde: '<#382b21>A horde comes every tenth night. Stock food and ammunition.'
       refresh: '<#235a76><underlined>Refresh field guide'
+      admin-panel: '<#235a76><underlined>Admin panel'
       leave: '<#782c22><underlined>Leave expedition'
       fly-on: '<#235a76><underlined>Enable flight'
       fly-off: '<#235a76><underlined>Disable flight'

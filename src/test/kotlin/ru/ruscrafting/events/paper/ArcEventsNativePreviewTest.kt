@@ -7,7 +7,6 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.mockk.every
 import io.mockk.mockk
-import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.serializer.gson.GsonComponentSerializer
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
@@ -57,6 +56,7 @@ class ArcEventsNativePreviewTest : StringSpec({
             val player = mockk<Player>(relaxed = true)
             every { player.uniqueId } returns UUID.randomUUID()
             every { player.hasPermission(any<String>()) } returns false
+            every { player.hasPermission("arcevents.play") } returns true
             val service = mockk<ArcEventsService>(relaxed = true)
             every { service.snapshot() } returns ServiceSnapshot("host", NodeMode.HOST, "host", true, true, true, null, 1, null, null, 0, 0, 0, 0, 0, 0)
             every { service.currentMode() } returns null
@@ -93,9 +93,13 @@ class ArcEventsNativePreviewTest : StringSpec({
             val adminConfig = mockk<ArcEventsConfig> {
                 every { nodeMode } returns NodeMode.HOST
                 every { hostServer } returns "parkour"
+                every { arcade } returns config.arcade
+                every { zombies } returns config.zombies
             }
-            val administration = ArcEventsAdminDialog(workbenchRuntime, service, locale, { adminConfig }, mockk(),
-                expedition, { false }, { id, _ -> Component.text(id) }, { false })
+            val adminCommand = mockk<ArcEventsCommand> { every { selectedAdminArena(player, any()) } returns "auto" }
+            every { service.selectableArenaIds(any()) } answers { listOf(firstArg<EventMode>().primaryArenaId) }
+            val administration = ArcEventsAdminDialog(workbenchRuntime, service, locale, { adminConfig }, adminCommand,
+                expedition, { false }, { id, viewer -> locale.render("arena.$id.name", viewer) }, { false })
             val routes = ApocalypseGuideSnapshot(7, 10, ApocalypseInfectionStage.HEALTHY, false, 0, false,
                 listOf(GuideRoute(ApocalypsePoint(12, 37, -11), true)), GuideRoute(ApocalypsePoint(3, 72, 3)),
                 GuideRoute(ApocalypsePoint(-193, 78, 213)), GuideRoute(ApocalypsePoint(478, 48, -376)), GuideTarget.CITY,
@@ -197,6 +201,9 @@ class ArcEventsNativePreviewTest : StringSpec({
                 }
                 every { player.hasPermission("arcevents.admin") } returns true
                 menu.open(player, EventsView.Main); save("$language-root-admin")
+                last!!.buttons.none { it.id.value.contains("admin") } shouldBe true
+                guide.show(player, routes); save("$language-apocalypse-route-admin")
+                last!!.buttons.count { it.id.value == "admin" } shouldBe 1
                 val ready = EventEntryStatus(null)
                 for (mode in EventMode.entries) {
                     when (mode) {
@@ -213,12 +220,20 @@ class ArcEventsNativePreviewTest : StringSpec({
                     }
                     plain.serialize(last!!.body.first().text) shouldContain name
                     last!!.buttons.count { it.id.value == "action_menu_admin_solo_test_name" } shouldBe 1
+                    last!!.buttons.count { it.id.value == "action_menu_event_admin_panel_name" } shouldBe 1
                     save("$language-${mode.id}-admin")
                 }
                 menu.open(player, EventsView.Apocalypse); save("$language-apocalypse-admin")
-                last!!.buttons.map { it.id.value } shouldBe listOf("action_apocalypse_test_name", "rules_apocalypse")
-                every { player.hasPermission("arcevents.play") } returns true
-                administration.open(player); save("$language-admin-home")
+                last!!.buttons.map { it.id.value } shouldBe listOf("action_apocalypse_test_name", "rules_apocalypse", "action_menu_event_admin_panel_name")
+                for (mode in EventMode.entries) {
+                    administration.openMode(player, mode)
+                    val catalog = CatalogMode.of(mode)
+                    plain.serialize(last!!.title) shouldContain plain.serialize(locale.render(catalog.nameKey, player))
+                    save("$language-admin-${mode.id}")
+                }
+                administration.openApocalypse(player)
+                plain.serialize(last!!.title) shouldContain plain.serialize(locale.render(CatalogMode.APOCALYPSE.nameKey, player))
+                save("$language-admin-apocalypse")
                 val target = "arcevents_apocalypse_20261122_154200"
                 every { click.text(any()) } returns target
                 every { expedition.planWorldReset(target, any()) } answers {

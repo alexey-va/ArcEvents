@@ -130,8 +130,8 @@ internal class ApocalypseAtmosphere(plugin: Plugin) : AutoCloseable {
 
     private fun state(text: String): BlockData = states.getOrPut(text) { Bukkit.createBlockData(text) }
 
-    /** Call once a second only for this expedition's living players, with this player's unopened starter barrels. */
-    fun show(player: Player, layout: ApocalypseLayout, step: Long, unopenedSupplies: List<ApocalypseMarker>) {
+    /** Call once a second for living participants with the starter supplies they can still discover. */
+    fun show(player: Player, layout: ApocalypseLayout, step: Long, unopenedSupplies: List<ApocalypsePoint>) {
         val at = player.location
         val world = player.world
         for (barrel in unopenedSupplies) {

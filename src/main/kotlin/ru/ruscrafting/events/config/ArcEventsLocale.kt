@@ -67,7 +67,8 @@ class ArcEventsLocale(
             "state.mode-relay", "state.mode-host",
             "phase.idle", "phase.reserved", "phase.preparing", "phase.countdown", "phase.active",
             "phase.resolving", "phase.restoring", "phase.completed", "phase.cancelled",
-            "menu.main.title", "menu.main.ttt-name", "menu.main.stats-name", "menu.main.help-name", "menu.main.admin-panel-name", "menu.common.close-name", "menu.common.unavailable-prefix",
+            "menu.main.title", "menu.main.ttt-name", "menu.main.stats-name", "menu.main.help-name", "menu.common.close-name", "menu.common.unavailable-prefix",
+            "menu.event.admin-panel-name", "menu.event.admin-commands",
             "menu.event.title", "menu.event.loading-name", "menu.event.overview-name", "menu.event.queue-name", "menu.event.join-name",
             "menu.event.join-unavailable-name", "menu.event.leave-name", "menu.event.start-name", "menu.event.roster-name",
             "menu.event.check-route-name", "menu.event.refresh-name", "dialog.arena-pending", "dialog.read-failed",
@@ -170,7 +171,7 @@ class ArcEventsLocale(
 
         val REQUIRED_LISTS = setOf(
             "menu.admin.solo-test-lore", "apocalypse.enter-lore", "apocalypse.test-lore", "dialog.rules-apocalypse-0",
-            "menu.main.ttt-lore", "menu.main.stats-lore", "menu.main.help-lore", "menu.main.admin-lore", "menu.main.admin-panel-lore",
+            "menu.main.ttt-lore", "menu.main.stats-lore", "menu.main.help-lore", "menu.event.admin-panel-lore", "menu.event.admin-inventory-lore",
             "menu.main.main-body", "menu.common.close-lore",
             "menu.event.loading-lore", "menu.event.overview-lore", "menu.event.queue-lore", "menu.event.join-lore", "menu.event.join-unavailable-lore",
             "menu.event.leave-lore", "menu.event.start-lore", "menu.event.arena-lore", "menu.event.roster-lore", "menu.event.shop-lore",

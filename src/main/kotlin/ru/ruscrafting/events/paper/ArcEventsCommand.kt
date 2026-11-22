@@ -31,7 +31,7 @@ class ArcEventsCommand(
     private val reload: () -> java.util.concurrent.CompletableFuture<Result<Unit>>,
     private val apocalypse: ru.ruscrafting.events.paper.apocalypse.ApocalypseRuntime? = null,
 ) : TabExecutor {
-    private val selectedAdminArenas = mutableMapOf<String, String>()
+    private val selectedAdminArenas = mutableMapOf<Pair<String, EventMode>, String>()
 
     override fun onCommand(sender: CommandSender, command: Command, label: String, args: Array<out String>): Boolean {
         val burst = args.getOrNull(0).equals("burst", true)
@@ -103,7 +103,7 @@ class ArcEventsCommand(
                     else -> listOf(EventMode.FISHING.id)
                 }
                 "admin" -> listOf("status", "player", "network", "arenas", "arena", "recovery", "start", "stop", "reload", "recover", "sound", "guide", "apocalypse-reset-plan", "apocalypse-reset") +
-                    if (sender is Player) listOf("menu", "weapons", "gun", "solo") else emptyList()
+                    if (sender is Player) listOf("menu", "weapons", "gun", "solo", "apocalypse") + EventMode.entries.map(EventMode::id) else emptyList()
                 "burst" -> if (sender is Player) listOf("1", "3", "6", "full", "default", "menu") else emptyList()
                 "qa" -> listOf("status", "player", "network", "arenas", "recovery")
                 "debug" -> if (settings().debugMutationsAllowed) DEBUG_ACTIONS else DEBUG_READ_ACTIONS
@@ -119,6 +119,7 @@ class ArcEventsCommand(
         val action = args.getOrNull(1)?.lowercase()
         if (args.size == 3 && root in setOf("qa", "admin") && action == "player") return servicePlayerNames()
         if (root == "admin") {
+            if (args.size == 3 && action == "menu" && sender is Player) return EventMode.entries.map(EventMode::id) + "apocalypse"
             if (args.size == 3 && action == "solo" && sender is Player) return EventMode.entries.map(EventMode::id) + "apocalypse"
             if (args.size == 3 && action == "gun" && sender is Player) return listOf("default")
             if (args.size == 3 && action == "guide") return plugin.server.onlinePlayers.map { it.name }
@@ -174,11 +175,15 @@ class ArcEventsCommand(
 
     internal fun admin(sender: CommandSender, args: List<String>, reply: (Component) -> Unit = sender::sendEventMessage) {
         if (!sender.hasPermission("arcevents.admin")) return reply(locale.render("command.no-permission", sender))
-        if (args.isEmpty() || args[0].equals("menu", true)) {
-            if (sender is Player) menu.openRoot(sender, EventsView.Admin) else sender.sendEventMessage(locale.render("command.help", sender))
+        val action = args.firstOrNull()?.lowercase()
+        if (action == null || action == "menu" || args.size == 1 && (action == "apocalypse" || parseMode(action) != null)) {
+            if (sender !is Player) return reply(locale.render("command.help", sender))
+            if (action == "menu" && args.size > 2) return reply(locale.render("command.admin-mode-usage", sender))
+            val selection = if (action == "menu") args.getOrNull(1)?.lowercase() else action
+            openAdminPanel(sender, selection, reply)
             return
         }
-        when (args[0].lowercase()) {
+        when (action) {
             "apocalypse-reset-plan" -> {
                 val target = args.drop(1).singleOrNull()
                 if (target == null || apocalypse == null) {
@@ -215,7 +220,7 @@ class ArcEventsCommand(
                 val arena = args.getOrNull(1)?.lowercase() ?: "auto"
                 val mode = parseMode(args.getOrNull(2)) ?: EventMode.TTT
                 val accepted = arena == "auto" || arena in service.selectableArenaIds(mode)
-                if (accepted) selectedAdminArenas[senderSelectionKey(sender)] = arena
+                if (accepted) selectedAdminArenas[senderSelectionKey(sender) to mode] = arena
                 reply(locale.render(if (accepted) "admin.arena-selected" else "admin.arena-selection-failed", sender, mapOf(
                     "arena" to locale.text(arena),
                 )))
@@ -243,7 +248,7 @@ class ArcEventsCommand(
                     return
                 }
                 val explicitArena = args.getOrNull(if (args.getOrNull(1) != null && parseMode(args[1]) != null) 2 else 1)?.lowercase()
-                val arena = explicitArena ?: selectedAdminArenas[senderSelectionKey(sender)]
+                val arena = explicitArena ?: selectedAdminArenas[senderSelectionKey(sender) to mode]
                 if (arena != null && arena != "auto" && arena !in service.selectableArenaIds(mode)) {
                     sender.sendEventMessage(locale.render("admin.arena-selection-failed", sender, mapOf("arena" to locale.text(arena))))
                 } else sendStartResult(sender, StartMessageAudience.ADMIN, arena, mode)
@@ -253,6 +258,15 @@ class ArcEventsCommand(
             "recover" -> reply(locale.render("admin.recovery-started", sender, mapOf("players" to locale.text(service.retryRecovery()))))
             else -> sender.sendEventMessage(locale.render("command.help", sender))
         }
+    }
+
+    private fun openAdminPanel(player: Player, selection: String?, reply: (Component) -> Unit) {
+        val id = player.uniqueId
+        val expedition = selection == "apocalypse" || selection == null && apocalypse?.isPlaying(id) == true
+        val mode = if (selection != null) parseMode(selection) else service.currentMode()?.takeIf { service.isParticipant(id) }
+        if (!expedition && mode == null) return reply(locale.render("command.admin-mode-usage", player))
+        menu.dialogRuntime.beginFlow(player)
+        if (expedition) menu.openApocalypseAdmin(player) else menu.openModeAdmin(player, requireNotNull(mode))
     }
 
     private fun selectFirearmSound(sender: CommandSender, args: List<String>, reply: (Component) -> Unit) {
@@ -454,7 +468,6 @@ class ArcEventsCommand(
         "zombies" -> EventsView.Arcade(EventMode.ZOMBIES)
         "stats" -> EventsView.Statistics
         "help" -> EventsView.Help
-        "admin" -> EventsView.Admin
         "arenas" -> EventsView.Arenas
         "shop" -> EventsView.Shop
         "roster" -> EventsView.Roster
@@ -509,7 +522,7 @@ class ArcEventsCommand(
             Tasks.scheduler.runSync {
                 if (sender is Player && !sender.isOnline) return@runSync
                 if (result == ReservationStartResult.STARTED && audience == StartMessageAudience.ADMIN) {
-                    selectedAdminArenas.remove(senderSelectionKey(sender))
+                    selectedAdminArenas.remove(senderSelectionKey(sender) to mode)
                 }
                 reservationStartMessage(result, audience)?.let { key ->
                     sender.sendEventMessage(locale.render(key, sender, mapOf("action" to locale.text("start"))))
@@ -539,7 +552,7 @@ class ArcEventsCommand(
     }.distinct()
     private fun senderSelectionKey(sender: CommandSender): String = (sender as? Player)?.uniqueId?.toString()
         ?: "console:${sender.name.lowercase()}"
-    internal fun selectedAdminArena(player: Player): String = selectedAdminArenas[senderSelectionKey(player)] ?: "auto"
+    internal fun selectedAdminArena(player: Player, mode: EventMode): String = selectedAdminArenas[senderSelectionKey(player) to mode] ?: "auto"
     private fun servicePlayer(name: String): Player? = plugin.server.getPlayerExact(name)
     private fun parseMode(raw: String?): EventMode? = raw?.lowercase()?.let(EventMode::fromId)
 
@@ -556,7 +569,7 @@ class ArcEventsCommand(
             "traitor_blade", "traitor_radar", "traitor_smoke",
             "detective_scanner", "detective_medkit", "detective_armor",
         )
-        internal val DEBUG_VIEWS = listOf("main", "event", "zombies", "stats", "help", "admin", "arenas", "shop", "roster", "report")
+        internal val DEBUG_VIEWS = listOf("main", "event", "zombies", "stats", "help", "arenas", "shop", "roster", "report")
         internal fun validOptionalInteger(raw: String?): Boolean = raw == null || raw.toIntOrNull() != null
     }
 }

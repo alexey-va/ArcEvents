@@ -196,8 +196,7 @@ test('Apocalypse admin dialog previews a world reset without scheduling it', asy
       `Admin dialog did not expose ${id}`);
   }
   try {
-    const home = await next(() => player.chat('/events admin'), 'matches');
-    const expedition = await next(() => apocClick(player, home, 'apocalypse'), 'reset');
+    const expedition = await next(() => player.chat('/events admin apocalypse'), 'reset');
     const form = await next(() => apocClick(player, expedition, 'reset'), 'preview');
     const field = form.inputs?.find(input => input.key === 'value');
     assert.match(field?.initial ?? '', /^arcevents_apocalypse_[0-9_]+$/);
@@ -339,6 +338,56 @@ test('Apocalypse enters through the native menu and opens actionable guide route
   }finally{dialogs.stop();player.chat('/arcevents leave');admin.bot.quit();}
 });
 
+test('Shift+F opens Apocalypse administration from the field journal only for staff', async ({player, createPlayer}) => {
+  await ready();
+  const observer = await createPlayer({username: `JournalQA${Math.floor(Math.random() * 100000)}`});
+  await observer.makeOp();
+  const dialogs = watchApocalypseDialogs(player);
+  const journal = screen => apocButton(screen, 'equipment') && apocButton(screen, 'leave');
+  const next = async (action, predicate, message) => {
+    const since = dialogs.screens.length;
+    action();
+    return until(() => dialogs.screens.slice(since).find(predicate), message);
+  };
+  function shiftSwap() {
+    player.bot.setControlState('sneak', true);
+    try {
+      // Vanilla ServerboundPlayerActionPacket.Action.SWAP_ITEM_WITH_OFFHAND.
+      player.bot._client.write('block_dig', {status: 6, location: new Vec3(0, 0, 0), face: 0, sequence: 0});
+    } finally { player.bot.setControlState('sneak', false); }
+  }
+  try {
+    player.chat('/arcevents apocalypse');
+    await players(observer, 1);
+    const guest = await next(shiftSwap, journal, 'Shift+F did not open the field journal for the participant');
+    assert.match(JSON.stringify(guest.title), /Field journal/);
+    assert.ok(!apocButton(guest, 'admin'), 'An ordinary player saw the administration entry');
+    const guestClears = dialogs.clears;
+    apocClick(player, guest, 'close');
+    await until(() => dialogs.clears > guestClears, 'The field journal did not close');
+
+    await player.makeOp();
+    const staff = await next(shiftSwap, journal, 'Shift+F did not reopen the field journal for the administrator');
+    assert.match(JSON.stringify(apocButton(staff, 'admin')?.label), /Admin panel/);
+    const staffClears = dialogs.clears;
+    const panel = await next(() => apocClick(player, staff, 'admin'), screen => apocButton(screen, 'reset') && apocButton(screen, 'day'),
+      'The journal did not open the Apocalypse administration panel');
+    assert.ok(!apocButton(panel, 'matches'), 'The journal opened a shared administration panel');
+    const back = apocButtons(panel).find(button => JSON.stringify(button.label).includes('gui.back'));
+    assert.ok(back, 'Apocalypse administration did not offer Back to the journal');
+    const restored = await next(() => apocClick(player, panel, back.action.id.split('/').at(-1)), journal,
+      'Back from Apocalypse administration did not restore the field journal');
+    assert.ok(apocButton(restored, 'admin'));
+    assert.equal(dialogs.clears, staffClears, 'Moving between the journal and administration interrupted the native flow');
+    apocClick(player, restored, 'leave');
+    await players(observer, 0);
+  } finally {
+    dialogs.stop();
+    player.chat('/arcevents leave');
+    observer.bot.quit();
+  }
+});
+
 test('Apocalypse original armories and ammo supply usable native firearms and crowbar crates stay finite',async({player,createPlayer})=>{
   await ready();const admin=await createPlayer({username:`LootQA${Math.floor(Math.random()*100000)}`});await admin.makeOp();
   const origin=items(player);
@@ -426,4 +475,80 @@ test('Apocalypse admits source loot from a player-added west double-chest half a
     const again=await player.bot.openContainer(player.bot.blockAt(added));assert.equal(JSON.stringify(again.slots.slice(0,again.inventoryStart).map(itemState)),remaining);again.close();
     player.chat('/arcevents leave');await players(admin,0);await until(()=>items(player)===origin,'Double-chest flow changed origin inventory');
   }finally{player.chat('/arcevents leave');admin.bot.quit();}
+});
+
+test('Apocalypse starter barrel hints follow shared stock and stay quiet on reopen', async ({player, createPlayer}) => {
+  await ready();
+  const admin = await createPlayer({username: `SupplyQA${Math.floor(Math.random() * 100000)}`});
+  const peer = await createPlayer({username: `SupplyPeer${Math.floor(Math.random() * 100000)}`});
+  await admin.makeOp();
+  const storage = `arcevents:${admin.username.toLowerCase()}`;
+  const routeNotice = /^Marked on your map — /;
+  const client = player.bot._client;
+  const sparkles = new Set();
+  const markers = (await sourceMarkers(admin, 'LOOT')).filter(marker =>
+    marker.source_block === 'lootr:lootr_barrel' && marker.loot_table.endsWith('/supplychest'));
+  assert.equal(markers.length, 2);
+  const {spawn_x, spawn_z} = await qa(admin);
+  const fromSpawn = marker => Math.hypot(marker.x - Number(spawn_x), marker.z - Number(spawn_z));
+  const [drained, stocked] = markers.sort((a, b) => fromSpawn(a) - fromSpawn(b));
+  const block = `${drained.x} ${drained.y} ${drained.z}`;
+  const position = new Vec3(drained.x, drained.y, drained.z);
+  const observe = packet => {
+    if (packet.particle?.type !== 'wax_on') return;
+    for (const marker of markers) {
+      const distance = Math.hypot(packet.x - marker.x - .5, packet.z - marker.z - .5);
+      if (Math.abs(distance - .58) < .01 && Math.abs(packet.y - marker.y - .88) < .01) sparkles.add(marker);
+    }
+  };
+  async function editData(command) {
+    const since = admin.getMessageBufferIndex();
+    admin.chat(`/execute in minecraft:arcevents_apocalypse_v2 run ${command}`);
+    await expect(admin).toHaveReceivedMessage(/Modified (block data|storage)/, {since, timeout: 10000});
+  }
+  let backedUp = false;
+  client.on('world_particles', observe);
+  try {
+    peer.chat('/arcevents apocalypse');
+    await players(admin, 1);
+    const supply = await sourceContainer(admin, peer, drained);
+    await peer.bot._syncWindow(supply);
+    assert.ok(supply.containerItems().length > 0, 'The source starter batch did not reach the barrel');
+    supply.close();
+    await editData(`data modify storage ${storage} items set from block ${block} Items`);
+    backedUp = true;
+    await editData(`data remove block ${block} Items`);
+
+    const entry = player.getMessageBufferIndex();
+    player.chat('/arcevents apocalypse');
+    await players(admin, 2);
+    await until(() => player.messageBuffer.slice(entry).some(line => routeNotice.test(line) &&
+      line.includes(`X ${stocked.x} · Y ${stocked.y} · Z ${stocked.z}`)), 'The new survivor was directed to the drained starter barrel');
+    await teleport(admin, player, drained.x + .5, drained.y + 1, drained.z + .5);
+    await until(() => sparkles.has(stocked), 'The available starter barrel produced no native particle packet');
+
+    const repeated = peer.getMessageBufferIndex();
+    for (let i = 0; i < 2; i++) {
+      const reopened = await peer.bot.openContainer(peer.bot.blockAt(position));
+      await peer.bot._syncWindow(reopened);
+      assert.equal(reopened.containerItems().length, 0, 'Reopening refilled the drained shared barrel');
+      reopened.close();
+      await pause(1500);
+    }
+    assert.ok(!sparkles.has(drained), 'A survivor who had not visited the empty barrel received its supply particles');
+    assert.ok(!peer.messageBuffer.slice(repeated).some(line => routeNotice.test(line)), 'Reopening the same starter barrel repeated a guide route notice');
+  } finally {
+    client.off('world_particles', observe);
+    try {
+      if (backedUp) {
+        await editData(`data modify block ${block} Items set from storage ${storage} items`);
+        await editData(`data remove storage ${storage} items`);
+      }
+    } finally {
+      player.chat('/arcevents leave');
+      peer.chat('/arcevents leave');
+      peer.bot.quit();
+      admin.bot.quit();
+    }
+  }
 });

@@ -50,7 +50,7 @@ use the existing coordinated-restart replacement barrier. Administrator commands
 `/arcevents apocalypse locate [kind]`, `day <n>`; scoped QA reads use `qa` and
 `markers [kind]`. Debug-only `time <absolute ticks>` moves the world clock forward.
 The western waterfront leads from the bunker bridge to a freight pier. Existing expeditions and player-edited lots survive this map update.
-For a fresh Apocalypse world, open `/events admin` on Parkour and choose Apocalypse → World reset. Review the checks and confirm to stage the new world for the next Parkour restart.
+For a fresh Apocalypse world, open `/events admin apocalypse` on Parkour and choose World reset. Review the checks and confirm to stage the new world for the next Parkour restart.
 The [world rotation runbook](docs/apocalypse-world-reset.md) covers the Parkour switch, recovery checks and rollback.
 After a failed transition, `/arcevents apocalypse recover` retries the recorded return. The host parks the expedition before transferring the player. The original backend acknowledges arrival against the return ticket in Redis (`arc:events:apocalypse:returns:v1`). Update the host and relays together for end-to-end acknowledgement. Read the
 [reference and fidelity limits](docs/apocalypse-reference.md),
@@ -241,9 +241,8 @@ relays together before offering the arcade modes to a mixed-version network.
 - `/arcevents join`, `/arcevents leave`, `/arcevents status`, `/arcevents shop`.
 - `/arcevents start [ttt|gungame|disasters]` — start the common queue as its creator.
 - `/arcevents team <message>` — private traitor/detective team chat in a match.
-- `/arcevents admin` — operator GUI. `status|player|network|arenas|recovery` are
-  readable diagnostics; `arena <id|auto>`, `start [ttt|gungame|disasters] [id]`, `stop`, `reload`, and
-  `recover` operate the map pool, queue, round, config, and escrow recovery.
+- Use Shift+F inside an event and choose **Admin panel** to open that mode's controls. In Apocalypse, the button is in the field journal. `/arcevents admin <ttt|gungame|disasters|fishing|zombies|apocalypse>` also opens a specific panel. These controls require `arcevents.admin`.
+- `/arcevents admin status|player|network|arenas|recovery` provides read-only diagnostics. `arena <id|auto>`, `start [ttt|gungame|disasters] [id]`, `stop`, `reload`, and `recover` operate the map pool, queue, round, config, and escrow recovery.
 - `/arcevents reload` — direct `arcevents.admin` shortcut. Locale text, menu/HUD
   presentation, nameplates, loot displays, smoke, active item visuals and safe
   world-distance limits update without stopping a live round. Match rules and

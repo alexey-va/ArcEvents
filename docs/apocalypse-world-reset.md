@@ -1,6 +1,6 @@
 # Rotate the Apocalypse world on Parkour
 
-On Parkour, open `/events admin` → Apocalypse → World reset. Enter an unused world name, review the checks, and confirm. From the Parkour console, run `arcevents admin apocalypse-reset-plan arcevents_apocalypse_s2`, then `arcevents admin apocalypse-reset arcevents_apocalypse_s2 confirm` to stage that name. Confirmation repeats the checks and atomically replaces the `world` setting in `plugins/ArcEvents/apocalypse.yml`. The HOST closes admissions to the old expedition until the normal Parkour restart.
+On Parkour, leave the expedition and open `/events admin apocalypse` → World reset. Within the expedition, Shift+F opens the field journal with an **Admin panel** button for staff. Enter an unused world name, review the checks, and confirm. From the Parkour console, run `arcevents admin apocalypse-reset-plan arcevents_apocalypse_s2`, then `arcevents admin apocalypse-reset arcevents_apocalypse_s2 confirm` to stage that name. Confirmation repeats the checks and atomically replaces the `world` setting in `plugins/ArcEvents/apocalypse.yml`. The HOST closes admissions to the old expedition until the normal Parkour restart.
 
 ## Read the plan
 

@@ -219,7 +219,6 @@ ui:
         apocalypse: {slot: 11}
         statistics: {slot: 18}
         help: {slot: 22}
-        admin: {slot: 26}
     help:
       schema-version: 1
       rows: 5

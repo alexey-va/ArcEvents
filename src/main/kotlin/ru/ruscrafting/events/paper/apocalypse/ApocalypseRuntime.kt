@@ -4,6 +4,7 @@ import com.google.gson.Gson
 import org.bukkit.*
 import org.bukkit.attribute.Attribute
 import org.bukkit.attribute.AttributeModifier
+import org.bukkit.block.Barrel
 import org.bukkit.block.Container
 import org.bukkit.block.Chest
 import org.bukkit.inventory.DoubleChestInventory
@@ -28,6 +29,7 @@ import org.bukkit.plugin.java.JavaPlugin
 import ru.arc.core.LifecycleTaskScope
 import ru.arc.paper.network.BackendTransfer
 import ru.arc.paper.display.PaperPacketDisplays
+import ru.arc.paper.menu.PaperDialogRuntime
 import ru.arc.paper.chunk.PaperChunkTicketRegistry
 import ru.arc.paper.playerstate.PaperPlayerStateService
 import ru.arc.paper.playerstate.PaperPlayerStateCodec
@@ -67,6 +69,9 @@ private data class ApocalypseGuideRoutes(
     val structure: GuideRoute?, val workbench: GuideRoute?,
 )
 
+internal fun starterBarrelHasSupplies(barrel: Barrel, stocked: NamespacedKey, awaitingStock: Boolean): Boolean =
+    !barrel.snapshotInventory.isEmpty || (awaitingStock && !barrel.persistentDataContainer.has(stocked))
+
 /** Permanent survival is independent of the finite arcade match roster, and owns its entire inventory boundary. */
 class ApocalypseRuntime(
     private val plugin: JavaPlugin,
@@ -83,6 +88,8 @@ class ApocalypseRuntime(
     packetDisplays: PaperPacketDisplays? = null,
     chunkTickets: PaperChunkTicketRegistry,
     private val internalTeleport: (UUID, Location) -> Boolean = { _, _ -> false },
+    guideDialogs: PaperDialogRuntime? = null,
+    openAdmin: (Player) -> Unit = {},
 ) : Listener, AutoCloseable {
     private val options = ApocalypseSettings.load(plugin.dataFolder.resolve("apocalypse.yml"))
     private val host = config().nodeMode == NodeMode.HOST
@@ -100,6 +107,7 @@ class ApocalypseRuntime(
     private val playerSaves = mutableMapOf<UUID, CompletableFuture<Unit>>()
     private val compasses = mutableMapOf<UUID, ApocalypseCompass>()
     private val guideRequests = mutableSetOf<UUID>()
+    private val pendingGuideOpen = mutableSetOf<UUID>()
     private val joining = mutableSetOf<UUID>()
     private val waitingForWorld = mutableSetOf<UUID>()
     private val guideSnapshots = mutableMapOf<UUID, ApocalypseGuideSnapshot>()
@@ -108,7 +116,8 @@ class ApocalypseRuntime(
     private val supplySeen = NamespacedKey(plugin, "apocalypse_supply_seen_v1")
     private val guide: ApocalypseGuide = ApocalypseGuide(plugin, locale, ::openGuide, ::trackGuide, ::leave,
         dialogsEnabled = { config().ui.dialogsEnabled },
-        canFly = { it.hasPermission("arcevents.admin") }, toggleFly = ::toggleAdminFlight)
+        canFly = { it.hasPermission("arcevents.admin") }, toggleFly = ::toggleAdminFlight,
+        dialogs = guideDialogs ?: PaperDialogRuntime(plugin), ownsDialogs = guideDialogs == null, onAdmin = openAdmin)
     private val actors = linkedMapOf<String, UUID>()
     private val pendingChunks = ArrayDeque<Chunk>()
     private data class SourceTileJob(val chunk: Chunk, val entries: Iterator<ru.ruscrafting.events.domain.apocalypse.source.ApocalypseSourceBlockEntity>)
@@ -537,7 +546,17 @@ class ApocalypseRuntime(
         return true
     }
 
-    private fun openGuide(player: Player): Unit = prepareGuide(player) { guide.show(player, it) }
+    private fun openGuide(player: Player) {
+        val id = player.uniqueId
+        val cached = guideSnapshots[id]
+        if (id in guideRequests && cached != null) {
+            guide.beginFlow(player)
+            guide.show(player, cached)
+            return
+        }
+        pendingGuideOpen += id
+        prepareGuide(player) {}
+    }
 
     private fun trackGuide(player: Player, target: GuideTarget): Unit = prepareGuide(player) { snapshot ->
         val from = ApocalypsePoint(player.location.blockX, player.location.blockY, player.location.blockZ)
@@ -551,27 +570,43 @@ class ApocalypseRuntime(
         }
     }
 
-    private fun unopenedSupplies(player: Player): List<ApocalypseMarker> {
-        val original = layout as? ApocalypseOriginalLayout ?: return emptyList()
-        val seen = player.persistentDataContainer.get(supplySeen, PersistentDataType.STRING)
+    private fun seenSupplies(player: Player): Set<String> =
+        player.persistentDataContainer.get(supplySeen, PersistentDataType.STRING)
             ?.takeIf { it.startsWith("${world?.uid}|") }?.substringAfter('|')?.split(',')?.toSet().orEmpty()
-        return original.starterSupplyMarkers.filter { "${it.x}:${it.y}:${it.z}" !in seen }
+
+    private fun supplyPosition(marker: ApocalypseMarker) = "${marker.x}:${marker.y}:${marker.z}"
+
+    private fun availableStarterSupplies(): Set<ApocalypseMarker> {
+        val expedition = world ?: return emptySet()
+        val original = layout as? ApocalypseOriginalLayout ?: return emptySet()
+        return original.starterSupplyMarkers.filterTo(mutableSetOf()) { marker ->
+            val awaitingStock = markerId(marker) in stocking || lootClaimId(marker) !in state.looted
+            if (!expedition.isChunkLoaded(marker.x shr 4, marker.z shr 4)) return@filterTo awaitingStock
+            val barrel = expedition.getBlockAt(marker.x, marker.y, marker.z).state as? Barrel ?: return@filterTo false
+            starterBarrelHasSupplies(barrel, originalStocked, awaitingStock)
+        }
     }
 
-    private fun updateNavigation(player: Player) {
-        val id = player.uniqueId
-        if (id in trackedGuides && id !in automaticGuides) {
-            if (id !in guideSnapshots) prepareGuide(player) {}
-            return
+    private fun starterSupplyRoutes(player: Player, available: Set<ApocalypseMarker>): List<GuideRoute> {
+        val original = layout as? ApocalypseOriginalLayout ?: return emptyList()
+        val seen = seenSupplies(player)
+        return original.starterSupplyMarkers.map { marker ->
+            GuideRoute(ApocalypsePoint(marker.x, marker.y, marker.z), supplyPosition(marker) in seen, marker in available)
         }
-        val inside = isInStarter(player)
-        val next = if (inside) {
-            if (unopenedSupplies(player).isNotEmpty()) GuideTarget.SUPPLIES else GuideTarget.EXIT
-        } else guideSnapshots[id]?.surfaceTarget() ?: GuideTarget.CITY
-        if (trackedGuides[id] == next && id in guideSnapshots) return
+    }
+
+    private fun updateNavigation(player: Player, supplies: List<GuideRoute>) {
+        val id = player.uniqueId
+        guideSnapshots[id]?.let { cached ->
+            val inside = isInStarter(player)
+            val currentSupplies = if (layout is ApocalypseOriginalLayout) supplies else cached.supplies
+            val current = if (inside == cached.inStarter && currentSupplies == cached.supplies) cached
+                else cached.copy(inStarter = inside, supplies = currentSupplies).also { guideSnapshots[id] = it }
+            if (id in trackedGuides && id !in automaticGuides || trackedGuides[id] == current.automaticTarget()) return
+        }
         prepareGuide(player) { snapshot ->
-            val target = if (inside) next else snapshot.surfaceTarget() ?: return@prepareGuide
-            if (id in trackedGuides && id !in automaticGuides) return@prepareGuide
+            val target = snapshot.automaticTarget() ?: return@prepareGuide
+            if (id in trackedGuides && id !in automaticGuides || trackedGuides[id] == target) return@prepareGuide
             automaticGuides += id
             trackedGuides[id] = target
             val tracking = snapshot.copy(tracked = target)
@@ -591,13 +626,11 @@ class ApocalypseRuntime(
         val x = position.blockX; val z = position.blockZ
         val from = ApocalypsePoint(x, position.blockY, z)
         val looted = state.looted.toSet()
-        val unvisited = unopenedSupplies(player).map(::markerId).toSet()
         work.compute {
             val original = layout as? ApocalypseOriginalLayout
-            val supplies = (original?.starterSupplyMarkers ?: layout.markers(layout.starter)
-                .filter { it.kind.name in setOf("LOOT", "MEDICAL") }).map {
-                    GuideRoute(ApocalypsePoint(it.x, it.y, it.z), markerId(it) !in unvisited)
-                }
+            val supplies = if (original != null) emptyList() else layout.markers(layout.starter)
+                .filter { it.kind.name in setOf("LOOT", "MEDICAL") }
+                .map { GuideRoute(ApocalypsePoint(it.x, it.y, it.z), claimed = true) }
             val sites = layout.sitesNear(x, z)
             val city = sites.firstOrNull { it.kind == ApocalypseSiteKind.CITY }?.anchor?.let(::GuideRoute)
             val weaponCandidates = sites.asSequence()
@@ -615,6 +648,7 @@ class ApocalypseRuntime(
         }.whenComplete { routes, failure -> work.onMain {
             if (!currentPlayer(player)) return@onMain
             guideRequests -= id
+            val openJournal = pendingGuideOpen.remove(id)
             if (failure != null) { log("guide-plan", failure); if (player.isOnline) message(player, "unavailable"); return@onMain }
             if (!opened || !player.isOnline || !isPlaying(id) || isBusy(id) || player.world != world) return@onMain
             val day = rules.dayAt(state.survival.worldTick)
@@ -629,12 +663,15 @@ class ApocalypseRuntime(
                 player.inventory.storageContents.sumOf { item -> if (item != null &&
                     (firearms.isWorldAmmunition(item) || item.isSimilar(ItemStack.of(Material.IRON_NUGGET)))) item.amount else 0 },
                 isInStarter(player),
-                routes.supplies.map { route -> route.copy(claimed = unopenedSupplies(player).none {
-                    it.x == route.point.x && it.y == route.point.y && it.z == route.point.z
-                }) }, routes.exit, routes.city, routes.weapons, trackedGuides[id],
+                if (layout is ApocalypseOriginalLayout) starterSupplyRoutes(player, availableStarterSupplies()) else routes.supplies,
+                routes.exit, routes.city, routes.weapons, trackedGuides[id],
                 workbench = routes.workbench, structure = routes.structure)
             guideSnapshots[id] = snapshot
             show(snapshot)
+            if (openJournal) {
+                guide.beginFlow(player)
+                guide.show(player, guideSnapshots[id] ?: snapshot)
+            }
         } }
     }
 
@@ -850,6 +887,7 @@ class ApocalypseRuntime(
             player.saveData()
             active -= player.uniqueId
             guideSnapshots.remove(player.uniqueId)
+            pendingGuideOpen.remove(player.uniqueId)
             trackedGuides.remove(player.uniqueId)
             automaticGuides.remove(player.uniqueId)
             compasses.remove(player.uniqueId)?.close()
@@ -971,8 +1009,9 @@ class ApocalypseRuntime(
 
     private fun announceArrival(player: Player) {
         giveGuide(player)
-        guide.entryNotice(player, isInStarter(player) && unopenedSupplies(player).isNotEmpty())
-        updateNavigation(player)
+        val supplies = starterSupplyRoutes(player, availableStarterSupplies())
+        guide.entryNotice(player, isInStarter(player) && supplies.any(GuideRoute::unopenedSupply))
+        updateNavigation(player, supplies)
     }
 
     private fun resumeNative(player: Player, record: ApocalypsePlayerRecord) {
@@ -1144,10 +1183,12 @@ class ApocalypseRuntime(
         state = state.copy(survival = state.survival.copy(worldTick = state.survival.worldTick + 20))
         world!!.time = state.survival.worldTick % 24000
         if (survivors.isEmpty()) return
+        val availableSupplies = availableStarterSupplies()
         var hordeChanged = false
         survivors.forEach { player ->
-            updateNavigation(player)
-            atmosphere.show(player, layout, step, unopenedSupplies(player))
+            val supplies = starterSupplyRoutes(player, availableSupplies)
+            updateNavigation(player, supplies)
+            atmosphere.show(player, layout, step, supplies.filter(GuideRoute::unopenedSupply).map(GuideRoute::point))
             val key = player.uniqueId.toString()
             val nearby = survivors.count { other -> other != player && state.hordes[other.uniqueId.toString()]?.horde != null &&
                 other.location.distanceSquared(player.location) <= 625 }
@@ -1181,19 +1222,26 @@ class ApocalypseRuntime(
     }
 
     private fun spawnNatural(survivors: List<Player>) {
-        val eligible = rules.naturalSpawnRules(state.survival.worldTick)
-        survivors.forEach { player -> eligible.forEach rulesLoop@{ rule ->
-            if (actors.size >= options.maximumEnemies || random.nextDouble() >= rule.perSecond) return@rulesLoop
-            val existing = actors.values.mapNotNull(plugin.server::getEntity).count {
-                it.persistentDataContainer.get(actorSource, PersistentDataType.STRING) in rule.entityIds
-            }
-            repeat(minOf(random.nextInt(rule.minimumAmount, rule.maximumAmount + 1), (rule.maximumThisType - existing).coerceAtLeast(0))) {
-                val source = rule.entityIds.random(random)
+        val time = state.survival.worldTick % 24000
+        val eligible = rules.naturalSpawnRules(state.survival.worldTick).filter { time in it.minimumTime until it.maximumTime }
+        if (eligible.isEmpty()) return
+        val live = actors.mapNotNull { (token, id) ->
+            val mob = plugin.server.getEntity(id) as? Zombie ?: return@mapNotNull null
+            val source = mob.persistentDataContainer.get(actorSource, PersistentDataType.STRING) ?: return@mapNotNull null
+            ApocalypseSpawnActor(token, source, mob)
+        }.toMutableList()
+        val population = ApocalypseAmbientPopulation(survivors, live, random)
+        val probes = ApocalypseSpawnProbeBudget(eligible.maxOf { it.attempts }, survivors.size * eligible.size)
+        for (rule in eligible.shuffled(random)) {
+            if (probes.remaining == 0) break
+            population.spawn(rule, options.maximumEnemies, { player, cost ->
+                safeSpawn(player, null, rule, cost, probes)
+            }) { source, player, at ->
                 val spawn = ApocalypseZombieSpawn("ambient:${UUID.randomUUID()}", ApocalypseSurvivalReference.variant(source),
                     boss = source == "mutantmonsters:mutant_zombie", sourceEntityId = source)
-                spawnEnemy(spawn, player, null, rule)
+                spawnEnemy(spawn, player, null, at)?.let { ApocalypseSpawnActor(spawn.id, source, it) }
             }
-        } }
+        }
     }
 
     private fun desiredSpawns(snapshot: ApocalypseCheckpoint): Map<String, ApocalypseZombieSpawn> = buildMap {
@@ -1201,19 +1249,20 @@ class ApocalypseRuntime(
         snapshot.spawners.values.forEach { spawner -> spawner.active.forEach { put(it.id, it) } }
     }
 
-    private fun spawnEnemy(requested: ApocalypseZombieSpawn, target: Player, marker: ApocalypseMarker?, natural: ApocalypseNaturalSpawnRule? = null): Boolean {
+    private fun spawnEnemy(requested: ApocalypseZombieSpawn, target: Player, marker: ApocalypseMarker?, preparedAt: Location? = null): Zombie? {
         val profile = marker?.kind?.name?.removeSuffix("_SPAWNER")?.lowercase()?.let { id ->
             ApocalypseSurvivalReference.structureZombies.values.firstOrNull { it.id == id }
         }
         val spawn = profile?.spawn(requested.id) ?: requested
-        if (actors.size >= options.maximumEnemies || spawn.id in actors) return false
-        val at = safeSpawn(target, marker, natural) ?: return false
+        if (actors.size >= options.maximumEnemies || spawn.id in actors) return null
+        val at = preparedAt ?: safeSpawn(target, marker) ?: return null
         val stats = rules.stats(spawn, rules.dayAt(state.survival.worldTick))
         val mob = world!!.spawn(at, Zombie::class.java) {
             it.persistentDataContainer.set(actorId, PersistentDataType.STRING, spawn.id)
             it.persistentDataContainer.set(actorVariant, PersistentDataType.STRING, spawn.variant.name)
             it.persistentDataContainer.set(actorSource, PersistentDataType.STRING, spawn.sourceEntityId)
             it.persistentDataContainer.set(actorProfile, PersistentDataType.STRING, spawn.profile)
+            if (spawn.id.startsWith("ambient:")) it.isPersistent = false
             it.setAdult(); it.setShouldBurnInDay(false); it.setCanBreakDoors(true)
             it.setRemoveWhenFarAway(false); it.canPickupItems = false
             it.getAttribute(Attribute.MAX_HEALTH)?.baseValue = stats.health
@@ -1230,39 +1279,53 @@ class ApocalypseRuntime(
         }
         installGoal(mob, spawn, stats)
         actors[spawn.id] = mob.uniqueId
-        return true
+        return mob
     }
 
-    private fun safeSpawn(player: Player, marker: ApocalypseMarker?, natural: ApocalypseNaturalSpawnRule? = null): Location? {
+    private fun safeSpawn(
+        player: Player, marker: ApocalypseMarker?, natural: ApocalypseNaturalSpawnRule? = null,
+        cost: ((Location) -> Int?)? = null, probes: ApocalypseSpawnProbeBudget? = null,
+    ): Location? {
         val target = world ?: return null
-        repeat(natural?.attempts ?: 32) {
+        val origin = player.location
+        var best: Location? = null
+        var bestCost = Int.MAX_VALUE
+        var samples = 0
+        val attempts = natural?.attempts ?: 32
+        repeat(minOf(attempts, probes?.perSearch ?: attempts)) { attempt ->
+            if (probes != null && !probes.take()) return best
             val angle = random.nextDouble(0.0, PI * 2)
             val radius = if (marker != null) random.nextInt(2, 7) else if (natural != null)
                 random.nextInt(natural.minimumDistance, natural.maximumDistance + 1) else 75
-            val x = (marker?.x ?: player.location.blockX) + (cos(angle) * radius).roundToInt()
-            val z = (marker?.z ?: player.location.blockZ) + (sin(angle) * radius).roundToInt()
+            val x = (marker?.x ?: origin.blockX) + (cos(angle) * radius).roundToInt()
+            val z = (marker?.z ?: origin.blockZ) + (sin(angle) * radius).roundToInt()
             if (!target.isChunkLoaded(x shr 4, z shr 4)) return@repeat
-            val y = if (marker != null) marker.y else if (natural?.caveOnly == true)
-                player.location.blockY + random.nextInt(-natural.maximumVerticalDistance, natural.maximumVerticalDistance + 1)
-                else target.getHighestBlockYAt(x, z) + 1
-            for (dy in listOf(0, 1, -1, 2, -2)) {
+            if (natural != null && target.getChunkAt(x shr 4, z shr 4).loadLevel != Chunk.LoadLevel.ENTITY_TICKING) return@repeat
+            val top = if (marker == null) target.getHighestBlockYAt(x, z) else marker.y
+            val y = marker?.y ?: natural?.probeHeight(attempt, origin.blockY, top, random) ?: (top + 1)
+            for (dy in SPAWN_HEIGHT_OFFSETS) {
                 if (y + dy !in target.minHeight + 1 until target.maxHeight - 1) continue
                 val feet = target.getBlockAt(x, y + dy, z)
-                if (natural != null && (abs(y + dy - player.location.blockY) > natural.maximumVerticalDistance ||
+                if (!canSpawnApocalypseZombieAt(feet)) continue
+                if (natural != null && (abs(y + dy - origin.blockY) > natural.maximumVerticalDistance ||
                     !natural.matches(state.survival.worldTick % 24000, feet.lightFromBlocks.toInt(),
-                        target.getHighestBlockYAt(x, z) < y + dy, target.getHighestBlockYAt(x, z) >= y + dy))) continue
-                if (canSpawnApocalypseZombieAt(feet))
-                    return Location(target, x + .5, (y + dy).toDouble(), z + .5)
+                        top < y + dy, top >= y + dy))) continue
+                val at = Location(target, x + .5, (y + dy).toDouble(), z + .5)
+                if (cost == null) return at
+                val score = cost(at) ?: continue
+                if (score < bestCost) { best = at; bestCost = score }
+                if (score == 0 || ++samples == 4) return best
+                break
             }
         }
-        return null
+        return best
     }
 
     private fun tickActors(survivors: List<Player>) {
         actors.values.toList().forEach { id ->
             val mob = plugin.server.getEntity(id) as? Zombie ?: return@forEach
             val target = survivors.minByOrNull { it.location.distanceSquared(mob.location) } ?: return@forEach
-            if (target.location.distanceSquared(mob.location) > 128.0.pow(2)) {
+            if (target.location.distanceSquared(mob.location) > APOCALYPSE_ACTOR_RANGE * APOCALYPSE_ACTOR_RANGE) {
                 val token = mob.persistentDataContainer.get(actorId, PersistentDataType.STRING)
                 if (token?.startsWith("ambient:") == true) { actors.remove(token); mob.remove() }
                 return@forEach
@@ -1306,9 +1369,13 @@ class ApocalypseRuntime(
         }
         chunk.entities.filterIsInstance<Zombie>().forEach { zombie ->
             val token = zombie.persistentDataContainer.get(actorId, PersistentDataType.STRING) ?: return@forEach
-            if (actors[token] == zombie.uniqueId) return@forEach
-            if (actors.size >= options.maximumEnemies || token in actors ||
-                !token.startsWith("ambient:") && token !in desiredSpawns(state)) { zombie.remove(); return@forEach }
+            val registered = actors[token] == zombie.uniqueId
+            val ambient = token.startsWith("ambient:")
+            if (ambient && !retainLoadedAmbient(zombie, registered)) return@forEach
+            if (registered) return@forEach
+            if (token in actors || !ambient && (actors.size >= options.maximumEnemies || token !in desiredSpawns(state))) {
+                zombie.remove(); return@forEach
+            }
             val variant = zombie.persistentDataContainer.get(actorVariant, PersistentDataType.STRING)
                 ?.let { runCatching { ApocalypseZombieVariant.valueOf(it) }.getOrNull() } ?: return@forEach
             val source = zombie.persistentDataContainer.get(actorSource, PersistentDataType.STRING) ?: return@forEach
@@ -1524,6 +1591,7 @@ class ApocalypseRuntime(
         active -= event.player.uniqueId
         guideSnapshots.remove(event.player.uniqueId)
         guideRequests.remove(event.player.uniqueId)
+        pendingGuideOpen.remove(event.player.uniqueId)
         trackedGuides.remove(event.player.uniqueId)
         automaticGuides.remove(event.player.uniqueId)
         compasses.remove(event.player.uniqueId)?.close()
@@ -1668,12 +1736,12 @@ class ApocalypseRuntime(
         val opened = inventoryLocations(event.inventory)
         val visited = original.starterSupplyMarkers.filter { marker -> opened.any {
             it.world == world && it.blockX == marker.x && it.blockY == marker.y && it.blockZ == marker.z
-        } }
+        } }.map(::supplyPosition)
         if (visited.isEmpty()) return
-        val old = original.starterSupplyMarkers.toSet() - unopenedSupplies(player).toSet()
-        val seen = (old + visited).map { "${it.x}:${it.y}:${it.z}" }.sorted().joinToString(",")
+        val old = seenSupplies(player)
+        if (visited.all { it in old }) return
+        val seen = (old + visited).sorted().joinToString(",")
         player.persistentDataContainer.set(supplySeen, PersistentDataType.STRING, "${world!!.uid}|$seen")
-        guideSnapshots.remove(player.uniqueId)
         player.saveData()
     }
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -1770,7 +1838,7 @@ class ApocalypseRuntime(
         atmosphere.close()
         sourceShapes.close()
         guide.close()
-        guideRequests.clear(); guideSnapshots.clear(); trackedGuides.clear()
+        guideRequests.clear(); pendingGuideOpen.clear(); guideSnapshots.clear(); trackedGuides.clear()
         compasses.values.forEach(ApocalypseCompass::close)
         compasses.clear()
         actors.values.mapNotNull(plugin.server::getEntity).forEach(Entity::remove); actors.clear()

@@ -4,6 +4,7 @@ import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import net.kyori.adventure.inventory.Book
 import net.kyori.adventure.text.format.TextDecoration
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
@@ -67,6 +68,9 @@ class ApocalypseGuideTest : StringSpec({
             every { player.uniqueId } returns UUID.randomUUID()
             every { player.protocolVersion } returns MIN_DIALOG_PROTOCOL
             every { player.location } returns Location(null, 3.0, 35.0, 39.0)
+            var admin = false
+            every { player.hasPermission("arcevents.admin") } answers { admin }
+            every { player.hasPermission("arcevents.play") } returns true
             val click = mockk<PaperDialogClickContext>()
             every { click.player } returns player
             val dialogs = mockk<PaperDialogRuntime>(relaxed = true)
@@ -75,8 +79,10 @@ class ApocalypseGuideTest : StringSpec({
             every { dialogs.open(player, any()) } answers { current = secondArg() }
             val selected = mutableListOf<GuideTarget>()
             var left = false
+            var administrativeVisits = 0
             val guide = ApocalypseGuide(plugin, locale, {}, { _, target -> selected += target }, { left = true },
-                canFly = { true }, dialogs = dialogs)
+                canFly = { true }, dialogs = dialogs, onAdmin = { administrativeVisits++ }, ownsDialogs = false)
+            guide.beginFlow(player)
             guide.show(player, snapshot.copy(tracked = GuideTarget.SUPPLIES))
             val journal = current
             journal.buttons.map { it.id.value } shouldBe listOf("map", "equipment", "hazards", "leave")
@@ -112,6 +118,29 @@ class ApocalypseGuideTest : StringSpec({
             book.pages().first().children().last().clickEvent()?.value() shouldBe "/arcevents leave"
             book.pages()[1].children().last().clickEvent()?.value() shouldBe "/arcevents apocalypse track supplies"
             book.pages().last().children().last().clickEvent()?.value() shouldBe "/arcevents leave"
+            fun bookAdminLinks() = book.pages().first().children().filter { it.clickEvent()?.value() == "/events admin apocalypse" }
+            bookAdminLinks().isEmpty() shouldBe true
+            admin = true
+            guide.show(player, snapshot)
+            plain.serialize(bookAdminLinks().single()) shouldBe "Админ-панель"
+
+            every { player.protocolVersion } returns MIN_DIALOG_PROTOCOL
+            guide.show(player, snapshot)
+            val panel = current.buttons.single { it.id.value == "admin" }
+            plain.serialize(panel.label) shouldBe "Админ-панель ›"
+            panel.closeDialogBeforeAction shouldBe false
+            panel.onClick.handle(click)
+            administrativeVisits shouldBe 1
+            guide.show(player, snapshot)
+            val stalePanel = current.buttons.single { it.id.value == "admin" }
+            admin = false
+            stalePanel.onClick.handle(click)
+            administrativeVisits shouldBe 1
+            current.id shouldBe "events.apocalypse.guide"
+            current.buttons.map { it.id.value } shouldBe journal.buttons.map { it.id.value }
+            verify(exactly = 1) { dialogs.beginFlow(player) }
+            guide.close()
+            verify(exactly = 0) { dialogs.close() }
         }
     }
 

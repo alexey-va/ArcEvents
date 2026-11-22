@@ -22,6 +22,7 @@ import ru.arc.paper.network.BungeeBackendTransfer
 import ru.arc.paper.nameplate.NativePaperNameplateVisibilityPolicy
 import ru.arc.paper.nameplate.PacketPaperNameplateDisplayFactory
 import ru.arc.paper.display.PaperPacketDisplays
+import ru.arc.paper.menu.PaperDialogRuntime
 import ru.arc.paper.nameplate.PaperNameplateOptions
 import ru.arc.paper.nameplate.PaperNameplateVisibilityPolicy
 import ru.arc.paper.nameplate.PaperPlayerNameplates
@@ -319,16 +320,18 @@ open class ArcEventsPlugin : JavaPlugin() {
                     dependencies = dependencies,
                 )
             }
+            val eventsDialogs = lifecycle.own(PaperDialogRuntime(this))
             val apocalypseRuntime = ru.ruscrafting.events.paper.apocalypse.ApocalypseRuntime(this, { settings }, locale,
                 firearms, activeWork, manager, backendTransfer,
                 occupied = { id -> activeService.isParticipant(id) || escrow.isLocked(id) || id in escrow.pendingPlayers() },
                 queued = coordinator::queueState,
                 internalTeleport = activeService::isInternalTeleport,
                 returnToOrigin = coordinator::returnPlayer, sourceLayout = sourceLayout,
-                packetDisplays = packetDisplays, chunkTickets = chunkTickets).also { apocalypse = it; lifecycle.own(it) }
+                packetDisplays = packetDisplays, chunkTickets = chunkTickets, guideDialogs = eventsDialogs,
+                openAdmin = { menu.openApocalypseAdmin(it) }).also { apocalypse = it; lifecycle.own(it) }
             activeService.independentInventoryOwner = { id -> apocalypseRuntime.isPlaying(id) || apocalypseRuntime.isBusy(id) }
-            menu = ArcEventsMenu(this, activeService, items, locale, { settings }, ::reloadPlugin, menuLayouts,
-                apocEntry = { player -> apocalypseRuntime.enter(player) },
+            menu = ArcEventsMenu(this, activeService, items, locale, { settings }, menuLayouts,
+                apocEntry = { player -> apocalypseRuntime.enter(player) }, dialogs = eventsDialogs,
                 escapeCloses = { player -> server.servicesManager.load(LuckPerms::class.java)?.userManager?.getUser(player.uniqueId)?.cachedData?.metaData?.getMetaValue("arc-menu-escape")?.equals("close", true) == true })
             lifecycle.own(menu)
             val command = ArcEventsCommand(this, activeService, menu, weaponPointEditor, locale, { settings }, ::reloadPlugin, apocalypseRuntime)

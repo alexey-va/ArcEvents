@@ -156,6 +156,46 @@ async function idle(admin) {
   await waitForQa(admin, 'status', { host: 'ready', phase: 'idle' });
 }
 
+test('Shift+F opens Zombies administration inside the active match', async ({ player, createPlayer }) => {
+  await ready();
+  const admin = await connected(createPlayer, 'ZombieQA');
+  await admin.makeOp();
+  await player.makeOp();
+  const observed = watchDialogs(player);
+  const original = itemState(player);
+  const manage = 'action_menu_event_admin_panel_name';
+  const inMatch = (screen) => button(screen, 'rules_zombies') && button(screen, 'action_menu_event_evacuate_name');
+  try {
+    await idle(admin);
+    await solo(player, admin, observed);
+    const { match } = await readQa(admin, 'status');
+    const beforeShortcut = observed.screens.length;
+    player.bot.setControlState('sneak', true);
+    try {
+      player.bot._client.write('block_dig', { status: 6, location: new Vec3(0, 0, 0), face: 0, sequence: 0 });
+    } finally { player.bot.setControlState('sneak', false); }
+    const card = await nextDialog(observed, beforeShortcut, inMatch);
+    assert.ok(button(card, manage), 'The participant menu has no administration button');
+    const clearCount = observed.clears;
+    const beforePanel = observed.screens.length;
+    click(player, card, manage, 'Admin panel');
+    const panel = await nextDialog(observed, beforePanel, (screen) => button(screen, 'stop') && button(screen, 'sound'));
+    assert.match(JSON.stringify(panel.title), /Zombies: Sector Zero/);
+    assert.ok(!button(panel, 'reset') && !button(panel, 'matches') && !button(panel, 'points'));
+    const back = buttons(panel).find((entry) => JSON.stringify(entry.label).includes('gui.back'));
+    assert.ok(back, 'Zombies administration has no native Back footer');
+    const beforeBack = observed.screens.length;
+    click(player, panel, back.action.id.split('/').at(-1), 'gui.back');
+    const restored = await nextDialog(observed, beforeBack, inMatch);
+    assert.ok(button(restored, manage));
+    assert.equal(observed.clears, clearCount, 'Navigation interrupted the native dialog flow');
+    await waitForQa(admin, 'status', { match, game: 'zombies', participants: 1 });
+  } finally {
+    observed.stop();
+    try { await leave(player, original, admin); } finally { admin.bot.quit(); }
+  }
+});
+
 test('Zombies Play solo starts directly and leaves an unrelated squad member queued', async ({ player, createPlayer }) => {
   await ready();
   const admin = await connected(createPlayer, 'ZombieQA');

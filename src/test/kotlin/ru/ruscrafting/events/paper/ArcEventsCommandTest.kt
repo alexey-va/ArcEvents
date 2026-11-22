@@ -52,9 +52,35 @@ class ArcEventsCommandTest : StringSpec({
         every { player.hasPermission("arcevents.admin") } returns true
         executor.onTabComplete(player, command, "arcevents", arrayOf("admin", "solo", "")) shouldBe
             listOf("apocalypse", "disasters", "fishing", "gungame", "ttt", "zombies")
+        executor.onTabComplete(player, command, "arcevents", arrayOf("admin", "menu", "")) shouldBe
+            listOf("apocalypse", "disasters", "fishing", "gungame", "ttt", "zombies")
+        executor.onTabComplete(player, command, "arcevents", arrayOf("admin", "apoc")) shouldBe
+            listOf("apocalypse", "apocalypse-reset", "apocalypse-reset-plan")
         executor.onTabComplete(player, command, "arcevents", arrayOf("start", "G")) shouldBe listOf("gungame")
         every { player.hasPermission("arcevents.play") } returns false
         executor.onTabComplete(player, command, "arcevents", arrayOf("admin", "")) shouldBe emptyList()
+    }
+
+    "admin menu selects the explicit mode and asks for a mode when outside an event" {
+        val player = mockk<Player>(relaxed = true) {
+            every { uniqueId } returns java.util.UUID.randomUUID()
+            every { hasPermission("arcevents.admin") } returns true
+        }
+        val adminMenu = mockk<ArcEventsMenu>(relaxed = true)
+        val locale = mockk<ArcEventsLocale> {
+            every { render(any(), any(), any()) } answers { Component.text(firstArg<String>()) }
+        }
+        val scoped = ArcEventsCommand(plugin, service, adminMenu, mockk(), locale, { settings },
+            { java.util.concurrent.CompletableFuture.completedFuture(Result.success(Unit)) })
+        val replies = mutableListOf<Component>()
+        every { service.currentMode() } returns null
+
+        scoped.admin(player, listOf("apocalypse"), replies::add)
+        scoped.admin(player, listOf("menu", "fishing"), replies::add)
+        scoped.admin(player, emptyList(), replies::add)
+        replies shouldBe listOf(Component.text("command.admin-mode-usage"))
+        verify(exactly = 1) { adminMenu.openApocalypseAdmin(player) }
+        verify(exactly = 1) { adminMenu.openModeAdmin(player, EventMode.FISHING) }
     }
 
     "debug completion follows the runtime gate and keeps players only in player arguments" {
