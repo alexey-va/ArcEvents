@@ -67,7 +67,9 @@ internal class ApocalypseAtmosphere(plugin: Plugin) : AutoCloseable {
     }
 
     fun allowsMarker(chunk: Chunk, layout: ApocalypseOriginalLayout, marker: ApocalypseMarker): Boolean =
-        !layout.isWaterfront(marker.siteId) || chunk.persistentDataContainer.get(districtKey, PersistentDataType.BYTE) == COMPLETE
+        !layout.isWaterfront(marker.siteId) || waterfrontReady(chunk)
+
+    fun waterfrontReady(chunk: Chunk): Boolean = chunk.persistentDataContainer.get(districtKey, PersistentDataType.BYTE) == COMPLETE
 
     fun isPending(chunk: Chunk): Boolean = chunk.chunkKey in jobs
 

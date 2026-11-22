@@ -57,6 +57,7 @@ internal class ApocalypseWorkbenchStations(
     private val tungstenKey = NamespacedKey(plugin, "apocalypse_tungsten_blasting")
     private var registered = false
     private var tungstenRecipe: BlastingRecipe? = null
+    private var tungstenWorld: (World) -> Boolean = { it == world() }
     private data class CarrierDrop(val world: UUID, val point: ApocalypsePoint, val station: ApocalypseWorkbenchStation, val native: ItemStack?)
     private val carrierDrops = mutableMapOf<UUID, CarrierDrop>()
 
@@ -66,7 +67,7 @@ internal class ApocalypseWorkbenchStations(
         registered = true
     }
 
-    fun registerTungstenBlasting(rawTungsten: ItemStack, tungstenIngot: ItemStack) {
+    fun registerTungstenBlasting(rawTungsten: ItemStack, tungstenIngot: ItemStack, allowedWorld: (World) -> Boolean = { it == world() }) {
         check(registered && tungstenRecipe == null)
         require(rawTungsten.amount == 1 && tungstenIngot.amount == 1)
         require(rawTungsten.itemMeta.persistentDataContainer.get(sourceItemKey, PersistentDataType.STRING) == "the_deeper_void:raw_tungsten")
@@ -74,6 +75,7 @@ internal class ApocalypseWorkbenchStations(
         val recipe = BlastingRecipe(tungstenKey, tungstenIngot.clone(), RecipeChoice.ExactChoice(rawTungsten.clone()), 2f, 240)
         check(plugin.server.addRecipe(recipe)) { "Could not register apocalypse tungsten blasting recipe: $tungstenKey" }
         tungstenRecipe = recipe
+        tungstenWorld = allowedWorld
     }
 
     fun stationAt(block: Block): ApocalypseWorkbenchStation? {
@@ -220,7 +222,7 @@ internal class ApocalypseWorkbenchStations(
         val recipe = tungstenRecipe ?: return
         val input = (event.block.state as? Furnace)?.inventory?.smelting ?: return
         if (!rawTungsten(input)) return
-        if (event.block.world != world() || event.block.type != Material.BLAST_FURNACE || !recipe.inputChoice.test(input)) event.isCancelled = true
+        if (!tungstenWorld(event.block.world) || event.block.type != Material.BLAST_FURNACE || !recipe.inputChoice.test(input)) event.isCancelled = true
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -228,7 +230,7 @@ internal class ApocalypseWorkbenchStations(
         val recipe = tungstenRecipe ?: return
         if (!rawTungsten(event.source) && event.recipe?.key != tungstenKey) return
         // ExactChoice includes presentation metadata. Reject a renamed source rather than let vanilla turn it into iron.
-        if (event.block.world != world() || event.block.type != Material.BLAST_FURNACE ||
+        if (!tungstenWorld(event.block.world) || event.block.type != Material.BLAST_FURNACE ||
             event.recipe?.key != tungstenKey || !recipe.inputChoice.test(event.source)) event.isCancelled = true
     }
 

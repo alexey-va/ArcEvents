@@ -92,7 +92,7 @@ class ApocalypseNetworkTest : FunSpec({
         relay.retryEntry(fixture.player, first) { true }.join() shouldBe false
         relay.retryEntry(fixture.player, second) { false }.join() shouldBe false
         relay.retryEntry(fixture.player, second) { true }.join() shouldBe true
-        fixture.network(serverId = "parkour").arrival(APOCALYPSE_PLAYER).join() shouldBe "spawn"
+        fixture.network(serverId = "parkour").arrival(APOCALYPSE_PLAYER).join() shouldBe ApocalypseArrival("spawn")
         relay.retryEntry(fixture.player, second) { true }.join() shouldBe false
         verify(exactly = 3) { fixture.transfer.connect(fixture.player, BackendServerId.of("parkour")) }
     }
@@ -180,9 +180,49 @@ class ApocalypseNetworkTest : FunSpec({
         fixture.network(serverId = "survival").arrival(APOCALYPSE_PLAYER).join() shouldBe null
         fixture.pending() shouldBe raw
         val host = fixture.network(serverId = "parkour")
-        host.arrival(APOCALYPSE_PLAYER).join() shouldBe "spawn"
+        host.arrival(APOCALYPSE_PLAYER).join() shouldBe ApocalypseArrival("spawn")
         host.arrival(APOCALYPSE_PLAYER).join() shouldBe null
         fixture.pending() shouldBe null
+    }
+
+    test("personal arrivals require host capability and cannot be read as legacy common tickets") {
+        val fixture = ApocalypseNetworkFixture()
+        val relay = fixture.network()
+        val friend = ApocalypseDestination("Friend")
+        shouldThrow<CompletionException> { relay.enter(fixture.player, friend) { true }.join() }
+        fixture.pending() shouldBe null
+        verify(exactly = 0) { fixture.transfer.connect(any(), any()) }
+
+        val host = fixture.network(serverId = "parkour")
+        host.advertise(ready = true, campaigns = true).join()
+        for (target in listOf(ApocalypseDestination(), friend)) {
+            val raw = requireNotNull(relay.enter(fixture.player, target) { true }.join())
+            val nonce = JsonParser.parseString(raw).asJsonObject["nonce"].asString
+            shouldThrow<IllegalArgumentException> { UUID.fromString(nonce) }
+            host.arrival(APOCALYPSE_PLAYER).join() shouldBe ApocalypseArrival("spawn", target)
+            host.arrival(APOCALYPSE_PLAYER).join() shouldBe null
+        }
+        host.advertise(ready = true, campaigns = false).join()
+        shouldThrow<CompletionException> { relay.enter(fixture.player, friend) { true }.join() }
+        requireNotNull(relay.enter(fixture.player) { true }.join())
+        host.arrival(APOCALYPSE_PLAYER).join() shouldBe ApocalypseArrival("spawn")
+    }
+
+    test("a pending transfer can refresh only its original expedition destination") {
+        val fixture = ApocalypseNetworkFixture()
+        val relay = fixture.network()
+        val host = fixture.network(serverId = "parkour")
+        host.advertise(ready = true, campaigns = true).join()
+        val choices = listOf(null, ApocalypseDestination(), ApocalypseDestination("First"), ApocalypseDestination("Second"))
+        for (original in choices) {
+            val ticket = requireNotNull(relay.enter(fixture.player, original) { true }.join())
+            for (other in choices.filter { it != original }) {
+                shouldThrow<CompletionException> { relay.enter(fixture.player, other) { true }.join() }
+                    .cause?.message shouldBe "arrival already pending"
+                fixture.pending() shouldBe ticket
+            }
+            host.arrival(APOCALYPSE_PLAYER).join() shouldBe ApocalypseArrival("spawn", original)
+        }
     }
 
     test("the receiver still cleans malformed and expired tickets") {

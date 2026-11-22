@@ -1,5 +1,6 @@
 package ru.ruscrafting.events.paper.apocalypse
 
+import com.destroystokyo.paper.event.player.PlayerSetSpawnEvent
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
@@ -14,6 +15,7 @@ import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
 import org.bukkit.event.block.BlockBreakEvent
 import org.bukkit.event.player.PlayerCommandPreprocessEvent
+import org.bukkit.event.player.PlayerRespawnEvent
 import org.bukkit.event.player.PlayerTeleportEvent
 import org.bukkit.event.player.PlayerTeleportEvent.TeleportCause
 import org.bukkit.NamespacedKey
@@ -24,6 +26,7 @@ import ru.arc.core.PaperArcRuntime
 import ru.arc.core.Tasks
 import ru.arc.paper.playerstate.PaperPlayerStateCodec
 import ru.arc.paper.playerstate.PaperPlayerStateService
+import ru.arc.paper.playerstate.PaperLocationSnapshot
 import ru.arc.paper.teleport.ScopedTeleportAuthorizer
 import ru.arc.paper.testing.MockBukkitTestRuntime
 import ru.arc.redis.InMemoryRedis
@@ -400,6 +403,68 @@ class ApocalypseColdStartTest : FunSpec({
                     Files.exists(root.resolve("arcevents_apocalypse_v2")) shouldBe false
                 }
                 Files.exists(root.resolve("data/apocalypse/world-arcevents_apocalypse_v2/world.json")) shouldBe false
+            } finally { work.close(); Tasks.reset() }
+        }
+    }
+
+    test("a guest reconnecting after a campaign emptied parks the actual backpack at the last campaign position") {
+        MockBukkitTestRuntime.open().use { paper ->
+            val plugin = paper.createSimplePlugin("ColdCampaignGuest")
+            val home = paper.addSimpleWorld("world")
+            PaperArcRuntime.installScheduling(plugin)
+            val work = ColdStartWork()
+            try {
+                val guest = paper.addPlayer("Guest")
+                val owner = UUID.randomUUID()
+                val worldName = "arcevents_campaign_" + owner.toString().replace("-", "")
+                val lastPosition = PaperLocationSnapshot(UUID.randomUUID(), worldName, 75.5, 66.0, -32.5, 88f, 12f)
+                val native = NamespacedKey(plugin, "apocalypse_session")
+                val nonce = UUID.randomUUID().toString()
+                val states = PaperPlayerStateService()
+                val codec = PaperPlayerStateCodec()
+                guest.inventory.setItem(0, ItemStack.of(Material.DIAMOND, 3))
+                val origin = states.captureEnvelope(guest, 1)
+                guest.inventory.setItem(0, ItemStack.of(Material.BREAD))
+                val oldBackpack = codec.encode(states.capture(guest, 2).copy(location = lastPosition))
+                val store = ApocalypseStorage(plugin.dataFolder.toPath())
+                val record = ApocalypsePlayerRecord(guest.uniqueId.toString(), "parkour", ApocalypsePlayerPhase.ACTIVE, origin,
+                    oldBackpack, nativeSession = nonce, campaignOwner = owner.toString())
+                store.save(record)
+                // Paper has brought the native expedition inventory to the default world after restart.
+                guest.inventory.setItem(0, ItemStack.of(Material.IRON_AXE))
+                guest.persistentDataContainer.set(native, PersistentDataType.STRING, nonce)
+                var aclReady = false
+                val settings = coldSettings(NodeMode.HOST)
+                ApocalypseRuntime(plugin, { settings }, coldLocale(), mockk(), work, InMemoryRedis(), mockk(),
+                    occupied = { false }, queued = { error("Recovery is not a fresh admission") },
+                    returnToOrigin = { _, _ -> error("Unexpected backend transfer") },
+                    sourceLayout = CompletableFuture(), chunkTickets = mockk(), campaignsReady = { aclReady },
+                    mayReopenCampaign = { _, _ -> false }).use { runtime ->
+                    runtime.start()
+                    paper.awaitHostJoins(runtime)
+                    runtime.isBusy(guest.uniqueId) shouldBe true
+                    store.load(guest.uniqueId) shouldBe record
+                    aclReady = true
+                    paper.advanceUntil("one-use guest safely returned to their native inventory") { !runtime.isBusy(guest.uniqueId) }
+                    runtime.isPlaying(guest.uniqueId) shouldBe false
+                    guest.world shouldBe home
+                    guest.inventory.getItem(0) shouldBe ItemStack.of(Material.DIAMOND, 3)
+                    guest.persistentDataContainer.has(native) shouldBe false
+                    val parked = requireNotNull(store.load(guest.uniqueId))
+                    parked.phase shouldBe ApocalypsePlayerPhase.PARKED
+                    parked.campaignOwner shouldBe owner.toString()
+                    val backpack = codec.decode(requireNotNull(parked.expedition))
+                    backpack.storage[0] shouldBe ItemStack.of(Material.IRON_AXE)
+                    backpack.location shouldBe lastPosition
+                    paper.server.getWorld(worldName) shouldBe null
+
+                    val rememberedBed = paper.addSimpleWorld(worldName).spawnLocation
+                    paper.callEvent(PlayerRespawnEvent(guest, rememberedBed, true)).respawnLocation shouldBe home.spawnLocation
+                    paper.callEvent(PlayerSetSpawnEvent(guest, PlayerSetSpawnEvent.Cause.BED, rememberedBed, false, false, null))
+                        .isCancelled shouldBe true
+                    paper.callEvent(PlayerSetSpawnEvent(guest, PlayerSetSpawnEvent.Cause.BED, home.spawnLocation, false, false, null))
+                        .isCancelled shouldBe false
+                }
             } finally { work.close(); Tasks.reset() }
         }
     }

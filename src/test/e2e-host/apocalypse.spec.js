@@ -286,9 +286,24 @@ test('Apocalypse enters through the native menu and opens actionable guide route
     const menu=await until(()=>dialogs.screens.find(s=>apocButton(s,'action_apocalypse_menu_name')),'Apocalypse entry missing from native main menu');
     const cardSince=dialogs.screens.length;
     apocClick(player,menu,'action_apocalypse_menu_name');
-    const enter='action_apocalypse_enter_name';
-    const card=await until(()=>dialogs.screens.slice(cardSince).find(s=>apocButton(s,enter)),'Apocalypse card did not offer ordinary entry');
-    assert.ok(!apocButton(card,'action_apocalypse_test_name'),'The ordinary player received the admin-only entry button');
+    const enter='action_apocalypse_campaign_common_name';
+    let card=await until(()=>dialogs.screens.slice(cardSince).find(s=>apocButton(s,enter)),'Apocalypse card did not offer ordinary entry');
+    const friends='action_apocalypse_campaign_friend_name';
+    assert.ok(apocButton(card,'action_apocalypse_campaign_own_name')&&apocButton(card,friends),
+      'The ordinary player cannot choose their own or a friend’s expedition');
+    assert.ok(!apocButton(card,'action_menu_event_admin_panel_name'),'The ordinary player received the admin panel');
+    const friendSince=dialogs.screens.length, initialClears=dialogs.clears;
+    apocClick(player,card,friends);
+    const form=await until(()=>dialogs.screens.slice(friendSince).find(s=>apocButton(s,'join')),'No named friend entry form');
+    const ownerField=form.inputs?.find(input=>input.key==='player');
+    assert.ok(ownerField,'The friend form has no owner name field');
+    assert.match(JSON.stringify(ownerField.label),/Owner/i);
+    const back=apocButtons(form).find(button=>button.action.id.includes('/arc_history_exit_'));
+    assert.ok(back,'The friend form has no history footer');
+    const returnSince=dialogs.screens.length;
+    apocClick(player,form,back.action.id.split('/').at(-1));
+    card=await until(()=>dialogs.screens.slice(returnSince).find(s=>apocButton(s,enter)),'Back did not restore the Apocalypse card');
+    assert.equal(dialogs.clears,initialClears,'Opening or leaving the friend form closed the dialog');
     apocClick(player,card,enter);await players(admin,1);
     const expedition=items(player);
     const screenAfter=async(action, predicate, message)=>{

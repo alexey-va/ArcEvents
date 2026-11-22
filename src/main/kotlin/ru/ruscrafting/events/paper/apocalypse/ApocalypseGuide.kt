@@ -24,6 +24,7 @@ import ru.ruscrafting.events.domain.apocalypse.ApocalypsePoint
 import ru.ruscrafting.events.paper.ClientProtocolResolver
 import ru.ruscrafting.events.paper.MIN_DIALOG_PROTOCOL
 import ru.ruscrafting.events.paper.canManageEventMenus
+import ru.ruscrafting.events.paper.sendEventMessage
 import kotlin.math.atan2
 import kotlin.math.floor
 import kotlin.math.hypot
@@ -97,6 +98,9 @@ internal class ApocalypseGuide(
     private val dialogs: PaperDialogRuntime = PaperDialogRuntime(plugin),
     private val onAdmin: (Player) -> Unit = {},
     private val ownsDialogs: Boolean = true,
+    private val canManageCampaign: (Player) -> Boolean = { false },
+    private val onCampaign: (Player) -> Unit = {},
+    private val onObjectives: ((Player) -> Unit)? = null,
 ) : AutoCloseable {
     private val protocols = ClientProtocolResolver()
     private val itemKey = NamespacedKey(plugin, "apocalypse_guide")
@@ -147,6 +151,7 @@ internal class ApocalypseGuide(
             GuideTarget.WEAPONS, GuideTarget.WORKBENCH, GuideTarget.EXIT, GuideTarget.SUPPLIES)
         val routes = order.mapNotNull { target -> snapshot.route(target, from)?.let { target to it } }
         val admin = player.canManageEventMenus()
+        val campaignOwner = player.hasPermission("arcevents.play") && canManageCampaign(player)
         if (!supportsDialogs(player)) {
             // Books use dark ink on parchment and short pages to preserve vanilla's 114 px text width.
             val leaveLink = page("book.leave").clickEvent(ClickEvent.runCommand("/arcevents leave"))
@@ -157,6 +162,13 @@ internal class ApocalypseGuide(
                     Component.empty(), if (nextStep == "supplies") page("book-step.check-barrels", *supplyCounts) else page("book-step.$nextStep"),
                     Component.empty(), adminLink, leaveLink,
                 )))
+                if (campaignOwner || onObjectives != null) {
+                    fun link(key: String, command: String) = locale.render("apocalypse.campaign.book-link", player,
+                        mapOf("title" to locale.render(key, player))).clickEvent(ClickEvent.runCommand(command))
+                    add(lines(listOfNotNull(page("book.title"), Component.empty(),
+                        if (onObjectives != null) link("apocalypse.objectives.journal-title", "/arcevents apocalypse objectives") else null,
+                        if (campaignOwner) link("apocalypse.campaign.manage-title", "/arcevents apocalypse campaign") else null)))
+                }
                 for ((target, route) in routes) {
                     val id = target.name.lowercase()
                     val p = route.point
@@ -188,6 +200,20 @@ internal class ApocalypseGuide(
             if (routes.isNotEmpty()) add(chapterButton(player, "map") { openMap(it, snapshot, routes) })
             add(chapterButton(player, "equipment") { openEquipment(it, snapshot) })
             add(chapterButton(player, "hazards") { openHazards(it, snapshot) })
+            onObjectives?.let { open ->
+                add(button("objectives", page("page-link", "title" to locale.render("apocalypse.objectives.journal-title", player)),
+                    locale.render("apocalypse.objectives.journal-tip", player), action = open))
+            }
+            if (campaignOwner) {
+                add(button("campaign", locale.render("apocalypse.campaign.manage-link", player),
+                    locale.render("apocalypse.campaign.manage-tip", player)) {
+                    if (it.hasPermission("arcevents.play") && canManageCampaign(it)) onCampaign(it)
+                    else {
+                        dialogs.close(it)
+                        it.sendEventMessage(locale.render("apocalypse.campaign-control.manage-denied", it))
+                    }
+                })
+            }
             add(leaveButton(player))
             if (admin) {
                 add(button("admin", page("page-link", "title" to locale.render("menu.event.admin-panel-name", player)),
@@ -251,6 +277,18 @@ internal class ApocalypseGuide(
         val health = lines(text(player, "health-title", "stage" to infection), text(player, "health-help"))
         val horde = lines(text(player, "horde-title", "day" to locale.text(snapshot.nextHordeDay)), text(player, "horde-help"))
         openPage(player, "hazards", text(player, "hazards-title"), listOf(note(health), note(horde)), emptyList())
+    }
+
+    fun showObjectives(player: Player, pages: List<Component>, bookPages: List<Component>) {
+        if (!player.isOnline) return
+        val title = locale.render("apocalypse.objectives.journal-title", player)
+        if (supportsDialogs(player)) {
+            dialogs.beginFlow(player)
+            dialogs.open(player, PaperDialogScreen(title = text(player, "chapter-title", "title" to title),
+                body = pages.map(::note), buttons = emptyList(), id = "events.apocalypse.guide.objectives"))
+        } else {
+            player.openBook(Book.book(title, text(player, "author"), bookPages))
+        }
     }
 
     private fun openPage(player: Player, id: String, title: Component, body: List<PaperDialogBody>, buttons: List<PaperDialogButton>) {

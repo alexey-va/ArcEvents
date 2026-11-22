@@ -43,6 +43,9 @@ import ru.ruscrafting.events.domain.MatchPhase
 import ru.ruscrafting.events.domain.FirearmSoundPreset
 import ru.ruscrafting.events.domain.apocalypse.ApocalypseLayout
 import ru.ruscrafting.events.network.RedisEventNetworkRepository
+import ru.ruscrafting.events.paper.apocalypse.ApocalypseCampaignAccess
+import ru.ruscrafting.events.paper.apocalypse.ApocalypseCampaignControl
+import ru.ruscrafting.events.paper.apocalypse.ApocalypseRuntime
 import java.nio.file.Files
 import java.util.logging.Level
 
@@ -321,21 +324,28 @@ open class ArcEventsPlugin : JavaPlugin() {
                 )
             }
             val eventsDialogs = lifecycle.own(PaperDialogRuntime(this))
-            val apocalypseRuntime = ru.ruscrafting.events.paper.apocalypse.ApocalypseRuntime(this, { settings }, locale,
+            lateinit var apocalypseRuntime: ApocalypseRuntime
+            val campaignAccess = if (settings.nodeMode == NodeMode.HOST) ApocalypseCampaignAccess(dataFolder.toPath(), activeWork) else null
+            val campaigns = ApocalypseCampaignControl(this, locale, campaignAccess, activeWork, { apocalypseRuntime },
+                { menu.openApocalypseCampaign(it) }, { menu.openApocalypseFriends(it) })
+            apocalypseRuntime = ApocalypseRuntime(this, { settings }, locale,
                 firearms, activeWork, manager, backendTransfer,
                 occupied = { id -> activeService.isParticipant(id) || escrow.isLocked(id) || id in escrow.pendingPlayers() },
                 queued = coordinator::queueState,
                 internalTeleport = activeService::isInternalTeleport,
                 returnToOrigin = coordinator::returnPlayer, sourceLayout = sourceLayout,
                 packetDisplays = packetDisplays, chunkTickets = chunkTickets, guideDialogs = eventsDialogs,
-                openAdmin = { menu.openApocalypseAdmin(it) }).also { apocalypse = it; lifecycle.own(it) }
+                openAdmin = { menu.openApocalypseAdmin(it) }, resolveCampaign = campaigns::resolve, admitCampaign = campaigns::mayEnter,
+                onCampaignAdmitted = campaigns::admitted, campaignsReady = campaigns::isReady,
+                openCampaign = { menu.openApocalypseCampaign(it) }, mayReopenCampaign = campaigns::mayReopen).also { apocalypse = it; lifecycle.own(it) }
             activeService.independentInventoryOwner = { id -> apocalypseRuntime.isPlaying(id) || apocalypseRuntime.isBusy(id) }
             menu = ArcEventsMenu(this, activeService, items, locale, { settings }, menuLayouts,
                 apocEntry = { player -> apocalypseRuntime.enter(player) }, dialogs = eventsDialogs,
                 escapeCloses = { player -> server.servicesManager.load(LuckPerms::class.java)?.userManager?.getUser(player.uniqueId)?.cachedData?.metaData?.getMetaValue("arc-menu-escape")?.equals("close", true) == true })
             lifecycle.own(menu)
-            val command = ArcEventsCommand(this, activeService, menu, weaponPointEditor, locale, { settings }, ::reloadPlugin, apocalypseRuntime)
+            val command = ArcEventsCommand(this, activeService, menu, weaponPointEditor, locale, { settings }, ::reloadPlugin, apocalypseRuntime, campaigns)
             menu.bindAdminDialog(command, apocalypseRuntime)
+            menu.bindCampaignMenu(campaigns)
             requireNotNull(getCommand("arcevents")).apply {
                 setExecutor(command)
                 tabCompleter = command

@@ -23,6 +23,9 @@ internal const val MIN_DIALOG_PROTOCOL = 771 // Minecraft Java 1.21.6
 internal const val TTT_DIALOG_ID = "events.ttt"
 internal const val FISHING_DIALOG_ID = "events.fishing"
 internal const val FISHING_PRIMARY_SLOT = 2
+internal const val APOCALYPSE_COMMON_SLOT = 0
+internal const val APOCALYPSE_OWN_SLOT = 1
+internal const val APOCALYPSE_FRIEND_SLOT = 2
 internal const val ZOMBIES_SOLO_SLOT = 1000
 internal const val LEAVE_QUEUE_SLOT = 1001
 internal const val LEAVE_MATCH_SLOT = 1002
@@ -88,6 +91,7 @@ private val NATIVE_DESTINATIONS = mapOf(
     "arcade.fishing-name" to NativeButtonRole.ACTIVITY_DESTINATION,
     "arcade.zombies-name" to NativeButtonRole.ACTIVITY_DESTINATION,
     "apocalypse.menu-name" to NativeButtonRole.ACTIVITY_DESTINATION,
+    "apocalypse.campaign.friend-name" to NativeButtonRole.PLAYER_DESTINATION,
     "menu.main.stats-name" to NativeButtonRole.PERSONAL_DESTINATION,
     "menu.main.help-name" to NativeButtonRole.HELP_DESTINATION,
     "menu.event.admin-panel-name" to NativeButtonRole.ADMIN_DESTINATION,
@@ -254,17 +258,19 @@ internal class ArcEventsDialogMenu(
     }
 
     private fun apocalypse(player: Player): PaperDialogScreen {
-        val available = !service.isParticipant(player.uniqueId)
+        val inMatch = service.isParticipant(player.uniqueId)
+        val canPlay = player.hasPermission("arcevents.play")
         val content = buildList {
             add("dialog.apocalypse-overview")
-            add("dialog.apocalypse-facts")
-            if (!available) add("dialog.other-match")
+            add("apocalypse.campaign.catalog")
+            if (inMatch) add("dialog.other-match")
+            else if (!canPlay) add("command.no-permission")
         }
         val actions = buildList {
-            if (available) {
-                if (player.hasPermission("arcevents.admin"))
-                    add(button(player, "apocalypse.test-name", "apocalypse.test-lore", EventsView.Apocalypse, ADMIN_SOLO_SLOT))
-                else add(button(player, "apocalypse.enter-name", "apocalypse.enter-lore", EventsView.Apocalypse, 0))
+            if (canPlay && !inMatch) {
+                add(button(player, "apocalypse.campaign.common-name", "apocalypse.campaign.common-tip", EventsView.Apocalypse, APOCALYPSE_COMMON_SLOT))
+                add(button(player, "apocalypse.campaign.own-name", "apocalypse.campaign.own-tip", EventsView.Apocalypse, APOCALYPSE_OWN_SLOT))
+                add(button(player, "apocalypse.campaign.friend-name", "apocalypse.campaign.friend-tip", EventsView.Apocalypse, APOCALYPSE_FRIEND_SLOT))
             }
             add(rulesButton(player, CatalogMode.APOCALYPSE))
             addAdminPanel(player, EventsView.Apocalypse)
@@ -541,7 +547,7 @@ internal class ArcEventsDialogMenu(
         slot < 0 && nameKey.endsWith("close-name") -> NativeButtonRole.CLOSE
         slot < 0 -> NativeButtonRole.BACK
         slot == ADMIN_SOLO_SLOT -> NativeButtonRole.TEST
-        nameKey == "apocalypse.enter-name" -> NativeButtonRole.COMMIT
+        nameKey == "apocalypse.campaign.common-name" || nameKey == "apocalypse.campaign.own-name" -> NativeButtonRole.COMMIT
         nameKey.contains("unavailable") -> NativeButtonRole.UNAVAILABLE
         nameKey in NATIVE_DESTINATIONS -> NATIVE_DESTINATIONS.getValue(nameKey)
         nameKey.contains("leave") || nameKey.contains("evacuate") || nameKey.contains("stop") -> NativeButtonRole.DESTRUCTIVE

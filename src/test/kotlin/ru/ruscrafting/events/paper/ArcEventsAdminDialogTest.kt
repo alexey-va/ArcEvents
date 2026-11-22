@@ -41,7 +41,9 @@ class ArcEventsAdminDialogTest : StringSpec({
             every { text(any()) } answers { Component.text(firstArg<Any>().toString()) }
         }
         val runtime = mockk<PaperDialogRuntime>(relaxed = true)
-        val apoc = mockk<ApocalypseRuntime>(relaxed = true)
+        val apoc = mockk<ApocalypseRuntime>(relaxed = true) {
+            every { campaignOwnerOf(any()) } returns null
+        }
         val service = mockk<ArcEventsService>(relaxed = true)
         every { service.snapshot() } returns ServiceSnapshot("parkour", NodeMode.HOST, "parkour", true, true, true,
             null, 0, null, null, 0, 0, 0, 0, 0, 0)
@@ -86,9 +88,12 @@ class ArcEventsAdminDialogTest : StringSpec({
         choose("apply")
         verify(exactly = 1) { apoc.command(player, listOf("apocalypse", "day", "7")) }
         every { apoc.isPlaying(player.uniqueId) } returns true
+        every { apoc.campaignOwnerOf(player.uniqueId) } returns UUID.randomUUID()
         menu.openApocalypse(player)
         ("enter" in actions()) shouldBe false
+        ("reset" in actions()) shouldBe false
         every { apoc.isPlaying(player.uniqueId) } returns false
+        every { apoc.campaignOwnerOf(player.uniqueId) } returns null
         choose("fly")
         verify(exactly = 0) { apoc.command(player, listOf("apocalypse", "fly")) }
         every { click.text(any()) } returns target

@@ -232,7 +232,7 @@ test('Admin solo Apocalypse enters the shared expedition and restores the player
   await withPractice(fixture, 'apocalypse', {
     world: 'arcevents_apocalypse_v2',
     enter: async (player, observed) => {
-      const start = 'action_apocalypse_test_name';
+      const start = 'action_apocalypse_campaign_common_name';
       click(player, await openCard(player, observed, 'action_apocalypse_menu_name', start), start);
     },
   }, async (player) => {

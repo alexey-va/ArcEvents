@@ -1,5 +1,6 @@
 package ru.ruscrafting.events.paper.apocalypse
 
+import com.destroystokyo.paper.event.player.PlayerSetSpawnEvent
 import com.google.gson.Gson
 import org.bukkit.*
 import org.bukkit.attribute.Attribute
@@ -11,6 +12,9 @@ import org.bukkit.inventory.DoubleChestInventory
 import org.bukkit.entity.*
 import org.bukkit.event.*
 import org.bukkit.event.block.BlockBreakEvent
+import org.bukkit.event.block.BlockExplodeEvent
+import org.bukkit.event.block.BlockPistonExtendEvent
+import org.bukkit.event.block.BlockPistonRetractEvent
 import org.bukkit.event.entity.*
 import org.bukkit.event.inventory.*
 import org.bukkit.event.player.*
@@ -33,6 +37,7 @@ import ru.arc.paper.menu.PaperDialogRuntime
 import ru.arc.paper.chunk.PaperChunkTicketRegistry
 import ru.arc.paper.playerstate.PaperPlayerStateService
 import ru.arc.paper.playerstate.PaperPlayerStateCodec
+import ru.arc.paper.playerstate.PaperPlayerStateEnvelope
 import ru.arc.paper.playerstate.PaperLocationSnapshot
 import ru.arc.persistence.DurableRecordJournal
 import ru.arc.redis.RedisOperations
@@ -41,6 +46,8 @@ import ru.ruscrafting.events.domain.FirearmId
 import ru.ruscrafting.events.domain.apocalypse.*
 import ru.ruscrafting.events.network.QueueState
 import ru.ruscrafting.events.paper.EventWork
+import ru.ruscrafting.events.paper.ArenaStagingFiles
+import ru.ruscrafting.events.paper.ARENA_TEMPLATE_MARKER
 import ru.ruscrafting.events.paper.TttFirearms
 import ru.ruscrafting.events.paper.isArcEventsCommandLabel
 import java.nio.file.Files
@@ -60,9 +67,13 @@ private data class ApocalypseCheckpoint(
     val switches: Set<String> = emptySet(),
     val spawners: Map<String, ApocalypseBunkerSpawnerState> = emptyMap(),
     val looted: Set<String> = emptySet(),
+    val objectives: ApocalypseObjectivesState? = null,
 )
 
-private data class PreparedApocalypseWorld(val journal: DurableRecordJournal<ApocalypseCheckpoint>, val checkpoint: ApocalypseCheckpoint)
+private data class PreparedApocalypseWorld(
+    val journal: DurableRecordJournal<ApocalypseCheckpoint>, val checkpoint: ApocalypseCheckpoint,
+    val objectiveSites: ApocalypseObjectiveSites,
+)
 
 private data class ApocalypseGuideRoutes(
     val supplies: List<GuideRoute>, val exit: GuideRoute?, val city: GuideRoute?, val weapons: GuideRoute?,
@@ -73,51 +84,72 @@ internal fun starterBarrelHasSupplies(barrel: Barrel, stocked: NamespacedKey, aw
     !barrel.snapshotInventory.isEmpty || (awaitingStock && !barrel.persistentDataContainer.has(stocked))
 
 /** Permanent survival is independent of the finite arcade match roster, and owns its entire inventory boundary. */
-class ApocalypseRuntime(
+class ApocalypseRuntime internal constructor(
     private val plugin: JavaPlugin,
     private val config: () -> ArcEventsConfig,
     private val locale: ArcEventsLocale,
     private val firearms: TttFirearms,
     private val work: EventWork,
-    redis: RedisOperations,
-    transfer: BackendTransfer,
+    private val redis: RedisOperations,
+    private val transfer: BackendTransfer,
     private val occupied: (UUID) -> Boolean,
     private val queued: (UUID) -> CompletableFuture<QueueState?>,
     private val returnToOrigin: (Player, String) -> Boolean,
     private val sourceLayout: CompletableFuture<ApocalypseLayout>? = null,
-    packetDisplays: PaperPacketDisplays? = null,
-    chunkTickets: PaperChunkTicketRegistry,
+    private val packetDisplays: PaperPacketDisplays? = null,
+    private val chunkTickets: PaperChunkTicketRegistry,
     private val internalTeleport: (UUID, Location) -> Boolean = { _, _ -> false },
     guideDialogs: PaperDialogRuntime? = null,
-    openAdmin: (Player) -> Unit = {},
+    private val openAdmin: (Player) -> Unit = {},
+    private val resolveCampaign: (Player, ApocalypseDestination) -> UUID? = { player, destination ->
+        if (destination.ownerName == null) player.uniqueId else null
+    },
+    private val admitCampaign: (Player, UUID) -> Boolean = { player, owner -> player.uniqueId == owner },
+    private val onCampaignAdmitted: (Player, UUID) -> Unit = { _, _ -> },
+    private val campaignsReady: () -> Boolean = { false },
+    private val openCampaign: (Player) -> Unit = {},
+    private val mayReopenCampaign: (Player, UUID) -> Boolean = { player, owner -> player.uniqueId == owner },
+    private val parent: ApocalypseRuntime? = null,
+    private val campaignOwner: UUID? = null,
 ) : Listener, AutoCloseable {
-    private val options = ApocalypseSettings.load(plugin.dataFolder.resolve("apocalypse.yml"))
+    private val options: ApocalypseSettings = parent?.options?.copy(world = campaignWorldName(requireNotNull(campaignOwner)))
+        ?: ApocalypseSettings.load(plugin.dataFolder.resolve("apocalypse.yml"))
     private val host = config().nodeMode == NodeMode.HOST
-    private val network = ApocalypseNetwork(redis, config, transfer, work)
+    private val network: ApocalypseNetwork = parent?.network ?: ApocalypseNetwork(redis, config, transfer, work)
     private val tasks = LifecycleTaskScope()
-    private val players = linkedMapOf<UUID, ApocalypsePlayerRecord>()
+    // One host journal and one native inventory owner per player, even during a cross-campaign admission.
+    private val players: MutableMap<UUID, ApocalypsePlayerRecord> = parent?.players ?: linkedMapOf()
+    private val busy: MutableSet<UUID> = parent?.busy ?: linkedSetOf()
+    private val moving: MutableSet<UUID> = parent?.moving ?: linkedSetOf()
+    private val playerOperations: MutableSet<UUID> = parent?.playerOperations ?: linkedSetOf()
+    private val recoveryOperations: MutableSet<UUID> = parent?.recoveryOperations ?: linkedSetOf()
+    private val returnOperations: MutableMap<UUID, Any> = parent?.returnOperations ?: mutableMapOf()
+    private val returnReceipts: MutableSet<UUID> = parent?.returnReceipts ?: linkedSetOf()
+    private val playerSaves: MutableMap<UUID, CompletableFuture<Unit>> = parent?.playerSaves ?: mutableMapOf()
+    private val joining: MutableSet<UUID> = parent?.joining ?: mutableSetOf()
+    private val admissions: MutableMap<UUID, ApocalypseRuntime> = parent?.admissions ?: mutableMapOf()
+    private val campaigns = linkedMapOf<UUID, ApocalypseRuntime>()
+    private val loaded = CompletableFuture<Unit>()
+    private var idleTicks = 0
     private val active = linkedSetOf<UUID>()
-    private val busy = linkedSetOf<UUID>()
-    private val moving = linkedSetOf<UUID>()
-    private val playerOperations = linkedSetOf<UUID>()
-    private val recoveryOperations = linkedSetOf<UUID>()
-    private val returnOperations = mutableMapOf<UUID, Any>()
-    private val returnReceipts = linkedSetOf<UUID>()
+    private val guestReconnect = mutableMapOf<UUID, String>()
     private val unacknowledgedJoins = mutableSetOf<UUID>()
-    private val playerSaves = mutableMapOf<UUID, CompletableFuture<Unit>>()
     private val compasses = mutableMapOf<UUID, ApocalypseCompass>()
     private val guideRequests = mutableSetOf<UUID>()
     private val pendingGuideOpen = mutableSetOf<UUID>()
-    private val joining = mutableSetOf<UUID>()
     private val waitingForWorld = mutableSetOf<UUID>()
+    private val waitingForCampaign = linkedSetOf<UUID>()
     private val guideSnapshots = mutableMapOf<UUID, ApocalypseGuideSnapshot>()
     private val trackedGuides = mutableMapOf<UUID, GuideTarget>()
     private val automaticGuides = mutableSetOf<UUID>()
-    private val supplySeen = NamespacedKey(plugin, "apocalypse_supply_seen_v1")
+    private val supplySeen = NamespacedKey(plugin, campaignOwner?.let { "apocalypse_supply_seen_$it" } ?: "apocalypse_supply_seen_v1")
+    private val dialogRuntime: PaperDialogRuntime = parent?.dialogRuntime ?: guideDialogs ?: PaperDialogRuntime(plugin)
     private val guide: ApocalypseGuide = ApocalypseGuide(plugin, locale, ::openGuide, ::trackGuide, ::leave,
+        onObjectives = ::openObjectives,
         dialogsEnabled = { config().ui.dialogsEnabled },
         canFly = { it.hasPermission("arcevents.admin") }, toggleFly = ::toggleAdminFlight,
-        dialogs = guideDialogs ?: PaperDialogRuntime(plugin), ownsDialogs = guideDialogs == null, onAdmin = openAdmin)
+        dialogs = dialogRuntime, ownsDialogs = parent == null && guideDialogs == null, onAdmin = openAdmin,
+        canManageCampaign = { it.uniqueId == campaignOwner && it.uniqueId in active }, onCampaign = openCampaign)
     private val actors = linkedMapOf<String, UUID>()
     private val pendingChunks = ArrayDeque<Chunk>()
     private data class SourceTileJob(val chunk: Chunk, val entries: Iterator<ru.ruscrafting.events.domain.apocalypse.source.ApocalypseSourceBlockEntity>)
@@ -129,24 +161,27 @@ class ApocalypseRuntime(
     private val random = Random(options.seed)
     private val bunkerRules = ApocalypseBunkerRules()
     private var committedSwitches = emptySet<String>()
+    private var committedObjectives = ApocalypseObjectivesState()
     private var committedSpawns = emptySet<String>()
     private val stocked = NamespacedKey(plugin, "apocalypse_stocked")
     private val originalStocked = NamespacedKey(plugin, "apocalypse_original_loot_v1")
-    private val workbenchRecipes = ApocalypseWorkbenchRecipes.load()
-    private val workbenchCrafting = ApocalypseWorkbenchCrafting(plugin, locale, firearms, workbenchRecipes)
+    private val workbenchRecipes: ApocalypseWorkbenchRecipes = parent?.workbenchRecipes ?: ApocalypseWorkbenchRecipes.load()
+    private val workbenchCrafting: ApocalypseWorkbenchCrafting = parent?.workbenchCrafting
+        ?: ApocalypseWorkbenchCrafting(plugin, locale, firearms, workbenchRecipes)
     private val workbenches = ApocalypseWorkbenchStations(plugin, { world }) {
-        ready && isPlaying(it.uniqueId) && !isBusy(it.uniqueId)
+        ready && it.uniqueId in active && !isBusy(it.uniqueId)
     }
-    private val workbenchMenu = ApocalypseWorkbenchMenu(plugin, locale, workbenchRecipes, workbenchCrafting) {
+    private val workbenchMenu: ApocalypseWorkbenchMenu = parent?.workbenchMenu ?: ApocalypseWorkbenchMenu(plugin, locale, workbenchRecipes, workbenchCrafting) {
         config().ui.dialogsEnabled
     }
     private val atmosphere = ApocalypseAtmosphere(plugin)
+    private var objectives: ApocalypseObjectives? = null
     private val sourceShapes = ApocalypseSourceShapeRepairs(plugin, work) { chunk -> !atmosphere.isPending(chunk) }
     private val workbenchDisplays = packetDisplays?.let { displays ->
-        ApocalypseWorkbenchDisplays(displays, workbenches, work) { ready && isPlaying(it.uniqueId) }
+        ApocalypseWorkbenchDisplays(displays, workbenches, work) { ready && it.uniqueId in active }
     }
     private val sourceMining = ApocalypseSourceMining(plugin, work, chunkTickets, { world },
-        active = { ready && isPlaying(it.uniqueId) && !isBusy(it.uniqueId) && !checkpointPending },
+        active = { ready && it.uniqueId in active && !isBusy(it.uniqueId) && !checkpointPending },
         dropFactory = { player, itemId, count -> workbenchCrafting.sourceItem(ApocalypseSourceItemIdentity(itemId), count, player) },
         claimed = { it in state.looted }, claim = ::claimOre, requiredTool = { player, source ->
             message(player, if (source == "the_deeper_void:columbite") "mining.diamond-tool" else "mining.required-tool")
@@ -170,13 +205,16 @@ class ApocalypseRuntime(
         infectionChance = options.infectionChance,
         infectionStageTicks = options.infectionStage, vaccineImmunityTicks = options.immunity))
     private var state = ApocalypseCheckpoint(seed = options.seed)
-    private var storage: ApocalypseStorage? = null
+    private var storage: ApocalypseStorage? = parent?.storage
     private var journal: DurableRecordJournal<ApocalypseCheckpoint>? = null
     private var world: World? = null
     private var opened = false
+    private var closed = false
     private var step = 0L
     private var checkpointPending = false
     private var checkpointQueued = false
+    private var idleCheckpoint: ApocalypseCheckpoint? = null
+    private var worldOpenFailed = false
     private var inspectingWorldReset = false
     private var resetTarget: String? = null
     private val checkpointWrites = ApocalypseCheckpointWrites(work, { retry -> tasks.runLater(100) { retry() } }) { failure ->
@@ -185,9 +223,66 @@ class ApocalypseRuntime(
     private var saving = CompletableFuture.completedFuture(Unit)
     var closeCompletion: CompletableFuture<Unit> = CompletableFuture.completedFuture(Unit)
         private set
-    val ready: Boolean get() = opened && !checkpointWrites.failed && resetTarget == null && (!host || world != null)
-    fun isPlaying(id: UUID): Boolean = id in active
+    val ready: Boolean get() = opened && !worldOpenFailed && !checkpointWrites.failed && resetTarget == null && (!host || world != null)
+    fun isPlaying(id: UUID): Boolean = id in active || campaigns.values.any { id in it.active }
     fun isBusy(id: UUID): Boolean = id in busy
+    fun campaignOwnerOf(id: UUID): UUID? = currentCampaignRuntime(id).takeIf { id in it.active }?.campaignOwner
+    fun currentCampaignRuntime(id: UUID): ApocalypseRuntime =
+        campaigns.values.firstOrNull { id in it.active } ?: admissions[id] ?: this
+
+    private fun atCapacity(): Boolean = active.size + campaigns.values.sumOf { it.active.size } +
+        admissions.keys.count { !isPlaying(it) } >= options.maximumPlayers
+
+    private fun leaveRoster(id: UUID, reconnectSession: String? = null) {
+        active.remove(id)
+        if (active.isEmpty()) guestReconnect.clear()
+        else if (reconnectSession != null) guestReconnect[id] = reconnectSession
+        else guestReconnect.remove(id)
+    }
+
+    private fun realm(owner: UUID?): ApocalypseRuntime? {
+        if (owner == null) return this
+        campaigns[owner]?.let { return it }
+        if (campaigns.size >= MAX_LOADED_CAMPAIGNS) {
+            val retired = campaigns.entries.firstOrNull { it.value.unloadIfIdle(immediate = true) } ?: return null
+            campaigns.remove(retired.key)
+        }
+        val child = ApocalypseRuntime(plugin, config, locale, firearms, work, redis, transfer, occupied, queued,
+            returnToOrigin, sourceLayout, packetDisplays, chunkTickets, internalTeleport, dialogRuntime, openAdmin,
+            resolveCampaign, admitCampaign, onCampaignAdmitted, campaignsReady, openCampaign, mayReopenCampaign, this, owner)
+        child.opened = true
+        campaigns[owner] = child
+        plugin.server.pluginManager.registerEvents(child, plugin)
+        return child
+    }
+
+    private fun unloadIfIdle(immediate: Boolean): Boolean {
+        if (openingWorld || active.isNotEmpty() || this in admissions.values || world?.players?.isNotEmpty() == true ||
+            checkpointPending || stocking.isNotEmpty()) {
+            idleTicks = 0
+            return false
+        }
+        if (!immediate && ++idleTicks < IDLE_UNLOAD_TICKS) return false
+        val retiring = world
+        if (retiring != null) {
+            if (journal != null && idleCheckpoint !== state) {
+                val snapshot = state
+                checkpoint { idleCheckpoint = snapshot }
+                return false
+            }
+            val unloaded = runCatching { plugin.server.unloadWorld(retiring, true) }
+                .onFailure { log("campaign-unload world=${retiring.name}", it) }.getOrDefault(false)
+            if (!unloaded) {
+                if (idleTicks >= IDLE_UNLOAD_TICKS) plugin.logger.warning("ArcEvents could not unload empty Apocalypse world=${retiring.name}")
+                idleTicks = 0
+                return false
+            }
+            world = null
+            journal = null // The final checkpoint was acknowledged before the native save/unload.
+        }
+        close()
+        return true
+    }
     fun allowsRecoveryCommand(player: Player, command: String): Boolean {
         if (!isBusy(player.uniqueId) || player.uniqueId in joining || player.uniqueId in playerOperations || player.uniqueId in recoveryOperations) return false
         val parts = command.removePrefix("/").trim().lowercase().split(Regex("\\s+"))
@@ -197,18 +292,34 @@ class ApocalypseRuntime(
 
     /** Identify native inventory owners before the arcade listeners start admitting players. */
     fun start() {
-        check(!opened)
+        check(parent == null && !closed && !opened)
         if (host) {
             requireNotNull(sourceLayout) { "Apocalypse host requires original generation content" }
+            require(!options.world.startsWith(CAMPAIGN_WORLD_PREFIX)) { "Common world uses the personal campaign namespace" }
             storage = ApocalypseStorage(plugin.dataFolder.toPath()).also { players.putAll(it.loadPlayers()) }
             players.filterValues { it.returnTicket != null }.keys.forEach(returnReceipts::add)
         }
         opened = true
         plugin.server.pluginManager.registerEvents(this, plugin)
-        tasks.runTimer(1, 1) { tick() }
+        tasks.runTimer(1, 1) {
+            tick()
+            // New arrivals can be admitted synchronously by a completed world's ready callback.
+            var canOpen = true
+            for ((owner, child) in campaigns.toMap()) {
+                val opening = child.openingWorld
+                child.tick(canOpen)
+                if (opening && !child.openingWorld) canOpen = false
+                if (child.unloadIfIdle(immediate = false)) campaigns.remove(owner, child)
+            }
+        }
         tasks.runTimer(1, 100) {
             if (host) {
-                network.advertise(ready).exceptionally { failure -> log("heartbeat", failure); null }
+                network.advertise(ready, campaignsReady()).exceptionally { failure -> log("heartbeat", failure); null }
+                waitingForCampaign.take(8).forEach { id ->
+                    waitingForCampaign.remove(id)
+                    val player = plugin.server.getPlayer(id) ?: return@forEach
+                    players[id]?.takeIf { ownsNativeInventory(player, it) }?.let { resumeRecorded(player, it) }
+                }
                 plugin.server.onlinePlayers.forEach { player ->
                     players[player.uniqueId]?.takeIf { it.returnPending }?.let { attemptReturn(player, it) }
                 }
@@ -233,13 +344,14 @@ class ApocalypseRuntime(
             { s ->
                 require(s.format == 1 && s.seed == options.seed)
                 s.survival.validated()
+                s.objectives?.validated()
                 require(s.infections.size <= 100000 && s.switches.size <= 100000 && s.spawners.size <= 100000)
                 s.infections.forEach { (id, infection) -> UUID.fromString(id); infection.validated() }
                 s.hordes.forEach { (id, horde) -> UUID.fromString(id); horde.validated() }
                 s.spawners.values.forEach { it.validated() }
             })
         val checkpoint = checkpointJournal.loadOrNull("world") ?: ApocalypseCheckpoint(seed = options.seed)
-        val marker = folder.resolve(".arcevents-template")
+        val marker = folder.resolve(ARENA_TEMPLATE_MARKER)
         val identity = "${ApocalypseOriginalGenerator.TEMPLATE}:${options.seed}"
         if (Files.exists(folder, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
             require(!Files.isSymbolicLink(folder) && Files.isRegularFile(marker) && !Files.isSymbolicLink(marker)) {
@@ -247,20 +359,22 @@ class ApocalypseRuntime(
             }
             require(Files.readString(marker).trim() == identity) { "Apocalypse world seed/generator identity changed" }
         } else {
-            Files.createDirectory(folder)
-            Files.writeString(marker, identity, java.nio.file.StandardOpenOption.CREATE_NEW)
+            ArenaStagingFiles(folder.parent).createGeneratedWorld(options.world, identity)
         }
-        return PreparedApocalypseWorld(checkpointJournal, checkpoint)
+        return PreparedApocalypseWorld(checkpointJournal, checkpoint, ApocalypseObjectiveSites(source))
     }
 
     private fun openWorld(prepared: PreparedApocalypseWorld) {
         val target = plugin.server.getWorld(options.world) ?: requireNotNull(WorldCreator(options.world).seed(options.seed)
-            .generator(ApocalypseOriginalGenerator(options.seed, requireNotNull(sourceLayout))).generateStructures(false).createWorld())
+            .generator(ApocalypseOriginalGenerator(options.seed, requireNotNull(sourceLayout))).generateStructures(false)
+            .apply { if (campaignOwner != null) keepSpawnLoaded(net.kyori.adventure.util.TriState.FALSE) }.createWorld())
         require(target.generator is ApocalypseOriginalGenerator && target.seed == options.seed) { "Loaded Apocalypse world has a different generator or seed" }
+        world = target
         target.difficulty = Difficulty.HARD
         target.setGameRule(GameRule.DO_MOB_SPAWNING, false)
         target.setGameRule(GameRule.DO_DAYLIGHT_CYCLE, false)
         target.setGameRule(GameRule.DO_INSOMNIA, false)
+        if (campaignOwner != null) target.setGameRule(GameRule.KEEP_INVENTORY, true)
         // Hordes spawn 75 blocks away; tiny lobby distances must not disable the survival world.
         target.viewDistance = maxOf(target.viewDistance, 8)
         target.simulationDistance = maxOf(target.simulationDistance, 6)
@@ -269,19 +383,26 @@ class ApocalypseRuntime(
         workbenches.register()
         workbenchDisplays?.register(plugin)
         sourceMining.register()
-        workbenches.registerTungstenBlasting(
+        if (parent == null) workbenches.registerTungstenBlasting(
             workbenchCrafting.sourceItem(ApocalypseSourceItemIdentity("the_deeper_void:raw_tungsten")),
-            workbenchCrafting.sourceItem(ApocalypseSourceItemIdentity("the_deeper_void:tungsten_ingot")))
+            workbenchCrafting.sourceItem(ApocalypseSourceItemIdentity("the_deeper_void:tungsten_ingot"))) { candidate ->
+                candidate == world || campaigns.values.any { it.world == candidate && it.ready }
+            }
         state = prepared.checkpoint
+        committedObjectives = state.objectives ?: ApocalypseObjectivesState()
+        objectives = ApocalypseObjectives(target, prepared.objectiveSites, locale, work,
+            atmosphere::waterfrontReady, ::objectivePlayer, { committedObjectives },
+            rules, { state.survival.worldTick }, ::saveObjectives, ::log)
         committedSwitches = state.switches
         committedSpawns = desiredSpawns(state).keys
         journal = prepared.journal
-        world = target
+        target.time = state.survival.worldTick % 24000
         plugin.logger.info("ArcEvents Apocalypse ready world=${target.name} generator=${ApocalypseOriginalGenerator.TEMPLATE}")
     }
 
     /** Returns true when the command belongs to this persistent mode. */
     fun command(player: Player, arguments: List<String>): Boolean {
+        if (parent == null) currentCampaignRuntime(player.uniqueId).takeIf { it !== this }?.let { return it.command(player, arguments) }
         val action = arguments.firstOrNull()?.lowercase()
         if (action != "apocalypse" && !isPlaying(player.uniqueId) && !isBusy(player.uniqueId)) return false
         if (player.uniqueId in joining) { message(player, "pending"); return true }
@@ -303,6 +424,7 @@ class ApocalypseRuntime(
                 "fly" -> toggleAdminFlight(player)
                 "bench" -> workbenchMenu.command(player, arguments.drop(2))
                 "guide", "help" -> openGuide(player)
+                "objectives" -> openObjectives(player)
                 "book" -> giveGuide(player, hold = true)
                 "track" -> {
                     val target = arguments.getOrNull(2)?.uppercase()?.let { runCatching { GuideTarget.valueOf(it) }.getOrNull() }
@@ -451,7 +573,10 @@ class ApocalypseRuntime(
     fun qaStatus(): String {
         val spawn = world?.let { layout.spawn }
         val generation = if (spawn == null) "-" else ApocalypseOriginalGenerator.TEMPLATE
-        return "ARCEVENTS_APOCALYPSE ready=$ready world=${world?.key ?: "-"} day=${rules.dayAt(state.survival.worldTick)} tick=${state.survival.worldTick} players=${active.size} busy=${busy.size} enemies=${actors.size} hordes=${state.hordes.values.count { it.horde != null }} switches=${state.switches.size} spawners=${state.spawners.size} bunker_enemies=${actors.keys.count { ":bunker:" in it }} generation=$generation spawn_x=${spawn?.x ?: "-"} spawn_y=${spawn?.y ?: "-"} spawn_z=${spawn?.z ?: "-"} tile_failures=$sourceTileFailures"
+        val obj = committedObjectives
+        val diverted = state.hordes.entries.sumOf { (owner, h) -> h.horde?.active.orEmpty().count { obj.diverted("$owner/${it.id}") } }
+        return "ARCEVENTS_APOCALYPSE ready=$ready world=${world?.key ?: "-"} day=${rules.dayAt(state.survival.worldTick)} tick=${state.survival.worldTick} players=${active.size} busy=${busy.size} enemies=${actors.size} hordes=${state.hordes.values.count { it.horde != null }} switches=${state.switches.size} spawners=${state.spawners.size} bunker_enemies=${actors.keys.count { ":bunker:" in it }} generation=$generation spawn_x=${spawn?.x ?: "-"} spawn_y=${spawn?.y ?: "-"} spawn_z=${spawn?.z ?: "-"} tile_failures=$sourceTileFailures" +
+            " objRelay=${obj.relay} objDiesel=${obj.diesel} objPower=${obj.portPowered} objClues=${obj.radioClues} objSirenDay=${obj.sirenDay} objDiverted=$diverted"
     }
 
     /** Admin diagnostic. Source records remain under the HOST's normal recovery lifecycle. */
@@ -463,6 +588,8 @@ class ApocalypseRuntime(
 
     private fun inspectWorldReset(target: String, authorized: (() -> Boolean)?, reply: (String) -> Unit) {
         if (!host) return reply(ApocalypseWorldResetPlan.blocked("not_host"))
+        if (campaignOwner != null || target.startsWith(CAMPAIGN_WORLD_PREFIX))
+            return reply(ApocalypseWorldResetPlan.blocked("reserved_campaign_world"))
         resetTarget?.let { return reply(ApocalypseWorldResetPlan.blocked("reset_already_queued", options.world, it)) }
         val source = world?.takeIf { ready } ?: return reply(ApocalypseWorldResetPlan.blocked("host_unavailable"))
         if (inspectingWorldReset) return reply(ApocalypseWorldResetPlan.blocked("scan_running"))
@@ -514,6 +641,7 @@ class ApocalypseRuntime(
     }
 
     fun status(player: Player) {
+        if (parent == null) currentCampaignRuntime(player.uniqueId).takeIf { it !== this }?.let { return it.status(player) }
         player.sendMessage(locale.render("apocalypse.status", player, mapOf(
             "day" to locale.text(rules.dayAt(state.survival.worldTick)),
             "phase" to locale.render("apocalypse.phase.${rules.phaseAt(state.survival.worldTick).name.lowercase()}", player),
@@ -523,6 +651,7 @@ class ApocalypseRuntime(
 
     /** Reuse the expedition's guide item without replacing equipment or creating duplicates. */
     fun giveGuide(player: Player, hold: Boolean = false): Boolean {
+        if (parent == null) currentCampaignRuntime(player.uniqueId).takeIf { it !== this }?.let { return it.giveGuide(player, hold) }
         if (!isPlaying(player.uniqueId) || isBusy(player.uniqueId) || player.world != world) return false
         val inventory = player.inventory
         val existing = inventory.storageContents.indexOfFirst(guide::isItem)
@@ -541,8 +670,23 @@ class ApocalypseRuntime(
     }
 
     internal fun tryOpenMenu(player: Player): Boolean {
+        if (parent == null) currentCampaignRuntime(player.uniqueId).takeIf { it !== this }?.let { return it.tryOpenMenu(player) }
         if (!isPlaying(player.uniqueId) || isBusy(player.uniqueId)) return false
         openGuide(player)
+        return true
+    }
+
+    private fun objectivePlayer(player: Player): Boolean = ready && player.world === world && player.uniqueId in active &&
+        !isBusy(player.uniqueId) && currentPlayer(player) && players[player.uniqueId]?.let { ownsNativeInventory(player, it) } == true
+
+    private fun openObjectives(player: Player) {
+        if (objectivePlayer(player)) objectives?.journal(player, guide) else message(player, "objectives.enter-first")
+    }
+
+    private fun saveObjectives(next: ApocalypseObjectivesState, after: () -> Unit): Boolean {
+        if (!ready || checkpointPending) return false
+        state = state.copy(objectives = next.validated())
+        checkpoint(after)
         return true
     }
 
@@ -675,9 +819,14 @@ class ApocalypseRuntime(
         } }
     }
 
-    fun enter(player: Player, originServer: String = config().serverId, queueChecked: Boolean = false) {
+    fun enter(player: Player, originServer: String = config().serverId, queueChecked: Boolean = false) =
+        enterDestination(player, null, originServer, queueChecked)
+
+    internal fun enterDestination(player: Player, destination: ApocalypseDestination?, originServer: String = config().serverId,
+        queueChecked: Boolean = false) {
+        if (parent != null) return parent.enterDestination(player, destination, originServer, queueChecked)
         if (player.uniqueId in joining || isBusy(player.uniqueId)) { message(player, "pending"); return }
-        if (isPlaying(player.uniqueId)) { openGuide(player); return }
+        if (isPlaying(player.uniqueId)) { currentCampaignRuntime(player.uniqueId).openGuide(player); return }
         if (!ready) { message(player, "unavailable"); rejectArrival(player, originServer); return }
         if (!queueChecked) {
             if (!busy.add(player.uniqueId)) { message(player, "pending"); return }
@@ -693,7 +842,7 @@ class ApocalypseRuntime(
                     queueState != null -> "route-pending"
                     else -> null
                 }
-                if (reason == null) enter(player, originServer, queueChecked = true)
+                if (reason == null) enterDestination(player, destination, originServer, queueChecked = true)
                 else { message(player, reason); rejectArrival(player, originServer) }
             } }
             return
@@ -701,13 +850,14 @@ class ApocalypseRuntime(
         val denied = when {
             player.isDead -> "respawn-first"
             occupied(player.uniqueId) -> "occupied"
-            host && active.size >= options.maximumPlayers -> "full"
+            host && atCapacity() -> "full"
+            host && destination != null && !campaignsReady() -> "campaign-control.unavailable"
             else -> null
         }
         if (denied != null) { message(player, denied); rejectArrival(player, originServer); return }
         if (!host) {
             busy += player.uniqueId
-            network.enter(player) { currentPlayer(player) }.whenComplete { ticket, failure -> work.onMain {
+            network.enter(player, destination) { currentPlayer(player) }.whenComplete { ticket, failure -> work.onMain {
                 if (!currentPlayer(player)) return@onMain
                 busy -= player.uniqueId
                 if (failure != null) log("transfer", failure)
@@ -716,42 +866,64 @@ class ApocalypseRuntime(
             } }
             return
         }
-        val previous: ApocalypsePlayerRecord?
-        val destination: PaperLocationSnapshot?
-        try {
-            previous = players[player.uniqueId]?.let { record ->
-                if (record.phase == ApocalypsePlayerPhase.PARKED) record.copy(expedition = normalizeExpedition(record.expedition)) else record
-            }
-            destination = previous?.takeIf { it.phase == ApocalypsePlayerPhase.PARKED }?.expedition?.let { PaperPlayerStateCodec().decode(it).location }
-        } catch (failure: Throwable) {
-            log("entry-plan player=${player.uniqueId}", failure)
-            message(player, "unavailable")
+        val owner = destination?.let { resolveCampaign(player, it) }
+        if (destination != null && (owner == null || !admitCampaign(player, owner))) {
+            message(player, "campaign-control.denied")
             rejectArrival(player, originServer)
             return
         }
+        val previous = players[player.uniqueId]
         if (previous?.returnPending == true && originServer == config().serverId) {
             players[player.uniqueId]?.let { attemptReturn(player, it) }
             message(player, "pending")
             return
         }
-        if (!busy.add(player.uniqueId)) return
-        playerOperations += player.uniqueId
         if (previous != null && previous.phase != ApocalypsePlayerPhase.PARKED) {
-            playerOperations -= player.uniqueId; recoverOrigin(player, previous); return
+            busy += player.uniqueId
+            recoverOrigin(player, previous)
+            return
         }
-        val target = requireNotNull(world)
-        val targetX = destination?.x?.let { floor(it).toInt() } ?: layout.spawn.x
-        val targetZ = destination?.z?.let { floor(it).toInt() } ?: layout.spawn.z
+        val selected = realm(owner)
+        if (selected == null) {
+            message(player, "campaign-control.full")
+            rejectArrival(player, originServer)
+            return
+        }
+        busy += player.uniqueId
+        playerOperations += player.uniqueId
+        admissions[player.uniqueId] = selected
+        selected.enterLocal(player, originServer, previous)
+    }
+
+    private fun enterLocal(player: Player, originServer: String, previous: ApocalypsePlayerRecord?) {
+        val id = player.uniqueId
+        fun allowed() = campaignOwner == null || campaignsReady() && admitCampaign(player, campaignOwner)
+        val selectedExpedition = if (previous?.campaignOwner == campaignOwner?.toString())
+            CompletableFuture.completedFuture(previous?.expedition)
+        else work.compute {
+            val store = requireNotNull(storage)
+            previous?.expedition?.let { store.saveExpedition(id, previous.campaignOwner?.let(UUID::fromString), it) }
+            store.loadExpedition(id, campaignOwner)
+        }
+        val available = if (ready) CompletableFuture.completedFuture(Unit) else loaded
         var savingOrigin = false
-        work.onMain { target.getChunkAtAsync(targetX shr 4, targetZ shr 4, true) }.thenCompose { it }.thenCompose {
+        available.thenCombine(selectedExpedition) { _, saved -> saved }.thenCompose { saved -> work.onMain {
+            check(ready && currentPlayer(player) && !player.isDead && !occupied(id) && allowed())
+            val expedition = normalizeExpedition(saved)
+            val position = expedition?.let { PaperPlayerStateCodec().decode(it).location }
+            val targetX = position?.x?.let { floor(it).toInt() } ?: layout.spawn.x
+            val targetZ = position?.z?.let { floor(it).toInt() } ?: layout.spawn.z
+            requireNotNull(world).getChunkAtAsync(targetX shr 4, targetZ shr 4, true).thenApply { expedition }
+        }.thenCompose { it } }.thenCompose { expedition ->
             work.onMain {
-                check(ready && currentPlayer(player) && !player.isDead && !occupied(player.uniqueId))
+                check(ready && currentPlayer(player) && !player.isDead && !occupied(id) && allowed() && players[id] == previous)
+                val target = requireNotNull(world)
                 val record = ApocalypsePlayerRecord(player.uniqueId.toString(), originServer, ApocalypsePlayerPhase.ACTIVE,
-                    playerStates.captureEnvelope(player, System.currentTimeMillis()), previous?.expedition,
-                    nativeSession = UUID.randomUUID().toString())
+                    playerStates.captureEnvelope(player, System.currentTimeMillis()), expedition,
+                    nativeSession = UUID.randomUUID().toString(), campaignOwner = campaignOwner?.toString())
                 savingOrigin = true
                 savePlayer(record).thenCompose { work.onMain {
-                    check(ready && currentPlayer(player) && !player.isDead && !occupied(player.uniqueId))
+                    check(ready && currentPlayer(player) && !player.isDead && !occupied(id) && allowed())
                     moving += player.uniqueId
                     try {
                         if (record.expedition != null) playerStates.restoreAndVerify(player, record.expedition, target) { p, at -> p.teleport(at) }
@@ -778,18 +950,20 @@ class ApocalypseRuntime(
                         players[player.uniqueId] = record
                         active += player.uniqueId
                         busy -= player.uniqueId
+                        campaignOwner?.let { onCampaignAdmitted(player, it) }
                         announceArrival(player)
                     } finally { moving -= player.uniqueId }
                 } }
             }.thenCompose { it }
         }.whenComplete { _, failure -> work.onMain {
             if (!currentPlayer(player)) return@onMain
-            playerOperations -= player.uniqueId
+            playerOperations -= id
+            admissions.remove(id, this)
             if (failure != null) {
-                log("entry player=${player.uniqueId} world=${target.name} chunk=${targetX shr 4},${targetZ shr 4} originWrite=$savingOrigin", failure)
+                if (allowed()) log("entry player=$id world=${options.world} originWrite=$savingOrigin", failure)
                 if (!savingOrigin) {
                     busy -= player.uniqueId
-                    message(player, "unavailable")
+                    message(player, if (allowed()) "unavailable" else "campaign-control.denied")
                     rejectArrival(player, originServer)
                 } else if (player.uniqueId in busy) {
                     message(player, "restore-pending")
@@ -813,6 +987,7 @@ class ApocalypseRuntime(
     fun leave(player: Player) = leave(player, null)
 
     private fun leave(player: Player, requestedTeleport: (() -> Boolean)?) {
+        if (parent == null) currentCampaignRuntime(player.uniqueId).takeIf { it !== this }?.let { return it.leave(player, requestedTeleport) }
         val record = players[player.uniqueId] ?: return
         if (record.phase == ApocalypsePlayerPhase.PARKED) {
             if (record.returnPending) attemptReturn(player, record)
@@ -835,6 +1010,8 @@ class ApocalypseRuntime(
     private fun retryRecovery(player: Player, rejectedOrigin: String? = null) {
         if (!host) { message(player, "restore-pending"); return }
         if (!recoveryOperations.add(player.uniqueId)) return
+        (parent ?: this).waitingForCampaign -= player.uniqueId
+        admissions.remove(player.uniqueId)?.waitingForWorld?.remove(player.uniqueId)
         waitingForWorld -= player.uniqueId
         val pending = playerSaves[player.uniqueId]
         (pending ?: CompletableFuture.completedFuture(Unit)).handle { _, _ -> Unit }
@@ -882,10 +1059,10 @@ class ApocalypseRuntime(
             playerStates.restoreAndVerify(player, requireNotNull(record.origin), null) { p, at -> p.teleport(at) }
             player.persistentDataContainer.remove(nativeSession)
             // Joining from a staff visit captures the normal inventory at its location in this world.
-            if (player.world.name == options.world && player.hasPermission("arcevents.admin"))
+            if (player.world.name == (parent ?: this).options.world && player.hasPermission("arcevents.admin"))
                 player.persistentDataContainer.set(adminVisit, PersistentDataType.STRING, player.world.uid.toString())
             player.saveData()
-            active -= player.uniqueId
+            leaveRoster(player.uniqueId)
             guideSnapshots.remove(player.uniqueId)
             pendingGuideOpen.remove(player.uniqueId)
             trackedGuides.remove(player.uniqueId)
@@ -921,7 +1098,7 @@ class ApocalypseRuntime(
 
     private fun reconcileJoin(player: Player) {
         if (!currentPlayer(player)) return
-        network.arrival(player.uniqueId).whenComplete { origin, failure -> work.onMain {
+        network.arrival(player.uniqueId).whenComplete { arrival, failure -> work.onMain {
             if (!currentPlayer(player)) return@onMain
             if (failure != null) log("arrival player=${player.uniqueId}", failure)
             if (!player.isOnline) return@onMain
@@ -943,15 +1120,12 @@ class ApocalypseRuntime(
                     joining -= player.uniqueId
                     // Arrival was consumed before native resume or origin replay can return early.
                     when (joinRecovery(player, record)) {
-                        ApocalypseJoinRecovery.RESUME -> if (ready) resumeNative(player, requireNotNull(record)) else {
-                            busy += player.uniqueId
-                            if (openingWorld) waitingForWorld += player.uniqueId else retryRecovery(player)
-                        }
+                        ApocalypseJoinRecovery.RESUME -> resumeRecorded(player, requireNotNull(record))
                         ApocalypseJoinRecovery.ORIGIN -> { busy += player.uniqueId; recoverOrigin(player, requireNotNull(record)) }
                         ApocalypseJoinRecovery.QUARANTINE -> { busy += player.uniqueId; message(player, "restore-pending") }
                         ApocalypseJoinRecovery.NONE -> {
                             busy -= player.uniqueId
-                            if (failure == null && origin != null) enter(player, origin)
+                            if (failure == null && arrival != null) enterDestination(player, arrival.destination, arrival.origin)
                             else if (record?.returnPending == true) attemptReturn(player, record)
                         }
                     }
@@ -968,34 +1142,42 @@ class ApocalypseRuntime(
             player.persistentDataContainer.has(nativeSession) || unmarkedExpeditionWorld(player)
 
     private fun unmarkedExpeditionWorld(player: Player): Boolean {
-        if (!host || player.world.name != options.world) return false
+        if (!host) return false
+        if (player.world.name.startsWith(CAMPAIGN_WORLD_PREFIX)) return true
+        if (player.world.name != (parent ?: this).options.world) return false
         val data = player.persistentDataContainer
         return !data.has(adminVisit, PersistentDataType.STRING) || data.get(adminVisit, PersistentDataType.STRING) != player.world.uid.toString() ||
             !player.hasPermission("arcevents.admin") || data.has(nativeSession)
     }
 
-    private fun canVisit(player: Player, destination: Location? = null): Boolean = resetTarget == null && player.hasPermission("arcevents.admin") &&
+    private fun canVisit(player: Player, destination: Location? = null): Boolean = campaignOwner == null && resetTarget == null &&
+        destination?.world?.name?.startsWith(CAMPAIGN_WORLD_PREFIX) != true && player.hasPermission("arcevents.admin") &&
         !isPlaying(player.uniqueId) && !isBusy(player.uniqueId) && player.uniqueId !in joining &&
         players[player.uniqueId]?.returnPending != true && !pendingApocalypseInventory(player) &&
         // An arcade recovery still owns its escrow when it teleports back to the staff visit it captured.
         (!occupied(player.uniqueId) || destination != null && internalTeleport(player.uniqueId, destination))
 
-    private fun currentPlayer(player: Player): Boolean = plugin.server.getPlayer(player.uniqueId) === player && player.isOnline
+    private fun currentPlayer(player: Player): Boolean = opened && plugin.server.getPlayer(player.uniqueId) === player && player.isOnline
 
     private fun joinRecovery(player: Player, record: ApocalypsePlayerRecord?) = apocalypseJoinRecovery(
         record?.phase, record?.origin != null, record?.nativeSession,
         player.persistentDataContainer.get(nativeSession, PersistentDataType.STRING), unmarkedExpeditionWorld(player))
 
-    private fun captureExpedition(player: Player): ru.arc.paper.playerstate.PaperPlayerStateEnvelope {
-        var snapshot = playerStates.capture(player, System.currentTimeMillis())
-        // When the host is cold, keep the exact native inventory. normalizeExpedition repairs a
-        // fallback-world location on the next admitted entry once the source world's identity is known.
-        val target = world
-        if (target != null && player.world != target) {
-            snapshot = snapshot.copy(location = PaperLocationSnapshot(target.uid, target.name,
-                layout.spawn.x + .5, layout.spawn.y.toDouble(), layout.spawn.z + .5, 180f, 0f), fallDistance = 0f)
-        }
-        return PaperPlayerStateCodec().encode(snapshot)
+    private fun captureExpedition(player: Player): PaperPlayerStateEnvelope {
+        val snapshot = playerStates.capture(player, System.currentTimeMillis())
+        val root = parent ?: this
+        val record = players[player.uniqueId]
+        val owner = record?.campaignOwner?.let(UUID::fromString)
+        val name = owner?.let(::campaignWorldName) ?: root.options.world
+        val codec = PaperPlayerStateCodec()
+        if (snapshot.location.worldName == name) return codec.encode(snapshot)
+        // Paper can place a reconnect in the default world while its campaign is unloaded. Keep the
+        // native inventory and the last position from this campaign across a recovery or denied guest resume.
+        val saved = record?.expedition?.let { codec.decode(it).location }?.takeIf { it.worldName == name }
+        val target = if (owner == null) root.world else root.campaigns[owner]?.world
+        val corrected = saved ?: target?.let { PaperLocationSnapshot(it.uid, it.name, layout.spawn.x + .5,
+            layout.spawn.y.toDouble(), layout.spawn.z + .5, 180f, 0f) }
+        return codec.encode(if (corrected == null) snapshot else snapshot.copy(location = corrected, fallDistance = 0f))
     }
 
     private fun isInStarter(player: Player): Boolean {
@@ -1011,30 +1193,73 @@ class ApocalypseRuntime(
         giveGuide(player)
         val supplies = starterSupplyRoutes(player, availableStarterSupplies())
         guide.entryNotice(player, isInStarter(player) && supplies.any(GuideRoute::unopenedSupply))
+        if (isInStarter(player)) objectives?.arrival(player)
         updateNavigation(player, supplies)
     }
+
+    /** Only a recorded native session reaches this path. Starting a fresh visit always goes through the HOST ACL. */
+    private fun resumeRecorded(player: Player, record: ApocalypsePlayerRecord) {
+        val id = player.uniqueId
+        val owner = record.campaignOwner?.let(UUID::fromString)
+        busy += id
+        if (owner != null) {
+            if (!campaignsReady()) { waitingForCampaign += id; return }
+            if (!mayReopenCampaign(player, owner) && campaigns[owner]?.continuesVisit(id, record) != true) {
+                message(player, "campaign-control.denied")
+                retryRecovery(player)
+                return
+            }
+        }
+        if (id !in admissions && atCapacity()) { waitingForCampaign += id; return }
+        val selected = realm(owner)
+        if (selected == null) {
+            waitingForCampaign += id
+            return
+        }
+        admissions[id] = selected
+        if (selected.ready) selected.resumeNative(player, record)
+        else if (selected.openingWorld) selected.waitingForWorld += id
+        else retryRecovery(player)
+    }
+
+    private fun continuesVisit(id: UUID, record: ApocalypsePlayerRecord): Boolean =
+        active.isNotEmpty() && record.nativeSession != null && guestReconnect[id] == record.nativeSession
 
     private fun resumeNative(player: Player, record: ApocalypsePlayerRecord) {
         player.persistentDataContainer.remove(adminVisit)
         constrainExpeditionFlight(player)
         if (player.world == world) {
+            admissions.remove(player.uniqueId, this)
+            guestReconnect.remove(player.uniqueId)
             busy -= player.uniqueId; active += player.uniqueId; announceArrival(player); return
         }
         busy += player.uniqueId
         playerOperations += player.uniqueId
-        requireNotNull(world).getChunkAtAsync(layout.spawn.x shr 4, layout.spawn.z shr 4, true).thenCompose { work.onMain {
+        val target = requireNotNull(world)
+        work.onMain {
+            val saved = record.expedition?.let { PaperPlayerStateCodec().decode(it).location }
+            val at = if (saved != null && saved.worldName == target.name && saved.worldId == target.uid)
+                Location(target, saved.x, saved.y, saved.z, saved.yaw, saved.pitch) else location(layout.spawn)
+            target.getChunkAtAsync(at.blockX shr 4, at.blockZ shr 4, true).thenApply { at }
+        }.thenCompose { it }.thenCompose { at -> work.onMain {
             check(opened && plugin.server.getPlayer(player.uniqueId) === player && player.isOnline && !player.isDead &&
                 players[player.uniqueId] == record && ownsNativeInventory(player, record))
+            if (campaignOwner != null && !mayReopenCampaign(player, campaignOwner) && !continuesVisit(player.uniqueId, record)) {
+                retryRecovery(player)
+                return@onMain
+            }
             moving += player.uniqueId
             try {
-                check(player.teleport(location(layout.spawn)))
+                check(player.teleport(at))
                 player.fallDistance = 0f
                 player.saveData()
+                guestReconnect.remove(player.uniqueId)
                 active += player.uniqueId; busy -= player.uniqueId; announceArrival(player)
             } finally { moving -= player.uniqueId }
         } }.whenComplete { _, failure -> work.onMain {
             if (!currentPlayer(player)) return@onMain
             playerOperations -= player.uniqueId
+            admissions.remove(player.uniqueId, this)
             if (failure != null) { log("native-resume", failure); message(player, "restore-pending") }
         } }
     }
@@ -1055,11 +1280,11 @@ class ApocalypseRuntime(
         }
     }
 
-    private fun attemptReturn(player: Player, record: ApocalypsePlayerRecord) = reconcileReturn(player.uniqueId, record, player)
+    private fun attemptReturn(player: Player, record: ApocalypsePlayerRecord) = (parent ?: this).reconcileReturn(player.uniqueId, record, player)
 
     private fun reconcileReturn(id: UUID, record: ApocalypsePlayerRecord, player: Player?) {
         fun idle(): Boolean = (if (player == null) plugin.server.getPlayer(id) == null else currentPlayer(player)) &&
-            id !in joining && id !in busy && id !in active && !occupied(id)
+            id !in joining && id !in busy && !isPlaying(id) && !occupied(id)
         if (!record.returnPending || players[id] != record || !idle() || player == null && record.returnTicket == null) return
         val attempt = Any()
         if (returnOperations.putIfAbsent(id, attempt) != null) return
@@ -1123,6 +1348,7 @@ class ApocalypseRuntime(
             checkpointPending = false
             if (opened && failure == null) {
                 committedSwitches = snapshot.switches
+                committedObjectives = snapshot.objectives ?: ApocalypseObjectivesState()
                 committedSpawns = desiredSpawns(snapshot).keys
                 try { after() }
                 finally { if (checkpointQueued) { checkpointQueued = false; checkpoint() } }
@@ -1130,22 +1356,24 @@ class ApocalypseRuntime(
         } }
     }
 
-    private fun tick() {
+    private fun tick(canOpen: Boolean = true) {
         if (openingWorld && sourceLayout?.isDone == true) {
             val preparation = worldPreparation ?: run {
                 val root = plugin.dataFolder.toPath()
                 val folder = plugin.server.worldContainer.toPath().resolve(options.world)
                 work.compute { prepareWorld(root, folder) }.also { worldPreparation = it }
             }
-            if (!preparation.isDone) return
+            if (!preparation.isDone || !canOpen) return
             openingWorld = false
             worldPreparation = null
-            runCatching { openWorld(preparation.join()) }.onFailure { log("world-start world=${options.world}", it) }
+            runCatching { openWorld(preparation.join()) }
+                .onSuccess { loaded.complete(Unit) }
+                .onFailure { worldOpenFailed = true; loaded.completeExceptionally(it); log("world-start world=${options.world}", it) }
             waitingForWorld.toList().forEach { id ->
                 waitingForWorld.remove(id)
                 val player = plugin.server.getPlayer(id) ?: return@forEach
                 val record = players[id] ?: return@forEach
-                if (ready && joinRecovery(player, record) == ApocalypseJoinRecovery.RESUME) resumeNative(player, record)
+                if (ready && joinRecovery(player, record) == ApocalypseJoinRecovery.RESUME) (parent ?: this).resumeRecorded(player, record)
                 else retryRecovery(player)
             }
         }
@@ -1177,14 +1405,16 @@ class ApocalypseRuntime(
         if (step % 20L != 0L) return
         val viewers = active.mapNotNull(plugin.server::getPlayer).filter { it.world == world && !it.isDead }
         val survivors = viewers.filter { it.uniqueId !in busy }
+        objectives?.tick(survivors)
         workbenchDisplays?.refresh(viewers)
         actors.entries.removeIf { (_, id) -> plugin.server.getEntity(id)?.isValid != true }
-        if (plugin.server.onlinePlayers.isEmpty()) return
+        if (if (campaignOwner == null) plugin.server.onlinePlayers.isEmpty() else survivors.isEmpty()) return
         state = state.copy(survival = state.survival.copy(worldTick = state.survival.worldTick + 20))
         world!!.time = state.survival.worldTick % 24000
         if (survivors.isEmpty()) return
         val availableSupplies = availableStarterSupplies()
         var hordeChanged = false
+        var soundSiren = false
         survivors.forEach { player ->
             val supplies = starterSupplyRoutes(player, availableSupplies)
             updateNavigation(player, supplies)
@@ -1195,13 +1425,21 @@ class ApocalypseRuntime(
             val transition = rules.advance(state.hordes[key] ?: ApocalypseSurvivalState(), state.survival.worldTick,
                 actors.keys.count { it.startsWith("$key/") }, random, nearbyHordePlayers = nearby)
             state = state.copy(hordes = state.hordes + (key to transition.state))
-            if (transition.hordeStarted) message(player, "horde")
+            if (transition.hordeStarted) {
+                message(player, "horde")
+                if (committedObjectives.sirenDay == transition.state.horde?.day) message(player, "objectives.siren-sounding")
+            }
+            if (committedObjectives.sirenDay == transition.state.horde?.day && (transition.hordeStarted || transition.spawns.isNotEmpty()))
+                soundSiren = true
             hordeChanged = hordeChanged || transition.spawns.isNotEmpty() || transition.hordeStarted || transition.hordeFinished
         }
+        if (soundSiren) objectives?.soundSiren()
         if (hordeChanged) checkpoint()
+        val warehouseDefender = if (committedObjectives.sirenDay > 0) objectives?.sirenDefender(survivors) else null
         if (!checkpointPending) desiredSpawns(state).asSequence().filter { (token, _) -> token in committedSpawns && token !in actors }
             .mapNotNull { (token, spawn) ->
-                if (token.contains('/')) survivors.firstOrNull { token.startsWith("${it.uniqueId}/") }
+                if (committedObjectives.diverted(token)) warehouseDefender?.let { Triple(spawn.copy(id = token), it, null) }
+                else if (token.contains('/')) survivors.firstOrNull { token.startsWith("${it.uniqueId}/") }
                     ?.let { Triple(spawn.copy(id = token), it, null) }
                 else {
                     val marker = chunkMarkers.values.asSequence().flatten()
@@ -1255,7 +1493,8 @@ class ApocalypseRuntime(
         }
         val spawn = profile?.spawn(requested.id) ?: requested
         if (actors.size >= options.maximumEnemies || spawn.id in actors) return null
-        val at = preparedAt ?: safeSpawn(target, marker) ?: return null
+        val at = if (committedObjectives.diverted(spawn.id)) objectives?.sirenSpawn(spawn.id) ?: return null
+            else preparedAt ?: safeSpawn(target, marker) ?: return null
         val stats = rules.stats(spawn, rules.dayAt(state.survival.worldTick))
         val mob = world!!.spawn(at, Zombie::class.java) {
             it.persistentDataContainer.set(actorId, PersistentDataType.STRING, spawn.id)
@@ -1322,12 +1561,18 @@ class ApocalypseRuntime(
     }
 
     private fun tickActors(survivors: List<Player>) {
-        actors.values.toList().forEach { id ->
+        val warehouseDefender = if (committedObjectives.sirenDay > 0) objectives?.sirenDefender(survivors) else null
+        actors.toList().forEach { (token, id) ->
             val mob = plugin.server.getEntity(id) as? Zombie ?: return@forEach
-            val target = survivors.minByOrNull { it.location.distanceSquared(mob.location) } ?: return@forEach
+            if (mob.world !== world) return@forEach
+            val target = if (committedObjectives.diverted(token)) warehouseDefender ?: run {
+                actors.remove(token)
+                mob.remove()
+                return@forEach
+            } else objectives?.engineDefender(mob.location, survivors)
+                ?: survivors.minByOrNull { it.location.distanceSquared(mob.location) } ?: return@forEach
             if (target.location.distanceSquared(mob.location) > APOCALYPSE_ACTOR_RANGE * APOCALYPSE_ACTOR_RANGE) {
-                val token = mob.persistentDataContainer.get(actorId, PersistentDataType.STRING)
-                if (token?.startsWith("ambient:") == true) { actors.remove(token); mob.remove() }
+                if (token.startsWith("ambient:")) { actors.remove(token); mob.remove() }
                 return@forEach
             }
             mob.target = target
@@ -1389,7 +1634,7 @@ class ApocalypseRuntime(
 
     private fun installGoal(mob: Zombie, spawn: ApocalypseZombieSpawn, stats: ApocalypseZombieStats) =
         installApocalypseMobGoal(plugin, mob, spawn, stats) { block ->
-            block.world == world && block.type != Material.BEDROCK &&
+            block.world == world && block.type != Material.BEDROCK && objectives?.protects(block) != true &&
                 markerAt(block)?.kind?.name !in setOf("POWER", "SECURITY", "FORCEFIELD")
         }
 
@@ -1548,12 +1793,13 @@ class ApocalypseRuntime(
         }
     }
 
-    private fun normalizeExpedition(envelope: ru.arc.paper.playerstate.PaperPlayerStateEnvelope?): ru.arc.paper.playerstate.PaperPlayerStateEnvelope? {
+    private fun normalizeExpedition(envelope: PaperPlayerStateEnvelope?): PaperPlayerStateEnvelope? {
         if (envelope == null) return null
         val codec = PaperPlayerStateCodec()
         val snapshot = codec.decode(envelope)
-        if (snapshot.location.worldName == options.world) return envelope
-        return codec.encode(snapshot.copy(location = PaperLocationSnapshot(requireNotNull(world).uid, options.world,
+        val target = requireNotNull(world)
+        if (snapshot.location.worldName == target.name && snapshot.location.worldId == target.uid) return envelope
+        return codec.encode(snapshot.copy(location = PaperLocationSnapshot(target.uid, target.name,
             layout.spawn.x + .5, layout.spawn.y.toDouble(), layout.spawn.z + .5, 180f, 0f), fallDistance = 0f))
     }
 
@@ -1563,7 +1809,7 @@ class ApocalypseRuntime(
     } }
 
     @EventHandler(priority = EventPriority.LOWEST)
-    fun onJoin(event: PlayerJoinEvent) = handleJoin(event.player)
+    fun onJoin(event: PlayerJoinEvent) { if (parent == null) handleJoin(event.player) }
 
     private fun handleJoin(player: Player) {
         if (host) {
@@ -1580,22 +1826,37 @@ class ApocalypseRuntime(
     }
     @EventHandler(priority = EventPriority.LOWEST)
     fun onQuit(event: PlayerQuitEvent) {
-        returnOperations.remove(event.player.uniqueId)
-        unacknowledgedJoins.remove(event.player.uniqueId)
-        playerOperations -= event.player.uniqueId
-        recoveryOperations -= event.player.uniqueId
-        waitingForWorld -= event.player.uniqueId
-        joining -= event.player.uniqueId
-        workbenchMenu.forget(event.player)
-        busy -= event.player.uniqueId
-        active -= event.player.uniqueId
-        guideSnapshots.remove(event.player.uniqueId)
-        guideRequests.remove(event.player.uniqueId)
-        pendingGuideOpen.remove(event.player.uniqueId)
-        trackedGuides.remove(event.player.uniqueId)
-        automaticGuides.remove(event.player.uniqueId)
-        compasses.remove(event.player.uniqueId)?.close()
-        // ACTIVE native player data stays in the expedition on disconnect; the origin journal remains intact.
+        if (parent != null) return
+        val player = event.player
+        val id = player.uniqueId
+        val session = currentCampaignRuntime(id)
+        // Native playerdata retains the live inventory. Paper may load the player in the default
+        // world next time, so persist the last campaign position while the native world is still bound.
+        val record = players[id]
+        val endingVisit = record?.takeIf { session.campaignOwner != null && id in session.active && id !in busy &&
+            it.phase == ApocalypsePlayerPhase.ACTIVE && session.ownsNativeInventory(player, it) }
+        if (endingVisit != null && !player.isDead) {
+            runCatching { savePlayer(endingVisit.copy(expedition = session.captureExpedition(player))) }
+                .onSuccess { it.whenComplete { _, failure -> if (failure != null) log("campaign-quit player=$id", failure) } }
+                .onFailure { log("campaign-quit player=$id", it) }
+        }
+        returnOperations.remove(id)
+        unacknowledgedJoins.remove(id)
+        playerOperations -= id
+        recoveryOperations -= id
+        admissions.remove(id)
+        session.waitingForWorld -= id
+        waitingForCampaign -= id
+        joining -= id
+        workbenchMenu.forget(player)
+        busy -= id
+        session.leaveRoster(id, endingVisit?.nativeSession)
+        session.guideSnapshots.remove(id)
+        session.guideRequests.remove(id)
+        session.pendingGuideOpen.remove(id)
+        session.trackedGuides.remove(id)
+        session.automaticGuides.remove(id)
+        session.compasses.remove(id)?.close()
     }
     @EventHandler(priority = EventPriority.MONITOR)
     fun onChunk(event: ChunkLoadEvent) {
@@ -1609,16 +1870,21 @@ class ApocalypseRuntime(
     fun onUnload(event: ChunkUnloadEvent) { if (event.world == world) chunkMarkers.remove(event.chunk.chunkKey) }
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onTeleport(event: PlayerTeleportEvent) {
+        if (parent != null) return
         val player = event.player
         if (player.uniqueId in moving) return
+        val session = currentCampaignRuntime(player.uniqueId)
         if (isBusy(player.uniqueId) && pendingApocalypseInventory(player)) {
             event.isCancelled = true
-        } else if (isPlaying(player.uniqueId) && event.to.world != world) {
+        } else if (event.to.world.name.startsWith(CAMPAIGN_WORLD_PREFIX) &&
+            (player.uniqueId !in session.active || session.world != event.to.world)) {
+            event.isCancelled = true
+        } else if (isPlaying(player.uniqueId) && event.to.world != session.world) {
             event.isCancelled = true
             if (!player.hasPermission("arcevents.admin")) { message(player, "leave-first"); return }
             val destination = event.to.clone()
             val cause = event.cause
-            leave(player) { player.teleport(destination, cause) }
+            session.leave(player) { player.teleport(destination, cause) }
         } else if (host && event.to.world.name == options.world && !isPlaying(player.uniqueId) && !canVisit(player, event.to)) {
             event.isCancelled = true
         }
@@ -1626,6 +1892,7 @@ class ApocalypseRuntime(
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     fun onAdminVisitTeleport(event: PlayerTeleportEvent) {
+        if (parent != null) return
         val destination = event.to.world
         if (host && destination.name == options.world && event.from.world != destination &&
             event.player.uniqueId !in moving && canVisit(event.player, event.to)) {
@@ -1633,12 +1900,23 @@ class ApocalypseRuntime(
         }
     }
 
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    fun onEntityPortal(event: EntityPortalEvent) {
+        if (parent != null || !host) return
+        val from = event.from.world
+        val to = event.to?.world ?: return
+        if (from != to && (from.name.startsWith(CAMPAIGN_WORLD_PREFIX) || to.name.startsWith(CAMPAIGN_WORLD_PREFIX)))
+            event.isCancelled = true
+    }
+
     @EventHandler(priority = EventPriority.MONITOR)
     fun onWorldChanged(event: PlayerChangedWorldEvent) {
+        if (parent != null) return
         if (host && event.from.name == options.world) event.player.persistentDataContainer.remove(adminVisit)
     }
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onCommand(event: PlayerCommandPreprocessEvent) {
+        if (parent != null) return
         if (!isPlaying(event.player.uniqueId) && !isBusy(event.player.uniqueId)) return
         if (!isBusy(event.player.uniqueId) && event.player.hasPermission("arcevents.admin")) return
         val label = event.message.removePrefix("/").substringBefore(' ')
@@ -1650,7 +1928,7 @@ class ApocalypseRuntime(
     }
     @EventHandler(priority = EventPriority.HIGHEST)
     fun onInteract(event: PlayerInteractEvent) {
-        if (!isPlaying(event.player.uniqueId) || event.hand != EquipmentSlot.HAND) return
+        if (event.player.uniqueId !in active || event.player.world != world || event.hand != EquipmentSlot.HAND) return
         if (isBusy(event.player.uniqueId)) { event.isCancelled = true; return }
         if (!event.action.isRightClick) return
         // Paper may pre-cancel air interactions for a book with no vanilla use action.
@@ -1661,6 +1939,10 @@ class ApocalypseRuntime(
         }
         if (event.isCancelled) return
         val block = event.clickedBlock ?: return
+        if (objectives?.interact(event.player, block) == true) {
+            event.isCancelled = true
+            return
+        }
         workbenches.stationAt(block)?.let { station ->
             if (station == ApocalypseWorkbenchStation.CRAFTING && event.player.isSneaking &&
                 event.player.inventory.itemInMainHand.isEmpty) return
@@ -1692,7 +1974,8 @@ class ApocalypseRuntime(
     fun onBreak(event: BlockBreakEvent) {
         if (event.block.world != world) return
         if (canVisit(event.player)) return
-        if (!isPlaying(event.player.uniqueId) || isBusy(event.player.uniqueId)) { event.isCancelled = true; return }
+        if (objectives?.protects(event.block) == true) { event.isCancelled = true; return }
+        if (event.player.uniqueId !in active || isBusy(event.player.uniqueId)) { event.isCancelled = true; return }
         val layout = layout
         if (layout is ApocalypseOriginalLayout) sourceMining.prepare(event.block.chunk, layout, priority = true)
         val marker = containerMarker(event.block) ?: return
@@ -1704,6 +1987,22 @@ class ApocalypseRuntime(
             state = state.copy(spawners = state.spawners + (id to previous.copy(pulses = 6, timer = -12)))
             checkpoint()
         }
+    }
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    fun onObjectiveExplosion(event: EntityExplodeEvent) {
+        if (event.entity.world === world) objectives?.let { event.blockList().removeIf(it::protects) }
+    }
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    fun onObjectiveExplosion(event: BlockExplodeEvent) {
+        if (event.block.world === world) objectives?.let { event.blockList().removeIf(it::protects) }
+    }
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    fun onObjectivePiston(event: BlockPistonExtendEvent) {
+        if (event.block.world === world && objectives?.let { event.blocks.any(it::protects) } == true) event.isCancelled = true
+    }
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    fun onObjectivePiston(event: BlockPistonRetractEvent) {
+        if (event.block.world === world && objectives?.let { event.blocks.any(it::protects) } == true) event.isCancelled = true
     }
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onInventory(event: InventoryClickEvent) {
@@ -1746,7 +2045,7 @@ class ApocalypseRuntime(
     }
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     fun onMove(event: PlayerMoveEvent) {
-        if (!isPlaying(event.player.uniqueId) || isBusy(event.player.uniqueId) || step % 10L != 0L) return
+        if (event.player.uniqueId !in active || event.player.world != world || isBusy(event.player.uniqueId) || step % 10L != 0L) return
         val point = event.to
         val fields = (-1..1).flatMap { dx -> (-1..1).flatMap { dz ->
             val key = (point.chunk.x + dx).toLong() and 0xffffffffL or ((point.chunk.z + dz).toLong() shl 32)
@@ -1771,7 +2070,7 @@ class ApocalypseRuntime(
     fun onDamage(event: EntityDamageByEntityEvent) {
         val player = event.entity as? Player ?: return
         if (isBusy(player.uniqueId)) { event.isCancelled = true; return }
-        if (!isPlaying(player.uniqueId) || event.damager !is Zombie) return
+        if (player.uniqueId !in active || player.world != world || event.damager !is Zombie) return
         val key = player.uniqueId.toString()
         state = state.copy(infections = state.infections + (key to rules.expose(state.infections[key] ?: ApocalypseInfectionState(), state.survival.worldTick, random)))
     }
@@ -1788,7 +2087,7 @@ class ApocalypseRuntime(
     }
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onConsume(event: PlayerItemConsumeEvent) {
-        if (!isPlaying(event.player.uniqueId)) return
+        if (event.player.uniqueId !in active || event.player.world != world) return
         val vaccine = event.item.itemMeta.persistentDataContainer.has(medicine)
         if (!vaccine && event.item.type !in setOf(Material.GOLDEN_APPLE, Material.ENCHANTED_GOLDEN_APPLE)) return
         if (isBusy(event.player.uniqueId)) { event.isCancelled = true; return }
@@ -1799,6 +2098,7 @@ class ApocalypseRuntime(
     }
     @EventHandler(priority = EventPriority.MONITOR)
     fun onDeath(event: EntityDeathEvent) {
+        if (event.entity.world != world) return
         val token = event.entity.persistentDataContainer.get(actorId, PersistentDataType.STRING) ?: return
         actors.remove(token)
         defeated(token)
@@ -1806,12 +2106,34 @@ class ApocalypseRuntime(
     }
     @EventHandler(priority = EventPriority.HIGHEST)
     fun onPlayerDeath(event: PlayerDeathEvent) {
-        if (!isPlaying(event.entity.uniqueId)) return
+        if (event.entity.uniqueId !in active || event.entity.world !== world) return
+        if (campaignOwner != null) {
+            event.keepInventory = true
+            event.keepLevel = true
+            event.drops.clear()
+            event.droppedExp = 0
+            event.setShouldDropExperience(false)
+        }
         state = state.copy(infections = state.infections - event.entity.uniqueId.toString())
     }
     @EventHandler(priority = EventPriority.HIGHEST)
     fun onRespawn(event: PlayerRespawnEvent) {
-        if (isPlaying(event.player.uniqueId)) event.respawnLocation = location(layout.spawn)
+        if (parent != null || !host) return
+        val id = event.player.uniqueId
+        val session = currentCampaignRuntime(id)
+        if (id in session.active) {
+            event.respawnLocation = session.location(session.layout.spawn)
+        } else if (event.respawnLocation.world.name.startsWith(CAMPAIGN_WORLD_PREFIX)) {
+            val lobby = plugin.server.worlds.first { it.environment == World.Environment.NORMAL &&
+                it.name != options.world && !it.name.startsWith(CAMPAIGN_WORLD_PREFIX) }
+            event.respawnLocation = lobby.spawnLocation
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    fun onSpawnChange(event: PlayerSetSpawnEvent) {
+        if (parent == null && host && event.location?.world?.name?.startsWith(CAMPAIGN_WORLD_PREFIX) == true)
+            event.isCancelled = true
     }
 
     private fun defeated(token: String) {
@@ -1828,12 +2150,18 @@ class ApocalypseRuntime(
     private fun log(operation: String, failure: Throwable) = plugin.logger.log(Level.SEVERE, "ArcEvents apocalypse $operation failed; preserving recovery state", failure)
 
     override fun close() {
+        if (closed) return
+        closed = true
         opened = false
-        if (host) network.advertise(false)
+        if (host && parent == null) network.advertise(false)
+        val drains = campaigns.values.map { it.close(); it.closeCompletion }.toMutableList()
+        campaigns.clear()
+        guestReconnect.clear()
+        loaded.completeExceptionally(java.util.concurrent.CancellationException("Apocalypse world closed"))
         tasks.close()
         workbenchDisplays?.close()
         sourceMining.close()
-        workbenchMenu.close()
+        if (parent == null) workbenchMenu.close()
         workbenches.close()
         atmosphere.close()
         sourceShapes.close()
@@ -1845,12 +2173,30 @@ class ApocalypseRuntime(
         val snapshot = state
         val pendingWrite = checkpointWrites.stop()
         val openedJournal = journal
+        val lastSessions = if (campaignOwner == null) emptyList() else active.mapNotNull { id ->
+            val player = plugin.server.getPlayer(id) ?: return@mapNotNull null
+            val record = players[id] ?: return@mapNotNull null
+            if (id in busy || player.isDead || record.phase != ApocalypsePlayerPhase.ACTIVE || !ownsNativeInventory(player, record))
+                return@mapNotNull null
+            runCatching { record.copy(expedition = captureExpedition(player)) }
+                .onFailure { log("campaign-stop player=$id", it) }.getOrNull()
+        }
         // Admit this IO action before the runtime seals its executor. Wait for the older write only on that worker.
-        closeCompletion = if (openedJournal != null) work.compute {
+        if (openedJournal != null) drains += work.compute {
             pendingWrite.handle { _, _ -> Unit }.join()
-            openedJournal.commit("world", snapshot); Unit
-        } else CompletableFuture.completedFuture(Unit)
+            openedJournal.commit("world", snapshot)
+            lastSessions.forEach { requireNotNull(storage).save(it) }
+            Unit
+        }
+        closeCompletion = CompletableFuture.allOf(*drains.toTypedArray()).thenApply { Unit }
         HandlerList.unregisterAll(this)
         // Loaded native generator worlds require the existing coordinated restart barrier for code replacement.
+    }
+
+    private companion object {
+        const val MAX_LOADED_CAMPAIGNS = 4
+        const val IDLE_UNLOAD_TICKS = 600
+        const val CAMPAIGN_WORLD_PREFIX = "arcevents_campaign_"
+        fun campaignWorldName(owner: UUID) = CAMPAIGN_WORLD_PREFIX + owner.toString().replace("-", "")
     }
 }

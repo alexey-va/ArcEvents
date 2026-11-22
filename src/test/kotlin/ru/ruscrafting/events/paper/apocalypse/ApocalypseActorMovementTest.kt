@@ -42,6 +42,7 @@ class ApocalypseActorMovementTest : StringSpec({
                 ApocalypseRuntime(plugin, { settings }, mockk(), mockk(), mockk(), mockk(), mockk(),
                     occupied = { false }, queued = mockk(), returnToOrigin = { _, _ -> false }, chunkTickets = mockk()).use { runtime ->
                     // Isolate the scheduled actor pass from horde creation and durable expedition admission.
+                    runtime.javaClass.getDeclaredField("world").apply { isAccessible = true }.set(runtime, world)
                     val actorsField = runtime.javaClass.getDeclaredField("actors").apply { isAccessible = true }
                     @Suppress("UNCHECKED_CAST")
                     val actors = actorsField.get(runtime) as MutableMap<String, UUID>

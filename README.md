@@ -16,8 +16,9 @@ ArcEvents is the network event engine for RusCrafting. Its arcade modes are:
 - **Zombies: Sector Zero** (`zombies`): solo or 1–4-player cooperative waves,
   a physical random-weapon chest, repairable ingress windows and match-local upgrades.
 
-Apocalypse is an independent, permanent cooperative survival world. Enter with
-`/arcevents apocalypse` or the main menu and return with `/arcevents leave`.
+Apocalypse offers a permanent common survival world and private campaigns on the event host.
+The event card opens **Common world**, **My expedition**, or **Join a friend**.
+`/arcevents apocalypse` still enters the common world, and `/arcevents leave` returns to the origin.
 Its V2 world imports original JCWS structure templates and Lost Cities/Keerdm
 city parts from externally cached, hash-pinned archives. Source loot also reads
 the pinned pack datapack and two supporting data archives (six files, about 300 MiB total).
@@ -45,6 +46,14 @@ batch without removing existing contents. There is no repeat refill.
 Inside an expedition, `/arcevents` opens an optional field guide with the next
 step, actual supply/exit/city/weapon routes and survival controls. It uses native
 dialogs, or a virtual book on older clients; no inventory slot is consumed.
+
+An owner starts their campaign on first entry and manages participants from the field journal.
+An invitation is valid for five minutes and is consumed by successful entry while its owner is present.
+Permanent companions can open the campaign independently. A guest who is already inside can finish their visit. A campaign's clock pauses when it has no survivors.
+World changes and objective progress are shared within a campaign. Each player has separate saved equipment and a last position for each expedition, including the common world. The network origin inventory is restored on exit.
+The same actions are available with `/arcevents apocalypse my|friends`, `join <player>`, and, in the owner's world, `campaign`, `invite <player>`, `companion <player>` and `revoke <player>`.
+
+The journal's objectives chapter covers the city radio trail, powering the waterfront diesel generator, and the warehouse siren before a horde. Restoring the generator lights the pier and opens a return route to the bridge.
 Changing the generation identity requires a new world. Loaded custom generators
 use the existing coordinated-restart replacement barrier. Administrator commands:
 `/arcevents apocalypse locate [kind]`, `day <n>`; scoped QA reads use `qa` and

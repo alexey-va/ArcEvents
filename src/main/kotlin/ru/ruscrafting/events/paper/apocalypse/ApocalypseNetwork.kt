@@ -3,6 +3,7 @@ package ru.ruscrafting.events.paper.apocalypse
 import com.google.gson.Gson
 import org.bukkit.entity.Player
 import ru.arc.network.BackendServerId
+import ru.arc.network.NetworkPlayerName
 import ru.arc.paper.network.BackendTransfer
 import ru.arc.paper.network.BackendTransferResult
 import ru.arc.redis.RedisOperations
@@ -10,6 +11,13 @@ import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.paper.EventWork
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
+
+/** Null destination means the common world. A destination without a name is the player's own campaign. */
+internal data class ApocalypseDestination(val ownerName: String? = null) {
+    fun validate() { ownerName?.let(NetworkPlayerName::of) }
+}
+
+internal data class ApocalypseArrival(val origin: String, val destination: ApocalypseDestination? = null)
 
 /** A bounded, exact-CAS arrival ticket. The host's player journal owns every admitted expedition. */
 internal class ApocalypseNetwork(
@@ -19,24 +27,33 @@ internal class ApocalypseNetwork(
     private val work: EventWork,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
-    private data class Ticket(val playerId: String, val origin: String, val host: String, val nonce: String, val at: Long)
+    private data class Ticket(val playerId: String, val origin: String, val host: String, val nonce: String, val at: Long,
+                              val destination: ApocalypseDestination? = null)
     private data class ReturnTicket(val origin: String, val host: String, val nonce: String, val acknowledged: Boolean = false)
     private val gson = Gson()
     private val key = "arc:events:apocalypse:arrivals:v1"
     private val presence = "arc:events:apocalypse:host:v1"
     private val returns = "arc:events:apocalypse:returns:v1"
 
-    fun advertise(ready: Boolean) = redis.saveMapEntries(presence, settings().serverId,
-        if (ready) clock().toString() else "0")
+    fun advertise(ready: Boolean, campaigns: Boolean = false): CompletableFuture<*> {
+        val server = settings().serverId
+        val advertised = if (ready) clock().toString() else "0"
+        return redis.saveMapEntries(presence, server, advertised, campaignPresence(server), if (campaigns) advertised else "0")
+    }
+
+    private fun campaignPresence(server: String) = "$server:campaigns"
 
     /** Returns the exact submitted ticket so this connection can retry while the host has not consumed it. */
-    fun enter(player: Player, currentConnection: () -> Boolean): CompletableFuture<String?> {
+    fun enter(player: Player, destination: ApocalypseDestination? = null, currentConnection: () -> Boolean): CompletableFuture<String?> {
         val id = player.uniqueId.toString()
         val c = settings()
-        val ticket = Ticket(id, c.serverId, c.hostServer, UUID.randomUUID().toString(), clock())
+        destination?.validate()
+        // Old hosts reject this nonce shape instead of accidentally admitting a personal request to the common world.
+        val nonce = (if (destination == null) "" else CAMPAIGN_NONCE) + UUID.randomUUID()
+        val ticket = Ticket(id, c.serverId, c.hostServer, nonce, clock(), destination)
         val encoded = gson.toJson(ticket)
         return acknowledgeReturn(player.uniqueId, currentConnection).thenCompose {
-            redis.loadMapEntries(presence, c.hostServer)
+            redis.loadMapEntries(presence, if (destination == null) c.hostServer else campaignPresence(c.hostServer))
         }.thenCompose { values ->
             val observed = values.firstOrNull()?.toLongOrNull() ?: 0
             check(clock() - observed in 0..c.network.heartbeatStaleSeconds * 1_000L) { "apocalypse host is unavailable" }
@@ -44,7 +61,8 @@ internal class ApocalypseNetwork(
         }.thenCompose { values ->
             val old = values.firstOrNull()
             val pending = old?.let { ticket(it, id) }
-            require(pending == null || pending.origin == ticket.origin && pending.host == ticket.host) { "arrival already pending" }
+            require(pending == null || pending.origin == ticket.origin && pending.host == ticket.host &&
+                sameDestination(pending.destination, ticket.destination)) { "arrival already pending" }
             redis.compareAndSetMapEntry(key, id, old, encoded)
         }.thenCompose { saved ->
             check(saved) { "arrival changed" }
@@ -84,12 +102,12 @@ internal class ApocalypseNetwork(
         }
     }
 
-    fun arrival(playerId: UUID): CompletableFuture<String?> = redis.loadMapEntries(key, playerId.toString()).thenCompose { values ->
+    fun arrival(playerId: UUID): CompletableFuture<ApocalypseArrival?> = redis.loadMapEntries(key, playerId.toString()).thenCompose { values ->
         val raw = values.firstOrNull() ?: return@thenCompose CompletableFuture.completedFuture(null)
         val valid = ticket(raw, playerId.toString())
         if (valid != null && valid.host != settings().serverId) return@thenCompose CompletableFuture.completedFuture(null)
         redis.compareAndSetMapEntry(key, playerId.toString(), raw, null).thenApply { consumed ->
-            valid?.origin?.takeIf { consumed }
+            valid?.takeIf { consumed }?.let { ApocalypseArrival(it.origin, it.destination) }
         }
     }
 
@@ -159,7 +177,12 @@ internal class ApocalypseNetwork(
     private fun ticket(raw: String, playerId: String): Ticket? = runCatching {
         require(raw.length <= 1024)
         gson.fromJson(raw, Ticket::class.java).also {
-            require(it.playerId == playerId && UUID.fromString(it.nonce).toString() == it.nonce)
+            val nonce = if (it.destination == null) it.nonce else {
+                require(it.nonce.startsWith(CAMPAIGN_NONCE))
+                it.destination.validate()
+                it.nonce.removePrefix(CAMPAIGN_NONCE)
+            }
+            require(it.playerId == playerId && UUID.fromString(nonce).toString() == nonce)
             require(it.origin in settings().network.allowedOrigins)
             BackendServerId.of(it.host)
             require(fresh(it))
@@ -167,4 +190,9 @@ internal class ApocalypseNetwork(
     }.getOrNull()
 
     private fun fresh(ticket: Ticket): Boolean = clock() - ticket.at in 0..30_000
+
+    private fun sameDestination(first: ApocalypseDestination?, second: ApocalypseDestination?): Boolean =
+        if (first == null || second == null) first == second else first.ownerName.equals(second.ownerName, ignoreCase = true)
+
+    private companion object { const val CAMPAIGN_NONCE = "campaign:" }
 }

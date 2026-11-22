@@ -21,7 +21,7 @@ internal fun isArcEventsCommandLabel(label: String?): Boolean = when (label?.low
     else -> false
 }
 
-class ArcEventsCommand(
+class ArcEventsCommand internal constructor(
     private val plugin: Plugin,
     private val service: ArcEventsService,
     private val menu: ArcEventsMenu,
@@ -30,6 +30,7 @@ class ArcEventsCommand(
     private val settings: () -> ArcEventsConfig,
     private val reload: () -> java.util.concurrent.CompletableFuture<Result<Unit>>,
     private val apocalypse: ru.ruscrafting.events.paper.apocalypse.ApocalypseRuntime? = null,
+    private val campaigns: ru.ruscrafting.events.paper.apocalypse.ApocalypseCampaignControl? = null,
 ) : TabExecutor {
     private val selectedAdminArenas = mutableMapOf<Pair<String, EventMode>, String>()
 
@@ -41,7 +42,7 @@ class ArcEventsCommand(
             else player(sender)?.let { menu.openFirearmSettings(it, tune, args.drop(if (tune) 2 else 1)) }
             return true
         }
-        if (sender is Player && apocalypse?.command(sender, args.toList()) == true) return true
+        if (sender is Player && (campaigns?.command(sender, args.toList()) == true || apocalypse?.command(sender, args.toList()) == true)) return true
         if (args.isEmpty()) {
             if (sender is Player) menu.openRoot(sender) else sender.sendEventMessage(locale.render("command.help", sender))
             return true
@@ -97,6 +98,10 @@ class ArcEventsCommand(
                 if (sender.hasPermission("arcevents.debug") && settings().debugEnabled) add("debug")
             }
             2 -> when (args[0].lowercase()) {
+                "apocalypse" -> if (sender is Player && campaigns != null) buildList {
+                    addAll(listOf("common", "my", "friends", "join", "objectives", "leave"))
+                    if (campaigns.canManage(sender)) addAll(listOf("campaign", "invite", "companion", "revoke"))
+                } else emptyList()
                 "start" -> when {
                     sender !is Player -> emptyList()
                     settings().eventControls.creatorControlsEnabled || sender.hasPermission("arcevents.start") || sender.hasPermission("arcevents.admin") -> EventMode.entries.map(EventMode::id)
@@ -117,6 +122,11 @@ class ArcEventsCommand(
     private fun nestedCompletions(sender: CommandSender, args: Array<out String>): List<String> {
         val root = args.getOrNull(0)?.lowercase()
         val action = args.getOrNull(1)?.lowercase()
+        if (root == "apocalypse" && args.size == 3 && sender is Player && campaigns != null) {
+            if (action == "join") return campaigns.friends(sender)
+            if (action in setOf("invite", "companion", "revoke") && campaigns.canManage(sender))
+                return plugin.server.onlinePlayers.filter { it != sender }.map(Player::getName)
+        }
         if (args.size == 3 && root in setOf("qa", "admin") && action == "player") return servicePlayerNames()
         if (root == "admin") {
             if (args.size == 3 && action == "menu" && sender is Player) return EventMode.entries.map(EventMode::id) + "apocalypse"

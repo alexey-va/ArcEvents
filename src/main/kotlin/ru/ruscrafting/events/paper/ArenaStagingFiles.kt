@@ -1,6 +1,7 @@
 package ru.ruscrafting.events.paper
 
 import com.google.gson.Gson
+import ru.ruscrafting.events.paper.apocalypse.ApocalypseOriginalGenerator
 import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.LinkOption
@@ -11,7 +12,8 @@ import java.util.UUID
 import kotlin.io.path.name
 
 /** Worker-only ownership proof for temporary arena worlds. Unmarked legacy folders are retained. */
-internal class ArenaStagingFiles(private val container: Path) {
+internal class ArenaStagingFiles(container: Path) {
+    private val container = container.toAbsolutePath().normalize()
     private data class Intent(val format: Int, val stage: String, val world: String, val template: String)
     data class Recovery(val removed: Int, val retainedLegacy: List<String>)
     private val gson = Gson()
@@ -27,8 +29,8 @@ internal class ArenaStagingFiles(private val container: Path) {
     }
 
     /** Publish a marked directory before Paper can write even the first chunk. Worker-only. */
-    fun createGeneratedWorld(world: String, template: String) {
-        require(isGeneratedArenaTemplate(template))
+    fun createGeneratedWorld(world: String, template: String) = synchronized(generatedStages) {
+        require(isGeneratedMarker(template))
         val destination = container.resolve(world)
         val stage = create(world, template)
         Files.writeString(stage.resolve(ARENA_TEMPLATE_MARKER), "$template\n",
@@ -40,7 +42,7 @@ internal class ArenaStagingFiles(private val container: Path) {
         Files.delete(destination.resolve(INTENT))
     }
 
-    fun recover(loadedWorldNames: Set<String>): Recovery {
+    fun recover(loadedWorldNames: Set<String>): Recovery = synchronized(generatedStages) {
         var removed = 0
         val retained = mutableListOf<String>()
         Files.list(container).use { children -> children.filter { it.name.startsWith(PREFIX) }.forEach { stage ->
@@ -53,7 +55,7 @@ internal class ArenaStagingFiles(private val container: Path) {
                 removed++
             }
         } }
-        return Recovery(removed, retained)
+        Recovery(removed, retained)
     }
 
     fun delete(stage: Path) {
@@ -84,7 +86,7 @@ internal class ArenaStagingFiles(private val container: Path) {
         val intent = gson.fromJson(Files.readString(marker), Intent::class.java)
         require(intent.format == 1 && intent.stage == stage.name && intent.world.isNotBlank() &&
             container.resolve(intent.world).normalize().parent == container &&
-            (PackagedArenaTemplates.find(intent.template) != null || isGeneratedArenaTemplate(intent.template) ||
+            (PackagedArenaTemplates.find(intent.template) != null || isGeneratedMarker(intent.template) ||
                 intent.template in retiredArenaTemplates)) {
             "Arena staging ownership does not match its path"
         }
@@ -93,6 +95,11 @@ internal class ArenaStagingFiles(private val container: Path) {
     companion object {
         const val PREFIX = ".arcevents-stage-"
         const val INTENT = ".arcevents-staging.json"
+        // Arena startup recovery and Apocalypse provisioning can run on different I/O workers.
+        private val generatedStages = Any()
+
+        private fun isGeneratedMarker(template: String): Boolean = isGeneratedArenaTemplate(template) ||
+            template.substringAfter(':', "").toLongOrNull()?.let { template == "${ApocalypseOriginalGenerator.TEMPLATE}:$it" } == true
     }
 }
 

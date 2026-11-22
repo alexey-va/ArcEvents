@@ -253,7 +253,7 @@ internal class ArcEventsAdminDialog(
                     })
                 }
                 addAll(firearmControls())
-                add(link("reset") { resetForm(null) })
+                if (apocalypse.campaignOwnerOf(player.uniqueId) == null) add(link("reset") { resetForm(null) })
             }, reopen = { expedition() })
         }
 
@@ -289,7 +289,7 @@ internal class ArcEventsAdminDialog(
 
         fun resetForm(suggested: String?) {
             if (!access()) return
-            if (!host) return expedition()
+            if (!host || apocalypse.campaignOwnerOf(player.uniqueId) != null) return expedition()
             val target = suggested ?: "arcevents_apocalypse_" + WORLD_DATE.format(Instant.now())
             page("reset", "reset", listOf(text("reset-intro", "host" to locale.text(settings().hostServer))),
                 listOf(button("preview", text("preview"), child = true) { inspect(it.text(INPUT).orEmpty().trim()) }),

@@ -68,6 +68,18 @@ class ArcEventsMenu(
     private val protocols = ClientProtocolResolver()
     private var firearmSettings: FirearmSettingsDialog? = null
     private var adminDialog: ArcEventsAdminDialog? = null
+    private var campaignMenu: ru.ruscrafting.events.paper.apocalypse.ApocalypseCampaignMenu? = null
+    private var campaignCommand: ((Player, List<String>) -> Unit)? = null
+
+    internal fun bindCampaignMenu(control: ru.ruscrafting.events.paper.apocalypse.ApocalypseCampaignControl) {
+        val perform: (Player, List<String>) -> Unit = { player, args -> control.command(player, args); Unit }
+        campaignCommand = perform
+        campaignMenu = ru.ruscrafting.events.paper.apocalypse.ApocalypseCampaignMenu(dialogRuntime, locale, ::supportsDialogs,
+            escapeCloses, control::canManage, control::friends, perform)
+    }
+
+    internal fun openApocalypseFriends(player: Player) { campaignMenu?.openFriends(player) }
+    internal fun openApocalypseCampaign(player: Player) { campaignMenu?.openManage(player) }
 
     internal fun bindAdminDialog(command: ArcEventsCommand, apocalypse: ru.ruscrafting.events.paper.apocalypse.ApocalypseRuntime) {
         adminDialog = ArcEventsAdminDialog(dialogRuntime, service, locale, settings, command, apocalypse,
@@ -203,7 +215,7 @@ class ArcEventsMenu(
             EventsView.Statistics -> openStatistics(player)
             EventsView.Ttt -> error("TTT is opened asynchronously")
             EventsView.Fishing -> error("Fishing is opened natively")
-            EventsView.Apocalypse -> apocEntry(player)
+            EventsView.Apocalypse -> campaignMenu?.openEntryFallback(player) ?: apocEntry(player)
             EventsView.Arenas -> openArenas(player)
             EventsView.EventArenas -> openEventArenas(player)
             EventsView.Shop -> openShop(player)
@@ -291,9 +303,16 @@ class ArcEventsMenu(
             EventsView.EventHelp -> if (slot == element(view, "back")) open(player, EventsView.Ttt)
             EventsView.Ttt -> clickTtt(player, slot, nativePresentation)
             EventsView.Fishing -> clickFishing(player, slot, nativePresentation)
-            EventsView.Apocalypse -> if (slot == 0 || slot == ADMIN_SOLO_SLOT) {
-                closeSurface(player, nativePresentation)
-                apocEntry(player)
+            EventsView.Apocalypse -> when (slot) {
+                APOCALYPSE_COMMON_SLOT, ADMIN_SOLO_SLOT -> {
+                    closeSurface(player, nativePresentation)
+                    campaignCommand?.invoke(player, listOf("apocalypse", "common")) ?: apocEntry(player)
+                }
+                APOCALYPSE_OWN_SLOT -> {
+                    closeSurface(player, nativePresentation)
+                    campaignCommand?.invoke(player, listOf("apocalypse", "my"))
+                }
+                APOCALYPSE_FRIEND_SLOT -> openApocalypseFriends(player)
             }
             is EventsView.Arcade -> clickArcade(player, view.mode, slot, nativePresentation)
             EventsView.Statistics -> if (slot == element(view, "back")) open(player, EventsView.Main)
@@ -358,7 +377,7 @@ class ArcEventsMenu(
             element(view, "zombies") -> open(player, EventsView.Arcade(EventMode.ZOMBIES))
             element(view, "apocalypse") -> if (nativePresentation) open(player, EventsView.Apocalypse) else {
                 player.closeInventory()
-                apocEntry(player)
+                open(player, EventsView.Apocalypse)
             }
             element(view, "statistics") -> open(player, EventsView.Statistics)
             element(view, "help") -> open(player, EventsView.Help)

@@ -35,6 +35,7 @@ import ru.ruscrafting.events.paper.apocalypse.ApocalypseWorkbenchCrafting
 import ru.ruscrafting.events.paper.apocalypse.ApocalypseWorkbenchCraftResult
 import ru.ruscrafting.events.paper.apocalypse.ApocalypseWorkbenchMenu
 import ru.ruscrafting.events.paper.apocalypse.ApocalypseGuide
+import ru.ruscrafting.events.paper.apocalypse.ApocalypseCampaignMenu
 import ru.ruscrafting.events.paper.apocalypse.ApocalypseGuideSnapshot
 import ru.ruscrafting.events.paper.apocalypse.ApocalypseRuntime
 import ru.ruscrafting.events.paper.apocalypse.GuideRoute
@@ -88,8 +89,13 @@ class ArcEventsNativePreviewTest : StringSpec({
             every { player.location } returns Location(null, 3.5, 72.0, 3.5)
             every { player.inventory.storageContents } returns arrayOfNulls<ItemStack>(36)
             val workbench = ApocalypseWorkbenchMenu(mockk(), locale, schematics, crafting, workbenchRuntime) { true }
-            val guide = ApocalypseGuide(plugin, locale, {}, { _, _ -> }, {}, dialogs = workbenchRuntime)
+            var campaignOwner = false
+            val campaignMenu = ApocalypseCampaignMenu(workbenchRuntime, locale, { true }, { false }, { campaignOwner },
+                { listOf("RiverTorch", "GreyWolf") }, { _, _ -> })
+            val guide = ApocalypseGuide(plugin, locale, {}, { _, _ -> }, {}, dialogs = workbenchRuntime,
+                canManageCampaign = { campaignOwner }, onCampaign = campaignMenu::openManage, onObjectives = {})
             val expedition = mockk<ApocalypseRuntime>(relaxed = true)
+            every { expedition.campaignOwnerOf(any()) } returns null
             val adminConfig = mockk<ArcEventsConfig> {
                 every { nodeMode } returns NodeMode.HOST
                 every { hostServer } returns "parkour"
@@ -123,6 +129,7 @@ class ArcEventsNativePreviewTest : StringSpec({
                 )
             }
             for (language in listOf("ru", "en")) {
+                campaignOwner = false
                 every { player.locale() } returns Locale.forLanguageTag(language)
                 every { player.hasPermission("arcevents.admin") } returns false
                 workbench.open(player, ApocalypseWorkbenchStation.CRAFTING, { true }, { _, _ -> }, {})
@@ -154,10 +161,23 @@ class ArcEventsNativePreviewTest : StringSpec({
                 menu.open(player, EventsView.Help); save("$language-rules-index")
                 last!!.buttons.map { it.id.value }.toSet() shouldBe (EventMode.entries.map { "rules_${it.id}" } + "rules_apocalypse").toSet()
                 menu.open(player, EventsView.Apocalypse); save("$language-apocalypse")
-                last!!.buttons.map { it.id.value } shouldBe listOf("action_apocalypse_enter_name", "rules_apocalypse")
+                val expeditionActions = listOf("action_apocalypse_campaign_common_name", "action_apocalypse_campaign_own_name",
+                    "action_apocalypse_campaign_friend_name", "rules_apocalypse")
+                last!!.buttons.map { it.id.value } shouldBe expeditionActions
                 last!!.buttons.last().onClick.handle(click)
                 last!!.id shouldBe "events.rules.apocalypse.0"
                 save("$language-rules-apocalypse")
+                campaignMenu.openFriends(player); save("$language-campaign-friends")
+                campaignOwner = true
+                guide.show(player, routes); save("$language-campaign-journal")
+                last!!.buttons.single { it.id.value == "campaign" }.onClick.handle(click)
+                save("$language-campaign-members")
+                val members = last!!
+                for (action in listOf("invite", "companion", "revoke")) {
+                    members.buttons.single { it.id.value == action }.onClick.handle(click)
+                    save("$language-campaign-$action")
+                }
+                campaignOwner = false
                 menu.openFishing(player, EventEntryStatus(null), {}); save("$language-fishing")
                 last!!.buttons.any { it.id.value == "rules_fishing" } shouldBe true
                 menu.openFishing(player, EventEntryStatus(QueueState.RESERVED, ReservationStartResult.BUSY), {}); save("$language-fishing-transfer")
@@ -224,7 +244,7 @@ class ArcEventsNativePreviewTest : StringSpec({
                     save("$language-${mode.id}-admin")
                 }
                 menu.open(player, EventsView.Apocalypse); save("$language-apocalypse-admin")
-                last!!.buttons.map { it.id.value } shouldBe listOf("action_apocalypse_test_name", "rules_apocalypse", "action_menu_event_admin_panel_name")
+                last!!.buttons.map { it.id.value } shouldBe expeditionActions + "action_menu_event_admin_panel_name"
                 for (mode in EventMode.entries) {
                     administration.openMode(player, mode)
                     val catalog = CatalogMode.of(mode)
@@ -240,7 +260,8 @@ class ArcEventsNativePreviewTest : StringSpec({
                     secondArg<(String) -> Unit>()("ARCEVENTS_APOCALYPSE_RESET_PLAN arc_ready=true current=arcevents_apocalypse_v2 target=$target blockers=-")
                 }
                 administration.openReset(player, target)
-                last!!.buttons.single().onClick.handle(click)
+                last!!.id shouldBe "events.admin.apocalypse.reset"
+                last!!.buttons.single { it.id.value == "preview" }.onClick.handle(click)
                 last!!.buttons.map { it.id.value } shouldBe listOf("queue_reset", "edit")
                 save("$language-admin-reset-preview")
             }

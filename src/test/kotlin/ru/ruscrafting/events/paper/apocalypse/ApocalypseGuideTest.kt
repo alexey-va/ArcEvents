@@ -6,6 +6,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import net.kyori.adventure.inventory.Book
+import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.TextDecoration
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
 import org.bukkit.Location
@@ -80,12 +81,16 @@ class ApocalypseGuideTest : StringSpec({
             val selected = mutableListOf<GuideTarget>()
             var left = false
             var administrativeVisits = 0
+            var campaignOwner = false
+            var membersVisits = 0
+            var objectiveVisits = 0
             val guide = ApocalypseGuide(plugin, locale, {}, { _, target -> selected += target }, { left = true },
-                canFly = { true }, dialogs = dialogs, onAdmin = { administrativeVisits++ }, ownsDialogs = false)
+                canFly = { true }, dialogs = dialogs, onAdmin = { administrativeVisits++ }, ownsDialogs = false,
+                canManageCampaign = { campaignOwner }, onCampaign = { membersVisits++ }, onObjectives = { objectiveVisits++ })
             guide.beginFlow(player)
             guide.show(player, snapshot.copy(tracked = GuideTarget.SUPPLIES))
             val journal = current
-            journal.buttons.map { it.id.value } shouldBe listOf("map", "equipment", "hazards", "leave")
+            journal.buttons.map { it.id.value } shouldBe listOf("map", "equipment", "hazards", "objectives", "leave")
             journal.exitButton?.id?.value shouldBe "close"
             val map = journal.buttons.first()
             map.closeDialogBeforeAction shouldBe false
@@ -107,8 +112,21 @@ class ApocalypseGuideTest : StringSpec({
             current.buttons.single().id.value shouldBe "admin_fly"
             journal.buttons.single { it.id.value == "hazards" }.onClick.handle(click)
             current.buttons.isEmpty() shouldBe true
+            journal.buttons.single { it.id.value == "objectives" }.onClick.handle(click)
+            objectiveVisits shouldBe 1
+            guide.showObjectives(player, listOf(Component.text("Pier generator")), emptyList())
+            current.id shouldBe "events.apocalypse.guide.objectives"
+            plain.serialize(current.body.single().text).contains("Pier generator") shouldBe true
             journal.buttons.last().onClick.handle(click)
             left shouldBe true
+            campaignOwner = true
+            guide.show(player, snapshot)
+            current.buttons.single { it.id.value == "campaign" }.onClick.handle(click)
+            membersVisits shouldBe 1
+            campaignOwner = false
+            current.buttons.single { it.id.value == "campaign" }.onClick.handle(click)
+            membersVisits shouldBe 1
+            verify(exactly = 1) { dialogs.close(player) }
 
             lateinit var book: Book
             every { player.openBook(any<Book>()) } answers { book = firstArg() }
@@ -116,8 +134,16 @@ class ApocalypseGuideTest : StringSpec({
             guide.show(player, snapshot)
             plain.serialize(book.title()) shouldBe "Полевой дневник"
             book.pages().first().children().last().clickEvent()?.value() shouldBe "/arcevents leave"
-            book.pages()[1].children().last().clickEvent()?.value() shouldBe "/arcevents apocalypse track supplies"
+            book.pages()[1].children().last().clickEvent()?.value() shouldBe "/arcevents apocalypse objectives"
+            book.pages()[2].children().last().clickEvent()?.value() shouldBe "/arcevents apocalypse track supplies"
             book.pages().last().children().last().clickEvent()?.value() shouldBe "/arcevents leave"
+            campaignOwner = true
+            guide.show(player, snapshot)
+            book.pages()[1].children().last().clickEvent()?.value() shouldBe "/arcevents apocalypse campaign"
+            guide.showObjectives(player, emptyList(), listOf(Component.text("Pier generator")))
+            plain.serialize(book.pages().single()) shouldBe "Pier generator"
+            campaignOwner = false
+            guide.show(player, snapshot)
             fun bookAdminLinks() = book.pages().first().children().filter { it.clickEvent()?.value() == "/events admin apocalypse" }
             bookAdminLinks().isEmpty() shouldBe true
             admin = true
@@ -138,7 +164,7 @@ class ApocalypseGuideTest : StringSpec({
             administrativeVisits shouldBe 1
             current.id shouldBe "events.apocalypse.guide"
             current.buttons.map { it.id.value } shouldBe journal.buttons.map { it.id.value }
-            verify(exactly = 1) { dialogs.beginFlow(player) }
+            verify(exactly = 2) { dialogs.beginFlow(player) }
             guide.close()
             verify(exactly = 0) { dialogs.close() }
         }

@@ -22,10 +22,12 @@ data class ApocalypsePlayerRecord(
     val returnPending: Boolean = false,
     val nativeSession: String? = null,
     val returnTicket: String? = null,
+    val campaignOwner: String? = null,
 ) {
     fun validated() {
         UUID.fromString(playerId)
         nativeSession?.let(UUID::fromString)
+        campaignOwner?.let { require(UUID.fromString(it).toString() == it) }
         returnTicket?.let {
             require(phase == ApocalypsePlayerPhase.PARKED && returnPending && UUID.fromString(it).toString() == it)
         }
@@ -37,7 +39,7 @@ data class ApocalypsePlayerRecord(
 }
 
 /** The existing core journal owns atomic replacement, bounds, fsync and readback. Worker-only. */
-class ApocalypseStorage(root: Path) {
+class ApocalypseStorage(private val root: Path) {
     private val gson = Gson()
     private val players = DurableRecordJournal(root, Path.of("data/apocalypse/players"), 8L * 1024 * 1024,
         { value: ApocalypsePlayerRecord -> gson.toJson(value).toByteArray(Charsets.UTF_8) },
@@ -49,6 +51,23 @@ class ApocalypseStorage(root: Path) {
     }
     fun save(record: ApocalypsePlayerRecord) = players.commit(record.playerId, record)
     fun load(playerId: UUID): ApocalypsePlayerRecord? = players.loadOrNull(playerId.toString())
+
+    fun saveExpedition(playerId: UUID, campaignOwner: UUID?, envelope: PaperPlayerStateEnvelope) {
+        require(PaperPlayerStateCodec().validateEnvelope(envelope) == playerId)
+        expeditionJournal(campaignOwner).commit(playerId.toString(), envelope)
+    }
+
+    fun loadExpedition(playerId: UUID, campaignOwner: UUID?): PaperPlayerStateEnvelope? =
+        expeditionJournal(campaignOwner).loadOrNull(playerId.toString())?.also {
+            require(PaperPlayerStateCodec().validateEnvelope(it) == playerId)
+        }
+
+    private fun expeditionJournal(campaignOwner: UUID?) = DurableRecordJournal(
+        root, Path.of("data/apocalypse/expeditions", campaignOwner?.toString() ?: "common"), 8L * 1024 * 1024,
+        { value: PaperPlayerStateEnvelope -> gson.toJson(value).toByteArray(Charsets.UTF_8) },
+        { bytes -> gson.fromJson(bytes.toString(Charsets.UTF_8), PaperPlayerStateEnvelope::class.java) },
+        { value -> PaperPlayerStateCodec().validateEnvelope(value) },
+    )
 }
 
 /** Retries the same immutable journal replacement. Native effects wait on one completion. */

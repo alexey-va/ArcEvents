@@ -4,6 +4,7 @@ import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import java.nio.file.Files
+import java.nio.file.Path
 
 class ArenaStagingFilesTest : FunSpec({
     test("the first generated chunk can only be written into an already owned world") {
@@ -35,6 +36,20 @@ class ArenaStagingFilesTest : FunSpec({
         result.retainedLegacy shouldBe listOf(legacy.fileName.toString())
         Files.exists(stage) shouldBe false
         Files.exists(legacy) shouldBe true
+    }
+
+    test("an interrupted Apocalypse stage can be recovered and a fresh campaign publishes its seed marker together with the directory") {
+        val container = Files.createTempDirectory("apocalypse-campaign-stage")
+        val relative = Path.of("").toAbsolutePath().relativize(container)
+        val store = ArenaStagingFiles(relative)
+        val marker = "${ru.ruscrafting.events.paper.apocalypse.ApocalypseOriginalGenerator.TEMPLATE}:68200133"
+        val stage = store.create("campaign", marker)
+        Files.exists(container.resolve("campaign")) shouldBe false
+        store.recover(emptySet()).removed shouldBe 1
+        Files.exists(stage) shouldBe false
+        store.createGeneratedWorld("campaign", marker)
+        Files.readString(container.resolve("campaign").resolve(ARENA_TEMPLATE_MARKER)).trim() shouldBe marker
+        shouldThrow<IllegalArgumentException> { store.createGeneratedWorld("bad", "apocalypse-original-v1:broken") }
     }
 
     test("an owned temporary stage from before the map upgrade can still be recovered") {
