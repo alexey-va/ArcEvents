@@ -2,7 +2,10 @@ package ru.ruscrafting.events.domain.apocalypse
 
 import ru.ruscrafting.events.domain.apocalypse.source.*
 import java.util.Random
+import java.util.SplittableRandom
 import kotlin.math.*
+
+private val scavengerTables = Regex("newlc:chests/(basic_house|basic_office|bedroom|kitchen|garage|a_house|a_garage)[0-9]+")
 
 /** A Paper landscape decorated with the source pack's NBT pools and Lost Cities parts. */
 class ApocalypseOriginalLayout(override val seed: Long, private val catalog: ApocalypseStructureAssets) : ApocalypseLayout {
@@ -27,6 +30,13 @@ class ApocalypseOriginalLayout(override val seed: Long, private val catalog: Apo
         marker.sourceBlock in setOf(NS + "gun_part_chest", NS + "create_part_chest") ->
             catalog.loot.rollPartCrate(requireNotNull(marker.sourceBlock), random)
         else -> emptyList()
+    }
+
+    fun hasScavengerSupplies(marker: ApocalypseMarker): Boolean {
+        if (marker.kind != ApocalypseMarkerKind.LOOT || marker.lootTable?.matches(scavengerTables) != true) return false
+        val identity = "${marker.siteId}:${marker.x}:${marker.y}:${marker.z}"
+        val stockSeed = seed xor identity.hashCode().toLong() xor "apocalypse-ordinary-loot".hashCode().toLong()
+        return SplittableRandom(stockSeed).nextInt(4) == 0
     }
 
     private val teleports: List<Pair<Int, Int>> = buildList {

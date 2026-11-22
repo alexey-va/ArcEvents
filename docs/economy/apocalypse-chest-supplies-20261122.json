@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "title": "Apocalypse: ordinary chest firearm supplies",
+  "assumptions": [
+    "Marginal supplement to existing source-table contents. Before zero bonus pistols and rounds; afterward one roll per first stock of a qualifying domestic, office or garage map container. A 25% success gives one unloaded Five-seveN and 24 usable rounds together. At ten eligible early openings the mean addition is 2.5 pistols and 60 rounds. Four openings give about 68% chance of at least one package under the independent model.",
+    "Scenarios are assumptions, not telemetry. 1/5/20 active participants at 1/2/4 hours per player-day and 2/8/20 distinct eligible openings per day (2/4/5 per hour). The network week assumes seven days with new containers and no overlap in counted shared chest claims.",
+    "The existing claim and stock marker are unchanged. Reopening, reconnecting, reloading and a second player cannot grant the package again. No package in already stocked containers or starter barrels. A full container can defer stocking without consuming the claim. Each eligible container can supply at most one unloaded pistol and 24 rounds, regardless of account count.",
+    "No shop, price, money, XP or entitlement reward changes. Party or admin exchange remains inside the expedition; leaving restores the prior inventory. Vault and tokens net issuance remain separate and zero. Existing shop SELL and planned transition to contracts are unchanged.",
+    "Even at 20 distinct eligible containers per player-day the hard maximum is 20 pistols and 480 rounds; the expectation is 5 and 120. The built-in armories and ammunition caches retain their independent original tables. Staff grants are explicit logged actions in active expedition inventories and excluded from player income. Verify real container identity, compatible reload, no repeat stock and no export on leave."
+  ],
+  "participants": [
+    1,
+    5,
+    20
+  ],
+  "currencies": {
+    "vault": {
+      "minor_per_unit": 100,
+      "flows": []
+    },
+    "tokens": {
+      "minor_per_unit": 1,
+      "flows": []
+    },
+    "xp": {
+      "minor_per_unit": 1,
+      "flows": []
+    },
+    "expedition_native_gun": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "scavenger_pistol",
+          "kind": "item",
+          "source": "ArcEvents ApocalypseOriginalLayout.hasScavengerSupplies and ApocalypseRuntime.stock",
+          "basis": "Distinct eligible first-open marker; one joint bonus roll; existing source tables unchanged",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              2,
+              8,
+              20
+            ],
+            "chance": "0"
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              2,
+              8,
+              20
+            ],
+            "chance": "0.25"
+          }
+        }
+      ]
+    },
+    "expedition_round": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "scavenger_rounds",
+          "kind": "item",
+          "source": "ArcEvents ApocalypseOriginalLayout.hasScavengerSupplies and ApocalypseRuntime.stock",
+          "basis": "Distinct eligible first-open marker; one joint bonus roll; existing source tables unchanged",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "24",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              2,
+              8,
+              20
+            ],
+            "chance": "0"
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "24",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              2,
+              8,
+              20
+            ],
+            "chance": "0.25"
+          }
+        }
+      ]
+    }
+  }
+}

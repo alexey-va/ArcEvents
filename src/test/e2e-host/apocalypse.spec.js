@@ -254,10 +254,15 @@ async function openAfterSourceCheckpoint(player,block) {
   }
 }
 async function withdrawSourceStack(player,container) {
+  const item=container.containerItems().find(item=>nativePdc([item.components,item.nbt],'arcevents:apocalypse_source_item'));
+  assert.ok(item,'Source component crate contained no identified source material');
+  return moveSourceStack(player,container,item);
+}
+async function moveSourceStack(player,container,item) {
   await player.bot._syncWindow(container);
-  assert.equal(container.selectedItem,null,'Source crate transfer started with a non-empty native cursor');
-  const one=container.containerItems().find(item=>nativePdc([item.components,item.nbt],'arcevents:apocalypse_source_item'));
-  assert.ok(one,'Source component crate contained no identified source material');
+  assert.equal(container.selectedItem,null,'Source container transfer started with a non-empty native cursor');
+  const one=container.slots[item.slot];
+  assert.deepEqual(itemState(one),itemState(item),'The selected source stack changed before transfer');
   const identity=JSON.stringify({...itemState(one),count:0}),amount=one.count;
   // The server syncs an open container's player slots before Mineflayer copies them back to window 0 on close.
   const count=()=>container.slots.slice(container.inventoryStart,container.inventoryEnd)
@@ -267,14 +272,14 @@ async function withdrawSourceStack(player,container) {
   expected[one.slot]=null;
   const remaining=JSON.stringify(expected);
   const destination=container.firstEmptySlotRange(container.hotbarStart,container.inventoryEnd);
-  assert.notEqual(destination,null,'Source crate fixture requires one empty hotbar slot');
-  // Type-only withdraw merges distinct component-backed ingots in the pinned client. A native empty-slot swap preserves identity.
+  assert.notEqual(destination,null,'Source container fixture requires one empty hotbar slot');
+  // Type-only withdraw can merge different component-backed items. A native empty-slot swap preserves identity.
   await player.bot.clickWindow(one.slot,destination-container.hotbarStart,2);
   await player.bot._syncWindow(container);
   assert.equal(count(),before+amount,'Native source stack transfer changed its identity or quantity');
   assert.equal(container.selectedItem,null,'Native source stack transfer left items on the cursor');
   assert.equal(JSON.stringify(container.slots.slice(0,container.inventoryStart).map(itemState)),remaining,
-    'Native source stack transfer changed unrelated crate contents');
+    'Native source stack transfer changed unrelated container contents');
   return remaining;
 }
 
@@ -357,6 +362,7 @@ test('Shift+F opens Apocalypse administration from the field journal only for st
   await ready();
   const observer = await createPlayer({username: `JournalQA${Math.floor(Math.random() * 100000)}`});
   await observer.makeOp();
+  const origin = items(player);
   const dialogs = watchApocalypseDialogs(player);
   const journal = screen => apocButton(screen, 'equipment') && apocButton(screen, 'leave');
   const next = async (action, predicate, message) => {
@@ -385,21 +391,80 @@ test('Shift+F opens Apocalypse administration from the field journal only for st
     const staff = await next(shiftSwap, journal, 'Shift+F did not reopen the field journal for the administrator');
     assert.match(JSON.stringify(apocButton(staff, 'admin')?.label), /Admin panel/);
     const staffClears = dialogs.clears;
-    const panel = await next(() => apocClick(player, staff, 'admin'), screen => apocButton(screen, 'reset') && apocButton(screen, 'day'),
+    const panel = await next(() => apocClick(player, staff, 'admin'),
+      screen => ['reset', 'day', 'supplies'].every(id => apocButton(screen, id)),
       'The journal did not open the Apocalypse administration panel');
     assert.ok(!apocButton(panel, 'matches'), 'The journal opened a shared administration panel');
-    const back = apocButtons(panel).find(button => JSON.stringify(button.label).includes('gui.back'));
-    assert.ok(back, 'Apocalypse administration did not offer Back to the journal');
-    const restored = await next(() => apocClick(player, panel, back.action.id.split('/').at(-1)), journal,
+    const back = screen => {
+      const button = apocButtons(screen).find(button => JSON.stringify(button.label).includes('gui.back'));
+      assert.ok(button, 'The admin screen did not offer Back');
+      return button.action.id.split('/').at(-1);
+    };
+    const supplyMenu = screen => ['pistol', 'ammo', 'medical'].every(id => apocButton(screen, id));
+    const supplies = await next(() => apocClick(player, panel, 'supplies'), supplyMenu, 'Missing grant actions');
+    const afterPistol = await next(() => apocClick(player, supplies, 'pistol'), supplyMenu, 'Pistol grant did not return to the grant menu');
+    await until(() => player.bot.inventory.items().some(item =>
+      nativePdc([item.components, item.nbt], 'arcevents:world_firearm') === 'FIVE_SEVEN'), 'No actual pistol was granted');
+    const afterAmmo = await next(() => apocClick(player, afterPistol, 'ammo'), supplyMenu, 'Ammo grant did not return to the grant menu');
+    await until(() => player.bot.inventory.items().some(item => item.count === 24 &&
+      nativePdc([item.components, item.nbt], 'arcevents:world_ammunition') !== undefined), 'No actual ammunition was granted');
+    const backPanel = await next(() => apocClick(player, afterAmmo, back(afterAmmo)), screen => apocButton(screen, 'reset'),
+      'Back from supply grants did not restore the Apocalypse panel');
+    const restored = await next(() => apocClick(player, backPanel, back(backPanel)), journal,
       'Back from Apocalypse administration did not restore the field journal');
     assert.ok(apocButton(restored, 'admin'));
     assert.equal(dialogs.clears, staffClears, 'Moving between the journal and administration interrupted the native flow');
     apocClick(player, restored, 'leave');
     await players(observer, 0);
+    await until(() => items(player) === origin, 'Admin grant items escaped to the original inventory');
   } finally {
     dialogs.stop();
     player.chat('/arcevents leave');
     observer.bot.quit();
+  }
+});
+
+test('Apocalypse ordinary city chest stocks a pistol with usable rounds only once', async ({player, createPlayer}) => {
+  await ready();
+  const admin = await createPlayer({username: `CityStockQA${Math.floor(Math.random() * 100000)}`});
+  await admin.makeOp();
+  const origin = items(player);
+  const pdc = (item, name) => nativePdc([item?.components, item?.nbt], `arcevents:${name}`);
+  try {
+    player.chat('/arcevents apocalypse');
+    await players(admin, 1);
+    admin.chat(`/effect give ${player.username} minecraft:resistance 30 255 true`);
+    // Source waterfront kitchen, seed 68200133: this chest rolls the supplemental cache.
+    const at = new Vec3(-110, 78, -6);
+    await teleport(admin, player, at.x + .5, at.y + 1, at.z + .5);
+    const block = await until(() => {
+      const current = player.bot.blockAt(at);
+      return current?.name === 'chest' && current;
+    }, 'The source city kitchen chest did not load');
+    const chest = await openAfterSourceCheckpoint(player, block);
+    const gun = chest.containerItems().find(item => pdc(item, 'world_firearm') === 'FIVE_SEVEN');
+    const ammo = chest.containerItems().find(item => pdc(item, 'world_ammunition') !== undefined);
+    assert.ok(gun && ammo, 'The city chest did not contain the paired gun and ammo');
+    assert.equal(pdc(gun, 'world_loaded_rounds'), 0);
+    assert.equal(ammo.count, 24);
+    assert.ok(chest.containerItems().some(item => item.name === 'bread'), 'The original chest contents disappeared');
+    await moveSourceStack(player, chest, gun);
+    await moveSourceStack(player, chest, ammo);
+    chest.close();
+    await pause(150);
+    const reopened = await player.bot.openContainer(block);
+    assert.ok(!reopened.containerItems().some(item => pdc(item, 'world_firearm') || pdc(item, 'world_ammunition') !== undefined),
+      'Opening the city chest again reissued the cache');
+    reopened.close();
+    await player.bot.equip(player.bot.inventory.items().find(item => pdc(item, 'world_firearm') === 'FIVE_SEVEN'), 'hand');
+    player.bot._client.write('block_dig', {status: 6, location: new Vec3(0, 0, 0), face: 0, sequence: 0});
+    await until(() => Number(pdc(player.bot.heldItem, 'world_loaded_rounds')) > 0, 'The found rounds did not reload the pistol', 12000);
+    player.chat('/arcevents leave');
+    await players(admin, 0);
+    await until(() => items(player) === origin, 'City chest loot escaped to the original inventory');
+  } finally {
+    player.chat('/arcevents leave');
+    admin.bot.quit();
   }
 });
 

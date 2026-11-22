@@ -251,6 +251,8 @@ relays together before offering the arcade modes to a mixed-version network.
 - `/arcevents start [ttt|gungame|disasters]` — start the common queue as its creator.
 - `/arcevents team <message>` — private traitor/detective team chat in a match.
 - Use Shift+F inside an event and choose **Admin panel** to open that mode's controls. In Apocalypse, the button is in the field journal. `/arcevents admin <ttt|gungame|disasters|fishing|zombies|apocalypse>` also opens a specific panel. These controls require `arcevents.admin`.
+- In an active Apocalypse expedition, **Grant equipment** gives the administrator a pistol, ammunition or a vaccine in that expedition's inventory. **Reset shared world** previews rotation of the common world before it can be scheduled.
+- Eligible city household, office and garage containers have one 25% chance to add an unloaded Five-seveN and 24 rounds to their source loot. The bonus shares the existing once-only stock claim and does not restock previously opened containers. [Loot balance assessment](docs/economy/apocalypse-chest-supplies-20261122.json)
 - `/arcevents admin status|player|network|arenas|recovery` provides read-only diagnostics. `arena <id|auto>`, `start [ttt|gungame|disasters] [id]`, `stop`, `reload`, and `recover` operate the map pool, queue, round, config, and escrow recovery.
 - `/arcevents reload` — direct `arcevents.admin` shortcut. Locale text, menu/HUD
   presentation, nameplates, loot displays, smoke, active item visuals and safe

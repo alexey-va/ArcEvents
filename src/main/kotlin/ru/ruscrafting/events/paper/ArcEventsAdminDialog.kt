@@ -5,6 +5,7 @@ import net.kyori.adventure.text.JoinConfiguration
 import net.kyori.adventure.text.format.TextColor
 import net.kyori.adventure.text.format.TextDecoration
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
+import org.bukkit.World
 import org.bukkit.entity.Player
 import ru.arc.paper.menu.*
 import ru.ruscrafting.events.config.ArcEventsConfig
@@ -242,6 +243,10 @@ internal class ArcEventsAdminDialog(
                 if (!playing && !service.isParticipant(player.uniqueId))
                     add(button("enter", text("enter"), GREEN) { gameplay { command.admin(player, listOf("solo", "apocalypse")) } })
                 if (!host) return@buildList
+                if (playing) {
+                    val world = player.world
+                    add(link("supplies") { supplies(world) })
+                }
                 add(link("guide") { guideForm() })
                 add(link("locate") { locate() })
                 add(link("day") { day() })
@@ -255,6 +260,21 @@ internal class ArcEventsAdminDialog(
                 addAll(firearmControls())
                 if (apocalypse.campaignOwnerOf(player.uniqueId) == null) add(link("reset") { resetForm(null) })
             }, reopen = { expedition() })
+        }
+
+        private fun supplies(world: World, feedback: Component? = null) {
+            fun stillHere() = host && player.world === world && apocalypse.isPlaying(player.uniqueId)
+            if (!stillHere()) return expedition(text("supply-expired"))
+            val choices = listOf("pistol", "ammo", "medical").map { id ->
+                val item = text("supply-$id")
+                button(id, item, GREEN) {
+                    if (!stillHere()) return@button expedition(text("supply-expired"))
+                    val response = if (apocalypse.grantAdminSupply(player, id)) text("supply-added", "item" to item)
+                        else text("supply-unavailable")
+                    supplies(world, response)
+                }
+            }
+            page("supplies", "supplies", listOf(feedback ?: text("supply-self")), choices, columns = 1)
         }
 
         private fun locate() = page("locate", "locate", buttons = listOf(

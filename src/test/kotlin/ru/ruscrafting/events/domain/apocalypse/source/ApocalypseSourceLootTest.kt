@@ -178,7 +178,15 @@ class ApocalypseSourceLootTest : StringSpec({
         catalog.template("jeffs_cursed_walking_structures:collapsedradiotowerdesert")!!.authoredItems.isNotEmpty() shouldBe true
         catalog.loot.referencedGuns.size shouldBe 29
         val layout = ApocalypseOriginalLayout(68200133, catalog)
+        val cityChests = layout.markersInChunk(-7, -1)
+        val kitchen = cityChests.single { it.x == -110 && it.y == 78 && it.z == -6 }
+        val garage = cityChests.single { it.x == -110 && it.y == 72 && it.z == -6 }
+        layout.hasScavengerSupplies(kitchen) shouldBe true
+        layout.hasScavengerSupplies(garage) shouldBe false
+        layout.hasScavengerSupplies(kitchen.copy(lootTable = "newlc:chests/a_gun1")) shouldBe false
+        layout.hasScavengerSupplies(kitchen.copy(kind = ApocalypseMarkerKind.ARMORY)) shouldBe false
         layout.starterSupplyMarkers.isNotEmpty() shouldBe true
+        layout.starterSupplyMarkers.none(layout::hasScavengerSupplies) shouldBe true
         layout.starterSupplyMarkers.all { it.lootTable == "jeffs_cursed_walking_structures:chests/supplychest" } shouldBe true
         layout.starterSupplyMarkers.any { catalog.loot.hasFirearm(it.lootTable!!) } shouldBe false
         (layout.starterExit.y > layout.spawn.y) shouldBe true

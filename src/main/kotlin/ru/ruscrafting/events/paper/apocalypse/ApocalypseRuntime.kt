@@ -49,6 +49,7 @@ import ru.ruscrafting.events.paper.EventWork
 import ru.ruscrafting.events.paper.ArenaStagingFiles
 import ru.ruscrafting.events.paper.ARENA_TEMPLATE_MARKER
 import ru.ruscrafting.events.paper.TttFirearms
+import ru.ruscrafting.events.paper.canManageEventMenus
 import ru.ruscrafting.events.paper.isArcEventsCommandLabel
 import java.nio.file.Files
 import java.nio.file.Path
@@ -391,7 +392,7 @@ class ApocalypseRuntime internal constructor(
         state = prepared.checkpoint
         committedObjectives = state.objectives ?: ApocalypseObjectivesState()
         objectives = ApocalypseObjectives(target, prepared.objectiveSites, locale, work,
-            atmosphere::waterfrontReady, ::objectivePlayer, { committedObjectives },
+            atmosphere::waterfrontReady, ::ownsActiveExpedition, { committedObjectives },
             rules, { state.survival.worldTick }, ::saveObjectives, ::log)
         committedSwitches = state.switches
         committedSpawns = desiredSpawns(state).keys
@@ -676,11 +677,30 @@ class ApocalypseRuntime internal constructor(
         return true
     }
 
-    private fun objectivePlayer(player: Player): Boolean = ready && player.world === world && player.uniqueId in active &&
+    internal fun grantAdminSupply(player: Player, supply: String): Boolean {
+        if (parent == null) currentCampaignRuntime(player.uniqueId).takeIf { it !== this }?.let { return it.grantAdminSupply(player, supply) }
+        if (!host || !player.canManageEventMenus() || player.isDead || !ownsActiveExpedition(player)) return false
+        val item = when (supply) {
+            "pistol" -> firearms.worldFirearmItem(FirearmId.FIVE_SEVEN, player, loaded = 0)
+            "ammo" -> firearms.worldAmmunition(player, 24)
+            "medical" -> vaccine()
+            else -> return false
+        }
+        val inventory = player.inventory
+        val storage = inventory.storageContents
+        val planned = Bukkit.createInventory(null, storage.size)
+        planned.contents = storage.map { it?.clone() }.toTypedArray()
+        if (planned.addItem(item).isNotEmpty()) return false
+        inventory.storageContents = planned.contents
+        plugin.logger.info("ArcEvents apocalypse admin-supply player=${player.uniqueId} world=${player.world.name} supply=$supply")
+        return true
+    }
+
+    private fun ownsActiveExpedition(player: Player): Boolean = ready && player.world === world && player.uniqueId in active &&
         !isBusy(player.uniqueId) && currentPlayer(player) && players[player.uniqueId]?.let { ownsNativeInventory(player, it) } == true
 
     private fun openObjectives(player: Player) {
-        if (objectivePlayer(player)) objectives?.journal(player, guide) else message(player, "objectives.enter-first")
+        if (ownsActiveExpedition(player)) objectives?.journal(player, guide) else message(player, "objectives.enter-first")
     }
 
     private fun saveObjectives(next: ApocalypseObjectivesState, after: () -> Unit): Boolean {
@@ -1722,7 +1742,7 @@ class ApocalypseRuntime internal constructor(
                     val current = world!!.getBlockAt(source.x, source.y, source.z).state as? Container
                         ?: error("Original loot container disappeared before admission")
                     val random = java.util.Random(options.seed xor markerId(source).hashCode().toLong())
-                    val contents = if (drops == null) legacySupplies(source, player, random) else drops.flatMap { drop ->
+                    val baseContents = if (drops == null) legacySupplies(source, player, random) else drops.flatMap { drop ->
                         when (drop) {
                             is ApocalypseSourceLootDrop.Item -> lootItems.create(drop.item, player, random, target?.let(::location))
                             is ApocalypseSourceLootDrop.VanillaTable -> {
@@ -1733,10 +1753,13 @@ class ApocalypseRuntime internal constructor(
                             }
                         }
                     }
+                    val contents = if (sourceLayout?.hasScavengerSupplies(source) == true) baseContents + listOf(
+                        firearms.worldFirearmItem(FirearmId.FIVE_SEVEN, player, loaded = 0),
+                        firearms.worldAmmunition(player, 24),
+                    ) else baseContents
                     val capacity = Bukkit.createInventory(null, current.snapshotInventory.size)
                     capacity.contents = current.snapshotInventory.contents.map { it?.clone() }.toTypedArray()
-                    val leftovers = capacity.addItem(*contents.map(ItemStack::clone).toTypedArray())
-                    if (leftovers.isNotEmpty()) {
+                    if (!placeStock(capacity, contents)) {
                         stocking -= locks
                         if (player.isOnline) {
                             message(player, "guide.container-full")
@@ -1754,11 +1777,7 @@ class ApocalypseRuntime internal constructor(
                             val current = world!!.getBlockAt(source.x, source.y, source.z).state as? Container ?: return@forEach
                             if (current.persistentDataContainer.has(stockKey)) return@forEach
                             // Preserve existing player items and older provisional supplies during the one-time source migration.
-                            contents.forEachIndexed { index, item ->
-                                val slot = (index * 7 + 3) % current.snapshotInventory.size
-                                if (current.snapshotInventory.getItem(slot) == null) current.snapshotInventory.setItem(slot, item)
-                                else check(current.snapshotInventory.addItem(item).isEmpty()) { "Reserved source-loot capacity changed" }
-                            }
+                            check(placeStock(current.snapshotInventory, contents)) { "Reserved source-loot capacity changed" }
                             current.persistentDataContainer.set(stockKey, PersistentDataType.BYTE, 1.toByte())
                             check(current.update(true, false))
                         }
@@ -1777,6 +1796,16 @@ class ApocalypseRuntime internal constructor(
             }
         } }
         return false
+    }
+
+    private fun placeStock(inventory: Inventory, contents: List<ItemStack>): Boolean {
+        contents.forEachIndexed { index, source ->
+            val item = source.clone()
+            val slot = (index * 7 + 3) % inventory.size
+            if (inventory.getItem(slot) == null) inventory.setItem(slot, item)
+            else if (inventory.addItem(item).isNotEmpty()) return false
+        }
+        return true
     }
 
     private fun legacySupplies(source: ApocalypseMarker, player: Player, loot: java.util.Random): List<ItemStack> = buildList {

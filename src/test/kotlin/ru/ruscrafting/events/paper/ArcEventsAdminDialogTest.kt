@@ -2,10 +2,12 @@ package ru.ruscrafting.events.paper
 
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import net.kyori.adventure.text.Component
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
 import org.bukkit.Location
 import org.bukkit.World
 import org.bukkit.command.PluginCommand
@@ -89,9 +91,27 @@ class ArcEventsAdminDialogTest : StringSpec({
         verify(exactly = 1) { apoc.command(player, listOf("apocalypse", "day", "7")) }
         every { apoc.isPlaying(player.uniqueId) } returns true
         every { apoc.campaignOwnerOf(player.uniqueId) } returns UUID.randomUUID()
+        every { player.world } returns mockk<World>()
         menu.openApocalypse(player)
         ("enter" in actions()) shouldBe false
         ("reset" in actions()) shouldBe false
+        choose("supplies")
+        actions() shouldBe listOf("pistol", "ammo", "medical")
+        val plain = PlainTextComponentSerializer.plainText()
+        every { apoc.grantAdminSupply(player, "pistol") } returns true
+        choose("pistol")
+        verify(exactly = 1) { apoc.grantAdminSupply(player, "pistol") }
+        plain.serialize(screen.body.single().text) shouldContain "admin-dialog.supply-added"
+        choose("ammo")
+        plain.serialize(screen.body.single().text) shouldContain "admin-dialog.supply-unavailable"
+        every { player.hasPermission("arcevents.admin") } returns false
+        choose("medical")
+        verify(exactly = 0) { apoc.grantAdminSupply(player, "medical") }
+        every { player.hasPermission("arcevents.admin") } returns true
+        every { player.world } returns mockk<World>()
+        choose("medical")
+        verify(exactly = 0) { apoc.grantAdminSupply(player, "medical") }
+        screen.id shouldBe "events.admin.apocalypse"
         every { apoc.isPlaying(player.uniqueId) } returns false
         every { apoc.campaignOwnerOf(player.uniqueId) } returns null
         choose("fly")
@@ -142,6 +162,9 @@ class ArcEventsAdminDialogTest : StringSpec({
         menu.openReset(player, target)
         screen.id shouldBe "events.admin.apocalypse"
         actions() shouldBe listOf("enter")
+        every { apoc.isPlaying(player.uniqueId) } returns true
+        menu.openApocalypse(player)
+        ("supplies" in actions()) shouldBe false
     }
 
     "mode panels act on their own maps, equipment and exact live match or reservation" {
