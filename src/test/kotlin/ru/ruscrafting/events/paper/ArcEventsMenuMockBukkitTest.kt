@@ -1,18 +1,28 @@
 package ru.ruscrafting.events.paper
 
+import io.kotest.assertions.withClue
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
+import io.mockk.clearMocks
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
+import io.mockk.spyk
 import io.mockk.verify
+import io.mockk.verifyOrder
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
+import org.bukkit.Bukkit
 import org.bukkit.Material
 import org.bukkit.event.inventory.ClickType
 import org.bukkit.event.inventory.InventoryAction
 import org.bukkit.event.inventory.InventoryClickEvent
 import org.bukkit.event.inventory.InventoryType
+import org.bukkit.inventory.Inventory
 import ru.arc.core.PaperArcRuntime
 import ru.arc.core.Tasks
+import ru.arc.paper.menu.PaperDialogClickContext
+import ru.arc.paper.menu.PaperDialogRuntime
+import ru.arc.paper.menu.PaperDialogScreen
 import ru.arc.paper.testing.MockBukkitTestRuntime
 import ru.arc.paper.testing.failOnUnsupportedMockBukkitOperation
 import ru.ruscrafting.events.config.ArcEventsConfig
@@ -20,8 +30,15 @@ import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.config.NodeMode
 import ru.ruscrafting.events.domain.ArcadePlayer
 import ru.ruscrafting.events.domain.EventMode
+import ru.ruscrafting.events.domain.MatchEndReason
+import ru.ruscrafting.events.domain.MatchPhase
 import ru.ruscrafting.events.domain.ParticipantStatus
+import ru.ruscrafting.events.domain.TttMatch
+import ru.ruscrafting.events.domain.TttParticipant
+import ru.ruscrafting.events.domain.TttRole
+import ru.ruscrafting.events.domain.TttTeam
 import ru.ruscrafting.events.network.QueueState
+import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.nio.file.Files
 
@@ -228,6 +245,164 @@ class ArcEventsMenuMockBukkitTest : FunSpec({
                     paper.performTicks(3)
                     player.openInventory.topInventory.getItem(inferno)?.type shouldBe Material.LIME_CONCRETE
                     player.openInventory.topInventory.getItem(prison)?.type shouldBe Material.FILLED_MAP
+                }
+            } finally { Tasks.reset(); root.toFile().deleteRecursively() }
+        } }
+    }
+
+    test("Back from chest-only menus starts a fresh native dialog flow") {
+        failOnUnsupportedMockBukkitOperation { MockBukkitTestRuntime.open().use { paper ->
+            val plugin = paper.createSimplePlugin("ArcEventsChestBackTest")
+            PaperArcRuntime.installScheduling(plugin)
+            val player = spyk(paper.addPlayer("ChestBackQA"))
+            every { player.protocolVersion } returns MIN_DIALOG_PROTOCOL
+            player.addAttachment(plugin, "arcevents.admin", true)
+            val root = Files.createTempDirectory("arcevents-chest-back-")
+            try {
+                Files.writeString(root.resolve("config.yml"), "ui:\n  dialogs-enabled: true\n")
+                val settings = ArcEventsConfig.load(root)
+                val locale = ArcEventsLocale(root) { settings }
+                val layouts = ArcEventsMenuLayouts(root)
+                val id = player.uniqueId
+                val participant = TttParticipant(id, player.name, "test", TttRole.INNOCENT, ParticipantStatus.ALIVE, 0)
+                val round = TttMatch(UUID.randomUUID(), 0, MatchPhase.ACTIVE, mapOf(id to participant), 1)
+                val report = RoundReportView(round.matchId, TttTeam.INNOCENTS, MatchEndReason.ELIMINATION,
+                    30, emptyList(), emptyList())
+                val service = mockk<ArcEventsService>(relaxed = true) {
+                    every { snapshot() } returns testSnapshot(3)
+                    every { queueControl(id) } returns CompletableFuture.completedFuture(QueueControlSnapshot(QueueState.QUEUED, id))
+                    every { participant(id) } returns participant
+                    every { currentMatch() } returns round
+                    every { fishingAdventure(player) } returns null
+                    every { roster(id) } returns RosterView(emptyList())
+                    every { report() } returns report
+                }
+                val dialogs = mockk<PaperDialogRuntime>(relaxed = true)
+                val returns = listOf(
+                    EventsView.Arenas to TTT_DIALOG_ID,
+                    EventsView.EventArenas to TTT_DIALOG_ID,
+                    EventsView.Shop to TTT_DIALOG_ID,
+                    EventsView.Roster to TTT_DIALOG_ID,
+                    EventsView.CombatLog(0) to "events.report",
+                )
+                ArcEventsMenu(plugin, service, mockk<TttItems>(), locale, { settings }, layouts, dialogs = dialogs).use { menu ->
+                    var previousInventory: Inventory? = null
+                    for ((view, dialogId) in returns) {
+                        withClue("Back in $view") {
+                            menu.open(player, view)
+                            paper.performTicks(2)
+                            val inventory = player.openInventory
+                            (inventory.topInventory === previousInventory) shouldBe false
+                            previousInventory = inventory.topInventory
+                            clearMocks(dialogs)
+                            val slot = layouts.slot(view, "back")
+                            val event = InventoryClickEvent(inventory, InventoryType.SlotType.CONTAINER,
+                                slot, ClickType.LEFT, InventoryAction.PICKUP_ALL)
+                            paper.callEvent(event)
+                            paper.performTicks(2)
+
+                            event.isCancelled shouldBe true
+                            verifyOrder {
+                                dialogs.beginFlow(player)
+                                dialogs.open(player, match { it.id == dialogId }, any(), any(), any())
+                            }
+                        }
+                    }
+                }
+            } finally { Tasks.reset(); root.toFile().deleteRecursively() }
+        } }
+    }
+
+    test("TTT arena requests stay with their current native dialog or chest") {
+        failOnUnsupportedMockBukkitOperation { MockBukkitTestRuntime.open().use { paper ->
+            val plugin = paper.createSimplePlugin("ArcEventsArenaNavigationTest")
+            PaperArcRuntime.installScheduling(plugin)
+            val player = spyk(paper.addPlayer("ArenaNavQA"))
+            every { player.protocolVersion } returns MIN_DIALOG_PROTOCOL
+            val root = Files.createTempDirectory("arcevents-arena-navigation-")
+            try {
+                Files.writeString(root.resolve("config.yml"), "ui:\n  dialogs-enabled: true\n")
+                val settings = ArcEventsConfig.load(root)
+                val locale = ArcEventsLocale(root) { settings }
+                val layouts = ArcEventsMenuLayouts(root)
+                val id = player.uniqueId
+                val queued = QueueControlSnapshot(QueueState.QUEUED, id, 3)
+                var queueControl = CompletableFuture.completedFuture(queued)
+                val service = mockk<ArcEventsService>(relaxed = true) {
+                    every { snapshot() } returns testSnapshot(3)
+                    every { queueControl(id) } answers { queueControl }
+                    every { modeUnavailable(EventMode.TTT) } returns null
+                    every { defaultArenaId() } returns "inferno"
+                    every { selectableArenaIds() } returns listOf("inferno")
+                }
+                val screen = slot<PaperDialogScreen>()
+                val dismiss = slot<() -> Unit>()
+                val dialogs = mockk<PaperDialogRuntime>(relaxed = true) {
+                    every { open(player, capture(screen), any(), capture(dismiss), any()) } returns Unit
+                }
+                val click = mockk<PaperDialogClickContext>()
+                every { click.player } returns player
+                val arenaButton = "action_menu_event_arena_name"
+                fun requestArenas(): CompletableFuture<QueueControlSnapshot> {
+                    val pending = CompletableFuture<QueueControlSnapshot>()
+                    queueControl = pending
+                    screen.captured.buttons.single { it.id.value == arenaButton }.onClick.handle(click)
+                    return pending
+                }
+
+                ArcEventsMenu(plugin, service, mockk<TttItems>(), locale, { settings }, layouts, dialogs = dialogs).use { menu ->
+                    fun openTtt() {
+                        queueControl = CompletableFuture.completedFuture(queued)
+                        menu.openRoot(player, EventsView.Ttt)
+                        paper.performTicks(2)
+                    }
+                    openTtt()
+                    val failed = requestArenas()
+                    verify(exactly = 0) { dialogs.close(player) }
+                    screen.captured.id shouldBe TTT_DIALOG_ID
+                    screen.captured.buttons.isEmpty() shouldBe true
+                    queueControl = CompletableFuture.completedFuture(queued)
+                    failed.completeExceptionally(IllegalStateException("queue unavailable"))
+                    paper.performTicks(2)
+                    screen.captured.buttons.any { it.id.value == arenaButton } shouldBe true
+                    verify(exactly = 1) { dialogs.beginFlow(player) }
+
+                    val dismissed = requestArenas()
+                    dismiss.captured.invoke()
+                    val foreign = Bukkit.createInventory(null, 9)
+                    player.openInventory(foreign)
+                    dismissed.complete(queued)
+                    paper.performTicks(2)
+                    player.openInventory.topInventory shouldBe foreign
+
+                    openTtt()
+                    val offline = requestArenas()
+                    every { player.isOnline } returns false
+                    offline.complete(queued)
+                    paper.performTicks(2)
+                    verify(exactly = 0) { service.selectableArenaIds() }
+                    every { player.isOnline } returns true
+
+                    openTtt()
+                    requestArenas().complete(queued)
+                    paper.performTicks(2)
+                    val picker = player.openInventory
+                    val auto = layouts.slot(EventsView.EventArenas, "auto")
+                    picker.topInventory.getItem(auto)?.type shouldBe Material.COMPASS
+                    verify(exactly = 1) { dialogs.close(player) }
+
+                    val selected = CompletableFuture<QueueControlSnapshot>()
+                    queueControl = selected
+                    paper.callEvent(InventoryClickEvent(picker, InventoryType.SlotType.CONTAINER,
+                        auto, ClickType.LEFT, InventoryAction.PICKUP_ALL))
+                    paper.performTicks(2)
+                    player.closeInventory()
+                    player.openInventory(foreign)
+                    queueControl = CompletableFuture.completedFuture(queued)
+                    selected.complete(queued)
+                    paper.performTicks(2)
+                    player.openInventory.topInventory shouldBe foreign
+                    verify(exactly = 1) { service.selectableArenaIds() }
                 }
             } finally { Tasks.reset(); root.toFile().deleteRecursively() }
         } }

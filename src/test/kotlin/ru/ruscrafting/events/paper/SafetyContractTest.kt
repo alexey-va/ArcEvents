@@ -120,6 +120,34 @@ class SafetyContractTest : StringSpec({
         verify(exactly = 1) { service.useSpecialItem(player, EventItemKind.DETECTIVE_MEDKIT) }
     }
 
+    "event guide and round report items start fresh menu flows from the active match and main hand" {
+        val service = mockk<ArcEventsGameplayBoundary>(relaxed = true)
+        val menu = mockk<ArcEventsMenu>(relaxed = true)
+        val player = mockk<Player>()
+        val playerId = UUID.randomUUID()
+        every { player.uniqueId } returns playerId
+        val items = mockk<EventItemResolver>()
+        val listener = ArcEventsListener(service, menu, items)
+
+        for ((kind, view) in listOf(EventItemKind.GUIDE to EventsView.Help, EventItemKind.ROUND_REPORT to EventsView.Report)) {
+            val item = mockk<ItemStack>()
+            every { items.kind(item) } returns kind
+            every { service.belongsToCurrentMatch(playerId, item) } returns true
+
+            fun interact(hand: EquipmentSlot) =
+                PlayerInteractEvent(player, Action.RIGHT_CLICK_AIR, item, null, BlockFace.SELF, hand)
+                    .also(listener::onInteract).useItemInHand()
+
+            interact(EquipmentSlot.OFF_HAND) shouldBe Event.Result.DENY
+            interact(EquipmentSlot.HAND) shouldBe Event.Result.DENY
+            every { service.belongsToCurrentMatch(playerId, item) } returns false
+            interact(EquipmentSlot.HAND) shouldBe Event.Result.DENY
+
+            verify(exactly = 1) { menu.openRoot(player, view) }
+            verify(exactly = 0) { menu.open(player, view) }
+        }
+    }
+
     "pre-cancelled vanilla item interactions still reach ArcEvents" {
         val handler = ArcEventsListener::class.java
             .getDeclaredMethod("onInteract", PlayerInteractEvent::class.java)

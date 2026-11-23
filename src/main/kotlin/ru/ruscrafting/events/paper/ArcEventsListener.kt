@@ -305,7 +305,7 @@ class ArcEventsListener(
             EventItemKind.GUIDE -> {
                 event.isCancelled = true
                 if (event.hand == EquipmentSlot.HAND && event.action in setOf(Action.RIGHT_CLICK_AIR, Action.RIGHT_CLICK_BLOCK)) {
-                    menu.open(player, EventsView.Help)
+                    menu.openRoot(player, EventsView.Help)
                 }
             }
             EventItemKind.SHOP -> {
@@ -334,7 +334,7 @@ class ArcEventsListener(
             }
             EventItemKind.ROUND_REPORT -> {
                 event.isCancelled = true
-                if (event.hand == EquipmentSlot.HAND) menu.open(player, EventsView.Report)
+                if (event.hand == EquipmentSlot.HAND) menu.openRoot(player, EventsView.Report)
             }
             EventItemKind.AMMUNITION, EventItemKind.FISHING_DYNAMITE,
             EventItemKind.FISHING_LIVE_CATCH, EventItemKind.FISHING_CATCH_BAG -> event.isCancelled = true

@@ -154,7 +154,7 @@ class ArcEventsMenu(
         val adminSlot: Int? = null,
     )
 
-    /** Command/hotkey entry: discard an older dialog flow before rendering a root. */
+    /** Start a fresh dialog flow for an entry outside a native dialog callback. */
     fun openRoot(player: Player, view: EventsView = EventsView.Main) {
         val requestedView = if (view == EventsView.Main && service.isParticipant(player.uniqueId)) {
             when (service.currentMode()) {
@@ -734,7 +734,8 @@ class ArcEventsMenu(
                     }
                 }
             }
-            element(view, "arena") -> open(player, EventsView.EventArenas)
+            element(view, "arena") -> if (nativePresentation) openEventArenas(player, nativePresentation = true)
+                else open(player, EventsView.EventArenas)
             element(view, "help") -> open(player, EventsView.EventHelp)
             element(view, "back") -> open(player, EventsView.Main)
             element(view, "evacuate") -> if (evacuationAccessible(service.currentMatch(), service.participant(player.uniqueId))) {
@@ -835,22 +836,39 @@ class ArcEventsMenu(
                 )))
                 open(player, EventsView.Arenas)
             }
-            slot == element(view, "back") -> open(player, EventsView.Ttt)
+            slot == element(view, "back") -> openRoot(player, EventsView.Ttt)
         }
     }
 
-    private fun openEventArenas(player: Player) {
-        service.queueControl(player.uniqueId).whenComplete { control, failure ->
+    private fun openEventArenas(player: Player, nativePresentation: Boolean = false, selection: String? = null) {
+        val id = player.uniqueId
+        val sourceSession = menuRuntime.session(player)
+        val token = UUID.randomUUID()
+        pendingDialogLoads[id] = token
+        val dialogLoading = nativePresentation && eventDialogs.openTttLoading(player, { openTtt(player) }) {
+            pendingDialogLoads.remove(id, token)
+        }
+        if (nativePresentation && !dialogLoading) dialogRuntime.close(player)
+        service.queueControl(id).whenComplete { control, failure ->
             Tasks.scheduler.runSync {
-                if (!player.isOnline) return@runSync
+                if (!pendingDialogLoads.remove(id, token) || !player.isOnline) return@runSync
+                if (!dialogLoading && menuRuntime.session(player) !== sourceSession) return@runSync
                 if (failure != null || control == null || !canControlQueue(player, control)) {
-                    open(player, EventsView.Ttt)
+                    if (dialogLoading) openTtt(player) else openRoot(player, EventsView.Ttt)
                     return@runSync
+                }
+                if (selection != null) {
+                    selectedArenas[id] = selection
+                    player.sendEventMessage(locale.render(
+                        "queue.arena-selected",
+                        player,
+                        mapOf("arena" to arenaName(selection, player)),
+                    ))
                 }
                 val view = EventsView.EventArenas
                 val arenaSlots = region(view, "arenas")
                 val available = service.selectableArenaIds().take(arenaSlots.size)
-                val selected = selectedArenaId(player.uniqueId)
+                val selected = selectedArenaId(id)
                 val inventory = inventory(
                     player,
                     view,
@@ -878,6 +896,7 @@ class ArcEventsMenu(
                     "menu.event-arenas.auto-lore",
                 ))
                 inventory.setItem(element(view, "back"), backItem(player))
+                if (dialogLoading) dialogRuntime.close(player)
                 show(player, view, inventory, available)
             }
         }
@@ -886,28 +905,13 @@ class ArcEventsMenu(
     private fun clickEventArenas(player: Player, slot: Int, renderedArenaIds: List<String>) {
         val view = EventsView.EventArenas
         if (slot == element(view, "back")) {
-            open(player, EventsView.Ttt)
+            openRoot(player, EventsView.Ttt)
             return
         }
         val selected = if (slot == element(view, "auto")) "auto" else {
             renderedArenaIds.getOrNull(region(view, "arenas").indexOf(slot))
         } ?: return
-        service.queueControl(player.uniqueId).whenComplete { control, failure ->
-            Tasks.scheduler.runSync {
-                if (!player.isOnline) return@runSync
-                if (failure != null || control == null || !canControlQueue(player, control)) {
-                    open(player, EventsView.Ttt)
-                    return@runSync
-                }
-                selectedArenas[player.uniqueId] = selected
-                player.sendEventMessage(locale.render(
-                    "queue.arena-selected",
-                    player,
-                    mapOf("arena" to arenaName(selected, player)),
-                ))
-                open(player, EventsView.EventArenas)
-            }
-        }
+        openEventArenas(player, selection = selected)
     }
 
     private fun canControlQueue(player: Player, control: QueueControlSnapshot): Boolean {
@@ -971,7 +975,7 @@ class ArcEventsMenu(
         val index = region(view, "offers").indexOf(slot)
         when {
             index >= 0 -> offers.getOrNull(index)?.let { service.buy(player, it); open(player, view) }
-            slot == element(view, "back") -> open(player, EventsView.Ttt)
+            slot == element(view, "back") -> openRoot(player, EventsView.Ttt)
         }
     }
 
@@ -996,7 +1000,7 @@ class ArcEventsMenu(
     }
 
     private fun clickRoster(player: Player, slot: Int) {
-        if (slot == element(EventsView.Roster, "back")) open(player, EventsView.Ttt)
+        if (slot == element(EventsView.Roster, "back")) openRoot(player, EventsView.Ttt)
     }
 
     private fun openBody(player: Player, bodyId: UUID) {
@@ -1133,7 +1137,7 @@ class ArcEventsMenu(
     private fun clickCombatLog(player: Player, page: Int, slot: Int) {
         val view = EventsView.CombatLog(page)
         when (slot) {
-            element(view, "back") -> open(player, EventsView.Report)
+            element(view, "back") -> openRoot(player, EventsView.Report)
             element(view, "previous") -> open(player, EventsView.CombatLog(page - 1))
             element(view, "next") -> open(player, EventsView.CombatLog(page + 1))
         }
