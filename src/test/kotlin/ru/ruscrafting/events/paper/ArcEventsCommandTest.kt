@@ -16,6 +16,8 @@ import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.domain.EventMode
 import ru.ruscrafting.events.domain.FirearmSoundPreset
+import ru.ruscrafting.events.domain.ZombiesDifficulty
+import java.util.concurrent.CompletableFuture
 
 class ArcEventsCommandTest : StringSpec({
     val plugin = mockk<Plugin>(relaxed = true) { every { isEnabled } returns true }
@@ -101,6 +103,50 @@ class ArcEventsCommandTest : StringSpec({
         executor.onTabComplete(sender, command, "arcevents", arrayOf("debug", "bootstrap", "auto", "Target")) shouldBe listOf("Target")
         executor.onTabComplete(sender, command, "arcevents", arrayOf("debug", "bootstrap", "auto", "target", "")) shouldBe emptyList()
         executor.onTabComplete(sender, command, "arcevents", arrayOf("debug", "role", "Target", "traitor", "")) shouldBe emptyList()
+    }
+
+    "Zombies admin practice uses the sender and debug bootstrap requires an explicit roster" {
+        val zombiesService = mockk<ArcEventsService>()
+        val config = mockk<ArcEventsConfig>(relaxed = true)
+        val locale = mockk<ArcEventsLocale>(relaxed = true) {
+            every { render(any(), any(), any()) } answers { Component.text(firstArg<String>()) }
+        }
+        val zombiesCommand = ArcEventsCommand(plugin, zombiesService, mockk(), mockk(), locale, { config },
+            { CompletableFuture.completedFuture(Result.success(Unit)) })
+        val player = mockk<Player>(relaxed = true) {
+            every { isOnline } returns true
+            every { hasPermission("arcevents.play") } returns true
+            every { hasPermission("arcevents.debug") } returns true
+        }
+        val console = mockk<CommandSender>(relaxed = true) {
+            every { hasPermission("arcevents.play") } returns true
+            every { hasPermission("arcevents.admin") } returns true
+        }
+        val start = arrayOf("admin", "zombies", "start", "HARD")
+        every { zombiesService.startZombiesPractice(player, ZombiesDifficulty.HARD) } returns
+            CompletableFuture.completedFuture(DebugMutationResult.APPLIED)
+
+        zombiesCommand.onCommand(player, command, "arcevents", start) shouldBe true
+        verify(exactly = 1) { locale.render("command.no-permission", player, emptyMap()) }
+        every { player.hasPermission("arcevents.admin") } returns true
+        zombiesCommand.onCommand(console, command, "arcevents", start) shouldBe true
+        zombiesCommand.onCommand(player, command, "arcevents", start + "OtherPlayer") shouldBe true
+        verify(exactly = 0) { zombiesService.startZombiesPractice(any(), any()) }
+        zombiesCommand.onTabComplete(console, command, "arcevents", arrayOf("admin", "zombies", "start", "")) shouldBe emptyList()
+        zombiesCommand.onTabComplete(player, command, "arcevents", arrayOf("admin", "zombies", "start", "ha")) shouldBe listOf("hard", "hardcore")
+        zombiesCommand.onCommand(player, command, "arcevents", start) shouldBe true
+        scheduler.executeImmediate()
+        verify(exactly = 1) { zombiesService.startZombiesPractice(player, ZombiesDifficulty.HARD) }
+
+        every { config.debugEnabled } returns true
+        val difficulty = arrayOf("debug", "zombies", "difficulty", "hard")
+        zombiesCommand.onCommand(player, command, "arcevents", difficulty) shouldBe true
+        zombiesCommand.onTabComplete(player, command, "arcevents", arrayOf("debug", "zombies", "")) shouldBe emptyList()
+        every { config.debugMutationsAllowed } returns true
+        zombiesCommand.onCommand(player, command, "arcevents", difficulty + "extra") shouldBe true
+        zombiesCommand.onCommand(player, command, "arcevents", arrayOf("debug", "bootstrap", "zombies")) shouldBe true
+        verify(exactly = 0) { zombiesService.debugZombiesDifficulty(any()) }
+        verify(exactly = 0) { zombiesService.debugStartLocalAsync(any(), any(), any()) }
     }
 
     "sound selection rejects missing permission and invalid arguments before changing the shared preset" {

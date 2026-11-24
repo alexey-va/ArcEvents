@@ -607,6 +607,44 @@ station displays and temporary effects before the existing player-state
 recovery flow returns the original loadout. Normal ARC event statistics remain
 available, with no Vault, premium-token or item reward.
 
+### Administrator practice scenarios
+
+On the ArcEvents host, run `/events admin zombies start <difficulty>`
+with `arcevents.admin`. The existing dedicated Store arena hosts the practice
+and ArcEvents restores the original inventory and position on exit.
+The available profiles are `classic` (configured rules), `easy` (25 waves),
+`hard` (35), `hardcore` (50) and `insane` (one boss).
+The public queue uses Classic rules. On a configured lab, the existing
+`debug bootstrap zombies <players...>` route also supports these profiles.
+
+| Command after `/events admin zombies` | Practice action |
+| --- | --- |
+| `status` | Inspect difficulty, wave, living actors, pending spawns and field equipment |
+| `wave <number>` | Replace the current wave with the specified wave |
+| `spawn <walker\|runner\|brute\|strong\|bloater\|boss>` | Add a test actor within the active limit |
+| `airdrop` | Start a test flyover and cargo drop |
+| `grant <player>` | Give an active participant a test wallet and supplies |
+| `gear <player> <wire\|wall\|bench\|turret\|he\|ap\|frag\|smoke>` | Run the same action as the in-match workbench |
+| `stop` | End practice through normal recovery |
+
+Hard adds runners, strong attackers and bloaters. Hardcore adds armor.
+Bloaters burst in a two-block radius on defeat. The field workbench in
+hotbar slot five opens the local equipment menu. Aim at a clear floor tile to
+deploy a barrier or turret. Aim to throw a grenade or fire a shell from
+within four blocks of your turret. Wire slows zombies and a stone barrier
+stalls them until it breaks. The frag and HE blast reach three and five blocks,
+respectively. AP concentrates damage into one hit and bypasses armor.
+Both shells cost seven copper and nine powder. The first bench upgrade unlocks
+smoke and the second unlocks turret construction with four iron.
+
+The credited player earns one copper and one powder per zombie. After a wave,
+the plane drops a crate. Right-click the landed crate to claim three copper,
+four powder and two iron, with independent 70% and 20% chances for bonus points
+and a replacement weapon. Each standing participant may claim a crate once.
+The arena lease owns the visuals and effects, including cleanup on cancel or
+disconnect. The practice kit and wallet expire with the match.
+[Balance assumptions and scenarios](docs/economy/zombies-field-practice-20261124.md).
+
 Permission-gated host QA can use `/arcevents debug bootstrap zombies PlayerName`.
 `debug status` exposes wave, phase, alive, pending, `zombies_box` and comma-separated
 `zombies_boards` counts; `debug player` exposes local points, weapon, status,

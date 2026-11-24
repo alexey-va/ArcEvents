@@ -14,6 +14,9 @@ import ru.ruscrafting.events.domain.FirearmSoundPreset
 import ru.ruscrafting.events.domain.TttRole
 import ru.ruscrafting.events.domain.TttTeam
 import ru.ruscrafting.events.domain.EventMode
+import ru.ruscrafting.events.domain.ZombieKind
+import ru.ruscrafting.events.domain.ZombiesDifficulty
+import ru.ruscrafting.events.domain.ZombiesGear
 import ru.ruscrafting.events.paper.apocalypse.ApocalypseWorldResetPlan
 
 internal fun isArcEventsCommandLabel(label: String?): Boolean = when (label?.lowercase()) {
@@ -108,7 +111,7 @@ class ArcEventsCommand internal constructor(
                     else -> listOf(EventMode.FISHING.id)
                 }
                 "admin" -> listOf("status", "player", "network", "arenas", "arena", "recovery", "start", "stop", "reload", "recover", "sound", "guide", "apocalypse-reset-plan", "apocalypse-reset") +
-                    if (sender is Player) listOf("menu", "weapons", "gun", "solo", "apocalypse") + EventMode.entries.map(EventMode::id) else emptyList()
+                    if (sender is Player) listOf("menu", "weapons", "gun", "solo", "apocalypse") + EventMode.entries.map(EventMode::id) else listOf("zombies")
                 "burst" -> if (sender is Player) listOf("1", "3", "6", "full", "default", "menu") else emptyList()
                 "qa" -> listOf("status", "player", "network", "arenas", "recovery")
                 "debug" -> if (settings().debugMutationsAllowed) DEBUG_ACTIONS else DEBUG_READ_ACTIONS
@@ -129,6 +132,7 @@ class ArcEventsCommand internal constructor(
         }
         if (args.size == 3 && root in setOf("qa", "admin") && action == "player") return servicePlayerNames()
         if (root == "admin") {
+            if (action == "zombies") return zombiesPracticeCompletions(sender, args, admin = true)
             if (args.size == 3 && action == "menu" && sender is Player) return EventMode.entries.map(EventMode::id) + "apocalypse"
             if (args.size == 3 && action == "solo" && sender is Player) return EventMode.entries.map(EventMode::id) + "apocalypse"
             if (args.size == 3 && action == "gun" && sender is Player) return listOf("default")
@@ -142,17 +146,19 @@ class ArcEventsCommand internal constructor(
             if (args.size == 4 && action == "apocalypse-reset") return listOf("confirm")
         }
         if (root != "debug") return emptyList()
+        if (action == "zombies") return zombiesPracticeCompletions(sender, args, admin = false)
         return when (args.size) {
             3 -> when (action) {
                 "player", "credit", "role", "health", "weapon", "ammo", "item", "kill", "revive", "discover", "dna", "call", "menu", "close" -> servicePlayerNames()
-                "bootstrap" -> arenaIds(includeAuto = true) + servicePlayerNames()
+                "bootstrap" -> (EventMode.entries.map(EventMode::id) + arenaIds(includeAuto = true) + servicePlayerNames()).distinct()
                 "end" -> listOf("innocents", "traitors")
                 "timer" -> listOf("5", "30", "60", "300")
                 "loot" -> listOf("status", "respawn", "clear")
                 else -> emptyList()
             }
             4 -> when (action) {
-                "bootstrap" -> servicePlayerNames().filterNot { name -> args.drop(2).dropLast(1).any { it.equals(name, true) } }
+                "bootstrap" -> (parseMode(args[2])?.let { arenaIds(it, includeAuto = true) }.orEmpty() +
+                    servicePlayerNames().filterNot { it.equals(args[2], true) }).distinct()
                 "credit" -> listOf("-2", "-1", "1", "2", "16")
                 "role" -> listOf("innocent", "traitor", "detective")
                 "health" -> listOf("1", "10", "20")
@@ -171,6 +177,24 @@ class ArcEventsCommand internal constructor(
             }
             else -> if (action == "bootstrap") servicePlayerNames().filterNot { name -> args.drop(2).dropLast(1).any { it.equals(name, true) } } else emptyList()
         }
+    }
+
+    private fun zombiesPracticeCompletions(sender: CommandSender, args: Array<out String>, admin: Boolean): List<String> = when (args.size) {
+        3 -> ZOMBIES_PRACTICE_ACTIONS + when {
+            !admin -> listOf("difficulty")
+            sender is Player -> listOf("help", "start", "stop")
+            else -> listOf("help", "stop")
+        }
+        4 -> when (args[2].lowercase()) {
+            "difficulty" -> if (!admin) ZOMBIES_DIFFICULTIES else emptyList()
+            "start" -> if (admin && sender is Player) ZOMBIES_DIFFICULTIES else emptyList()
+            "wave" -> service.zombiesPracticeWaveNumbers()
+            "spawn" -> ZombieKind.entries.map { it.name.lowercase() }
+            "grant", "gear" -> service.zombiesPracticePlayerNames()
+            else -> emptyList()
+        }
+        5 -> if (args[2].equals("gear", true)) ZombiesGear.entries.map { it.name.lowercase() } else emptyList()
+        else -> emptyList()
     }
 
     private fun team(sender: CommandSender, args: List<String>) {
@@ -194,6 +218,7 @@ class ArcEventsCommand internal constructor(
             return
         }
         when (action) {
+            "zombies" -> zombiesPractice(sender, args.drop(1), admin = true, reply = reply)
             "apocalypse-reset-plan" -> {
                 val target = args.drop(1).singleOrNull()
                 if (target == null || apocalypse == null) {
@@ -351,6 +376,7 @@ class ArcEventsCommand internal constructor(
         if (!settings().debugMutationsAllowed) {
             return debugResult(sender, action, DebugMutationResult.MUTATIONS_DISABLED)
         }
+        if (action == "zombies") return zombiesPractice(sender, args.drop(1), admin = false)
         if (action == "start") {
             sendStartResult(sender, StartMessageAudience.DEBUG)
             return
@@ -358,6 +384,9 @@ class ArcEventsCommand internal constructor(
         if (action == "bootstrap") {
             val request = parseDebugBootstrap(args.drop(1)) { mode -> arenaIds(mode, includeAuto = true) }
             val requested = request.players
+            if (request.mode == EventMode.ZOMBIES && requested.isEmpty()) {
+                return debugResult(sender, action, DebugMutationResult.INSUFFICIENT_PLAYERS)
+            }
             val players = if (requested.isEmpty()) plugin.server.onlinePlayers.toList() else requested.mapNotNull(::servicePlayer)
             if (requested.isNotEmpty() && players.size != requested.distinct().size) {
                 debugResult(sender, action, DebugMutationResult.PLAYER_NOT_FOUND)
@@ -422,7 +451,7 @@ class ArcEventsCommand internal constructor(
                 }
                 else -> DebugMutationResult.INVALID_ARGUMENT
             }
-            "cleanup" -> service.debugCleanup()
+            "cleanup" -> if (args.size == 1) service.debugCleanup() else DebugMutationResult.INVALID_ARGUMENT
             "menu" -> withPlayer(args.getOrNull(1)) { target ->
                 val view = parseView(args.getOrNull(2)) ?: return@withPlayer DebugMutationResult.INVALID_ARGUMENT
                 menu.openRoot(target, view)
@@ -437,13 +466,64 @@ class ArcEventsCommand internal constructor(
         debugResult(sender, action, result)
     }
 
-    private fun debugResult(sender: CommandSender, action: String, result: DebugMutationResult) {
+    private fun zombiesPractice(
+        sender: CommandSender,
+        args: List<String>,
+        admin: Boolean,
+        reply: (Component) -> Unit = sender::sendEventMessage,
+    ) {
+        val action = args.firstOrNull()?.lowercase()
+        if (action == null || admin && action == "help" && args.size == 1) {
+            return reply(locale.render(if (admin) "admin.zombies-usage" else "debug.zombies-usage", sender))
+        }
+        if (action == "status" && args.size == 1) {
+            return reply(Component.text(service.zombiesPracticeStatus()))
+        }
+        val argument = args.getOrNull(1)?.takeIf { args.size == 2 }
+        if (admin && action == "start") {
+            val difficulty = parseZombiesDifficulty(argument)
+                ?: return debugResult(sender, "zombies start", DebugMutationResult.INVALID_ARGUMENT, reply)
+            val tester = player(sender) ?: return
+            service.startZombiesPractice(tester, difficulty).whenComplete { result, failure ->
+                if (plugin.isEnabled) Tasks.scheduler.runSync {
+                    if (plugin.isEnabled && tester.isOnline) {
+                        debugResult(tester, "zombies start", if (failure == null) result else DebugMutationResult.INTERNAL_ERROR, reply)
+                    }
+                }
+            }
+            return
+        }
+        val result = when (action) {
+            "difficulty" -> parseZombiesDifficulty(argument).takeUnless { admin }
+                ?.let(service::debugZombiesDifficulty) ?: DebugMutationResult.INVALID_ARGUMENT
+            "stop" -> if (admin && args.size == 1) service.stopZombiesPractice() else DebugMutationResult.INVALID_ARGUMENT
+            "wave" -> argument?.toIntOrNull()?.let(service::zombiesPracticeWave) ?: DebugMutationResult.INVALID_ARGUMENT
+            "spawn" -> ZombieKind.entries.firstOrNull { it.name.equals(argument, true) }
+                ?.let(service::zombiesPracticeSpawn) ?: DebugMutationResult.INVALID_ARGUMENT
+            "airdrop" -> if (args.size == 1) service.zombiesPracticeAirdrop() else DebugMutationResult.INVALID_ARGUMENT
+            "grant" -> if (argument != null) withPlayer(argument, service::zombiesPracticeGrant) else DebugMutationResult.INVALID_ARGUMENT
+            "gear" -> {
+                val gear = ZombiesGear.entries.firstOrNull { it.name.equals(args.getOrNull(2), true) }
+                if (args.size == 3 && gear != null) withPlayer(args[1]) { service.zombiesPracticeGear(it, gear) }
+                else DebugMutationResult.INVALID_ARGUMENT
+            }
+            else -> DebugMutationResult.INVALID_ARGUMENT
+        }
+        debugResult(sender, "zombies $action", result, reply)
+    }
+
+    private fun debugResult(
+        sender: CommandSender,
+        action: String,
+        result: DebugMutationResult,
+        reply: (Component) -> Unit = sender::sendEventMessage,
+    ) {
         val values = mapOf(
             "action" to locale.text(action.take(32)),
             "reason" to if (result == DebugMutationResult.APPLIED) Component.empty()
                 else locale.render("debug.reason.${result.name.lowercase().replace('_', '-')}", sender),
         )
-        sender.sendEventMessage(locale.render(if (result == DebugMutationResult.APPLIED) "debug.applied" else "debug.rejected", sender, values))
+        reply(locale.render(if (result == DebugMutationResult.APPLIED) "debug.applied" else "debug.rejected", sender, values))
     }
 
     private fun withPlayer(name: String?, action: (Player) -> DebugMutationResult): DebugMutationResult =
@@ -565,14 +645,17 @@ class ArcEventsCommand internal constructor(
     internal fun selectedAdminArena(player: Player, mode: EventMode): String = selectedAdminArenas[senderSelectionKey(player) to mode] ?: "auto"
     private fun servicePlayer(name: String): Player? = plugin.server.getPlayerExact(name)
     private fun parseMode(raw: String?): EventMode? = raw?.lowercase()?.let(EventMode::fromId)
+    private fun parseZombiesDifficulty(raw: String?): ZombiesDifficulty? = ZombiesDifficulty.entries.firstOrNull { it.name.equals(raw, true) }
 
     companion object {
         private val DEBUG_READ_ACTIONS = listOf("help", "status", "player", "network", "arenas", "recovery", "bodies")
         internal val DEBUG_ACTIONS = DEBUG_READ_ACTIONS + listOf(
             "start", "bootstrap", "advance", "end", "timer", "credit", "role", "health",
             "weapon", "ammo", "item", "kill", "revive", "discover", "dna", "call",
-            "loot", "menu", "close", "cleanup",
+            "loot", "menu", "close", "cleanup", "zombies",
         )
+        private val ZOMBIES_PRACTICE_ACTIONS = listOf("status", "wave", "spawn", "airdrop", "grant", "gear")
+        private val ZOMBIES_DIFFICULTIES = ZombiesDifficulty.entries.map { it.name.lowercase() }
         internal val ADMIN_WEAPON_ACTIONS = listOf("add", "remove", "show")
         internal val ADMIN_SOUND_PRESETS = listOf("1", "2", "3", "original", "default", "sharp", "heavy", "echo")
         internal val DEBUG_ITEMS = listOf(

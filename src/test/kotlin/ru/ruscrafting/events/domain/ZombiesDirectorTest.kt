@@ -9,6 +9,8 @@ class ZombiesDirectorTest : StringSpec({
     val first = UUID.nameUUIDFromBytes("survivor-one".toByteArray())
     val second = UUID.nameUUIDFromBytes("survivor-two".toByteArray())
     fun director(vararg ids: UUID) = ZombiesDirector(ids.toSet(), ZombiesRules(), 0)
+    fun practice(difficulty: ZombiesDifficulty, vararg ids: UUID) =
+        ZombiesDirector(ids.toSet(), ZombiesRules.forDifficulty(difficulty), 0)
     fun clearWave(game: ZombiesDirector, killer: UUID): List<ZombieKind> {
         game.tick(game.nextWaveAt)
         val kinds = mutableListOf<ZombieKind>()
@@ -46,6 +48,154 @@ class ZombiesDirectorTest : StringSpec({
         }
         shouldThrow<IllegalArgumentException> { director() }
         shouldThrow<IllegalArgumentException> { ZombiesRules(maximumAlive = 33).validated() }
+    }
+
+    "long practice runs reach their configured final wave with distinct enemy mixes and bounded scaling" {
+        for ((difficulty, waveCount) in listOf(ZombiesDifficulty.EASY to 25, ZombiesDifficulty.HARD to 35,
+            ZombiesDifficulty.HARDCORE to 50)) {
+            val game = practice(difficulty, first)
+            game.rules.waves shouldBe waveCount
+            repeat(waveCount) { index ->
+                val kinds = clearWave(game, first)
+                val wave = index + 1
+                game.wave shouldBe wave
+                game.completedWaves shouldBe wave
+                game.alive shouldBe 0
+                game.pending shouldBe 0
+                (kinds.size in 7..28) shouldBe true
+                (game.health(ZombieKind.WALKER) in 14.0..92.0) shouldBe true
+                (ZombieKind.BOSS in kinds) shouldBe false
+                (ZombieKind.BRUTE in kinds) shouldBe (wave % 5 == 0)
+                (ZombieKind.RUNNER in kinds) shouldBe (difficulty != ZombiesDifficulty.EASY || wave >= 3)
+                (ZombieKind.STRONG in kinds) shouldBe (difficulty == ZombiesDifficulty.HARDCORE ||
+                    difficulty == ZombiesDifficulty.HARD && wave >= 3)
+                (ZombieKind.BLOATER in kinds) shouldBe (difficulty == ZombiesDifficulty.HARDCORE ||
+                    difficulty == ZombiesDifficulty.HARD && wave >= 5)
+            }
+            game.phase shouldBe ZombiesPhase.WON
+            game.jumpToWave(1, 100_000) shouldBe false
+        }
+    }
+
+    "insane schedules one boss and permits the final supply claim during victory" {
+        val game = practice(ZombiesDifficulty.INSANE, first, second)
+        game.tick(0)
+        game.waveSize shouldBe 1
+        game.spawn() shouldBe ZombieKind.BOSS
+        game.spawn() shouldBe null
+        (game.health(ZombieKind.BOSS) > game.health(ZombieKind.BRUTE)) shouldBe true
+        game.removeEnemy(ZombieKind.BOSS, first, 100)
+        game.phase shouldBe ZombiesPhase.WON
+        game.completedWaves shouldBe 1
+        game.canAcceptAirdrop(first) shouldBe true
+        game.canAcceptAirdrop(UUID.randomUUID()) shouldBe false
+        val before = game.players.getValue(first)
+        game.acceptAirdrop(first, bonusPoints = true, deliveredWeapon = FirearmId.G36) shouldBe true
+        game.players.getValue(first) shouldBe before.copy(
+            copper = before.copper + 3, powder = before.powder + 4, iron = before.iron + 2,
+            points = before.points + 250, weapon = FirearmId.G36,
+        )
+        game.buyGear(first, ZombiesGear.WIRE) shouldBe false
+        game.grantSupplies(first, iron = 5) shouldBe false
+    }
+
+    "debug enemies respect the cap and wave jumps restart the schedule without credit for skipped or repeated waves" {
+        val game = practice(ZombiesDifficulty.HARDCORE, first)
+        clearWave(game, first)
+        game.jumpToWave(5, 20_000) shouldBe true
+        val scheduled = game.pending
+        repeat(game.rules.maximumAlive) { game.spawn(ZombieKind.BLOATER) shouldBe ZombieKind.BLOATER }
+        game.pending shouldBe scheduled
+        game.waveSize shouldBe scheduled + game.rules.maximumAlive
+        game.spawn() shouldBe null
+        game.spawn(ZombieKind.RUNNER) shouldBe null
+        game.removeEnemy(ZombieKind.BLOATER, null, 20_500)
+        game.spawn() shouldBe ZombieKind.BRUTE
+        game.pending shouldBe scheduled - 1
+
+        game.jumpToWave(0, 21_000) shouldBe false
+        game.jumpToWave(51, 21_000) shouldBe false
+        game.wave shouldBe 5
+        game.alive shouldBe game.rules.maximumAlive
+        game.jumpToWave(5, 22_000) shouldBe true
+        game.alive shouldBe 0
+        game.pending shouldBe scheduled
+        game.nextWaveAt shouldBe 22_000
+        game.completedWaves shouldBe 1
+        clearWave(game, first).first() shouldBe ZombieKind.BRUTE
+        game.completedWaves shouldBe 2
+        game.jumpToWave(5, 40_000) shouldBe true
+        clearWave(game, first)
+        game.completedWaves shouldBe 2
+    }
+
+    "materials go only to the credited standing killer and drops require an eligible practice player" {
+        val game = practice(ZombiesDifficulty.HARD, first, second)
+        game.tick(0)
+        repeat(3) { game.spawn() }
+        game.removeEnemy(ZombieKind.WALKER, null, 100)
+        game.removeEnemy(ZombieKind.WALKER, UUID.randomUUID(), 110)
+        game.removeEnemy(ZombieKind.RUNNER, first, 120)
+        game.players.getValue(first) shouldBe ZombiesSurvivor(points = 625, copper = 1, powder = 1)
+        game.players.getValue(second) shouldBe ZombiesSurvivor(points = 550)
+
+        game.down(second, 130) shouldBe true
+        game.canAcceptAirdrop(second) shouldBe false
+        game.acceptAirdrop(second, bonusPoints = true) shouldBe false
+        game.acceptAirdrop(first, bonusPoints = false, deliveredWeapon = FirearmId.FIVE_SEVEN) shouldBe false
+        game.acceptAirdrop(first, bonusPoints = false, deliveredWeapon = FirearmId.G36) shouldBe true
+        game.players.getValue(first) shouldBe ZombiesSurvivor(points = 625, weapon = FirearmId.G36,
+            copper = 4, powder = 5, iron = 2)
+        game.acceptAirdrop(first, bonusPoints = true) shouldBe true
+        game.players.getValue(first) shouldBe ZombiesSurvivor(points = 875, weapon = FirearmId.G36,
+            copper = 7, powder = 9, iron = 4)
+        game.down(first, 140) shouldBe true
+        game.phase shouldBe ZombiesPhase.LOST
+        game.canAcceptAirdrop(first) shouldBe false
+
+        val classic = director(first)
+        classic.tick(0)
+        classic.jumpToWave(5, 500) shouldBe false
+        classic.spawn(ZombieKind.BOSS) shouldBe null
+        classic.buyGear(first, ZombiesGear.WIRE) shouldBe false
+        classic.grantSupplies(first, copper = 5) shouldBe false
+        classic.acceptAirdrop(first, bonusPoints = true) shouldBe false
+        clearWave(classic, first)
+        classic.players.getValue(first) shouldBe ZombiesSurvivor(points = 1475, selfRevives = 1)
+    }
+
+    "gear prices debit exact wallet balances and enforce bench prerequisites atomically" {
+        val game = practice(ZombiesDifficulty.EASY, first)
+        game.buyGear(first, ZombiesGear.WIRE) shouldBe true
+        game.players.getValue(first).points shouldBe 0
+        game.buyGear(first, ZombiesGear.WALL) shouldBe false
+        game.grantSupplies(first, copper = 17, powder = 22, iron = 4, points = 3800) shouldBe true
+        val funded = game.players.getValue(first)
+        game.grantSupplies(first, copper = -1, powder = 1) shouldBe false
+        game.grantSupplies(first, copper = Int.MAX_VALUE, powder = 1) shouldBe false
+        game.buyGear(first, ZombiesGear.SMOKE) shouldBe false
+        game.buyGear(first, ZombiesGear.TURRET) shouldBe false
+        game.players.getValue(first) shouldBe funded
+
+        game.buyGear(first, ZombiesGear.WALL) shouldBe true
+        game.buyGear(first, ZombiesGear.BENCH) shouldBe true
+        game.players.getValue(first).points shouldBe 2000
+        game.players.getValue(first).bench shouldBe 1
+        game.buyGear(first, ZombiesGear.TURRET) shouldBe false
+        game.buyGear(first, ZombiesGear.SMOKE) shouldBe true
+        game.buyGear(first, ZombiesGear.BENCH) shouldBe true
+        game.buyGear(first, ZombiesGear.TURRET) shouldBe true
+        game.buyGear(first, ZombiesGear.HE) shouldBe true
+        game.buyGear(first, ZombiesGear.AP) shouldBe true
+        game.buyGear(first, ZombiesGear.FRAG) shouldBe true
+        game.players.getValue(first) shouldBe ZombiesSurvivor(points = 0, selfRevives = 1, bench = 2)
+        game.grantSupplies(first, copper = 7, powder = 8, points = 3000) shouldBe true
+        val remainder = game.players.getValue(first)
+        game.buyGear(first, ZombiesGear.HE) shouldBe false
+        game.buyGear(first, ZombiesGear.BENCH) shouldBe false
+        game.players.getValue(first) shouldBe remainder
+        game.down(first, 1) shouldBe true
+        game.buyGear(first, ZombiesGear.WIRE) shouldBe false
     }
 
     "completed wave count remains exact between waves and after a failed following wave" {

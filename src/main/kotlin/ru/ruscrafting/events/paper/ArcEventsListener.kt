@@ -310,7 +310,11 @@ class ArcEventsListener(
             }
             EventItemKind.SHOP -> {
                 event.isCancelled = true
-                if (service.isFishingParticipant(player.uniqueId)) {
+                if (service.isZombiesParticipant(player.uniqueId)) {
+                    if (event.hand == EquipmentSlot.HAND && event.action in setOf(Action.RIGHT_CLICK_AIR, Action.RIGHT_CLICK_BLOCK)) {
+                        menu.openZombiesFieldKit(player)
+                    }
+                } else if (service.isFishingParticipant(player.uniqueId)) {
                     if (event.hand == EquipmentSlot.HAND && event.action in setOf(Action.RIGHT_CLICK_AIR, Action.RIGHT_CLICK_BLOCK)) {
                         menu.openFishingTraderRoot(player)
                     }

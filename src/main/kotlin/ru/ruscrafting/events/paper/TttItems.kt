@@ -142,6 +142,11 @@ class TttItems(
         locale.render("arcade.knife-name", player), locale.lore("arcade.knife-lore", player),
     )
 
+    fun zombiesFieldKit(player: Player, matchId: String): ItemStack = tagged(
+        Material.SMITHING_TABLE, EventItemKind.SHOP, matchId,
+        locale.render("zombies.field.kit", player), locale.lore("zombies.field.kit-lore", player),
+    )
+
     fun roundReport(player: Player, matchId: String): ItemStack = tagged(
         Material.WRITTEN_BOOK,
         EventItemKind.ROUND_REPORT,

@@ -137,6 +137,10 @@ class ArcEventsLocale(
             "zombies.box.opened", "zombies.box.expired", "zombies.box.cancelled", "zombies.box.claimed",
             "zombies.barricade.hint", "zombies.barricade.repairing", "zombies.barricade.full",
             "zombies.barricade.breached", "zombies.barricade.repaired",
+            "zombies.field.kit", "zombies.field.balance", "zombies.field.instructions", "zombies.field.recipes",
+            "zombies.field.done", "zombies.field.unavailable", "zombies.field.strong", "zombies.field.bloater",
+            "zombies.field.boss", "zombies.field.boss-warning", "zombies.field.drop-incoming", "zombies.field.drop-ready",
+            "zombies.field.drop-claimed", "zombies.field.drop-points",
             "arcade.preparing", "arcade.countdown", "arcade.started", "arcade.hud", "arcade.gungame-hud", "arcade.disasters-hud", "arcade.fishing-hud", "arcade.result",
             "arcade.eliminated", "arcade.respawn", "arcade.disaster-warning", "arcade.hazard-meteors",
             "arcade.hazard-lightning", "arcade.hazard-fog", "arcade.hazard-meteors-guide",
@@ -163,6 +167,7 @@ class ArcEventsLocale(
             "downed", "teammate-downed", "reviving", "revived", "waiting", "weapon-received", "hud-wave", "hud-intermission",
             "hud-self-revive", "hud-downed", "hud-waiting", "result-success", "result-defeat", "result-timeout", "supply-nearby", "supply-balance",
             "supply-price", "supply-maxed", "supply-poor", "supply-session-only", "supply-buy", "supply-done", "supply-changed").map { "zombies.$it" } +
+            ru.ruscrafting.events.domain.ZombiesGear.entries.map { "zombies.field.${it.name.lowercase()}-action" } +
             ru.ruscrafting.events.domain.ZombiesOffer.entries.flatMap { offer -> listOf(
                 "zombies.station.${offer.name.lowercase()}", "zombies.offer.${offer.name.lowercase()}", "zombies.offer.${offer.name.lowercase()}-help",
             ) } + FirearmId.entries.flatMap { id ->
@@ -170,6 +175,7 @@ class ArcEventsLocale(
         } + FirearmRarity.entries.map { rarity -> "weapon.rarity.${rarity.name.lowercase()}" }
 
         val REQUIRED_LISTS = setOf(
+            "zombies.field.kit-lore",
             "menu.admin.solo-test-lore", "apocalypse.enter-lore", "apocalypse.test-lore", "dialog.rules-apocalypse-0",
             "menu.main.ttt-lore", "menu.main.stats-lore", "menu.main.help-lore", "menu.event.admin-panel-lore", "menu.event.admin-inventory-lore",
             "menu.main.main-body", "menu.common.close-lore",

@@ -53,6 +53,10 @@ import ru.ruscrafting.events.domain.TttMatchRuntime
 import ru.ruscrafting.events.domain.TttParticipant
 import ru.ruscrafting.events.domain.TttRole
 import ru.ruscrafting.events.domain.TttTeam
+import ru.ruscrafting.events.domain.ZombieKind
+import ru.ruscrafting.events.domain.ZombiesDifficulty
+import ru.ruscrafting.events.domain.ZombiesGear
+import ru.ruscrafting.events.domain.ZombiesStatus
 import ru.ruscrafting.events.domain.team
 import ru.ruscrafting.events.network.QueueEntry
 import ru.ruscrafting.events.network.QueueState
@@ -150,6 +154,7 @@ class ArcEventsService(
         ::teleport, ::recoverPlayer, { player, recovery -> completeRecovery(player, recovery) }, ::clearWeaponState,
         packetDisplays, clock, hud, work, practiceOpponentLocation = { practiceFighters?.actor(it)?.location })
     private var arcadeRules: ArcadeRules? = null
+    private var nextDebugZombiesDifficulty = ZombiesDifficulty.CLASSIC
     private var reservation: ReservationBatch? = null
     private var refillTimeout: ScheduledTask? = null
     private var practice: PracticeRoster? = null
@@ -1463,6 +1468,10 @@ class ArcEventsService(
             "role" to (participant?.role?.name?.lowercase() ?: "-"),
             "status" to ((participant?.status ?: arcadePlayer?.status)?.name?.lowercase() ?: "none"),
             "zombies_status" to (zombiePlayer?.status?.name?.lowercase() ?: "-"),
+            "zombies_copper" to (zombiePlayer?.copper ?: 0),
+            "zombies_powder" to (zombiePlayer?.powder ?: 0),
+            "zombies_iron" to (zombiePlayer?.iron ?: 0),
+            "zombies_bench" to (zombiePlayer?.bench ?: 0),
             "zombies_points" to (zombiePlayer?.points ?: 0),
             "zombies_weapon" to (zombiePlayer?.weapon?.name?.lowercase() ?: "-"),
             "zombies_power" to (zombiePlayer?.power ?: 0),
@@ -1527,7 +1536,7 @@ class ArcEventsService(
         }
 
     fun debugStartLocalAsync(players: List<Player>, arenaId: String? = null, mode: EventMode = EventMode.TTT): CompletableFuture<DebugMutationResult> {
-        if (mode != EventMode.TTT) return debugStartArcadeAsync(players, arenaId, mode)
+        if (mode != EventMode.TTT) return startLocalArcadeAsync(players, arenaId, mode)
         val currentSettings = settings()
         if (!currentSettings.debugMutationsAllowed) return CompletableFuture.completedFuture(DebugMutationResult.MUTATIONS_DISABLED)
         if (currentSettings.nodeMode != NodeMode.HOST) return CompletableFuture.completedFuture(DebugMutationResult.WRONG_NODE)
@@ -1786,8 +1795,81 @@ class ArcEventsService(
         return changed.thenApply { DebugMutationResult.APPLIED }
     }
 
+    internal fun zombiesPracticeStatus(): String {
+        val difficulty = arcade.zombiesPracticeDifficulty
+        val current = arcade.current.takeIf { difficulty != null }
+        return ArcEventsDebug.qa(
+            "server" to settings().serverId,
+            "game" to EventMode.ZOMBIES.id,
+            "match" to current?.matchId,
+            "match_phase" to (current?.phase?.name?.lowercase() ?: "idle"),
+            "active_difficulty" to difficulty?.name?.lowercase(),
+            "next_debug_difficulty" to nextDebugZombiesDifficulty.name.lowercase(),
+        ) + arcade.zombiesPracticeAdventure()?.debugStatus()?.let { " $it" }.orEmpty()
+    }
+
+    internal fun zombiesPracticePlayerNames(): List<String> {
+        val adventure = arcade.zombiesPracticeAdventure()?.takeIf { it.director.rules.practice } ?: return emptyList()
+        return adventure.director.players.filterValues { it.status == ZombiesStatus.ALIVE }.keys.mapNotNull { id ->
+            plugin.server.getPlayer(id)?.takeIf(adventure::belongsTo)?.name
+        }
+    }
+
+    internal fun zombiesPracticeWaveNumbers(): List<String> {
+        val rules = arcade.zombiesPracticeAdventure()?.director?.rules ?: return emptyList()
+        return if (rules.practice) (1..rules.waves).map(Int::toString) else emptyList()
+    }
+
+    internal fun debugZombiesDifficulty(difficulty: ZombiesDifficulty): DebugMutationResult {
+        val config = settings()
+        if (!config.debugMutationsAllowed) return DebugMutationResult.MUTATIONS_DISABLED
+        if (config.nodeMode != NodeMode.HOST) return DebugMutationResult.WRONG_NODE
+        nextDebugZombiesDifficulty = difficulty
+        return DebugMutationResult.APPLIED
+    }
+
+    internal fun startZombiesPractice(player: Player, difficulty: ZombiesDifficulty): CompletableFuture<DebugMutationResult> =
+        if (!player.hasPermission("arcevents.admin")) CompletableFuture.completedFuture(DebugMutationResult.PRECONDITION_FAILED)
+        else startLocalArcadeAsync(listOf(player), null, EventMode.ZOMBIES, adminPracticeDifficulty = difficulty)
+
+    internal fun stopZombiesPractice(): DebugMutationResult {
+        if (settings().nodeMode != NodeMode.HOST) return DebugMutationResult.WRONG_NODE
+        if (arcade.zombiesPracticeDifficulty == null) return DebugMutationResult.NO_MATCH
+        val phase = arcade.current?.phase
+        if (phase !in LIVE_PHASES && phase != MatchPhase.RESOLVING) return DebugMutationResult.WRONG_PHASE
+        arcade.cancel(MatchEndReason.ADMIN)
+        return DebugMutationResult.APPLIED
+    }
+
+    internal fun zombiesPracticeWave(number: Int): DebugMutationResult = withZombiesPractice { adventure ->
+        if (number !in 1..adventure.director.rules.waves) DebugMutationResult.INVALID_ARGUMENT
+        else zombiesPracticeResult(adventure.debugWave(number))
+    }
+
+    internal fun zombiesPracticeSpawn(kind: ZombieKind): DebugMutationResult = withZombiesPractice { zombiesPracticeResult(it.debugSpawn(kind)) }
+    internal fun zombiesPracticeAirdrop(): DebugMutationResult = withZombiesPractice { zombiesPracticeResult(it.debugAirdrop()) }
+    internal fun zombiesPracticeGrant(player: Player): DebugMutationResult =
+        withZombiesPractice(player) { zombiesPracticeResult(it.debugGrant(player)) }
+    internal fun zombiesPracticeGear(player: Player, gear: ZombiesGear): DebugMutationResult =
+        withZombiesPractice(player) { zombiesPracticeResult(it.debugGear(player, gear)) }
+
+    private fun withZombiesPractice(player: Player? = null, action: (ZombiesAdventure) -> DebugMutationResult): DebugMutationResult {
+        if (settings().nodeMode != NodeMode.HOST) return DebugMutationResult.WRONG_NODE
+        if (arcade.zombiesPracticeDifficulty == null) return DebugMutationResult.NO_MATCH
+        val adventure = arcade.zombiesPracticeAdventure() ?: return DebugMutationResult.WRONG_PHASE
+        if (player != null) {
+            if (!adventure.belongsTo(player)) return DebugMutationResult.NOT_PARTICIPANT
+            if (adventure.director.players[player.uniqueId]?.status != ZombiesStatus.ALIVE) return DebugMutationResult.NOT_ALIVE
+        }
+        return action(adventure)
+    }
+
+    private fun zombiesPracticeResult(applied: Boolean): DebugMutationResult =
+        if (applied) DebugMutationResult.APPLIED else DebugMutationResult.PRECONDITION_FAILED
+
     fun debugCleanup(): DebugMutationResult {
         if (!settings().debugMutationsAllowed) return DebugMutationResult.MUTATIONS_DISABLED
+        if (arcade.zombiesPracticeDifficulty != null) return stopZombiesPractice()
         if (match != null || arcade.current != null || reservation != null) return DebugMutationResult.BUSY
         bodyRegistry.clear()
         cleanupProjectiles()
@@ -1867,26 +1949,43 @@ class ArcEventsService(
         } }
     }
 
-    private fun debugStartArcadeAsync(players: List<Player>, arenaId: String?, mode: EventMode): CompletableFuture<DebugMutationResult> {
+    private fun startLocalArcadeAsync(
+        players: List<Player>, arenaId: String?, mode: EventMode, adminPracticeDifficulty: ZombiesDifficulty? = null,
+    ): CompletableFuture<DebugMutationResult> {
         fun done(result: DebugMutationResult) = CompletableFuture.completedFuture(result)
         val config = settings()
-        if (!config.debugMutationsAllowed) return done(DebugMutationResult.MUTATIONS_DISABLED)
+        if (adminPracticeDifficulty == null && !config.debugMutationsAllowed) return done(DebugMutationResult.MUTATIONS_DISABLED)
         if (config.nodeMode != NodeMode.HOST) return done(DebugMutationResult.WRONG_NODE)
         if (matchState().first != null) return done(DebugMutationResult.BUSY)
         val online = players.filter(Player::isOnline).distinctBy(Player::getUniqueId)
-        val rules = config.arcade.rules(mode)
+        val configuredRules = config.arcade.rules(mode)
+        val rules = if (adminPracticeDifficulty == null) configuredRules else configuredRules.copy(minimumPlayers = 1)
+        val difficulty = (adminPracticeDifficulty ?: nextDebugZombiesDifficulty).takeIf { mode == EventMode.ZOMBIES }
         if (online.size !in rules.minimumPlayers..rules.maximumPlayers) return done(DebugMutationResult.INSUFFICIENT_PLAYERS)
         if (online.any { hasPendingRecovery(it.uniqueId) }) return done(DebugMutationResult.PRECONDITION_FAILED)
+        if (difficulty != null && online.any { independentInventoryOwner(it.uniqueId) || escrow.isLocked(it.uniqueId) }) {
+            return done(DebugMutationResult.PRECONDITION_FAILED)
+        }
         if (mode in setOf(EventMode.FISHING, EventMode.ZOMBIES) && online.any { !supportsAdventureClient(it) }) return done(DebugMutationResult.PRECONDITION_FAILED)
-        val id = UUID.randomUUID()
+        val id = if (difficulty == null) UUID.randomUUID() else QueueEntry.newPracticeMatchId()
         val preferred = if (mode.usesSharedArenas) arenaId else mode.primaryArenaId
         val arena = arenaPool.reserve(id, preferred, mode) ?: return done(DebugMutationResult.ARENA_UNAVAILABLE)
+        if (difficulty != null && arena.template != ZombiesArenaGenerator.TEMPLATE) {
+            arenaPool.release(id)
+            return done(DebugMutationResult.ARENA_UNAVAILABLE)
+        }
         val entries = online.map { QueueEntry(it.uniqueId.toString(), it.name, config.serverId, mode.id,
             joinedAtMs = clock(), expiresAtMs = clock() + 60_000L) }
         online.forEach { rememberDisposableOrigin(it, config.serverId, id) }
-        return arcade.start(id, mode, entries, online, rules).handle { _, failure -> failure }.thenCompose { failure -> onMain {
+        val preparation = runCatching { arcade.start(id, mode, entries, online, rules, zombiesPracticeDifficulty = difficulty) }
+            .getOrElse { CompletableFuture.failedFuture(it) }
+        if (difficulty != null && adminPracticeDifficulty == null && arcade.current?.matchId == id) {
+            nextDebugZombiesDifficulty = ZombiesDifficulty.CLASSIC
+        }
+        return preparation.handle { _, failure -> failure }.thenCompose { failure -> onMain {
             if (failure == null && arcade.current?.matchId == id && arcade.current?.phase == MatchPhase.PREPARING) {
                 arcade.confirmRoster()
+                if (difficulty != null) debug.event("zombies_practice_started", "match" to id, "arena" to arena.id, "difficulty" to difficulty.name.lowercase())
                 DebugMutationResult.APPLIED
             } else {
                 plugin.logger.log(Level.SEVERE, "ArcEvents local arcade bootstrap failed on ${arena.id}", failure)

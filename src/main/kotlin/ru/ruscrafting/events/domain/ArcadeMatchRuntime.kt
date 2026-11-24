@@ -37,12 +37,13 @@ data class ArcadeRules(
     val intermissionSeconds: Int = 5,
     val disasterRounds: Int = 6,
 ) {
-    fun validated(allowSolo: Boolean = false, cooperative: Boolean = false): ArcadeRules = apply {
+    fun validated(allowSolo: Boolean = false, cooperative: Boolean = false, extendedZombiesRound: Boolean = false): ArcadeRules = apply {
         if (cooperative) require(minimumPlayers in 1..maximumPlayers && maximumPlayers in 1..4)
         else if (allowSolo) require(minimumPlayers == 1 && maximumPlayers == 1)
         else require(minimumPlayers in 2..maximumPlayers && maximumPlayers in 2..16)
         require(countdownSeconds in 0..60)
-        require(roundSeconds in 30..1800 && postRoundSeconds in 0..60)
+        val roundLimit = if (cooperative && extendedZombiesRound) 7200 else 1800
+        require(roundSeconds in 30..roundLimit && postRoundSeconds in 0..60)
         require(respawnSeconds in 1..15 && spawnProtectionSeconds in 0..5)
         require(disasterSeconds in 5..120 && intermissionSeconds in 3..30)
         require(disasterRounds in 1..20)
@@ -86,10 +87,12 @@ class ArcadeMatchRuntime(
     override val matchId: UUID? get() = current?.matchId
     override val phase: MatchPhase? get() = current?.phase
 
-    fun start(matchId: UUID, mode: EventMode, players: List<QueuedPlayer>, rules: ArcadeRules = ArcadeRules()): ArcadeMatch {
+    fun start(matchId: UUID, mode: EventMode, players: List<QueuedPlayer>, rules: ArcadeRules = ArcadeRules(),
+              extendedZombiesRound: Boolean = false): ArcadeMatch {
         check(current == null) { "A match is already active" }
         require(mode != EventMode.TTT) { "Arcade runtime does not own TTT" }
-        rules.validated(allowSolo = mode == EventMode.FISHING, cooperative = mode == EventMode.ZOMBIES)
+        rules.validated(allowSolo = mode == EventMode.FISHING, cooperative = mode == EventMode.ZOMBIES,
+            extendedZombiesRound = extendedZombiesRound)
         require(players.size in rules.minimumPlayers..rules.maximumPlayers)
         require(players.map { it.playerId }.distinct().size == players.size)
         players.forEach {

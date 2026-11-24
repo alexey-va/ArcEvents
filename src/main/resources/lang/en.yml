@@ -675,6 +675,15 @@ chat:
 admin:
   arena-unavailable: '<prefix> <#c42323>Arena not ready: check its world and points.'
   solo-usage: '<prefix> <#e8dfd2>/arcevents admin solo <#c4a7e7>mode<newline>  <#e8dfd2>ttt, gungame, disasters, fishing, zombies, apocalypse'
+  zombies-usage: |-
+    <prefix> <#e6fff3>Zombies practice <#8c8c8c>(/arcevents admin zombies)
+    <#92bed8>   start [mode] <#8c8c8c>— solo match on the event host
+    <#e8dfd2>   classic, easy, hard, hardcore, insane
+    <#92bed8>   status <#8c8c8c>— practice status
+    <#92bed8>   [wave N|spawn kind|airdrop] <#8c8c8c>— scenarios
+    <#92bed8>   grant [player] <#8c8c8c>— test supplies
+    <#92bed8>   gear [player] [item] <#8c8c8c>— use equipment
+    <#92bed8>   stop <#8c8c8c>— stop practice
   arena-selected: '<prefix> <#2bba43>Next map: <arena><#e6fff3>.'
   arena-selection-failed: '<prefix> <#c42323>Map <arena> cannot be selected: it is not ready or a match is active.'
   started: '<prefix> <#2bba43>Roster reservation started.'
@@ -825,6 +834,18 @@ debug:
     <#8c8c8c>   <#92bed8>[credit]|[role]|[health]|[kill]|[revive] <#8c8c8c>— player
     <#8c8c8c>   <#92bed8>[weapon]|[ammo]|[item]|[loot] <#8c8c8c>— equipment
     <#8c8c8c>   <#92bed8>[discover]|[dna]|[call]|[menu]|[close] <#8c8c8c>— evidence and GUI
+    <#8c8c8c>   <#92bed8>zombies <#8c8c8c>— Zombies debug controls
+  zombies-usage: |-
+    <prefix> <#e6fff3>Zombies debug controls <#8c8c8c>(/arcevents debug)
+    <#92bed8>   zombies difficulty [mode] <#8c8c8c>— difficulty for the next test
+    <#e8dfd2>   classic, easy, hard, hardcore, insane
+    <#8c8c8c>   Choose easy, hard, hardcore or insane to test the mechanics.
+    <#92bed8>   bootstrap zombies [player …] <#8c8c8c>— start in the dedicated arena
+    <#92bed8>   zombies status <#8c8c8c>— test status
+    <#92bed8>   zombies [wave N|spawn kind|airdrop] <#8c8c8c>— scenarios
+    <#92bed8>   zombies grant [player] <#8c8c8c>— test supplies
+    <#92bed8>   zombies gear [player] [item] <#8c8c8c>— use equipment
+    <#92bed8>   cleanup <#8c8c8c>— stop the test
   applied: '<prefix> <#2bba43>Debug action applied: <#e3b341><action><#e6fff3>.'
   rejected: '<prefix> <#c42323>Action <#e3b341><action> <#c42323>was rejected<#8c8c8c>: <#f2f0e6><reason><#8c8c8c>.'
   reason:
@@ -1198,6 +1219,32 @@ fishing:
   dynamite-cap: "<#e3b341>Wait for the dynamite already thrown to explode."
 
 zombies:
+  field:
+    kit: '<#f2f0e6>Field workbench'
+    kit-lore:
+      - '<#f2f0e6>Right click for barriers, grenades and the turret'
+      - '<#c8c3b8>Supplies last for this match.'
+    balance: '<#e8dfd2><points> pts · Copper <copper> · Powder <powder> · Iron <iron> · Bench <bench>/2'
+    instructions: '<#e8dfd2>Aim at the floor to place gear. Aim to throw grenades or fire while near your turret.'
+    recipes: '<#c8c3b8>Level 1 unlocks smoke grenades. Level 2 unlocks the turret.'
+    wire-action: '<#f2f0e6>Wire · <cost> pts'
+    wall-action: '<#f2f0e6>Wall · <cost> pts'
+    bench-action: '<#f2f0e6>Upgrade · <cost> pts'
+    turret-action: '<#f2f0e6>Turret · <iron> iron'
+    he-action: '<#f2f0e6>HE shell · <copper> Cu, <powder> powder'
+    ap-action: '<#f2f0e6>AP shell · <copper> Cu, <powder> powder'
+    frag-action: '<#f2f0e6>Frag · <copper> Cu, <powder> powder'
+    smoke-action: '<#f2f0e6>Smoke · <copper> Cu, <powder> powder'
+    done: '<#9bd48d>Ready'
+    unavailable: '<#ffbe6b>Check your aim, range and supplies.'
+    strong: '<#ff8b82>Heavy hitter'
+    bloater: '<#ff8b82>Bloater'
+    boss: '<#ff8b82>Horde Commander'
+    boss-warning: '<#ff8b82>Horde Commander in the sector'
+    drop-incoming: '<#86dcf1>Supply drop incoming.'
+    drop-ready: '<#86dcf1>Cargo has landed. Aim at the crate and right click.'
+    drop-claimed: '<#9bd48d>Received copper, powder and iron.'
+    drop-points: '<#9bd48d>The crate contained bonus points.'
   ready: <#e8dfd2>LMB — fire · RMB — aim · F — reload
   wave-title: '<#ff9c82>Wave <wave> / <total>'
   wave-subtitle: <#e8dfd2>Stay together

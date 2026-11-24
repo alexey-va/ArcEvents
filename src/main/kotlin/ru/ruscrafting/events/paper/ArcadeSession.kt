@@ -60,11 +60,13 @@ class ArcadeSession(
     private var hazardVictim: UUID? = null
     private var fishing: FishingAdventure? = null
     private var zombies: ZombiesAdventure? = null
+    internal var zombiesPracticeDifficulty: ZombiesDifficulty? = null
+        private set
     private var practiceRoster: PracticeRoster? = null
     private var practiceCompanions: ArcadePracticeCompanions? = null
 
     internal fun start(matchId: UUID, mode: EventMode, entries: List<QueueEntry>, players: List<Player>, rules: ArcadeRules,
-        practice: PracticeRoster? = null): CompletableFuture<Unit> {
+        practice: PracticeRoster? = null, zombiesPracticeDifficulty: ZombiesDifficulty? = null): CompletableFuture<Unit> {
         check(current == null)
         require(entries.map { UUID.fromString(it.playerId) }.toSet() == players.map { it.uniqueId }.toSet())
         require(players.distinctBy { it.uniqueId }.size == players.size)
@@ -73,10 +75,15 @@ class ArcadeSession(
         val arena = requireNotNull(arenaPool.active())
         resultShown = false
         require(practice == null || practice.matchId == matchId && players.singleOrNull()?.uniqueId == practice.ownerId)
-        runtime.start(matchId, mode, entries.map(QueueEntry::queuedPlayer) + practice?.bots.orEmpty(), rules)
+        require(zombiesPracticeDifficulty == null || mode == EventMode.ZOMBIES && QueueEntry.isPracticeMatch(matchId))
+        val extendedZombiesRound = zombiesPracticeDifficulty != null && zombiesPracticeDifficulty != ZombiesDifficulty.CLASSIC
+        val matchRules = if (extendedZombiesRound) rules.copy(roundSeconds = 7_200) else rules
+        runtime.start(matchId, mode, entries.map(QueueEntry::queuedPlayer) + practice?.bots.orEmpty(), matchRules,
+            extendedZombiesRound = extendedZombiesRound)
         practiceRoster = practice
+        this.zombiesPracticeDifficulty = zombiesPracticeDifficulty
         var mutationAttempted = false
-        val preservePlayerState = practice != null || settings().playerStateMode == PlayerStateMode.PRESERVE
+        val preservePlayerState = practice != null || QueueEntry.isPracticeMatch(matchId) || settings().playerStateMode == PlayerStateMode.PRESERVE
         fun stillPreparing() = current?.matchId == matchId && current?.phase == MatchPhase.PREPARING && players.all(Player::isOnline)
         val applyPlayer: (IndexedValue<Player>) -> Unit = apply@{ (slot, player) ->
             val preparing = current?.takeIf { it.matchId == matchId && it.phase == MatchPhase.PREPARING } ?: return@apply
@@ -145,7 +152,7 @@ class ArcadeSession(
                 EventMode.GUN_GAME -> locale.render("opening.gungame-title", player)
                 EventMode.DISASTERS -> locale.render("opening.disasters-title", player, mapOf("hazard" to hazardName(player)))
                 EventMode.FISHING -> locale.render("opening.fishing-title", player)
-                EventMode.ZOMBIES -> locale.render("zombies.wave-title", player, mapOf("wave" to locale.text(1), "total" to locale.text(settings().zombies.waves)))
+                EventMode.ZOMBIES -> locale.render("zombies.wave-title", player, mapOf("wave" to locale.text(1), "total" to locale.text(zombiesRules().waves)))
                 EventMode.TTT -> error("TTT owns its role reveal")
             }
             val objective = if (match.mode == EventMode.DISASTERS) "arcade.hazard-${hazardId()}-guide" else "opening.${match.mode.id}"
@@ -196,7 +203,7 @@ class ArcadeSession(
                             mapOf("hazard" to hazardName(player), "seconds" to locale.text(DisastersFootprint.WARNING_MS / 1_000)))) }
                     }
                     if (match.mode == EventMode.ZOMBIES) {
-                        val adventure = ZombiesAdventure(plugin, locale, items, firearms, settings().zombies,
+                        val adventure = ZombiesAdventure(plugin, locale, items, firearms, zombiesRules(),
                             match.matchId, roster.first().world, roster,
                             active = { current?.matchId == match.matchId && current?.phase == MatchPhase.ACTIVE },
                             isAlive = ::isAlive,
@@ -548,13 +555,15 @@ class ArcadeSession(
             player.sendEventMessage(result)
             player.showTitle(Title.title(modeName(player), result, Title.Times.times(Duration.ofMillis(150), Duration.ofSeconds(4), Duration.ofMillis(400))))
         }
-        if (practiceRoster == null) match.participants.values.forEach { participant ->
+        if (practiceRoster == null && zombiesPracticeDifficulty == null) match.participants.values.forEach { participant ->
             runCatching {
                 network.recordStats(participant.playerId) { it.recordArcade(match.matchId, participant, participant.playerId in match.winners) }
             }.onFailure { plugin.logger.log(Level.WARNING, "ArcEvents could not submit arcade statistics", it) }
         }
-        runCatching { network.announceEnded(match.matchId, null, requireNotNull(match.endReason)) }
-            .onFailure { plugin.logger.log(Level.WARNING, "ArcEvents could not announce arcade result", it) }
+        if (zombiesPracticeDifficulty == null) {
+            runCatching { network.announceEnded(match.matchId, null, requireNotNull(match.endReason)) }
+                .onFailure { plugin.logger.log(Level.WARNING, "ArcEvents could not announce arcade result", it) }
+        }
     }
 
     private fun beginRestoration() {
@@ -585,6 +594,7 @@ class ArcadeSession(
         arenaPool.release(match.matchId)
         runtime.release()
         practiceRoster = null
+        zombiesPracticeDifficulty = null
         bars.clear()
     }
 
@@ -639,6 +649,14 @@ class ArcadeSession(
     fun handleZombiesMove(event: org.bukkit.event.player.PlayerMoveEvent): Boolean = zombies?.handleMove(event) == true
     fun handleZombiesMelee(player: Player, entity: org.bukkit.entity.Entity): Boolean = zombies?.melee(player, entity) == true
     fun zombiesAdventure(player: Player): ZombiesAdventure? = zombies?.takeIf { it.belongsTo(player) }
+    internal fun zombiesPracticeAdventure(): ZombiesAdventure? =
+        zombies?.takeIf { zombiesPracticeDifficulty != null && current?.phase == MatchPhase.ACTIVE }
+
+    private fun zombiesRules(): ZombiesRules = when (val difficulty = zombiesPracticeDifficulty) {
+        null, ZombiesDifficulty.CLASSIC -> settings().zombies
+        else -> ZombiesRules.forDifficulty(difficulty)
+    }
+
     fun zombiesDirector(): ZombiesDirector? = zombies?.director
     fun zombiesBoxPhase(): String = zombies?.mysteryBoxPhase() ?: "-"
     fun zombiesBarricadeBoards(): String = zombies?.barricadeBoards()?.joinToString(",") ?: "-"

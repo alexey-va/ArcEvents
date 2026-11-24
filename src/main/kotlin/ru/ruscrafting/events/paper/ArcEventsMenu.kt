@@ -183,6 +183,11 @@ class ArcEventsMenu(
         zombiesSupply.open(player, offer)
     }
 
+    fun openZombiesFieldKit(player: Player) {
+        dialogRuntime.beginFlow(player)
+        zombiesSupply.openFieldKit(player)
+    }
+
     fun open(player: Player, view: EventsView = EventsView.Main) {
         if (view == EventsView.Shop && service.fishingAdventure(player) != null) {
             fishingTrader.open(player)

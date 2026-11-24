@@ -1,0 +1,494 @@
+{
+  "version": 1,
+  "title": "ArcEvents Zombies private field supplies, 2026-11-24",
+  "participants": [
+    1,
+    1,
+    1
+  ],
+  "assumptions": [
+    "New circuit is selected in permission-gated private practice, one host and one solo run at a time on the normal admin entry. Public economy and existing Zombies match prices remain as before. No external reward, physical resource, sell or exchange path. All local balances, loot and gear expire on close. Vault/tokens/XP zero in both states; SELL transition unchanged.",
+    "One solo practice on an active day; low Easy waves 1–2, base Hard waves 1–5, high Hardcore waves 1–10. These are assumed outcomes of 14/44/110 kills in roughly 10/25/50 minutes. One claim per player per wave including the last, independent 70% points and 20% weapon rolls, guaranteed copper, powder, and iron. Operator crates and grants are excluded.",
+    "With all crates claimed, expected daily supplies are 20/59/140 copper, 22/64/150 powder, 4/10/20 iron, 350/875/1750 bonus points, and 0.4/1/2 weapon replacements.",
+    "Existing 500 starting points and 100+ per credited kill remain; one 500-point wire is affordable at start and 800-point wall after 3 minimum kills. Workbench levels cost 1000 then 2000 points; full turret startup costs 3000 points, 4 match-local iron and the first shell 7 copper and 9 powder. Iron gates it to two crates; later shells consume another 7/9. Frag 2/2 and smoke 1/2 consume the same pool. One barrier and one turret per player bounds stacking.",
+    "Usable daily net local points are zero after match expiry. For gross airdrop point model, balance is burned by purchases or expiry together, exactly one sink. Item flows are nonpersistent gameplay counters and modeled in their own units. Public existing rewards and neighboring match-only mystery box (650) unchanged. Admin grants and repeat runs cannot produce durable exports."
+  ],
+  "currencies": {
+    "vault": {
+      "minor_per_unit": 100,
+      "disposable_per_player_day": {
+        "before": [
+          "0",
+          "0",
+          "0"
+        ],
+        "after": [
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      "flows": []
+    },
+    "tokens": {
+      "minor_per_unit": 1,
+      "disposable_per_player_day": {
+        "before": [
+          "0",
+          "0",
+          "0"
+        ],
+        "after": [
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      "flows": []
+    },
+    "xp": {
+      "minor_per_unit": 1,
+      "disposable_per_player_day": {
+        "before": [
+          "0",
+          "0",
+          "0"
+        ],
+        "after": [
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      "flows": []
+    },
+    "copper": {
+      "minor_per_unit": 1,
+      "disposable_per_player_day": {
+        "before": [
+          "0",
+          "0",
+          "0"
+        ],
+        "after": [
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      "flows": [
+        {
+          "id": "kill_copper",
+          "kind": "item",
+          "source": "ArcEvents Zombies practice",
+          "basis": "1 per credited kill",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              0,
+              0
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              14,
+              44,
+              110
+            ]
+          }
+        },
+        {
+          "id": "crate_copper",
+          "kind": "item",
+          "source": "ArcEvents Zombies practice",
+          "basis": "3 per claim",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              0,
+              0
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "3",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              2,
+              5,
+              10
+            ]
+          }
+        }
+      ]
+    },
+    "gunpowder": {
+      "minor_per_unit": 1,
+      "disposable_per_player_day": {
+        "before": [
+          "0",
+          "0",
+          "0"
+        ],
+        "after": [
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      "flows": [
+        {
+          "id": "kill_powder",
+          "kind": "item",
+          "source": "ArcEvents Zombies practice",
+          "basis": "1 per credited kill",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              0,
+              0
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              14,
+              44,
+              110
+            ]
+          }
+        },
+        {
+          "id": "crate_powder",
+          "kind": "item",
+          "source": "ArcEvents Zombies practice",
+          "basis": "4 per claim",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              0,
+              0
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "4",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              2,
+              5,
+              10
+            ]
+          }
+        }
+      ]
+    },
+    "iron": {
+      "minor_per_unit": 1,
+      "disposable_per_player_day": {
+        "before": [
+          "0",
+          "0",
+          "0"
+        ],
+        "after": [
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      "flows": [
+        {
+          "id": "crate_iron",
+          "kind": "item",
+          "source": "ArcEvents Zombies practice",
+          "basis": "2 per claim",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              0,
+              0
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "2",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              2,
+              5,
+              10
+            ]
+          }
+        }
+      ]
+    },
+    "event_weapon": {
+      "minor_per_unit": 1,
+      "disposable_per_player_day": {
+        "before": [
+          "0",
+          "0",
+          "0"
+        ],
+        "after": [
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      "flows": [
+        {
+          "id": "crate_weapon",
+          "kind": "item",
+          "source": "ArcEvents Zombies practice",
+          "basis": "One exclusive replacement weapon on a successful roll",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              0,
+              0
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              2,
+              5,
+              10
+            ],
+            "chance": "0.2"
+          }
+        }
+      ]
+    },
+    "zombie_points": {
+      "minor_per_unit": 1,
+      "disposable_per_player_day": {
+        "before": [
+          "0",
+          "0",
+          "0"
+        ],
+        "after": [
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      "flows": [
+        {
+          "id": "crate_points",
+          "kind": "mint",
+          "source": "ArcEvents Zombies practice",
+          "basis": "Independent points roll",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              0,
+              0
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "250",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              2,
+              5,
+              10
+            ],
+            "chance": "0.7"
+          }
+        },
+        {
+          "id": "points_spend_or_expire",
+          "kind": "burn",
+          "source": "ArcEvents Zombies practice",
+          "basis": "Exactly all additional expected points consumed or expire",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              0,
+              0
+            ]
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "1",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              350,
+              875,
+              1750
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "prices": [
+    {
+      "id": "wire",
+      "currency": "zombie_points",
+      "before": null,
+      "after": {
+        "value": "500",
+        "unit": "major"
+      }
+    },
+    {
+      "id": "wall",
+      "currency": "zombie_points",
+      "before": null,
+      "after": {
+        "value": "800",
+        "unit": "major"
+      }
+    },
+    {
+      "id": "bench_1",
+      "currency": "zombie_points",
+      "before": null,
+      "after": {
+        "value": "1000",
+        "unit": "major"
+      }
+    },
+    {
+      "id": "bench_2",
+      "currency": "zombie_points",
+      "before": null,
+      "after": {
+        "value": "2000",
+        "unit": "major"
+      }
+    },
+    {
+      "id": "turret",
+      "currency": "iron",
+      "before": null,
+      "after": {
+        "value": "4",
+        "unit": "major"
+      }
+    },
+    {
+      "id": "shell_copper",
+      "currency": "copper",
+      "before": null,
+      "after": {
+        "value": "7",
+        "unit": "major"
+      }
+    },
+    {
+      "id": "shell_powder",
+      "currency": "gunpowder",
+      "before": null,
+      "after": {
+        "value": "9",
+        "unit": "major"
+      }
+    },
+    {
+      "id": "frag_copper",
+      "currency": "copper",
+      "before": null,
+      "after": {
+        "value": "2",
+        "unit": "major"
+      }
+    },
+    {
+      "id": "frag_powder",
+      "currency": "gunpowder",
+      "before": null,
+      "after": {
+        "value": "2",
+        "unit": "major"
+      }
+    },
+    {
+      "id": "smoke_copper",
+      "currency": "copper",
+      "before": null,
+      "after": {
+        "value": "1",
+        "unit": "major"
+      }
+    },
+    {
+      "id": "smoke_powder",
+      "currency": "gunpowder",
+      "before": null,
+      "after": {
+        "value": "2",
+        "unit": "major"
+      }
+    }
+  ]
+}

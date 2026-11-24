@@ -408,3 +408,54 @@ test('Zombies native window breach and Shift repair lead to one paid physical bo
     admin.bot.quit();
   }
 });
+
+test('admin Zombies practice runs one boss, one-use supplies and exact restoration', async ({ player, createPlayer }) => {
+  await ready();
+  const outsider = await connected(createPlayer, 'ZOut');
+  await player.makeOp();
+  const observed = watchDialogs(player);
+  await idle(player);
+  const origin = player.bot.entity.position.clone();
+  const original = itemState(player);
+  try {
+    const playerCommand = '/arcevents admin zombies';
+    outsider.chat(`${playerCommand} start insane`);
+    await expect(outsider).toHaveReceivedMessage(/You do not have access to this action/);
+    player.chat(`${playerCommand} start insane`);
+    await waitForQa(player, 'status', {
+      game: 'zombies', phase: 'active', participants: 1, zombies_wave: 1, zombies_alive: 1, zombies_pending: 0,
+    });
+    assert.equal(observed.world, zombiesWorld);
+
+    player.chat(`${playerCommand} wave 2`);
+    await expect(player).toHaveReceivedMessage(/zombies wave was rejected/);
+    player.chat(`${playerCommand} grant ${outsider.username}`);
+    await expect(player).toHaveReceivedMessage(/zombies grant was rejected/);
+    player.chat(`${playerCommand} grant ${player.username}`);
+    await waitForQa(player, `player ${player.username}`, { zombies_copper: 24, zombies_powder: 30, zombies_iron: 8 });
+    player.chat(`${playerCommand} gear ${player.username} bench`);
+    await waitForQa(player, `player ${player.username}`, { zombies_bench: 1 });
+
+    player.chat(`${playerCommand} airdrop`);
+    await expect(player).toHaveReceivedMessage(/Cargo has landed/, { timeout: 12000 });
+    await expect(player).toHaveReceivedMessage(/Supply drop incoming/);
+    player.bot.setQuickBarSlot(4);
+    await player.bot.lookAt(new Vec3(.5, 65.5, -17.5), true);
+    player.bot.activateItem();
+    await waitForQa(player, `player ${player.username}`, { zombies_copper: 27, zombies_powder: 34, zombies_iron: 10 });
+    player.bot.activateItem();
+    await pause(300);
+    const wallet = await readQa(player, `player ${player.username}`);
+    assert.equal(wallet.zombies_copper, '27');
+    assert.equal(wallet.zombies_powder, '34');
+    assert.equal(wallet.zombies_iron, '10');
+
+    player.chat(`${playerCommand} stop`);
+    await idle(player);
+    await until(() => player.bot.entity.position.distanceTo(origin) < .05 && itemState(player) === original,
+      'Admin practice did not return the exact inventory and origin');
+  } finally {
+    player.chat('/arcevents admin zombies stop');
+    observed.stop();
+  }
+});

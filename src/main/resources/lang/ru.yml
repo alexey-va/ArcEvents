@@ -675,6 +675,15 @@ chat:
 admin:
   arena-unavailable: '<prefix> <#c42323>Арена не готова: проверьте мир и точки.'
   solo-usage: '<prefix> <#e8dfd2>/arcevents admin solo <#c4a7e7>режим<newline>  <#e8dfd2>ttt, gungame, disasters, fishing, zombies, apocalypse'
+  zombies-usage: |-
+    <prefix> <#e6fff3>Тренировка «Зомби» <#8c8c8c>(/arcevents admin zombies)
+    <#92bed8>   start [режим] <#8c8c8c>— личный матч на сервере событий
+    <#e8dfd2>   classic, easy, hard, hardcore, insane
+    <#92bed8>   status <#8c8c8c>— состояние тренировки
+    <#92bed8>   [wave N|spawn тип|airdrop] <#8c8c8c>— сценарии
+    <#92bed8>   grant [игрок] <#8c8c8c>— тестовые припасы
+    <#92bed8>   gear [игрок] [предмет] <#8c8c8c>— использование снаряжения
+    <#92bed8>   stop <#8c8c8c>— завершение тренировки
   arena-selected: '<prefix> <#2bba43>Следующая карта: <arena><#e6fff3>.'
   arena-selection-failed: '<prefix> <#c42323>Карту <arena> нельзя выбрать: она не готова или матч уже идёт.'
   started: '<prefix> <#2bba43>Резервирование состава запущено.'
@@ -825,6 +834,18 @@ debug:
     <#8c8c8c>   <#92bed8>[credit]|[role]|[health]|[kill]|[revive] <#8c8c8c>— игрок
     <#8c8c8c>   <#92bed8>[weapon]|[ammo]|[item]|[loot] <#8c8c8c>— снаряжение
     <#8c8c8c>   <#92bed8>[discover]|[dna]|[call]|[menu]|[close] <#8c8c8c>— улики и GUI
+    <#8c8c8c>   <#92bed8>zombies <#8c8c8c>— отладка режима «Зомби»
+  zombies-usage: |-
+    <prefix> <#e6fff3>Отладка «Зомби» <#8c8c8c>(/arcevents debug)
+    <#92bed8>   zombies difficulty [режим] <#8c8c8c>— сложность следующего теста
+    <#e8dfd2>   classic, easy, hard, hardcore, insane
+    <#8c8c8c>   Выбери easy, hard, hardcore или insane для отладки механик.
+    <#92bed8>   bootstrap zombies [игрок …] <#8c8c8c>— запуск на выделенной арене
+    <#92bed8>   zombies status <#8c8c8c>— состояние теста
+    <#92bed8>   zombies [wave N|spawn тип|airdrop] <#8c8c8c>— сценарии
+    <#92bed8>   zombies grant [игрок] <#8c8c8c>— тестовые припасы
+    <#92bed8>   zombies gear [игрок] [предмет] <#8c8c8c>— использование снаряжения
+    <#92bed8>   cleanup <#8c8c8c>— завершение теста
   applied: '<prefix> <#2bba43>Отладочное действие выполнено: <#e3b341><action><#e6fff3>.'
   rejected: '<prefix> <#c42323>Действие <#e3b341><action> <#c42323>не выполнено<#8c8c8c>: <#f2f0e6><reason><#8c8c8c>.'
   reason:
@@ -1198,6 +1219,32 @@ fishing:
   dynamite-cap: "<#e3b341>Сначала дождитесь взрыва уже брошенного динамита."
 
 zombies:
+  field:
+    kit: '<#f2f0e6>Полевой верстак'
+    kit-lore:
+      - '<#f2f0e6>ПКМ — баррикады, гранаты и турель'
+      - '<#c8c3b8>Ресурсы остаются в этом матче.'
+    balance: '<#e8dfd2><points> оч. · Медь <copper> · Порох <powder> · Железо <iron> · Верстак <bench>/2'
+    instructions: '<#e8dfd2>Для установки наведитесь на пол. Гранаты летят по прицелу. Стреляйте по прицелу рядом со своей турелью.'
+    recipes: '<#c8c3b8>Уровень 1 — дымовая граната. Уровень 2 — турель.'
+    wire-action: '<#f2f0e6>Колючки · <cost> оч.'
+    wall-action: '<#f2f0e6>Барьер · <cost> оч.'
+    bench-action: '<#f2f0e6>Улучшить · <cost> оч.'
+    turret-action: '<#f2f0e6>Турель · <iron> железа'
+    he-action: '<#f2f0e6>Фугас · <copper> меди, <powder> пороха'
+    ap-action: '<#f2f0e6>Бронебойный · <copper> м., <powder> п.'
+    frag-action: '<#f2f0e6>Осколочная · <copper> м., <powder> п.'
+    smoke-action: '<#f2f0e6>Дымовая · <copper> м., <powder> п.'
+    done: '<#9bd48d>Готово'
+    unavailable: '<#ffbe6b>Проверьте цель, расстояние и запас ресурсов.'
+    strong: '<#ff8b82>Тяжёлый боец'
+    bloater: '<#ff8b82>Вздувшийся зомби'
+    boss: '<#ff8b82>Командир орды'
+    boss-warning: '<#ff8b82>Командир орды в секторе'
+    drop-incoming: '<#86dcf1>Снабжение в пути.'
+    drop-ready: '<#86dcf1>Груз на земле. Наведитесь на ящик и нажмите ПКМ.'
+    drop-claimed: '<#9bd48d>Получены медь, порох и железо.'
+    drop-points: '<#9bd48d>В грузе были дополнительные очки.'
   ready: <#e8dfd2>ЛКМ — огонь · ПКМ — прицел · F — перезарядка
   wave-title: '<#ff9c82>Волна <wave> / <total>'
   wave-subtitle: <#e8dfd2>Держитесь вместе

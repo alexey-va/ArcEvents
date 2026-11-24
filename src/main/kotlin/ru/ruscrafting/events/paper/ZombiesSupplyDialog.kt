@@ -6,6 +6,7 @@ import net.kyori.adventure.text.format.TextDecoration
 import org.bukkit.entity.Player
 import ru.arc.paper.menu.*
 import ru.ruscrafting.events.config.ArcEventsLocale
+import ru.ruscrafting.events.domain.ZombiesGear
 import ru.ruscrafting.events.domain.ZombiesOffer
 import ru.ruscrafting.events.domain.ZombiesSurvivor
 
@@ -33,6 +34,40 @@ internal class ZombiesSupplyDialog(
             val changed = service.zombiesAdventure(player) === adventure && adventure.buy(player, state, offer)
             player.sendEventActionBar(locale.render(if (changed) "zombies.supply-done" else "zombies.supply-changed", player))
         }, reopen = { open(player, offer) }, onDismiss = {}, closeOnEscape = true)
+    }
+
+    fun openFieldKit(player: Player) {
+        val adventure = service.zombiesAdventure(player)?.takeIf { it.canOpenFieldKit(player) } ?: return
+        val state = adventure.director.players.getValue(player.uniqueId)
+        val keys = "zombies.field."
+        fun text(key: String, values: Map<String, Component> = emptyMap()) =
+            locale.render(keys + key, player, values).decoration(TextDecoration.ITALIC, false)
+        val values = mapOf("points" to locale.text(state.points), "copper" to locale.text(state.copper),
+            "powder" to locale.text(state.powder), "iron" to locale.text(state.iron), "bench" to locale.text(state.bench))
+        val actions = ZombiesGear.entries.filter { it.requiredBench <= state.bench && (it != ZombiesGear.BENCH || state.bench < 2) }
+            .mapNotNull { gear ->
+                if (!adventure.director.canBuyGear(player.uniqueId, gear)) return@mapNotNull null
+                val id = gear.name.lowercase()
+                val costs = mapOf("cost" to locale.text(gear.pointCost(state.bench)), "copper" to locale.text(gear.copper),
+                    "powder" to locale.text(gear.powder), "iron" to locale.text(gear.iron))
+                PaperDialogButton(PaperDialogActionId.of(id), text("$id-action", costs),
+                    width = 156, closeDialogBeforeAction = true, onClick = PaperDialogClickHandler {
+                        val current = service.zombiesAdventure(player)
+                        val freshPrice = gear != ZombiesGear.BENCH || current?.director?.players?.get(player.uniqueId)?.bench == state.bench
+                        val applied = current === adventure && freshPrice && adventure.fieldGear(player, gear)
+                        player.sendEventActionBar(text(if (applied) "done" else "unavailable"))
+                    })
+            }
+        val body = Component.join(JoinConfiguration.newlines(), text("balance", values), text("instructions"),
+            if (state.bench < 2) text("recipes") else Component.empty())
+        runtime.open(player, PaperDialogScreen(
+            title = text("kit"),
+            body = listOf(DialogTables.filledBody(listOf(listOf(body)), null, 328, listOf(1), DialogTables.PanelSkin.NAVY)),
+            buttons = actions,
+            exitButton = PaperDialogButton(PaperDialogActionId.of("close"), locale.render("menu.common.close-name", player),
+                width = 156, closeDialogBeforeAction = true, onClick = PaperDialogClickHandler {}),
+            columns = 2, id = "events.zombies.field",
+        ), reopen = { openFieldKit(player) }, onDismiss = {}, closeOnEscape = true)
     }
 
     internal fun model(player: Player, offer: ZombiesOffer, state: ZombiesSurvivor, price: Int,
