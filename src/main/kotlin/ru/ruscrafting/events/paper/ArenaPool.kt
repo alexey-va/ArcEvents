@@ -4,6 +4,7 @@ import ru.ruscrafting.events.config.ArcEventsConfig
 import ru.ruscrafting.events.config.ArenaSettings
 import java.util.UUID
 import ru.ruscrafting.events.domain.EventMode
+import ru.ruscrafting.events.network.QueueEntry
 
 data class ArenaPoolEntry(
     val id: String,
@@ -22,6 +23,7 @@ class ArenaPool(
 ) {
     private var activeMatchId: UUID? = null
     private var activeArenaId: String? = null
+    private var builderArea: ArenaSettings? = null
     private var nextArenaId: String? = null
     private var nextArenaAutomatic = false
     private var availabilitySettings: ArcEventsConfig? = null
@@ -44,7 +46,7 @@ class ArenaPool(
     }
 
     @Synchronized
-    fun active(): ArenaSettings? = activeArenaId?.let(::configured)
+    fun active(): ArenaSettings? = builderArea ?: activeArenaId?.let(::configured)
 
     @Synchronized
     fun inUse(arenaId: String): Boolean = activeMatchId != null && activeArenaId == arenaId.lowercase()
@@ -118,10 +120,19 @@ class ArenaPool(
     }
 
     @Synchronized
+    internal fun reserveBuilderPractice(matchId: UUID, arena: ArenaSettings): ArenaSettings? {
+        if (activeMatchId != null || arena.world != settings().builderZombiesWorld || !QueueEntry.isPracticeMatch(matchId)) return null
+        activeMatchId = matchId
+        builderArea = arena
+        return arena
+    }
+
+    @Synchronized
     fun release(matchId: UUID) {
         if (activeMatchId == matchId) {
             activeMatchId = null
             activeArenaId = null
+            builderArea = null
         }
     }
 
@@ -129,6 +140,7 @@ class ArenaPool(
     fun clear() {
         activeMatchId = null
         activeArenaId = null
+        builderArea = null
         nextArenaId = null
         nextArenaAutomatic = false
     }

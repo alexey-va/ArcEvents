@@ -83,6 +83,7 @@ class EventNetworkCoordinator(
     private val onArrivalAsync: ((QueueEntry) -> CompletableFuture<Boolean>)? = null,
     initialFirearmSoundPreset: FirearmSoundPreset? = null,
     private val tttRefill: () -> TttRefill? = { null },
+    private val localPracticeActive: (UUID) -> Boolean = { false },
 ) : AutoCloseable {
     @Volatile
     var queueSize: Int = 0
@@ -1039,7 +1040,7 @@ class EventNetworkCoordinator(
         val destination = message.destinationServer ?: return
         repository.loadQueueEntry(playerId).whenComplete { entry, failure ->
             Tasks.scheduler.runSync {
-                if (!started) return@runSync
+                if (!started || localPracticeActive(playerId)) return@runSync
                 if (failure != null) {
                     plugin.logger.log(Level.WARNING, "ArcEvents route authorization failed for $playerId", failure)
                     return@runSync
@@ -1165,6 +1166,7 @@ class EventNetworkCoordinator(
     }
 
     private fun transferSent(player: Player, matchId: UUID?, destination: String): Boolean {
+        if (localPracticeActive(player.uniqueId)) return false
         val now = clock()
         val previous = submittedTransfers[player]
         if (previous != null && previous.matchId == matchId && previous.destination == destination && now < previous.retryAtMs) return true

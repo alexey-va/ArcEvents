@@ -62,11 +62,14 @@ class ArcadeSession(
     private var zombies: ZombiesAdventure? = null
     internal var zombiesPracticeDifficulty: ZombiesDifficulty? = null
         private set
+    internal var builderZombiesArea: BuilderZombiesArea? = null
+        private set
     private var practiceRoster: PracticeRoster? = null
     private var practiceCompanions: ArcadePracticeCompanions? = null
 
     internal fun start(matchId: UUID, mode: EventMode, entries: List<QueueEntry>, players: List<Player>, rules: ArcadeRules,
-        practice: PracticeRoster? = null, zombiesPracticeDifficulty: ZombiesDifficulty? = null): CompletableFuture<Unit> {
+        practice: PracticeRoster? = null, zombiesPracticeDifficulty: ZombiesDifficulty? = null,
+        builderArea: BuilderZombiesArea? = null): CompletableFuture<Unit> {
         check(current == null)
         require(entries.map { UUID.fromString(it.playerId) }.toSet() == players.map { it.uniqueId }.toSet())
         require(players.distinctBy { it.uniqueId }.size == players.size)
@@ -76,18 +79,23 @@ class ArcadeSession(
         resultShown = false
         require(practice == null || practice.matchId == matchId && players.singleOrNull()?.uniqueId == practice.ownerId)
         require(zombiesPracticeDifficulty == null || mode == EventMode.ZOMBIES && QueueEntry.isPracticeMatch(matchId))
+        require(builderArea == null || zombiesPracticeDifficulty != null && builderArea.contains(players.single().location))
         val extendedZombiesRound = zombiesPracticeDifficulty != null && zombiesPracticeDifficulty != ZombiesDifficulty.CLASSIC
         val matchRules = if (extendedZombiesRound) rules.copy(roundSeconds = 7_200) else rules
         runtime.start(matchId, mode, entries.map(QueueEntry::queuedPlayer) + practice?.bots.orEmpty(), matchRules,
             extendedZombiesRound = extendedZombiesRound)
         practiceRoster = practice
         this.zombiesPracticeDifficulty = zombiesPracticeDifficulty
+        builderZombiesArea = builderArea
         var mutationAttempted = false
         val preservePlayerState = practice != null || QueueEntry.isPracticeMatch(matchId) || settings().playerStateMode == PlayerStateMode.PRESERVE
-        fun stillPreparing() = current?.matchId == matchId && current?.phase == MatchPhase.PREPARING && players.all(Player::isOnline)
+        fun stillPreparing() = current?.matchId == matchId && current?.phase == MatchPhase.PREPARING && players.all {
+            it.isOnline && (builderArea == null || builderArea.contains(it.location))
+        }
         val applyPlayer: (IndexedValue<Player>) -> Unit = apply@{ (slot, player) ->
             val preparing = current?.takeIf { it.matchId == matchId && it.phase == MatchPhase.PREPARING } ?: return@apply
             if (!player.isOnline || preparing.participants[player.uniqueId]?.status != ParticipantStatus.RESERVED) return@apply
+            check(builderArea?.ready() != false) { "The builder practice floor changed during preparation" }
             mutationAttempted = true
             resetPlayer(player)
             player.inventory.clear()
@@ -187,6 +195,7 @@ class ArcadeSession(
                 MatchPhase.ACTIVE -> {
                     val roster = online()
                     val arena = requireNotNull(arenaPool.active())
+                    check(builderZombiesArea?.ready() != false) { "The builder practice floor changed during the countdown" }
                     roster.forEachIndexed { slot, player ->
                         resetPlayer(player)
                         spawn(player, arena, arena.spawnFor(slot, roster.size))
@@ -219,7 +228,8 @@ class ArcadeSession(
                                     showResult()
                                 }
                             }, clearWeaponState = clearWeaponState, displays = packetDisplays,
-                            sounds = { settings().ui.sounds }, particles = { settings().ui.particles }, clock = clock)
+                            sounds = { settings().ui.sounds }, particles = { settings().ui.particles }, clock = clock,
+                            builderArea = builderZombiesArea)
                         zombies = adventure
                         adventure.start()
                     }
@@ -595,6 +605,7 @@ class ArcadeSession(
         runtime.release()
         practiceRoster = null
         zombiesPracticeDifficulty = null
+        builderZombiesArea = null
         bars.clear()
     }
 
@@ -661,6 +672,7 @@ class ArcadeSession(
     fun zombiesBoxPhase(): String = zombies?.mysteryBoxPhase() ?: "-"
     fun zombiesBarricadeBoards(): String = zombies?.barricadeBoards()?.joinToString(",") ?: "-"
     fun handleZombiesTarget(event: org.bukkit.event.entity.EntityTargetLivingEntityEvent): Boolean = zombies?.handleTarget(event) == true
+    fun ownsBuilderMob(entity: org.bukkit.entity.Entity): Boolean = zombies?.ownsBuilderMob(entity) == true
     fun fishingAdventure(player: Player): FishingAdventure? {
         val match = current ?: return null
         if (match.mode != EventMode.FISHING || match.phase != MatchPhase.ACTIVE || !isAlive(player.uniqueId)) return null

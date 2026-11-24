@@ -10,6 +10,7 @@ import org.bukkit.entity.Item
 import org.bukkit.entity.Pillager
 import org.bukkit.entity.Player
 import org.bukkit.entity.Projectile
+import org.bukkit.event.Event
 import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
@@ -21,10 +22,13 @@ import org.bukkit.event.block.BlockIgniteEvent
 import org.bukkit.event.block.BlockPlaceEvent
 import org.bukkit.event.block.Action
 import org.bukkit.event.entity.EntityDamageByEntityEvent
+import org.bukkit.event.entity.EntityChangeBlockEvent
 import org.bukkit.event.entity.EntityDamageEvent
 import org.bukkit.event.entity.EntityPickupItemEvent
 import org.bukkit.event.entity.EntityExplodeEvent
+import org.bukkit.event.entity.EntityInteractEvent
 import org.bukkit.event.entity.FoodLevelChangeEvent
+import org.bukkit.event.world.GenericGameEvent
 import org.bukkit.event.entity.ProjectileHitEvent
 import org.bukkit.event.entity.ProjectileLaunchEvent
 import org.bukkit.event.entity.PlayerDeathEvent
@@ -100,6 +104,8 @@ interface ArcEventsGameplayBoundary {
     fun handleFishingDamage(event: EntityDamageEvent): Boolean = false
     fun handleFishingInteract(event: PlayerInteractEvent): Boolean = false
     fun isZombiesParticipant(playerId: UUID): Boolean = false
+    fun isBuilderZombiesParticipant(playerId: UUID): Boolean = false
+    fun ownsBuilderZombiesMob(entity: Entity): Boolean = false
     fun zombiesAdventure(player: Player): ZombiesAdventure? = null
     fun handleZombiesDamage(event: EntityDamageEvent): Boolean = false
     fun handleZombiesMove(event: PlayerMoveEvent): Boolean = false
@@ -140,6 +146,10 @@ class ArcEventsListener(
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)
     fun onFishingTargetDamage(event: EntityDamageEvent) {
+        if (event.damageSource.directEntity?.let(service::ownsBuilderZombiesMob) == true) {
+            event.isCancelled = true
+            return
+        }
         if (event.entity is Pillager || event.damageSource.directEntity is Pillager) service.protectPracticeActor(event)
         service.handleFishingDamage(event)
         service.handleZombiesDamage(event)
@@ -147,11 +157,32 @@ class ArcEventsListener(
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onZombiesTarget(event: org.bukkit.event.entity.EntityTargetLivingEntityEvent) {
-        if ((event.entity as? Pillager)?.let(service::practiceActorId) != null || (event.target as? Pillager)?.let(service::practiceActorId) != null) {
+        if (event.target?.let(service::ownsBuilderZombiesMob) == true ||
+            (event.entity as? Pillager)?.let(service::practiceActorId) != null || (event.target as? Pillager)?.let(service::practiceActorId) != null) {
             event.isCancelled = true
             return
         }
         service.handleZombiesTarget(event)
+    }
+
+    private fun isBuilderPracticeEntity(entity: Entity): Boolean = when (entity) {
+        is Player -> service.isBuilderZombiesParticipant(entity.uniqueId)
+        else -> service.ownsBuilderZombiesMob(entity)
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    fun onBuilderBlockChange(event: EntityChangeBlockEvent) {
+        if (isBuilderPracticeEntity(event.entity)) event.isCancelled = true
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    fun onBuilderEntityInteract(event: EntityInteractEvent) {
+        if (isBuilderPracticeEntity(event.entity)) event.isCancelled = true
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    fun onBuilderGameEvent(event: GenericGameEvent) {
+        if (event.entity?.let(::isBuilderPracticeEntity) == true) event.isCancelled = true
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -268,6 +299,11 @@ class ArcEventsListener(
     fun onInteract(event: PlayerInteractEvent) {
         val player = event.player
         val clicked = event.clickedBlock
+        if (service.isBuilderZombiesParticipant(player.uniqueId)) {
+            event.setUseInteractedBlock(Event.Result.DENY)
+            event.setUseItemInHand(Event.Result.DENY)
+            if (event.action == Action.PHYSICAL) return
+        }
         if (event.hand == EquipmentSlot.HAND && event.action in setOf(Action.RIGHT_CLICK_BLOCK, Action.RIGHT_CLICK_AIR) &&
             service.zombiesAdventure(player)?.interact(player, clicked?.location) == true
         ) {
@@ -363,6 +399,9 @@ class ArcEventsListener(
                 event.isCancelled = true
                 return
             }
+        } else if (service.isBuilderZombiesParticipant(event.player.uniqueId)) {
+            event.isCancelled = true
+            return
         }
         if (worldFirearms?.attack(event) == true) return
         val player = event.player
@@ -390,6 +429,10 @@ class ArcEventsListener(
 
     @EventHandler(ignoreCancelled = true)
     fun onInteractEntity(event: PlayerInteractEntityEvent) {
+        if (service.isBuilderZombiesParticipant(event.player.uniqueId) || service.ownsBuilderZombiesMob(event.rightClicked)) {
+            event.isCancelled = true
+            return
+        }
         // An Interaction consumes RMB on the client. Its general interact packet owns the item action once.
         val adventure = service.fishingAdventure(event.player)
         if (event.hand == EquipmentSlot.HAND && adventure?.handleHitboxUse(event.player, event.rightClicked, service::toggleFirearmScope) == true
@@ -408,6 +451,10 @@ class ArcEventsListener(
 
     @EventHandler(ignoreCancelled = true)
     fun onInteractAtEntity(event: PlayerInteractAtEntityEvent) {
+        if (service.isBuilderZombiesParticipant(event.player.uniqueId) || service.ownsBuilderZombiesMob(event.rightClicked)) {
+            event.isCancelled = true
+            return
+        }
         if (service.fishingAdventure(event.player)?.isTraderNpc(event.rightClicked) == true) {
             // Vanilla follows this targeted packet with the general interact packet for a villager.
             event.isCancelled = true
@@ -509,11 +556,11 @@ class ArcEventsListener(
     }
     @EventHandler(ignoreCancelled = true) fun onBucketEmpty(event: PlayerBucketEmptyEvent) {
         if (event.player.bypassesEventProtection() && !service.isZombiesParticipant(event.player.uniqueId)) return
-        if (service.withinProtectedArena(event.block.location)) event.isCancelled = true
+        if (service.isBuilderZombiesParticipant(event.player.uniqueId) || service.withinProtectedArena(event.block.location)) event.isCancelled = true
     }
     @EventHandler(ignoreCancelled = true) fun onBucketFill(event: PlayerBucketFillEvent) {
         if (event.player.bypassesEventProtection() && !service.isZombiesParticipant(event.player.uniqueId)) return
-        if (service.withinProtectedArena(event.block.location)) event.isCancelled = true
+        if (service.isBuilderZombiesParticipant(event.player.uniqueId) || service.withinProtectedArena(event.block.location)) event.isCancelled = true
     }
     @EventHandler(ignoreCancelled = true) fun onBlockBurn(event: BlockBurnEvent) {
         if (service.withinProtectedArena(event.block.location)) event.isCancelled = true
@@ -555,9 +602,13 @@ class ArcEventsListener(
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onTeleport(event: PlayerTeleportEvent) {
         clearWeaponState(event.player.uniqueId)
+        if (service.isInternalTeleport(event.player.uniqueId, event.to)) return
+        if (service.isBuilderZombiesParticipant(event.player.uniqueId) && !service.withinArena(event.to)) {
+            event.isCancelled = true
+            return
+        }
         if (event.player.hasPermission(ADMIN_BYPASS_PERMISSION)) return
         val participant = service.isParticipant(event.player.uniqueId)
-        if (service.isInternalTeleport(event.player.uniqueId, event.to)) return
         if (!participant && service.withinProtectedArena(event.to)) {
             event.isCancelled = true
             return

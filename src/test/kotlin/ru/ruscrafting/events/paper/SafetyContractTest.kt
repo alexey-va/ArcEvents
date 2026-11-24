@@ -104,6 +104,7 @@ class SafetyContractTest : StringSpec({
         every { service.belongsToCurrentMatch(playerId, item) } returns true
         every { service.useSpecialItem(player, EventItemKind.DETECTIVE_MEDKIT) } returns false
         every { service.handleFishingInteract(any()) } returns false
+        every { service.isBuilderZombiesParticipant(playerId) } returns false
         every { service.zombiesAdventure(player) } returns null
         val event = PlayerInteractEvent(
             player,

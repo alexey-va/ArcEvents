@@ -13,9 +13,11 @@ Standalone Kotlin/Paper plugin for network-wide RusCrafting custom events.
   `MockBukkitTestRuntime`; never pin or manage MockBukkit directly here.
 - Keep queues, role allocation, match state, win rules, statistics DTOs, and
   network messages independent of Bukkit.
-- A `RELAY` node may advertise, queue, and route only. It must never mutate a
-  player's inventory or create a local match. The configured `HOST` is the
-  sole active-match authority.
+- For network matches, a `RELAY` node advertises, queues, and routes. The
+  configured `HOST` is the sole network match and inventory authority.
+  Spawn also supports private, self-enrolled Zombies administrator practice
+  in `builder_flat` using the practice journal. This practice has no network
+  route or statistics and must never edit a block in the builder world.
 - Capture the complete player-state batch with `PaperPlayerStateService` and
   commit it through `DurableRecordJournal` before teleporting, clearing, or
   issuing any event item. Restore and acknowledgement must be idempotent on

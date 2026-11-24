@@ -11,6 +11,7 @@ import org.bukkit.Material
 import org.bukkit.NamespacedKey
 import org.bukkit.World
 import org.bukkit.block.Block
+import org.bukkit.block.BlockFace
 import org.bukkit.block.data.BlockData
 import org.bukkit.inventory.ItemStack
 import org.bukkit.persistence.PersistentDataType
@@ -32,6 +33,9 @@ import ru.arc.paper.testing.MockBukkitTestRuntime
 import ru.ruscrafting.events.config.ArcEventsLocale
 import ru.ruscrafting.events.domain.FirearmId
 import ru.ruscrafting.events.domain.TttFirearmCatalog
+import ru.ruscrafting.events.domain.ZombieKind
+import ru.ruscrafting.events.domain.ZombiesDifficulty
+import ru.ruscrafting.events.domain.ZombiesGear
 import ru.ruscrafting.events.domain.ZombiesOffer
 import ru.ruscrafting.events.domain.ZombiesRules
 import ru.ruscrafting.events.domain.ZombiesStatus
@@ -39,6 +43,78 @@ import java.util.UUID
 import java.util.function.Consumer
 
 class ZombiesAdventureTest : StringSpec({
+    "builder practice spawns and pursues locally with private actors, gear and airdrops without touching the terrain" {
+        ZombieControllerFixture(builder = true).use { f ->
+            val area = requireNotNull(f.builderArea)
+            val outsider = mockk<Player>(relaxed = true)
+            every { outsider.uniqueId } returns UUID.randomUUID()
+            every { outsider.isOnline } returns true
+            every { outsider.world } returns f.world
+            every { outsider.location } returns f.at.clone()
+            val unknown = mockk<Entity>(relaxed = true)
+            every { unknown.uniqueId } returns UUID.randomUUID()
+            every { unknown.scoreboardTags } returns setOf("arcevents-zombies")
+            every { f.world.entities } returns listOf(unknown)
+            val unloaded = area.anchor.add(-14.0, 0.0, 0.0)
+            every { f.world.isChunkLoaded(unloaded.blockX shr 4, unloaded.blockZ shr 4) } returns false
+
+            f.game.start()
+            f.game.barricadeBoards() shouldBe emptyList()
+            f.game.stationAt(Location(f.world, -11.5, 65.0, -21.5)) shouldBe null
+            f.signs shouldBe emptyList()
+            f.game.debugWave(3) shouldBe true
+            f.game.debugSpawn(ZombieKind.RUNNER) shouldBe true
+            val mob = f.mobs.single()
+            val initial = mob.location.distanceSquared(f.at)
+            area.contains(mob.location) shouldBe true
+            (initial >= 64) shouldBe true
+            f.game.ownsBuilderMob(mob) shouldBe true
+            f.game.ownsBuilderMob(unknown) shouldBe false
+            f.game.isFirearmTarget(outsider, mob, f.match.toString()) shouldBe false
+            f.game.isFirearmTarget(f.player, mob, f.match.toString()) shouldBe true
+            verify(exactly = 1) { mob.setAI(false) }
+            verify(exactly = 1) { mob.setNoPhysics(true) }
+            verify(exactly = 1) { mob.isVisibleByDefault = false }
+            verify(exactly = 1) { f.player.showEntity(any(), mob) }
+            verify(exactly = 0) { outsider.showEntity(any(), mob) }
+            f.game.tickEffects()
+            (mob.location.distanceSquared(f.at) < initial) shouldBe true
+
+            f.game.debugGrant(f.player) shouldBe true
+            f.aimAtFloor(2, 0)
+            val placement = f.block(f.at.blockX + 2, f.at.blockY, f.at.blockZ)
+            every { placement.type } returns Material.STONE_PRESSURE_PLATE
+            f.game.debugGear(f.player, ZombiesGear.WALL) shouldBe false
+            every { placement.type } returns Material.AIR
+            f.game.debugGear(f.player, ZombiesGear.WALL) shouldBe true
+            f.game.debugGear(f.player, ZombiesGear.BENCH) shouldBe true
+            f.game.debugGear(f.player, ZombiesGear.BENCH) shouldBe true
+            f.aimAtFloor(0, -2)
+            f.game.debugGear(f.player, ZombiesGear.TURRET) shouldBe true
+            every { f.world.rayTraceBlocks(any(), any(), any<Double>(), FluidCollisionMode.NEVER, true) } returns null
+            every { f.world.rayTrace(any<Location>(), any(), any<Double>(), FluidCollisionMode.NEVER, true, .1, any()) } returns null
+            f.game.debugGear(f.player, ZombiesGear.HE) shouldBe true
+
+            f.game.debugAirdrop() shouldBe true
+            f.game.debugAirdrop() shouldBe false
+            f.now += AirdropFlight.FINISH_MS
+            f.game.tickEffects()
+            val before = f.game.director.players.getValue(f.player.uniqueId).copper
+            val crate = area.dropLocations().first().add(0.0, .4, 0.0)
+            f.at.direction = crate.toVector().subtract(f.player.eyeLocation.toVector())
+            f.game.interact(f.player, null) shouldBe true
+            f.game.interact(f.player, null) shouldBe true
+            f.game.director.players.getValue(f.player.uniqueId).copper shouldBe before + 3
+
+            f.game.close()
+            f.blockWrites shouldBe 0
+            f.blockStateReads shouldBe 0
+            verify(exactly = 0) { f.world.entities }
+            verify(exactly = 0) { unknown.remove() }
+            verify(exactly = 1) { mob.remove() }
+        }
+    }
+
     "only a living owner can hit a known mob and lethal hits remove it once without native health damage" {
         ZombieControllerFixture().use { f ->
             f.startWave()
@@ -270,7 +346,7 @@ class ZombiesAdventureTest : StringSpec({
     }
 })
 
-private class ZombieControllerFixture(multiplayer: Boolean = false) : AutoCloseable {
+private class ZombieControllerFixture(multiplayer: Boolean = false, private val builder: Boolean = false) : AutoCloseable {
     private val paper = MockBukkitTestRuntime.open()
     private val plugin = paper.createSimplePlugin("ZombieControllerTest")
     val world = mockk<World>(relaxed = true)
@@ -278,7 +354,7 @@ private class ZombieControllerFixture(multiplayer: Boolean = false) : AutoClosea
     val teammate = if (multiplayer) mockk<Player>(relaxed = true) else null
     val locale = mockk<ArcEventsLocale>(relaxed = true)
     val match = UUID.randomUUID()
-    var at = Location(world, .5, 65.0, -18.5)
+    var at = if (builder) Location(world, 1024.5, 81.0, 1024.5) else Location(world, .5, 65.0, -18.5)
     var now = 0L
     var failSpawn = false
     var failSlotOnce: Int? = null
@@ -291,11 +367,19 @@ private class ZombieControllerFixture(multiplayer: Boolean = false) : AutoClosea
     val weaponDisplays = mutableListOf<PacketItemDisplay>()
     val inventory = mutableMapOf<Int, ItemStack?>()
     private val blocks = mutableMapOf<Triple<Int, Int, Int>, Block>()
+    var blockWrites = 0
+        private set
+    var blockStateReads = 0
+        private set
+    val builderArea: BuilderZombiesArea?
     val game: ZombiesAdventure
 
     init {
         Tasks.install(BukkitTaskScheduler(plugin))
         every { world.uid } returns UUID.randomUUID()
+        every { world.name } returns if (builder) "builder_flat" else "zombies_arena"
+        every { world.minHeight } returns -64
+        every { world.maxHeight } returns 320
         every { world.entities } returns emptyList()
         every { world.isChunkLoaded(any<Int>(), any<Int>()) } returns true
         every { world.getBlockAt(any<Location>()) } answers { firstArg<Location>().let { block(it.blockX, it.blockY, it.blockZ) } }
@@ -321,20 +405,10 @@ private class ZombieControllerFixture(multiplayer: Boolean = false) : AutoClosea
             inventory[slot] = secondArg<ItemStack?>()?.clone()
         }
         every { world.spawn(any<Location>(), Zombie::class.java, any<Consumer<Zombie>>()) } answers {
-            if (failSpawn) error("Synthetic native spawn rejection")
-            var point = firstArg<Location>().clone()
-            val mob = mockk<Zombie>(relaxed = true)
-            every { mob.uniqueId } returns UUID.randomUUID()
-            every { mob.world } returns world
-            every { mob.location } answers { point.clone() }
-            every { mob.eyeLocation } answers { point.clone().add(0.0, 1.7, 0.0) }
-            every { mob.isValid } returns true
-            every { mob.isDead } returns false
-            every { mob.target } returns null
-            every { mob.teleport(any<Location>()) } answers { point = firstArg<Location>().clone(); true }
-            thirdArg<Consumer<Zombie>>().accept(mob)
-            mobs += mob
-            mob
+            spawnMob(firstArg(), lastArg())
+        }
+        every { world.spawn(any<Location>(), Zombie::class.java, false, any<Consumer<Zombie>>()) } answers {
+            spawnMob(firstArg(), lastArg())
         }
         every { locale.render(any(), any(), any()) } returns Component.text("Test")
         every { locale.text(any()) } answers { Component.text(firstArg<Any>().toString()) }
@@ -356,7 +430,13 @@ private class ZombieControllerFixture(multiplayer: Boolean = false) : AutoClosea
         } }
         val displays = mockk<PaperPacketDisplays>(relaxed = true)
         every { displays.spawnText(any(), any()) } answers { mockk<PacketTextDisplay>(relaxed = true).also(signs::add) }
-        every { displays.spawnBlock(any(), any()) } answers { mockk<PacketBlockDisplay>(relaxed = true).also(boards::add) }
+        every { displays.spawnBlock(any(), any()) } answers {
+            val point = firstArg<Location>().clone()
+            mockk<PacketBlockDisplay>(relaxed = true).also { display ->
+                every { display.location } answers { point.clone() }
+                boards += display
+            }
+        }
         every { displays.spawnItem(any(), any()) } answers {
             val point = firstArg<Location>().clone()
             mockk<PacketItemDisplay>(relaxed = true).also { display ->
@@ -365,24 +445,68 @@ private class ZombieControllerFixture(multiplayer: Boolean = false) : AutoClosea
                 weaponDisplays += display
             }
         }
-        game = ZombiesAdventure(plugin, locale, items, firearms, ZombiesRules(), match, world, listOfNotNull(player, teammate),
+        builderArea = if (builder) requireNotNull(BuilderZombiesArea.create(at)) else null
+        val rules = if (builder) ZombiesRules.forDifficulty(ZombiesDifficulty.HARDCORE) else ZombiesRules()
+        game = ZombiesAdventure(plugin, locale, items, firearms, rules, match, world, listOfNotNull(player, teammate),
             active = { true }, isAlive = { true }, revivePlayer = {}, hurt = { _, _ -> }, killed = { kills++ },
-            complete = { completed += it }, clearWeaponState = {}, displays = displays, sounds = { false }, particles = { false }, clock = { now })
+            complete = { completed += it }, clearWeaponState = {}, displays = displays, sounds = { false }, particles = { false },
+            clock = { now }, builderArea = builderArea)
     }
-    fun block(x: Int, y: Int, z: Int): Block = blocks.getOrPut(Triple(x, y, z)) {
-        var type = ZombiesArenaGenerator.materialAt(x, y, z) ?: Material.AIR
-        var data = type.createBlockData()
-        mockk<Block>(relaxed = true).also { block ->
-            every { block.type } answers { type }
-            every { block.blockData } answers { data.clone() }
-            every { block.isPassable } answers { type == Material.AIR }
-            every { block.location } answers { Location(world, x.toDouble(), y.toDouble(), z.toDouble()) }
-            every { block.state } returns mockk<org.bukkit.block.Chest>(relaxed = true)
-            every { block.getRelative(any<Int>(), any<Int>(), any<Int>()) } answers {
-                this@ZombieControllerFixture.block(x + firstArg<Int>(), y + secondArg<Int>(), z + thirdArg<Int>())
+    private fun spawnMob(start: Location, setup: Consumer<Zombie>): Zombie {
+        if (failSpawn) error("Synthetic native spawn rejection")
+        var point = start.clone()
+        val mob = mockk<Zombie>(relaxed = true)
+        every { mob.uniqueId } returns UUID.randomUUID()
+        every { mob.world } returns world
+        every { mob.location } answers { point.clone() }
+        every { mob.eyeLocation } answers { point.clone().add(0.0, 1.7, 0.0) }
+        every { mob.isValid } returns true
+        every { mob.isDead } returns false
+        every { mob.target } returns null
+        every { mob.teleport(any<Location>()) } answers { point = firstArg<Location>().clone(); true }
+        setup.accept(mob)
+        mobs += mob
+        return mob
+    }
+    fun aimAtFloor(dx: Int, dz: Int) {
+        val floor = block(at.blockX + dx, at.blockY - 1, at.blockZ + dz)
+        val hit = RayTraceResult(Vector(floor.x + .5, floor.y + 1.0, floor.z + .5), floor, BlockFace.UP)
+        every { world.rayTraceBlocks(any(), any(), 4.75, FluidCollisionMode.NEVER, true) } returns hit
+    }
+    fun block(x: Int, y: Int, z: Int): Block {
+        check(!builder || world.isChunkLoaded(x shr 4, z shr 4)) { "Block read in an unloaded builder chunk" }
+        return blocks.getOrPut(Triple(x, y, z)) {
+            var type = if (builder) {
+                check(x in 1006..1042 && z in 1006..1042) { "Block read outside the builder area" }
+                if (y == 80) Material.GRASS_BLOCK else Material.AIR
+            } else ZombiesArenaGenerator.materialAt(x, y, z) ?: Material.AIR
+            var data = type.createBlockData()
+            mockk<Block>(relaxed = true).also { block ->
+                every { block.type } answers { type }
+                every { block.blockData } answers { data.clone() }
+                every { block.isPassable } answers { type == Material.AIR }
+                every { block.location } answers { Location(world, x.toDouble(), y.toDouble(), z.toDouble()) }
+                every { block.x } returns x
+                every { block.y } returns y
+                every { block.z } returns z
+                every { block.state } answers {
+                    blockStateReads++
+                    mockk<org.bukkit.block.Chest>(relaxed = true)
+                }
+                every { block.getRelative(any<Int>(), any<Int>(), any<Int>()) } answers {
+                    this@ZombieControllerFixture.block(x + firstArg<Int>(), y + secondArg<Int>(), z + thirdArg<Int>())
+                }
+                every { block.setType(any<Material>(), any<Boolean>()) } answers {
+                    blockWrites++
+                    type = firstArg()
+                    data = type.createBlockData()
+                }
+                every { block.setBlockData(any<BlockData>(), any<Boolean>()) } answers {
+                    blockWrites++
+                    data = firstArg<BlockData>().clone()
+                    type = data.material
+                }
             }
-            every { block.setType(any<Material>(), any<Boolean>()) } answers { type = firstArg(); data = type.createBlockData() }
-            every { block.setBlockData(any<BlockData>(), any<Boolean>()) } answers { data = firstArg<BlockData>().clone(); type = data.material }
         }
     }
     fun startWave() { game.start(); now = 15_000; game.tick() }

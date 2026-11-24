@@ -3,11 +3,40 @@ package ru.ruscrafting.events.paper
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import ru.ruscrafting.events.config.ArcEventsConfig
+import ru.ruscrafting.events.config.ArenaSettings
+import ru.ruscrafting.events.config.EventLocation
 import ru.ruscrafting.events.domain.EventMode
+import ru.ruscrafting.events.network.QueueEntry
 import java.nio.file.Files
 import java.util.UUID
 
 class ArenaPoolTest : StringSpec({
+    "Spawn leases a builder practice locally without exposing an arena to the network" {
+        val root = Files.createTempDirectory("arcevents-builder-pool-")
+        try {
+            val default = ArcEventsConfig.load(root)
+            val file = root.resolve("config.yml")
+            Files.writeString(file, Files.readString(file).replace("server-id: parkour", "server-id: spawn"))
+            val spawn = ArcEventsConfig.inspect(root)
+            val pool = ArenaPool({ spawn }) { _, _ -> true }
+            val publicArenas = pool.readyIds()
+            val anchor = EventLocation("builder_flat", .5, 64.0, .5)
+            val arena = ArenaSettings("builder-zombies", true, anchor.world, "", anchor, anchor, null, listOf(anchor), emptyList())
+            val id = QueueEntry.newPracticeMatchId()
+            ArenaPool({ default }) { _, _ -> true }.reserveBuilderPractice(id, arena) shouldBe null
+            pool.reserveBuilderPractice(UUID.randomUUID(), arena) shouldBe null
+            pool.reserveBuilderPractice(id, arena.copy(world = "build_flat")) shouldBe null
+            pool.reserveBuilderPractice(id, arena) shouldBe arena
+            pool.active() shouldBe arena
+            pool.readyIds() shouldBe publicArenas
+            pool.reserveBuilderPractice(QueueEntry.newPracticeMatchId(), arena) shouldBe null
+            pool.release(UUID.randomUUID())
+            pool.active() shouldBe arena
+            pool.release(id)
+            pool.active() shouldBe null
+        } finally { root.toFile().deleteRecursively() }
+    }
+
     "mode maps are ready defaults and stay inside their own explicit and auto choices" {
         val root = Files.createTempDirectory("arcevents-combat-pool-")
         try {

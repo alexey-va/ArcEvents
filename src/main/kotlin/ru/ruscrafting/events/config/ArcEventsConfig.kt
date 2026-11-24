@@ -324,6 +324,8 @@ class ArcEventsConfig(private val config: Config) {
     val enabled: Boolean get() = config.bool("enabled", true)
     val serverId: String get() = config.string("server-id", "parkour").trim().lowercase()
     val nodeMode: NodeMode get() = NodeMode.valueOf(config.string("node-mode", "RELAY").trim().uppercase())
+    // Spawn's private builder check has no network match authority.
+    internal val builderZombiesWorld: String? get() = "builder_flat".takeIf { nodeMode == NodeMode.RELAY && serverId == "spawn" }
     val playerStateMode: PlayerStateMode
         get() = PlayerStateMode.valueOf(config.string("player-state.mode", "PRESERVE").trim().uppercase())
     val hostServer: String get() = config.string("host-server", "parkour").trim().lowercase()

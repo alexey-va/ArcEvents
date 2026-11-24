@@ -181,8 +181,9 @@ open class ArcEventsPlugin : JavaPlugin() {
             it.init()
         }
         require(manager.healthCheck().get(5, java.util.concurrent.TimeUnit.SECONDS)) { "Redis connection is unavailable" }
-        val recovery = RecoveryBatchStore(root, mode = settings.playerStateMode).also {
-            if (settings.nodeMode == NodeMode.HOST) it.prepare()
+        val host = settings.nodeMode == NodeMode.HOST
+        val recovery = RecoveryBatchStore(root, mode = if (host) settings.playerStateMode else PlayerStateMode.DISPOSABLE).also {
+            if (host || settings.builderZombiesWorld != null) it.prepare()
         }
         val points = ArenaWeaponPointStore(root) { failure ->
             logger.log(Level.WARNING, "ArcEvents mandatory weapon points are unavailable; using random map points", failure)
@@ -217,7 +218,8 @@ open class ArcEventsPlugin : JavaPlugin() {
         try {
             val debug = ArcEventsDebug({ settings.debugEnabled }, logger::info)
             val escrow = PlayerStateEscrow(recovery,
-                enabled = settings.nodeMode == NodeMode.HOST, work = activeWork).also { this.escrow = it }
+                enabled = settings.nodeMode == NodeMode.HOST || settings.builderZombiesWorld != null,
+                work = activeWork).also { this.escrow = it }
             val items = TttItems(this, locale) { settings }
             val firearms = TttFirearms(this, locale) { settings }
             lateinit var activeService: ArcEventsService
@@ -256,7 +258,7 @@ open class ArcEventsPlugin : JavaPlugin() {
                 redis = manager,
                 transfer = backendTransfer,
                 debug = debug,
-                matchState = { activeService.matchState() },
+                matchState = { if (settings.nodeMode == NodeMode.HOST) activeService.matchState() else null to null },
                 arenaReady = { activeService.arenaReady() },
                 readyArenaIds = arenaPool::readyIds,
                 onReservation = { activeService.onReservation(it) },
@@ -264,6 +266,7 @@ open class ArcEventsPlugin : JavaPlugin() {
                 onArrivalAsync = { activeService.onArrivalAsync(it) },
                 recoveryPending = { activeService.escrowPending(it) || apocalypse?.isPlaying(it) == true || apocalypse?.isBusy(it) == true },
                 activeMatchParticipant = { activeService.ownsActiveRoute(it) },
+                localPracticeActive = { activeService.isBuilderZombiesParticipant(it) },
                 tttRefill = { activeService.tttRefill() },
                 initialFirearmSoundPreset = firearmSoundPreset,
             )
