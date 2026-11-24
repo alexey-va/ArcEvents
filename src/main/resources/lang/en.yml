@@ -677,8 +677,10 @@ admin:
   solo-usage: '<prefix> <#e8dfd2>/arcevents admin solo <#c4a7e7>mode<newline>  <#e8dfd2>ttt, gungame, disasters, fishing, zombies, apocalypse'
   zombies-usage: |-
     <prefix> <#e6fff3>Zombies practice <#8c8c8c>(/arcevents admin zombies)
-    <#92bed8>   start [mode] <#8c8c8c>— solo match on the event host
+    <#92bed8>   start [difficulty] <#8c8c8c>— solo practice
+    <#92bed8>   start [difficulty] [name] <#8c8c8c>— play together in builder_flat
     <#e8dfd2>   classic, easy, hard, hardcore, insane
+    <#e8dfd2>   The guest runs <#92bed8>/events zombies ready
     <#92bed8>   status <#8c8c8c>— practice status
     <#92bed8>   [wave N|spawn kind|airdrop] <#8c8c8c>— scenarios
     <#92bed8>   grant [player] <#8c8c8c>— test supplies
@@ -863,6 +865,8 @@ debug:
     role-invariant: 'both teams must remain represented'
     inventory-full: 'the inventory has no free slot'
     body-not-found: 'no body was found for that player'
+    guest-not-ready: 'your partner must be in this world and run /events zombies ready'
+    guest-too-far: 'your partner must move closer to the starting point'
     precondition-failed: 'the scenario preconditions were not met'
     internal-error: 'an internal error occurred; details were logged'
 
@@ -1219,6 +1223,42 @@ fishing:
   dynamite-cap: "<#e3b341>Wait for the dynamite already thrown to explode."
 
 zombies:
+  builder-guide:
+    title: '<#ff9c82>Zombies practice'
+    admin-prefix: '<#f4d87a>/events admin zombies'
+    admin-start:
+      - '  <white>start easy <#c8c3b8>· play solo'
+      - '  <white>start easy name <#c8c3b8>· play together'
+      - '  <white>status <#c8c3b8>· match details'
+      - ''
+      - '<white>Difficulty'
+      - '  <white>easy <#c8c3b8>· 25 lighter waves'
+      - '  <white>hard <#c8c3b8>· 35 tougher waves'
+      - '  <white>hardcore <#c8c3b8>· armored zombies'
+      - '  <white>insane <#c8c3b8>· boss fight'
+    admin-playing:
+      - '  <white>status <#c8c3b8>· match details'
+      - '  <white>wave 1 <#c8c3b8>· switch to wave 1'
+      - '  <white>spawn boss <#c8c3b8>· summon a boss'
+      - '  <white>airdrop <#c8c3b8>· drop supplies'
+      - '  <white>grant name <#c8c3b8>· give supplies'
+      - '  <white>gear name frag <#c8c3b8>· throw a grenade'
+      - '  <white>stop <#c8c3b8>· end for everyone'
+    join:
+      - '<white>To join as a teammate'
+      - '<#f4d87a>/events zombies ready'
+      - '<#c8c3b8>An admin starts the match.'
+    ready:
+      - '<#9bd48d>You are ready to team up'
+      - '<white>To cancel readiness'
+      - '<#f4d87a>/events zombies ready'
+    leave:
+      - '<white>To leave practice'
+      - '<#f4d87a>/events leave'
+  builder-ready-on: '<#9bd48d>You are ready for practice. An admin can start it with your name.'
+  builder-ready-off: '<#e8dfd2>You are no longer ready.'
+  builder-ready-world: '<#e8dfd2>This command is available in the builder world on Spawn.'
+  builder-ready-active: '<#e8dfd2>You are already in practice. Use /events leave to exit.'
   field:
     kit: '<#f2f0e6>Field workbench'
     kit-lore:

@@ -129,6 +129,7 @@ class ArcEventsCommandTest : StringSpec({
         zombiesCommand.onCommand(player, command, "arcevents", start) shouldBe true
         verify(exactly = 1) { locale.render("command.no-permission", player, emptyMap()) }
         every { player.hasPermission("arcevents.admin") } returns true
+        every { zombiesService.isBuilderZombiesWorld(player) } returns false
         zombiesCommand.onCommand(console, command, "arcevents", start) shouldBe true
         zombiesCommand.onCommand(player, command, "arcevents", start + "OtherPlayer") shouldBe true
         verify(exactly = 0) { zombiesService.startZombiesPractice(any(), any()) }
@@ -147,6 +148,74 @@ class ArcEventsCommandTest : StringSpec({
         zombiesCommand.onCommand(player, command, "arcevents", arrayOf("debug", "bootstrap", "zombies")) shouldBe true
         verify(exactly = 0) { zombiesService.debugZombiesDifficulty(any()) }
         verify(exactly = 0) { zombiesService.debugStartLocalAsync(any(), any(), any()) }
+    }
+
+    "Zombies ready routes only an exact player command and completes only in the builder world" {
+        val player = mockk<Player>(relaxed = true) {
+            every { hasPermission("arcevents.play") } returns true
+        }
+        val console = mockk<CommandSender>(relaxed = true) {
+            every { hasPermission("arcevents.play") } returns true
+        }
+        val menu = mockk<ArcEventsMenu>(relaxed = true)
+        val locale = mockk<ArcEventsLocale>(relaxed = true)
+        val zombiesCommand = ArcEventsCommand(plugin, service, menu, mockk(), locale, { settings },
+            { CompletableFuture.completedFuture(Result.success(Unit)) })
+        val ready = arrayOf("zombies", "READY")
+
+        every { service.isBuilderZombiesWorld(player) } returns false
+        zombiesCommand.onTabComplete(player, command, "events", arrayOf("zombies", "")) shouldBe emptyList()
+        every { service.isBuilderZombiesWorld(player) } returns true
+        zombiesCommand.onTabComplete(player, command, "events", arrayOf("zombies", "Re")) shouldBe listOf("ready")
+        zombiesCommand.onTabComplete(console, command, "events", arrayOf("zombies", "")) shouldBe emptyList()
+
+        zombiesCommand.onCommand(player, command, "events", arrayOf("zombies")) shouldBe true
+        zombiesCommand.onCommand(player, command, "events", ready) shouldBe true
+        zombiesCommand.onCommand(player, command, "events", ready + "extra") shouldBe true
+        zombiesCommand.onCommand(console, command, "events", ready) shouldBe true
+        verify(exactly = 1) { menu.openRoot(player, EventsView.Arcade(EventMode.ZOMBIES)) }
+        verify(exactly = 1) { service.toggleBuilderZombiesReady(player) }
+        verify(exactly = 1) { locale.render("command.player-only", console, emptyMap()) }
+    }
+
+    "Zombies duo practice resolves one exact guest only in the builder world" {
+        val tester = mockk<Player>(relaxed = true) {
+            every { uniqueId } returns java.util.UUID.randomUUID()
+            every { hasPermission("arcevents.play") } returns true
+            every { hasPermission("arcevents.admin") } returns true
+        }
+        val guest = mockk<Player> { every { uniqueId } returns java.util.UUID.randomUUID() }
+        val console = mockk<CommandSender>(relaxed = true) { every { hasPermission("arcevents.admin") } returns true }
+        val zombiesService = mockk<ArcEventsService>()
+        val locale = mockk<ArcEventsLocale>(relaxed = true)
+        val zombiesCommand = ArcEventsCommand(plugin, zombiesService, mockk(), mockk(), locale, { settings },
+            { CompletableFuture.completedFuture(Result.success(Unit)) })
+        val start = arrayOf("admin", "zombies", "start", "HARD")
+        every { plugin.server.getPlayerExact("Tester") } returns tester
+        every { plugin.server.getPlayerExact("Other") } returns null
+        every { plugin.server.getPlayerExact("OtherPlayer") } returns guest
+        every { zombiesService.isBuilderZombiesWorld(tester) } returns false
+
+        zombiesCommand.onCommand(tester, command, "events", start + "OtherPlayer") shouldBe true
+        zombiesCommand.onTabComplete(tester, command, "events", start + "ot") shouldBe emptyList()
+        verify(exactly = 1) { locale.render("debug.reason.arena-unavailable", tester, emptyMap()) }
+        every { zombiesService.isBuilderZombiesWorld(tester) } returns true
+        every { zombiesService.builderZombiesReadyNames(tester) } returns listOf("OtherPlayer", "ReadyGuest")
+        zombiesCommand.onTabComplete(tester, command, "events", start + "ot") shouldBe listOf("OtherPlayer")
+        zombiesCommand.onCommand(tester, command, "events", start + "Other") shouldBe true
+        zombiesCommand.onCommand(tester, command, "events", start + "Tester") shouldBe true
+        zombiesCommand.onCommand(tester, command, "events", start + arrayOf("OtherPlayer", "extra")) shouldBe true
+        zombiesCommand.onCommand(console, command, "events", start + "OtherPlayer") shouldBe true
+        verify(exactly = 1) { locale.render("debug.reason.player-not-found", tester, emptyMap()) }
+        verify(exactly = 2) { locale.render("debug.reason.invalid-argument", tester, emptyMap()) }
+        verify(exactly = 1) { locale.render("command.player-only", console, emptyMap()) }
+        verify(exactly = 0) { zombiesService.startZombiesPractice(any(), any(), any()) }
+
+        every { zombiesService.startZombiesPractice(tester, ZombiesDifficulty.HARD, guest) } returns
+            CompletableFuture.completedFuture(DebugMutationResult.APPLIED)
+        zombiesCommand.onCommand(tester, command, "events", start + "OtherPlayer") shouldBe true
+        verify(exactly = 1) { zombiesService.startZombiesPractice(tester, ZombiesDifficulty.HARD, guest) }
+        verify(exactly = 0) { zombiesService.startZombiesPractice(any(), any()) }
     }
 
     "sound selection rejects missing permission and invalid arguments before changing the shared preset" {

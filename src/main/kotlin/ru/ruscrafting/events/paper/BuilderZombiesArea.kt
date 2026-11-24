@@ -24,6 +24,21 @@ class BuilderZombiesArea private constructor(private val origin: Location) {
 
     fun ready(): Boolean = usableFloor(origin) && spawnLocations(listOf(origin)).isNotEmpty() && dropLocations().isNotEmpty()
 
+    internal fun playerSpawns(count: Int): List<EventLocation>? {
+        if (count !in 1..2 || !ready()) return null
+        val points = if (count == 1) listOf(origin) else {
+            val partner = floorLocations(PARTNER_OFFSETS).firstOrNull { spawnLocations(listOf(origin, it)).isNotEmpty() }
+                ?: return null
+            listOf(origin, partner)
+        }
+        return points.map { EventLocation(world.name, it.x, it.y, it.z, it.yaw, it.pitch) }
+    }
+
+    internal fun readyFor(spawns: List<EventLocation>): Boolean {
+        val points = spawns.map { Location(world, it.x, it.y, it.z) }
+        return points.all(::usableFloor) && spawnLocations(points).isNotEmpty() && dropLocations().isNotEmpty()
+    }
+
     internal fun spawnLocations(players: List<Location>): List<Location> {
         if (players.isEmpty()) return emptyList()
         return floorLocations(SPAWN_OFFSETS).map { point -> point to players.minOf(point::distanceSquared) }
@@ -96,6 +111,7 @@ class BuilderZombiesArea private constructor(private val origin: Location) {
             14 to 0, 10 to 10, 0 to 14, -10 to 10, -14 to 0, -10 to -10, 0 to -14, 10 to -10,
         )
         private val DROP_OFFSETS = listOf(0 to 3, 3 to 0, 0 to -3, -3 to 0)
+        private val PARTNER_OFFSETS = listOf(2 to 0, 0 to 2, -2 to 0, 0 to -2)
 
         fun create(anchor: Location): BuilderZombiesArea? {
             if (anchor.world?.name != WORLD || !anchor.x.isFinite() || !anchor.y.isFinite() || !anchor.z.isFinite() ||

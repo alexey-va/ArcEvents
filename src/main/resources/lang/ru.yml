@@ -677,8 +677,10 @@ admin:
   solo-usage: '<prefix> <#e8dfd2>/arcevents admin solo <#c4a7e7>режим<newline>  <#e8dfd2>ttt, gungame, disasters, fishing, zombies, apocalypse'
   zombies-usage: |-
     <prefix> <#e6fff3>Тренировка «Зомби» <#8c8c8c>(/arcevents admin zombies)
-    <#92bed8>   start [режим] <#8c8c8c>— личный матч на сервере событий
+    <#92bed8>   start [сложность] <#8c8c8c>— одиночная тренировка
+    <#92bed8>   start [сложность] [ник] <#8c8c8c>— вдвоём в builder_flat
     <#e8dfd2>   classic, easy, hard, hardcore, insane
+    <#e8dfd2>   Второй игрок вводит <#92bed8>/events zombies ready
     <#92bed8>   status <#8c8c8c>— состояние тренировки
     <#92bed8>   [wave N|spawn тип|airdrop] <#8c8c8c>— сценарии
     <#92bed8>   grant [игрок] <#8c8c8c>— тестовые припасы
@@ -863,6 +865,8 @@ debug:
     role-invariant: 'в матче должны остаться обе команды'
     inventory-full: 'в инвентаре нет места'
     body-not-found: 'тело этого игрока не найдено'
+    guest-not-ready: 'напарник должен быть в этом мире и ввести /events zombies ready'
+    guest-too-far: 'напарник должен подойти ближе к месту старта'
     precondition-failed: 'не выполнены условия сценария'
     internal-error: 'внутренняя ошибка; подробности записаны в лог'
 
@@ -1219,6 +1223,42 @@ fishing:
   dynamite-cap: "<#e3b341>Сначала дождитесь взрыва уже брошенного динамита."
 
 zombies:
+  builder-guide:
+    title: '<#ff9c82>Тренировка «Зомби»'
+    admin-prefix: '<#f4d87a>/events admin zombies'
+    admin-start:
+      - '  <white>start easy <#c8c3b8>· в одиночку'
+      - '  <white>start easy ник <#c8c3b8>· вдвоём'
+      - '  <white>status <#c8c3b8>· сводка'
+      - ''
+      - '<white>Сложность'
+      - '  <white>easy <#c8c3b8>· 25 лёгких волн'
+      - '  <white>hard <#c8c3b8>· 35 сложных волн'
+      - '  <white>hardcore <#c8c3b8>· зомби в броне'
+      - '  <white>insane <#c8c3b8>· бой с боссом'
+    admin-playing:
+      - '  <white>status <#c8c3b8>· сводка'
+      - '  <white>wave 1 <#c8c3b8>· перейти к волне 1'
+      - '  <white>spawn boss <#c8c3b8>· вызвать босса'
+      - '  <white>airdrop <#c8c3b8>· сбросить груз'
+      - '  <white>grant ник <#c8c3b8>· выдать припасы'
+      - '  <white>gear ник frag <#c8c3b8>· бросить гранату'
+      - '  <white>stop <#c8c3b8>· завершить для всех'
+    join:
+      - '<white>Чтобы стать напарником'
+      - '<#f4d87a>/events zombies ready'
+      - '<#c8c3b8>Матч запустит админ.'
+    ready:
+      - '<#9bd48d>Ты готов играть в паре'
+      - '<white>Снять готовность'
+      - '<#f4d87a>/events zombies ready'
+    leave:
+      - '<white>Выйти из тренировки'
+      - '<#f4d87a>/events leave'
+  builder-ready-on: '<#9bd48d>Ты готов к тренировке. Админ может запустить её с твоим ником.'
+  builder-ready-off: '<#e8dfd2>Готовность снята.'
+  builder-ready-world: '<#e8dfd2>Эта команда доступна в строительном мире на Spawn.'
+  builder-ready-active: '<#e8dfd2>Ты уже в тренировке. Выйти можно командой /events leave.'
   field:
     kit: '<#f2f0e6>Полевой верстак'
     kit-lore:

@@ -612,13 +612,16 @@ available, with no Vault, premium-token or item reward.
 On the ArcEvents host, run `/events admin zombies start <difficulty>`
 with `arcevents.admin`. The existing dedicated Store arena hosts the practice
 and ArcEvents restores the original inventory and position on exit.
-On Spawn, the same admin command starts one private practice in
-`builder_flat`, around the administrator's current position. Start on clear
-ground with room for the enemies and the drop. The builder practice uses
-temporary actors, drops and deployable defenses. It leaves the blocks in
-place and restores the administrator's original inventory and position.
-Leave the public queue before starting. Stop with `/events admin zombies stop`
-or `/events leave`. Public matches still run on the configured host.
+On Spawn, the same admin command starts a private practice in `builder_flat`.
+For two players, stand near each other on clear, level ground. The partner runs
+`/events zombies ready`, then an administrator runs
+`/events admin zombies start hardcore PartnerName`. The sidebar in this world
+shows the available commands. Both players can fight the same enemies and claim
+the same landed crate once each. The practice uses temporary actors, drops and
+deployable defenses. It leaves the blocks in place and restores each original
+inventory and position. Leave the public queue before starting. An administrator
+can stop practice with `/events admin zombies stop`, and either player can leave
+with `/events leave`. Public matches still run on the configured host.
 The available profiles are `classic` (configured rules), `easy` (25 waves),
 `hard` (35), `hardcore` (50) and `insane` (one boss).
 The public queue uses Classic rules. On a configured lab, the existing

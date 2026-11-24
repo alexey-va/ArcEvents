@@ -63,6 +63,7 @@ import java.util.UUID
 interface ArcEventsGameplayBoundary {
     fun handleJoin(player: Player)
     fun handleQuit(player: Player)
+    fun handleChangedWorld(player: Player) = Unit
     fun withinArena(location: Location): Boolean
     fun withinProtectedArena(location: Location): Boolean = withinArena(location)
     fun isParticipant(playerId: UUID): Boolean
@@ -425,7 +426,10 @@ class ArcEventsListener(
 
     @EventHandler fun onDeath(event: PlayerDeathEvent) = clearWeaponState(event.player.uniqueId)
 
-    @EventHandler fun onChangedWorld(event: PlayerChangedWorldEvent) = clearWeaponState(event.player.uniqueId)
+    @EventHandler fun onChangedWorld(event: PlayerChangedWorldEvent) {
+        clearWeaponState(event.player.uniqueId)
+        service.handleChangedWorld(event.player)
+    }
 
     @EventHandler(ignoreCancelled = true)
     fun onInteractEntity(event: PlayerInteractEntityEvent) {

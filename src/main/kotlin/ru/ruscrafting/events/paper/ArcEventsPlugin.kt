@@ -284,9 +284,10 @@ open class ArcEventsPlugin : JavaPlugin() {
                 rendererFactory = ::openNameplateRenderer,
             )).also { nameplates = it }
             nameplateRuntime.reconfigure(settings.ui.nameplates)
-            val sidebar = requireNotNull(server.servicesManager.load(ArcSidebarService::class.java)) {
+            val sidebars = requireNotNull(server.servicesManager.load(ArcSidebarService::class.java)) {
                 "ARC shared sidebar service is unavailable"
-            }.register(this, "ttt", ArcSidebarPriorities.EVENT).also(lifecycle::own)
+            }
+            val sidebar = sidebars.register(this, "ttt", ArcSidebarPriorities.EVENT).also(lifecycle::own)
             val hud = TttHud(this, { settings }, locale, nameplateRuntime, sidebar)
             activeService = ArcEventsService(
                 plugin = this,
@@ -310,6 +311,10 @@ open class ArcEventsPlugin : JavaPlugin() {
                 scopePreviewItemId = scopePreviewItemIdentity(this),
                 shots = shotRuntime,
             )
+            if (settings.builderZombiesWorld != null) {
+                val guide = sidebars.register(this, "builder-zombies", ArcSidebarPriorities.ACTIVITY).also(lifecycle::own)
+                activeService.builderGuide = BuilderZombiesSidebar(guide, locale)
+            }
             service = activeService
             lifecycle.own(activeService)
             chatIsolation = openConfiguredChatIsolation(settings, activeService)

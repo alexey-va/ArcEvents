@@ -79,7 +79,8 @@ class ArcadeSession(
         resultShown = false
         require(practice == null || practice.matchId == matchId && players.singleOrNull()?.uniqueId == practice.ownerId)
         require(zombiesPracticeDifficulty == null || mode == EventMode.ZOMBIES && QueueEntry.isPracticeMatch(matchId))
-        require(builderArea == null || zombiesPracticeDifficulty != null && builderArea.contains(players.single().location))
+        require(builderArea == null || zombiesPracticeDifficulty != null && players.size in 1..2 &&
+            players.all { builderArea.contains(it.location) } && arena.spawns.size == players.size)
         val extendedZombiesRound = zombiesPracticeDifficulty != null && zombiesPracticeDifficulty != ZombiesDifficulty.CLASSIC
         val matchRules = if (extendedZombiesRound) rules.copy(roundSeconds = 7_200) else rules
         runtime.start(matchId, mode, entries.map(QueueEntry::queuedPlayer) + practice?.bots.orEmpty(), matchRules,
@@ -95,7 +96,7 @@ class ArcadeSession(
         val applyPlayer: (IndexedValue<Player>) -> Unit = apply@{ (slot, player) ->
             val preparing = current?.takeIf { it.matchId == matchId && it.phase == MatchPhase.PREPARING } ?: return@apply
             if (!player.isOnline || preparing.participants[player.uniqueId]?.status != ParticipantStatus.RESERVED) return@apply
-            check(builderArea?.ready() != false) { "The builder practice floor changed during preparation" }
+            check(builderArea?.readyFor(arena.spawns) != false) { "The builder practice floor changed during preparation" }
             mutationAttempted = true
             resetPlayer(player)
             player.inventory.clear()
@@ -195,7 +196,7 @@ class ArcadeSession(
                 MatchPhase.ACTIVE -> {
                     val roster = online()
                     val arena = requireNotNull(arenaPool.active())
-                    check(builderZombiesArea?.ready() != false) { "The builder practice floor changed during the countdown" }
+                    check(builderZombiesArea?.readyFor(arena.spawns) != false) { "The builder practice floor changed during the countdown" }
                     roster.forEachIndexed { slot, player ->
                         resetPlayer(player)
                         spawn(player, arena, arena.spawnFor(slot, roster.size))

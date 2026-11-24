@@ -57,6 +57,10 @@ class ZombiesAdventureTest : StringSpec({
             every { f.world.entities } returns listOf(unknown)
             val unloaded = area.anchor.add(-14.0, 0.0, 0.0)
             every { f.world.isChunkLoaded(unloaded.blockX shr 4, unloaded.blockZ shr 4) } returns false
+            val duoSpawns = requireNotNull(area.playerSpawns(2))
+            duoSpawns.size shouldBe 2
+            duoSpawns.toSet().size shouldBe 2
+            area.readyFor(duoSpawns) shouldBe true
 
             f.game.start()
             f.game.barricadeBoards() shouldBe emptyList()

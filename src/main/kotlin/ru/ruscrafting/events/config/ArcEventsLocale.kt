@@ -151,6 +151,8 @@ class ArcEventsLocale(
             "debug.reason.not-participant", "debug.reason.not-alive", "debug.reason.invalid-argument",
             "debug.reason.role-invariant", "debug.reason.inventory-full", "debug.reason.body-not-found",
             "debug.reason.precondition-failed", "debug.reason.internal-error",
+            "debug.reason.guest-not-ready", "debug.reason.guest-too-far",
+            "zombies.builder-ready-on", "zombies.builder-ready-off", "zombies.builder-ready-world", "zombies.builder-ready-active",
             "fishing.result-success", "fishing.result-timeout", "fishing.result-defeat",
             "fishing.rod-name", "fishing.weapon-0-name", "fishing.weapon-1-name", "fishing.weapon-2-name",
             "fishing.start", "fishing.catch", "fishing.complete", "fishing.travel-unlocked", "fishing.creature-defeated",

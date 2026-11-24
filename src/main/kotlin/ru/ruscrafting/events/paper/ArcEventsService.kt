@@ -108,6 +108,8 @@ enum class DebugMutationResult {
     ROLE_INVARIANT,
     INVENTORY_FULL,
     BODY_NOT_FOUND,
+    GUEST_NOT_READY,
+    GUEST_TOO_FAR,
     PRECONDITION_FAILED,
     INTERNAL_ERROR,
 }
@@ -139,6 +141,8 @@ class ArcEventsService(
 ) : ArcEventsGameplayBoundary, AutoCloseable {
     /** Another ArcEvents mode may own a durable inventory without joining the finite match roster. */
     internal var independentInventoryOwner: (UUID) -> Boolean = { false }
+    internal var builderGuide: BuilderZombiesSidebar? = null
+    private val builderReady = mutableSetOf<UUID>()
     private val localChat = TttLocalChat(plugin.server, settings, locale)
     private data class MapSpawnReturn(
         val matchId: UUID,
@@ -592,6 +596,7 @@ class ArcEventsService(
     }
 
     override fun handleJoin(player: Player) {
+        updateBuilderGuide(player)
         val recoveryAtJoin = hasPendingRecovery(player.uniqueId) || escrow.isLocked(player.uniqueId)
         Tasks.scheduler.runLater(1L) {
             if (!started || !player.isOnline || plugin.server.getPlayer(player.uniqueId) !== player || independentInventoryOwner(player.uniqueId)) return@runLater
@@ -617,6 +622,8 @@ class ArcEventsService(
     }
 
     override fun handleQuit(player: Player) {
+        builderReady.remove(player.uniqueId)
+        builderGuide?.hide(player.uniqueId)
         clearWeaponState(player.uniqueId)
         val quitRecovery = disposableRecovery(player.uniqueId)
         if (quitRecovery != null) resetDisposablePlayer(player)
@@ -720,6 +727,10 @@ class ArcEventsService(
     override fun isZombiesParticipant(playerId: UUID): Boolean = currentMode() == EventMode.ZOMBIES && isParticipant(playerId)
     override fun isBuilderZombiesParticipant(playerId: UUID): Boolean = arcade.builderZombiesArea != null && arcade.isParticipant(playerId)
     override fun ownsBuilderZombiesMob(entity: Entity): Boolean = arcade.ownsBuilderMob(entity)
+    override fun handleChangedWorld(player: Player) {
+        if (!isBuilderZombiesWorld(player)) builderReady.remove(player.uniqueId)
+        updateBuilderGuide(player)
+    }
     override fun fishingAdventure(player: Player): FishingAdventure? = arcade.fishingAdventure(player)
     override fun isFishingParticipant(playerId: UUID): Boolean =
         currentMode() == EventMode.FISHING && isParticipant(playerId)
@@ -1808,6 +1819,7 @@ class ArcEventsService(
             "game" to EventMode.ZOMBIES.id,
             "match" to current?.matchId,
             "match_phase" to (current?.phase?.name?.lowercase() ?: "idle"),
+            "participants" to current?.participants?.values?.filter { it.status !in DEPARTED }?.joinToString(",") { it.playerName },
             "active_difficulty" to difficulty?.name?.lowercase(),
             "next_debug_difficulty" to nextDebugZombiesDifficulty.name.lowercase(),
             "builder_world" to builderWorld,
@@ -1835,21 +1847,64 @@ class ArcEventsService(
         return DebugMutationResult.APPLIED
     }
 
-    internal fun startZombiesPractice(player: Player, difficulty: ZombiesDifficulty): CompletableFuture<DebugMutationResult> {
+    internal fun isBuilderZombiesWorld(player: Player): Boolean = player.world.name == settings().builderZombiesWorld
+
+    internal fun toggleBuilderZombiesReady(player: Player) {
+        val id = player.uniqueId
+        val key = when {
+            !isBuilderZombiesWorld(player) -> "zombies.builder-ready-world"
+            isBuilderZombiesParticipant(id) -> "zombies.builder-ready-active"
+            builderReady.remove(id) -> "zombies.builder-ready-off"
+            else -> {
+                builderReady.add(id)
+                "zombies.builder-ready-on"
+            }
+        }
+        player.sendEventMessage(locale.render(key, player))
+        updateBuilderGuide(player)
+    }
+
+    internal fun builderZombiesReadyNames(player: Player): List<String> =
+        if (!isBuilderZombiesWorld(player)) emptyList() else builderReady.asSequence()
+            .filter { it != player.uniqueId }.mapNotNull(plugin.server::getPlayer).filter(::isBuilderZombiesWorld)
+            .map(Player::getName).toList()
+
+    private fun updateBuilderGuide(player: Player) {
+        val guide = builderGuide ?: return
+        if (isBuilderZombiesWorld(player)) {
+            guide.update(player, ready = player.uniqueId in builderReady, playing = isBuilderZombiesParticipant(player.uniqueId))
+        } else guide.hide(player.uniqueId)
+    }
+
+    internal fun startZombiesPractice(player: Player, difficulty: ZombiesDifficulty): CompletableFuture<DebugMutationResult> =
+        startZombiesPractice(player, difficulty, null)
+
+    internal fun startZombiesPractice(player: Player, difficulty: ZombiesDifficulty, guest: Player?): CompletableFuture<DebugMutationResult> {
         fun done(result: DebugMutationResult) = CompletableFuture.completedFuture(result)
         if (!player.hasPermission("arcevents.admin")) return done(DebugMutationResult.PRECONDITION_FAILED)
         val config = settings()
-        if (config.nodeMode == NodeMode.HOST) return startLocalArcadeAsync(listOf(player), null, EventMode.ZOMBIES, adminPracticeDifficulty = difficulty)
+        if (config.nodeMode == NodeMode.HOST) {
+            if (guest != null) return done(DebugMutationResult.WRONG_NODE)
+            return startLocalArcadeAsync(listOf(player), null, EventMode.ZOMBIES, adminPracticeDifficulty = difficulty)
+        }
         val world = config.builderZombiesWorld ?: return done(DebugMutationResult.WRONG_NODE)
         if (player.world.name != world) return done(DebugMutationResult.ARENA_UNAVAILABLE)
+        if (guest?.uniqueId == player.uniqueId) return done(DebugMutationResult.INVALID_ARGUMENT)
+        if (guest != null && (guest.uniqueId !in builderReady || guest.world.name != world)) return done(DebugMutationResult.GUEST_NOT_READY)
+        val roster = listOfNotNull(player, guest)
         // The local practice is outside the public route; do not admit a queued or reserved player.
-        return network.queueEntry(player.uniqueId).thenCompose { entry -> onMain {
-            if (!started || !player.isOnline || plugin.server.getPlayer(player.uniqueId) !== player || entry != null ||
-                player.world.name != world || player.isInsideVehicle || player.isDead) {
+        val routes = roster.map { network.queueEntry(it.uniqueId) }
+        return CompletableFuture.allOf(*routes.toTypedArray()).thenCompose { onMain {
+            if (!started || roster.any { !it.isOnline || plugin.server.getPlayer(it.uniqueId) !== it ||
+                    it.world.name != world || it.isInsideVehicle || it.isDead } || routes.any { it.join() != null }) {
                 return@onMain done(DebugMutationResult.PRECONDITION_FAILED)
             }
+            if (guest != null && guest.uniqueId !in builderReady) return@onMain done(DebugMutationResult.GUEST_NOT_READY)
             val area = BuilderZombiesArea.create(player.location) ?: return@onMain done(DebugMutationResult.ARENA_UNAVAILABLE)
-            startLocalArcadeAsync(listOf(player), null, EventMode.ZOMBIES, adminPracticeDifficulty = difficulty, builderArea = area)
+            if (guest != null && !area.contains(guest.location)) return@onMain done(DebugMutationResult.GUEST_TOO_FAR)
+            val preparation = startLocalArcadeAsync(roster, null, EventMode.ZOMBIES, adminPracticeDifficulty = difficulty, builderArea = area)
+            if (arcade.builderZombiesArea === area) roster.forEach { builderReady.remove(it.uniqueId) }
+            preparation
         }.thenCompose { it } }
     }
 
@@ -1983,7 +2038,11 @@ class ArcEventsService(
         if (matchState().first != null) return done(DebugMutationResult.BUSY)
         val online = players.filter(Player::isOnline).distinctBy(Player::getUniqueId)
         val configuredRules = config.arcade.rules(mode)
-        val rules = if (adminPracticeDifficulty == null) configuredRules else configuredRules.copy(minimumPlayers = 1)
+        val rules = when {
+            builderArea != null -> configuredRules.copy(minimumPlayers = 1, maximumPlayers = 2)
+            adminPracticeDifficulty != null -> configuredRules.copy(minimumPlayers = 1)
+            else -> configuredRules
+        }
         val difficulty = (adminPracticeDifficulty ?: nextDebugZombiesDifficulty).takeIf { mode == EventMode.ZOMBIES }
         if (online.size !in rules.minimumPlayers..rules.maximumPlayers) return done(DebugMutationResult.INSUFFICIENT_PLAYERS)
         if (online.any { hasPendingRecovery(it.uniqueId) }) return done(DebugMutationResult.PRECONDITION_FAILED)
@@ -1995,8 +2054,9 @@ class ArcEventsService(
         val preferred = if (mode.usesSharedArenas) arenaId else mode.primaryArenaId
         val arena = if (builderArea != null) {
             val anchor = builderArea.anchor.eventLocation()
+            val spawns = builderArea.playerSpawns(online.size) ?: return done(DebugMutationResult.ARENA_UNAVAILABLE)
             arenaPool.reserveBuilderPractice(id, ArenaSettings("builder-zombies", true, anchor.world, "", anchor, anchor,
-                builderArea.bounds, listOf(anchor), emptyList()))
+                builderArea.bounds, spawns, emptyList()))
         } else arenaPool.reserve(id, preferred, mode)
         if (arena == null) return done(DebugMutationResult.ARENA_UNAVAILABLE)
         if (builderArea == null && difficulty != null && arena.template != ZombiesArenaGenerator.TEMPLATE) {
@@ -2309,6 +2369,7 @@ class ArcEventsService(
     }
 
     private fun tick() {
+        if (builderGuide != null) settings().builderZombiesWorld?.let(plugin.server::getWorld)?.players?.forEach(::updateBuilderGuide)
         scopes?.validate(::isScopeAuthorized)
         if (practiceFighters != null && (phase() != MatchPhase.ACTIVE || practiceFighters?.roster?.matchId != matchIdentity())) closePracticeFighters()
         // Cancelled/failed arrivals keep their host escrow and retry before any return transfer.

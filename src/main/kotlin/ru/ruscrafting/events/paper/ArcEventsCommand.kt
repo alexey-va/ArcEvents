@@ -54,7 +54,14 @@ class ArcEventsCommand internal constructor(
             "menu" -> player(sender)?.let(menu::openRoot)
             "join" -> player(sender)?.let(service::joinQueue)
             "fishing" -> player(sender)?.let { sendStartResult(it, StartMessageAudience.PLAYER, mode = EventMode.FISHING) }
-            "zombies" -> player(sender)?.let { menu.openRoot(it, EventsView.Arcade(EventMode.ZOMBIES)) }
+            "zombies" -> player(sender)?.let { player ->
+                when {
+                    args.size == 1 -> menu.openRoot(player, EventsView.Arcade(EventMode.ZOMBIES))
+                    args.size == 2 && args[1].equals("ready", true) -> service.toggleBuilderZombiesReady(player)
+                    else -> player.sendEventMessage(locale.render("command.unknown", player,
+                        mapOf("input" to locale.text(args.joinToString(" ").take(32)))))
+                }
+            }
             "start" -> player(sender)?.let { player ->
                 if (parseMode(args.getOrNull(1)) == EventMode.FISHING || settings().eventControls.creatorControlsEnabled || player.hasPermission("arcevents.start") ||
                     player.hasPermission("arcevents.admin")
@@ -113,6 +120,7 @@ class ArcEventsCommand internal constructor(
                 "admin" -> listOf("status", "player", "network", "arenas", "arena", "recovery", "start", "stop", "reload", "recover", "sound", "guide", "apocalypse-reset-plan", "apocalypse-reset") +
                     if (sender is Player) listOf("menu", "weapons", "gun", "solo", "apocalypse") + EventMode.entries.map(EventMode::id) else listOf("zombies")
                 "burst" -> if (sender is Player) listOf("1", "3", "6", "full", "default", "menu") else emptyList()
+                "zombies" -> if (sender is Player && service.isBuilderZombiesWorld(sender)) listOf("ready") else emptyList()
                 "qa" -> listOf("status", "player", "network", "arenas", "recovery")
                 "debug" -> if (settings().debugMutationsAllowed) DEBUG_ACTIONS else DEBUG_READ_ACTIONS
                 else -> emptyList()
@@ -193,7 +201,13 @@ class ArcEventsCommand internal constructor(
             "grant", "gear" -> service.zombiesPracticePlayerNames()
             else -> emptyList()
         }
-        5 -> if (args[2].equals("gear", true)) ZombiesGear.entries.map { it.name.lowercase() } else emptyList()
+        5 -> when (args[2].lowercase()) {
+            "gear" -> ZombiesGear.entries.map { it.name.lowercase() }
+            "start" -> if (admin && sender is Player && parseZombiesDifficulty(args[3]) != null && service.isBuilderZombiesWorld(sender)) {
+                service.builderZombiesReadyNames(sender)
+            } else emptyList()
+            else -> emptyList()
+        }
         else -> emptyList()
     }
 
@@ -479,20 +493,32 @@ class ArcEventsCommand internal constructor(
         if (action == "status" && args.size == 1) {
             return reply(Component.text(service.zombiesPracticeStatus()))
         }
-        val argument = args.getOrNull(1)?.takeIf { args.size == 2 }
         if (admin && action == "start") {
-            val difficulty = parseZombiesDifficulty(argument)
-                ?: return debugResult(sender, "zombies start", DebugMutationResult.INVALID_ARGUMENT, reply)
+            val startAction = "zombies start"
+            val difficulty = parseZombiesDifficulty(args.getOrNull(1)?.takeIf { args.size in 2..3 })
+                ?: return debugResult(sender, startAction, DebugMutationResult.INVALID_ARGUMENT, reply)
             val tester = player(sender) ?: return
-            service.startZombiesPractice(tester, difficulty).whenComplete { result, failure ->
+            val start = if (args.size == 2) service.startZombiesPractice(tester, difficulty) else {
+                if (!service.isBuilderZombiesWorld(tester)) {
+                    return debugResult(tester, startAction, DebugMutationResult.ARENA_UNAVAILABLE, reply)
+                }
+                val guest = servicePlayer(args[2])
+                    ?: return debugResult(tester, startAction, DebugMutationResult.PLAYER_NOT_FOUND, reply)
+                if (guest.uniqueId == tester.uniqueId) {
+                    return debugResult(tester, startAction, DebugMutationResult.INVALID_ARGUMENT, reply)
+                }
+                service.startZombiesPractice(tester, difficulty, guest)
+            }
+            start.whenComplete { result, failure ->
                 if (plugin.isEnabled) Tasks.scheduler.runSync {
                     if (plugin.isEnabled && tester.isOnline) {
-                        debugResult(tester, "zombies start", if (failure == null) result else DebugMutationResult.INTERNAL_ERROR, reply)
+                        debugResult(tester, startAction, if (failure == null) result else DebugMutationResult.INTERNAL_ERROR, reply)
                     }
                 }
             }
             return
         }
+        val argument = args.getOrNull(1)?.takeIf { args.size == 2 }
         val result = when (action) {
             "difficulty" -> parseZombiesDifficulty(argument).takeUnless { admin }
                 ?.let(service::debugZombiesDifficulty) ?: DebugMutationResult.INVALID_ARGUMENT
